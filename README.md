@@ -24,6 +24,7 @@ GitHub Actions currently validates the bootstrap repository with:
 - end-to-end smoke flow: `submit-brief -> worker -> export-pr-candidate -> publish-pr-export`
 
 Local runs through `act` use the default image and container architecture pinned in [`.actrc`](.actrc).
+Pinned version policy and update automation are documented in [VERSIONS.md](VERSIONS.md).
 
 The same checks can be run directly without GitHub Actions:
 
