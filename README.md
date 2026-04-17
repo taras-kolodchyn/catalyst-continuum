@@ -18,6 +18,7 @@ GitHub Actions currently validates the bootstrap repository with:
 
 - `./scripts/check-versions.sh`
 - `./scripts/lint-shell.sh`
+- `./scripts/generate-sbom.sh`
 - `cargo fmt --all --check`
 - `cargo clippy --workspace --all-targets -- -D warnings`
 - `cargo build --workspace --locked`
@@ -35,6 +36,7 @@ The same checks can be run directly without GitHub Actions:
 ```bash
 ./scripts/check-versions.sh
 ./scripts/lint-shell.sh
+./scripts/generate-sbom.sh
 ./scripts/ci-rust.sh
 ./scripts/ci-compose.sh
 ./scripts/smoke-mvp.sh
