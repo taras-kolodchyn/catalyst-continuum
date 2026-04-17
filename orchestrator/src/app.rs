@@ -2,7 +2,7 @@ use crate::{
     cli::{Cli, Command},
     commands::{
         create_draft_pr, export_pr_candidate, open_github_pr, publish_pr_export, run_next_task,
-        serve, submit_brief,
+        serve, submit_brief, worker,
     },
 };
 
@@ -11,6 +11,7 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
         Command::Serve(args) => serve::execute(args),
         Command::SubmitBrief(args) => submit_brief::execute(args),
         Command::RunNextTask(args) => run_next_task::execute(args),
+        Command::Worker(args) => worker::execute(args),
         Command::ExportPrCandidate(args) => export_pr_candidate::execute(args),
         Command::PublishPrExport(args) => publish_pr_export::execute(args),
         Command::OpenGithubPr(args) => open_github_pr::execute(args),

@@ -11,3 +11,19 @@ catalyst-continuum-orchestrator create-draft-pr \
   --run-id "<RUN_ID>" \
   --remote-url "https://github.com/<OWNER>/<REPO>.git"
 ```
+
+## CI
+
+GitHub Actions currently validates the bootstrap repository with:
+
+- `cargo fmt --all --check`
+- `cargo build --workspace --locked`
+- `cargo test --workspace --locked`
+- `docker compose --env-file deploy/compose/.env.example -f deploy/compose/compose.yaml config`
+
+Local runs through `act` use the default image pinned in [`.actrc`](.actrc).
+
+```bash
+act pull_request -W .github/workflows/ci.yml -j rust
+act pull_request -W .github/workflows/ci.yml -j compose
+```

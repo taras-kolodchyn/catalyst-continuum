@@ -1,5 +1,6 @@
 use anyhow::Context;
 use serde::Serialize;
+use std::path::Path;
 
 use crate::{
     cli::RunNextTaskArgs,
@@ -14,106 +15,31 @@ pub fn execute(args: RunNextTaskArgs) -> anyhow::Result<()> {
     store.ensure_schema()?;
     let runtime_registry = RuntimeRegistry::default();
 
-    let selected_task = match store.fetch_next_runnable_task(args.run_id)? {
-        Some(task) => task,
-        None => {
-            if args.pretty {
-                print!(
-                    "{}",
-                    serde_yaml::to_string(&NoRunnableTask {
-                        runnable_task_found: false,
-                    })?
-                );
-            } else {
-                println!("no runnable queued tasks found");
-            }
-
-            return Ok(());
-        }
-    };
-
-    let running_task = store.mark_task_running(selected_task.task_id)?;
-    store.refresh_run_status(running_task.run_id)?;
-
-    let execution_context = build_execution_context(&mut store, &running_task, &args.artifact_root);
-    let mut execution = match &execution_context {
-        Ok(execution_context) => runtime_registry
-            .execute_task(&running_task, execution_context, &args.artifact_root)
-            .unwrap_or_else(|error| TaskExecutionResult::failed(format!("{error:#}"))),
-        Err(error) => TaskExecutionResult::failed(format!("{error:#}")),
-    };
-    if execution.task_status == "succeeded" {
-        apply_task_materialization(
-            &mut execution,
-            &mut store,
-            &running_task,
-            &args.artifact_root,
-        );
-    }
-    if execution.task_status == "succeeded" {
-        apply_code_workspace_patch(
-            &mut execution,
-            execution_context.as_ref().ok(),
-            &running_task,
-            &args.artifact_root,
-        );
-    }
-    let mut artifacts = execution
-        .artifacts
-        .iter()
-        .map(|artifact| store.insert_artifact(artifact))
-        .collect::<anyhow::Result<Vec<_>>>()?;
-    if execution.task_status == "succeeded" {
-        refresh_workspace_snapshot(
-            &mut execution,
-            &mut artifacts,
-            &mut store,
-            running_task.run_id,
-            &args.artifact_root,
-        );
-    }
-    if execution.task_status == "succeeded" {
-        refresh_pr_candidate(
-            &mut execution,
-            &mut artifacts,
-            &mut store,
-            running_task.run_id,
-            &args.artifact_root,
-        );
-    }
-    let finished_task = store.mark_task_finished(
-        running_task.task_id,
-        &execution.task_status,
-        execution.failure_reason.as_deref(),
+    let outcome = execute_next_task(
+        &mut store,
+        &runtime_registry,
+        args.run_id,
+        &args.artifact_root,
     )?;
-    let run_status = store.refresh_run_status(finished_task.run_id)?;
-
-    let report = TaskExecutionReport {
-        run_id: finished_task.run_id,
-        run_status,
-        task: finished_task,
-        artifacts,
-        provider: running_task.execution.provider,
-        image: running_task.execution.image,
-        exit_code: execution.exit_code,
-    };
 
     if args.pretty {
-        print!("{}", serde_yaml::to_string(&report)?);
+        print!("{}", serde_yaml::to_string(&outcome)?);
     } else {
-        println!("{}", report.render_text()?);
+        println!("{}", outcome.render_text()?);
     }
 
     Ok(())
 }
 
 #[derive(Debug, Serialize)]
-struct NoRunnableTask {
+pub struct NoRunnableTask {
     runnable_task_found: bool,
+    run_id: Option<uuid::Uuid>,
+    run_status: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
-struct TaskExecutionReport {
+pub struct TaskExecutionReport {
     run_id: uuid::Uuid,
     run_status: String,
     task: TaskSummary,
@@ -123,8 +49,15 @@ struct TaskExecutionReport {
     exit_code: i32,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(tag = "outcome", rename_all = "snake_case")]
+pub enum NextTaskExecution {
+    Executed(TaskExecutionReport),
+    Idle(NoRunnableTask),
+}
+
 impl TaskExecutionReport {
-    fn render_text(&self) -> anyhow::Result<String> {
+    pub fn render_text(&self) -> anyhow::Result<String> {
         let mut output = String::new();
 
         use std::fmt::Write as _;
@@ -152,6 +85,139 @@ impl TaskExecutionReport {
 
         Ok(output)
     }
+
+    pub fn run_id(&self) -> uuid::Uuid {
+        self.run_id
+    }
+
+    pub fn task_id(&self) -> uuid::Uuid {
+        self.task.task_id
+    }
+}
+
+impl NextTaskExecution {
+    pub fn render_text(&self) -> anyhow::Result<String> {
+        match self {
+            Self::Executed(report) => report.render_text(),
+            Self::Idle(idle) => idle.render_text(),
+        }
+    }
+}
+
+impl NoRunnableTask {
+    fn render_text(&self) -> anyhow::Result<String> {
+        let mut output = String::new();
+
+        use std::fmt::Write as _;
+
+        writeln!(
+            &mut output,
+            "runnable_task_found: {}",
+            if self.runnable_task_found {
+                "yes"
+            } else {
+                "no"
+            }
+        )
+        .context("failed to render idle execution")?;
+
+        if let Some(run_id) = self.run_id {
+            writeln!(&mut output, "run_id: {}", run_id)
+                .context("failed to render idle execution")?;
+        }
+        if let Some(run_status) = &self.run_status {
+            writeln!(&mut output, "run_status: {}", run_status)
+                .context("failed to render idle execution")?;
+        }
+
+        Ok(output)
+    }
+
+    pub fn run_status(&self) -> Option<&str> {
+        self.run_status.as_deref()
+    }
+}
+
+pub fn execute_next_task(
+    store: &mut PostgresRunStore,
+    runtime_registry: &RuntimeRegistry,
+    run_id: Option<uuid::Uuid>,
+    artifact_root: &Path,
+) -> anyhow::Result<NextTaskExecution> {
+    let selected_task = match store.fetch_next_runnable_task(run_id)? {
+        Some(task) => task,
+        None => {
+            let run_status = run_id
+                .map(|run_id| store.refresh_run_status(run_id))
+                .transpose()?;
+            return Ok(NextTaskExecution::Idle(NoRunnableTask {
+                runnable_task_found: false,
+                run_id,
+                run_status,
+            }));
+        }
+    };
+
+    let running_task = store.mark_task_running(selected_task.task_id)?;
+    store.refresh_run_status(running_task.run_id)?;
+
+    let execution_context = build_execution_context(store, &running_task, artifact_root);
+    let mut execution = match &execution_context {
+        Ok(execution_context) => runtime_registry
+            .execute_task(&running_task, execution_context, artifact_root)
+            .unwrap_or_else(|error| TaskExecutionResult::failed(format!("{error:#}"))),
+        Err(error) => TaskExecutionResult::failed(format!("{error:#}")),
+    };
+    if execution.task_status == "succeeded" {
+        apply_task_materialization(&mut execution, store, &running_task, artifact_root);
+    }
+    if execution.task_status == "succeeded" {
+        apply_code_workspace_patch(
+            &mut execution,
+            execution_context.as_ref().ok(),
+            &running_task,
+            artifact_root,
+        );
+    }
+    let mut artifacts = execution
+        .artifacts
+        .iter()
+        .map(|artifact| store.insert_artifact(artifact))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    if execution.task_status == "succeeded" {
+        refresh_workspace_snapshot(
+            &mut execution,
+            &mut artifacts,
+            store,
+            running_task.run_id,
+            artifact_root,
+        );
+    }
+    if execution.task_status == "succeeded" {
+        refresh_pr_candidate(
+            &mut execution,
+            &mut artifacts,
+            store,
+            running_task.run_id,
+            artifact_root,
+        );
+    }
+    let finished_task = store.mark_task_finished(
+        running_task.task_id,
+        &execution.task_status,
+        execution.failure_reason.as_deref(),
+    )?;
+    let run_status = store.refresh_run_status(finished_task.run_id)?;
+
+    Ok(NextTaskExecution::Executed(TaskExecutionReport {
+        run_id: finished_task.run_id,
+        run_status,
+        task: finished_task,
+        artifacts,
+        provider: running_task.execution.provider,
+        image: running_task.execution.image,
+        exit_code: execution.exit_code,
+    }))
 }
 
 fn build_execution_context(

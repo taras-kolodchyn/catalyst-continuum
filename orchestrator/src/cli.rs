@@ -18,6 +18,7 @@ pub enum Command {
     Serve(ServeArgs),
     SubmitBrief(SubmitBriefArgs),
     RunNextTask(RunNextTaskArgs),
+    Worker(WorkerArgs),
     ExportPrCandidate(ExportPrCandidateArgs),
     PublishPrExport(PublishPrExportArgs),
     OpenGithubPr(OpenGithubPrArgs),
@@ -28,6 +29,16 @@ pub enum Command {
 pub struct ServeArgs {
     #[arg(long, env = "CATALYST_BIND_ADDR", default_value = "127.0.0.1:8080")]
     pub bind_addr: String,
+
+    #[arg(long, env = "CATALYST_DATABASE_URL")]
+    pub database_url: String,
+
+    #[arg(
+        long,
+        env = "CATALYST_ARTIFACT_ROOT",
+        default_value = ".continuum/artifacts"
+    )]
+    pub artifact_root: PathBuf,
 }
 
 #[derive(Debug, Args)]
@@ -66,6 +77,31 @@ pub struct RunNextTaskArgs {
 
     #[arg(long)]
     pub run_id: Option<Uuid>,
+
+    #[arg(long)]
+    pub pretty: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct WorkerArgs {
+    #[arg(long, env = "CATALYST_DATABASE_URL")]
+    pub database_url: String,
+
+    #[arg(
+        long,
+        env = "CATALYST_ARTIFACT_ROOT",
+        default_value = ".continuum/artifacts"
+    )]
+    pub artifact_root: PathBuf,
+
+    #[arg(long)]
+    pub run_id: Option<Uuid>,
+
+    #[arg(long, default_value_t = 1000)]
+    pub idle_sleep_ms: u64,
+
+    #[arg(long)]
+    pub once: bool,
 
     #[arg(long)]
     pub pretty: bool,
