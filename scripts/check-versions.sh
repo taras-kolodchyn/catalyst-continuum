@@ -55,6 +55,7 @@ compose_postgres_version="$(sed -nE 's/^POSTGRES_VERSION=(.+)$/\1/p' deploy/comp
 compose_redis_version="$(sed -nE 's/^REDIS_VERSION=(.+)$/\1/p' deploy/compose/.env.example)"
 compose_orchestrator_image_tag="$(sed -nE 's/^ORCHESTRATOR_IMAGE_TAG=(.+)$/\1/p' deploy/compose/.env.example)"
 pack_template_rust_image_tag="$(sed -nE 's/^FROM rust:(.+) AS builder$/\1/p' packs/container-service/templates/Dockerfile.tmpl)"
+declared_shellcheck_image="$(sed -nE 's/^SHELLCHECK_IMAGE=(.+)$/\1/p' versions.env)"
 
 mapfile -t workflow_rust_toolchains < <(sed -nE 's/^ +toolchain: (.+)$/\1/p' .github/workflows/ci.yml)
 mapfile -t pack_busybox_versions < <(sed -nE 's/^ +image: busybox:(.+)$/\1/p' packs/container-service/pack.yaml)
@@ -69,13 +70,15 @@ check_value "deploy/compose/.env.example RUST_IMAGE_TAG" "$RUST_IMAGE_TAG" "$com
 check_value "deploy/compose/.env.example POSTGRES_VERSION" "$POSTGRES_VERSION" "$compose_postgres_version"
 check_value "deploy/compose/.env.example REDIS_VERSION" "$REDIS_VERSION" "$compose_redis_version"
 check_value "deploy/compose/.env.example ORCHESTRATOR_IMAGE_TAG" "$ORCHESTRATOR_IMAGE_TAG" "$compose_orchestrator_image_tag"
+check_value "versions.env SHELLCHECK_IMAGE" "$SHELLCHECK_IMAGE" "$declared_shellcheck_image"
 check_value "packs/container-service/templates/Dockerfile.tmpl builder image" "$RUST_VERSION" "$pack_template_rust_image_tag"
 check_many ".github/workflows/ci.yml Rust toolchain pins" "$RUST_VERSION" "${workflow_rust_toolchains[@]}"
 check_many "packs/container-service/pack.yaml busybox images" "$BUSYBOX_VERSION" "${pack_busybox_versions[@]}"
 check_many "orchestrator/src/storage/postgres.rs busybox fallback" "$BUSYBOX_VERSION" "${storage_busybox_versions[@]}"
 check_many "orchestrator/src/planning/tasks.rs busybox references" "$BUSYBOX_VERSION" "${planning_busybox_versions[@]}"
 
-if ! grep -Fq 'POSTGRES_IMAGE="${SMOKE_POSTGRES_IMAGE:-postgres:${POSTGRES_VERSION}}"' scripts/smoke-mvp.sh; then
+expected_smoke_postgres="POSTGRES_IMAGE=\"\${SMOKE_POSTGRES_IMAGE:-postgres:\${POSTGRES_VERSION}}\""
+if ! grep -Fq "$expected_smoke_postgres" scripts/smoke-mvp.sh; then
   report_mismatch "scripts/smoke-mvp.sh postgres fallback" "postgres:\${POSTGRES_VERSION}" "hardcoded or missing"
 fi
 

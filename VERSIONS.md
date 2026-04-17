@@ -33,6 +33,9 @@ source it directly are validated by `./scripts/check-versions.sh` in CI.
 - Pack execution image: `busybox:1.37.0`
   - Declared in [packs/container-service/pack.yaml](packs/container-service/pack.yaml)
 
+- ShellCheck container image: `koalaman/shellcheck-alpine:v0.10.0`
+  - Declared in [versions.env](versions.env)
+
 ## Update Policy
 
 - Cargo dependencies are updated through Dependabot PRs and validated by CI.
