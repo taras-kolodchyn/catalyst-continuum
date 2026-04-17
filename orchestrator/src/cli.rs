@@ -16,16 +16,42 @@ pub struct Cli {
 #[derive(Debug, Subcommand)]
 pub enum Command {
     Serve(ServeArgs),
+    McpServer(McpServerArgs),
     DescribePack(DescribePackArgs),
+    DescribeRun(DescribeRunArgs),
     ListPacks(ListPacksArgs),
+    ListRuns(ListRunsArgs),
     ValidateBrief(ValidateBriefArgs),
     SubmitBrief(SubmitBriefArgs),
     RunNextTask(RunNextTaskArgs),
     Worker(WorkerArgs),
+    EvaluateRunQuality(EvaluateRunQualityArgs),
     ExportPrCandidate(ExportPrCandidateArgs),
     PublishPrExport(PublishPrExportArgs),
     OpenGithubPr(OpenGithubPrArgs),
     CreateDraftPr(CreateDraftPrArgs),
+}
+
+impl Command {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Serve(_) => "serve",
+            Self::McpServer(_) => "mcp-server",
+            Self::DescribePack(_) => "describe-pack",
+            Self::DescribeRun(_) => "describe-run",
+            Self::ListPacks(_) => "list-packs",
+            Self::ListRuns(_) => "list-runs",
+            Self::ValidateBrief(_) => "validate-brief",
+            Self::SubmitBrief(_) => "submit-brief",
+            Self::RunNextTask(_) => "run-next-task",
+            Self::Worker(_) => "worker",
+            Self::EvaluateRunQuality(_) => "evaluate-run-quality",
+            Self::ExportPrCandidate(_) => "export-pr-candidate",
+            Self::PublishPrExport(_) => "publish-pr-export",
+            Self::OpenGithubPr(_) => "open-github-pr",
+            Self::CreateDraftPr(_) => "create-draft-pr",
+        }
+    }
 }
 
 #[derive(Debug, Args)]
@@ -35,6 +61,19 @@ pub struct ServeArgs {
 
     #[arg(long, env = "CATALYST_DATABASE_URL")]
     pub database_url: String,
+
+    #[arg(
+        long,
+        env = "CATALYST_ARTIFACT_ROOT",
+        default_value = ".continuum/artifacts"
+    )]
+    pub artifact_root: PathBuf,
+}
+
+#[derive(Debug, Args)]
+pub struct McpServerArgs {
+    #[arg(long, env = "CATALYST_DATABASE_URL")]
+    pub database_url: Option<String>,
 
     #[arg(
         long,
@@ -55,6 +94,18 @@ pub struct DescribePackArgs {
 
 #[derive(Debug, Args)]
 pub struct ListPacksArgs {
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct ListRunsArgs {
+    #[arg(long, env = "CATALYST_DATABASE_URL")]
+    pub database_url: String,
+
+    #[arg(long, default_value_t = 20)]
+    pub limit: usize,
+
     #[arg(long)]
     pub json: bool,
 }
@@ -88,6 +139,18 @@ pub struct SubmitBriefArgs {
 
     #[arg(long)]
     pub pretty: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct DescribeRunArgs {
+    #[arg(long, env = "CATALYST_DATABASE_URL")]
+    pub database_url: String,
+
+    #[arg(long)]
+    pub run_id: Uuid,
+
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Debug, Args)]
@@ -129,6 +192,25 @@ pub struct WorkerArgs {
 
     #[arg(long)]
     pub once: bool,
+
+    #[arg(long)]
+    pub pretty: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct EvaluateRunQualityArgs {
+    #[arg(long, env = "CATALYST_DATABASE_URL")]
+    pub database_url: String,
+
+    #[arg(
+        long,
+        env = "CATALYST_ARTIFACT_ROOT",
+        default_value = ".continuum/artifacts"
+    )]
+    pub artifact_root: PathBuf,
+
+    #[arg(long)]
+    pub run_id: Uuid,
 
     #[arg(long)]
     pub pretty: bool,

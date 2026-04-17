@@ -35,6 +35,21 @@ source it directly are validated by `./scripts/check-versions.sh` in CI.
 - Redis image: `redis:7.2.4@sha256:5a93f6b2e391b78e8bd3f9e7e1e1e06aeb5295043b4703fb88392835cec924a0`
   - Declared in [deploy/compose/.env.example](deploy/compose/.env.example)
 
+- OpenTelemetry Collector image: `otel/opentelemetry-collector-contrib:0.143.1@sha256:f051aff195ad50ed5ad9d95bcdd51d7258200c937def3797cf830366ed62e034`
+  - Declared in [deploy/compose/.env.example](deploy/compose/.env.example)
+
+- Loki image: `grafana/loki:3.7.1@sha256:73e905b51a7f917f7a1075e4be68759df30226e03dcb3cd2213b989cc0dc8eb4`
+  - Declared in [deploy/compose/.env.example](deploy/compose/.env.example)
+
+- Tempo image: `grafana/tempo:2.10.3@sha256:cac9de2ac9f6da8efca5b64b690a7cb8c786a0c49cac7b4517dd1b0089a6c703`
+  - Declared in [deploy/compose/.env.example](deploy/compose/.env.example)
+
+- Prometheus image: `prom/prometheus:v3.5.1@sha256:38c3b05c3bc744ff1b0b7b4eb82196026442845e62a1e2073795565da506d7a2`
+  - Declared in [deploy/compose/.env.example](deploy/compose/.env.example)
+
+- Grafana image: `grafana/grafana:12.0.8@sha256:52a34c9cfc385782b4dc991b15353d942bdf7b7b680db199b0cb1f006860e940`
+  - Declared in [deploy/compose/.env.example](deploy/compose/.env.example)
+
 - Orchestrator local image tag: `0.1.0-dev`
   - Declared in [deploy/compose/.env.example](deploy/compose/.env.example)
 
@@ -62,6 +77,7 @@ source it directly are validated by `./scripts/check-versions.sh` in CI.
 - GitHub Actions dependencies are updated through Dependabot PRs and reviewed before merge.
 - GitHub Actions workflow refs are pinned to full commit SHAs instead of moving tags.
 - Dockerfile and Docker Compose image references should be updated together with their digests.
+- Observability stack images for OpenTelemetry Collector, Loki, Tempo, Prometheus, and Grafana are pinned by tag and digest in the same way as application dependencies.
 - Local `act` runner image and architecture should be updated together with [`.actrc`](.actrc) and validated by `./scripts/check-versions.sh`.
 - Container SBOMs are generated from the built orchestrator image in CI and uploaded as workflow artifacts.
 - GitHub Actions also generates a Sigstore-backed provenance attestation for the uploaded SBOM artifact.

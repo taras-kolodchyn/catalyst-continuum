@@ -333,6 +333,122 @@ impl RunSummary {
             visibility: visibility.as_deref().and_then(parse_repository_visibility),
         })
     }
+
+    pub fn render_text(&self) -> Result<String> {
+        let mut output = String::new();
+
+        use std::fmt::Write as _;
+
+        writeln!(&mut output, "run_id: {}", self.run_id).context("failed to render run summary")?;
+        writeln!(&mut output, "brief_id: {}", self.brief_id)
+            .context("failed to render run summary")?;
+        writeln!(&mut output, "title: {}", self.title).context("failed to render run summary")?;
+        writeln!(&mut output, "status: {}", self.status).context("failed to render run summary")?;
+        writeln!(&mut output, "trigger: {}", self.trigger)
+            .context("failed to render run summary")?;
+        writeln!(
+            &mut output,
+            "target_pack: {}",
+            self.target_pack.as_deref().unwrap_or("unassigned")
+        )
+        .context("failed to render run summary")?;
+        writeln!(
+            &mut output,
+            "requested_by: {}",
+            self.requested_by.as_deref().unwrap_or("unknown")
+        )
+        .context("failed to render run summary")?;
+        writeln!(&mut output, "goals: {}", self.goal_count)
+            .context("failed to render run summary")?;
+        writeln!(
+            &mut output,
+            "functional_requirements: {}",
+            self.functional_requirement_count
+        )
+        .context("failed to render run summary")?;
+        writeln!(&mut output, "constraints: {}", self.constraint_count)
+            .context("failed to render run summary")?;
+        writeln!(&mut output, "artifact_count: {}", self.artifact_count)
+            .context("failed to render run summary")?;
+        writeln!(
+            &mut output,
+            "task_counts: total={}, queued={}, running={}, succeeded={}, failed={}, approval_required={}",
+            self.task_counts.total,
+            self.task_counts.queued,
+            self.task_counts.running,
+            self.task_counts.succeeded,
+            self.task_counts.failed,
+            self.task_counts.approval_required
+        )
+        .context("failed to render run summary")?;
+        writeln!(&mut output, "brief_source_path: {}", self.brief_source_path)
+            .context("failed to render run summary")?;
+
+        if let Some(created_at) = &self.created_at {
+            writeln!(&mut output, "created_at: {}", created_at)
+                .context("failed to render run summary")?;
+        }
+
+        if let Some(repository) = &self.repository {
+            writeln!(&mut output, "repository:").context("failed to render run summary")?;
+            if let Some(host) = repository.host.as_ref() {
+                writeln!(
+                    &mut output,
+                    "  host: {}",
+                    format!("{host:?}").to_lowercase()
+                )
+                .context("failed to render run summary")?;
+            }
+            if let Some(owner) = &repository.owner {
+                writeln!(&mut output, "  owner: {}", owner)
+                    .context("failed to render run summary")?;
+            }
+            if let Some(name) = &repository.name {
+                writeln!(&mut output, "  name: {}", name)
+                    .context("failed to render run summary")?;
+            }
+            if let Some(default_branch) = &repository.default_branch {
+                writeln!(&mut output, "  default_branch: {}", default_branch)
+                    .context("failed to render run summary")?;
+            }
+            if let Some(visibility) = repository.visibility.as_ref() {
+                writeln!(
+                    &mut output,
+                    "  visibility: {}",
+                    format!("{visibility:?}").to_lowercase()
+                )
+                .context("failed to render run summary")?;
+            }
+        }
+
+        Ok(output)
+    }
+}
+
+impl RunDetail {
+    pub fn render_text(&self) -> Result<String> {
+        let mut output = self.run.render_text()?;
+
+        use std::fmt::Write as _;
+
+        writeln!(&mut output, "task_count: {}", self.tasks.len())
+            .context("failed to render run detail")?;
+        for task in &self.tasks {
+            writeln!(&mut output, "task:").context("failed to render run detail")?;
+            writeln!(&mut output, "{}", task.render_text()?)
+                .context("failed to render run detail")?;
+        }
+
+        writeln!(&mut output, "artifact_count: {}", self.artifacts.len())
+            .context("failed to render run detail")?;
+        for artifact in &self.artifacts {
+            writeln!(&mut output, "artifact:").context("failed to render run detail")?;
+            writeln!(&mut output, "{}", artifact.render_text()?)
+                .context("failed to render run detail")?;
+        }
+
+        Ok(output)
+    }
 }
 
 fn parse_repository_host(value: &str) -> Option<RepositoryHost> {

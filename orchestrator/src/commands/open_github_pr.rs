@@ -1,29 +1,54 @@
-use anyhow::Context;
+use anyhow::{Context, ensure};
 use serde::Serialize;
 
+use crate::commands::evaluate_run_quality;
 use crate::{
     cli::OpenGithubPrArgs,
     models::artifact::ArtifactSummary,
-    planning::{github_pr, pr_publication},
+    planning::{github_pr, pr_publication, quality_gate},
     storage::postgres::PostgresRunStore,
 };
 
 pub fn execute(args: OpenGithubPrArgs) -> anyhow::Result<()> {
     let mut store = PostgresRunStore::connect(&args.database_url)?;
     store.ensure_schema()?;
+    let report = open_github_pr(&mut store, args.run_id, &args.artifact_root)?;
 
-    let run_context = store.fetch_run_context(args.run_id)?;
+    if args.pretty {
+        print!("{}", serde_yaml::to_string(&report)?);
+    } else {
+        println!("{}", report.render_text()?);
+    }
+
+    Ok(())
+}
+
+pub(crate) fn open_github_pr(
+    store: &mut PostgresRunStore,
+    run_id: uuid::Uuid,
+    artifact_root: &std::path::Path,
+) -> anyhow::Result<OpenGithubPrReport> {
+    let run_status = store.refresh_run_status(run_id)?;
+    ensure!(
+        run_status == "succeeded",
+        "GitHub PR creation requires a succeeded run, current status is {}",
+        run_status
+    );
+    let quality_report = evaluate_run_quality::evaluate_run_quality(store, run_id, artifact_root)?;
+    let expected_pr_candidate_id = quality_report.require_passed_for_remote_promotion()?;
+    let run_context = store.fetch_run_context(run_id)?;
     let pr_publication = store
-        .find_latest_run_artifact(args.run_id, pr_publication::PR_PUBLICATION_ARTIFACT_TYPE)?
-        .with_context(|| {
-            format!(
-                "run {} does not have a pr_publication artifact",
-                args.run_id
-            )
-        })?;
+        .find_latest_run_artifact(run_id, pr_publication::PR_PUBLICATION_ARTIFACT_TYPE)?
+        .with_context(|| format!("run {} does not have a pr_publication artifact", run_id))?;
+    quality_gate::ensure_artifact_matches_pr_candidate(
+        &pr_publication,
+        "source_pr_candidate_artifact_id",
+        expected_pr_candidate_id,
+        "pr_publication",
+    )?;
 
     let github_pull_request =
-        github_pr::open_github_pull_request(&run_context, &pr_publication, &args.artifact_root)?;
+        github_pr::open_github_pull_request(&run_context, &pr_publication, artifact_root)?;
     let artifact = store.upsert_artifact(&github_pull_request)?;
     let resolution = artifact
         .metadata
@@ -58,26 +83,18 @@ pub fn execute(args: OpenGithubPrArgs) -> anyhow::Result<()> {
             )
         })?;
 
-    let report = OpenGithubPrReport {
-        run_id: args.run_id,
+    Ok(OpenGithubPrReport {
+        run_id,
         source_pr_publication_artifact_id: pr_publication.artifact_id,
         resolution,
         pr_number,
         pr_url,
         artifact,
-    };
-
-    if args.pretty {
-        print!("{}", serde_yaml::to_string(&report)?);
-    } else {
-        println!("{}", report.render_text()?);
-    }
-
-    Ok(())
+    })
 }
 
 #[derive(Debug, Serialize)]
-struct OpenGithubPrReport {
+pub(crate) struct OpenGithubPrReport {
     run_id: uuid::Uuid,
     source_pr_publication_artifact_id: uuid::Uuid,
     resolution: String,
@@ -87,7 +104,7 @@ struct OpenGithubPrReport {
 }
 
 impl OpenGithubPrReport {
-    fn render_text(&self) -> anyhow::Result<String> {
+    pub(crate) fn render_text(&self) -> anyhow::Result<String> {
         let mut output = String::new();
 
         use std::fmt::Write as _;

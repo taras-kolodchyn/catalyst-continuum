@@ -2,8 +2,36 @@
 Open‑source AI SDLC toolkit that turns a product brief into a working proof‑of‑concept with code, tests, CI/CD and infrastructure. Catalyst Continuum orchestrates AI agents, disposable sandboxes, Model Context Protocol tools and Repo Packs to build draft pull requests from your requirements.
 
 Planning context for Codex and other agents lives in [docs/summary.md](docs/summary.md).
+The current implementation cut line is tracked in [docs/v0.1-scope.md](docs/v0.1-scope.md).
+Interface boundaries are documented in [docs/adr/0001-control-plane-and-agent-surface.md](docs/adr/0001-control-plane-and-agent-surface.md).
+Generic open-source agent integration notes live in [docs/mcp/open-source-client.md](docs/mcp/open-source-client.md).
+OpenHands-specific integration notes live in [docs/mcp/openhands.md](docs/mcp/openhands.md).
 
-Current CLI flow can promote a completed run into a draft GitHub pull request with a single command:
+## Control Plane vs MCP
+
+Catalyst Continuum intentionally keeps two external integration surfaces:
+
+- CLI and HTTP for the orchestrator control plane
+- MCP for agent-facing tool access
+
+The rule is simple:
+
+- use CLI/HTTP for operators, webhooks, CI, cron, health checks, and simple system-to-system automation
+- use MCP for Codex, Cursor, and other agent frameworks that need capability-scoped tool calls
+
+The Rust command/application layer remains the single source of truth underneath all three interfaces.
+
+Once a run has completed successfully, the orchestrator can evaluate an automated quality gate before any remote PR promotion step. Human approval still stays in GitHub review and merge controls:
+
+```bash
+catalyst-continuum-orchestrator evaluate-run-quality \
+  --database-url "$CATALYST_DATABASE_URL" \
+  --run-id "<RUN_ID>"
+```
+
+`publish-pr-export`, `open-github-pr`, and `create-draft-pr` re-run this gate automatically and reject stale or unverified `pr_candidate` artifacts.
+
+After that, the run can be promoted into a draft GitHub pull request:
 
 ```bash
 catalyst-continuum-orchestrator create-draft-pr \
@@ -17,6 +45,8 @@ Available repository packs can be discovered through the CLI or HTTP API:
 ```bash
 catalyst-continuum-orchestrator list-packs --json
 catalyst-continuum-orchestrator describe-pack --pack-id container-service --json
+catalyst-continuum-orchestrator list-runs --database-url "$CATALYST_DATABASE_URL" --json
+catalyst-continuum-orchestrator describe-run --database-url "$CATALYST_DATABASE_URL" --run-id "<RUN_ID>" --json
 catalyst-continuum-orchestrator validate-brief --file examples/briefs/minimal-cli-tool.yaml --json
 curl http://127.0.0.1:8080/packs
 curl http://127.0.0.1:8080/packs/container-service
@@ -24,12 +54,37 @@ curl -X POST --data-binary @examples/briefs/minimal-cli-tool.yaml http://127.0.0
 curl -X POST --data-binary @examples/briefs/minimal-cli-tool.yaml http://127.0.0.1:8080/briefs/submit
 curl -X POST http://127.0.0.1:8080/runs/<RUN_ID>/tasks/next
 curl -X POST http://127.0.0.1:8080/runs/<RUN_ID>/worker/once
+curl -X POST http://127.0.0.1:8080/runs/<RUN_ID>/evaluate-quality
 curl -X POST http://127.0.0.1:8080/runs/<RUN_ID>/export-pr-candidate
 curl -X POST http://127.0.0.1:8080/runs/<RUN_ID>/publish-pr-export
 curl -X POST http://127.0.0.1:8080/runs/<RUN_ID>/draft-pr
 curl http://127.0.0.1:8080/runs
 curl http://127.0.0.1:8080/runs/<RUN_ID>
 ```
+
+The current HTTP surface is intentionally narrow. Agent-oriented orchestration actions should move toward MCP rather than being duplicated indefinitely as new REST endpoints.
+
+The local `v0.1` compose stack now includes an observability baseline:
+
+- OpenTelemetry Collector for OTLP ingress
+- Prometheus for metrics
+- Loki for logs
+- Tempo for traces
+- Grafana with pinned datasource and dashboard provisioning
+
+An initial MCP stdio adapter is now available through:
+
+```bash
+catalyst-continuum-orchestrator mcp-server \
+  --database-url "$CATALYST_DATABASE_URL" \
+  --artifact-root ".continuum/artifacts"
+```
+
+It currently exposes the first agent-facing tool set over MCP: pack inspection, brief validation and submission, run inspection, task execution, automated quality evaluation, PR export/publication, and GitHub PR opening.
+Use [examples/mcp/stdio-server.example.json](examples/mcp/stdio-server.example.json) as a neutral client config starting point and `./scripts/mcp-smoke.sh` to validate the lifecycle locally.
+If OpenHands is the target client, prefer [examples/mcp/openhands.mcp.json](examples/mcp/openhands.mcp.json) and the registration flow documented in [docs/mcp/openhands.md](docs/mcp/openhands.md).
+For local OpenHands CLI registration, use `./scripts/openhands-register-mcp.sh`.
+For a first local OpenHands run, use `./scripts/openhands-bootstrap.sh` and then `openhands -f examples/openhands/first-task.md`.
 
 ## CI
 
@@ -40,7 +95,7 @@ GitHub Actions runs one workflow, [`.github/workflows/ci.yml`](.github/workflows
 - `sbom`: builds the orchestrator image, generates an SPDX SBOM, uploads the SBOM artifact, and creates a GitHub/Sigstore provenance attestation for that uploaded artifact
 - `rust`: runs `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo build --workspace --locked`, and `cargo test --workspace --locked`
 - `compose`: validates `deploy/compose/compose.yaml` with the pinned `.env.example`
-- `smoke`: exercises the bootstrap flow end to end for both the `container-service` and `cli-tool` packs: `submit-brief -> worker -> export-pr-candidate -> publish-pr-export`
+- `smoke`: exercises the bootstrap flow end to end for both the `container-service` and `cli-tool` packs: `submit-brief -> worker -> evaluate-run-quality -> export-pr-candidate -> publish-pr-export`
 
 Local runs through `act` use the runner image and container architecture pinned in [`.actrc`](.actrc), with the canonical values tracked in [`versions.env`](versions.env). GitHub-only publication steps such as artifact upload and attestation are skipped under `act`, because local runs do not expose GitHub runtime tokens, OIDC tokens, or the attestations API. The underlying build and SBOM generation steps still run locally.
 Pinned version policy and update automation are documented in [VERSIONS.md](VERSIONS.md).
@@ -58,7 +113,7 @@ The core checks can be run directly without GitHub Actions:
 ./scripts/ci-smoke.sh
 ```
 
-`./scripts/smoke-mvp.sh` still runs a single end-to-end smoke pass and accepts `SMOKE_BRIEF_FILE` to target a specific brief, for example `examples/briefs/minimal-container-service.yaml` or `examples/briefs/minimal-cli-tool.yaml`.
+`./scripts/smoke-mvp.sh` still runs a single end-to-end smoke pass, including the automated run quality gate, and accepts `SMOKE_BRIEF_FILE` to target a specific brief, for example `examples/briefs/minimal-container-service.yaml` or `examples/briefs/minimal-cli-tool.yaml`.
 
 To reproduce the workflow structure locally through `act`:
 

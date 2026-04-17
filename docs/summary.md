@@ -95,6 +95,12 @@ That means it must:
 
 The selected pack for a task determines which external coding agent or model stack is used.
 
+Interface boundary decision:
+
+- HTTP remains the narrow control-plane API for webhooks, health, UI/backend integration, and simple automation.
+- MCP is the preferred agent-facing surface for Codex, Cursor, and other MCP-capable clients.
+- CLI, HTTP, and MCP should all reuse the same Rust orchestration functions instead of reimplementing behavior per transport.
+
 ## Release Roadmap
 
 ### v0.1
@@ -230,9 +236,10 @@ Useful early modules for the repository:
 - Model the orchestrator domain objects and event flow.
 - Implement the `RuntimeProvider` trait with Docker first.
 - Stand up a pinned Docker Compose development stack.
-- Add observability wiring from day one.
+- Add observability wiring from day one, with OpenTelemetry for logs, metrics, and traces plus Grafana dashboards as part of the MVP baseline.
 - Create the first repository pack for a simple containerized service.
 - Document policy boundaries, budget handling, and approval checkpoints.
+- Add a first MCP adapter/server that exposes pack inspection, brief submission, run inspection, worker control, and PR publication tools on top of the existing Rust command layer.
 
 ## How To Use This File
 

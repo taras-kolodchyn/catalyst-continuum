@@ -8,6 +8,7 @@ use crate::{
     commands::run_next_task::{self, NextTaskExecution},
     runtime::RuntimeRegistry,
     storage::postgres::PostgresRunStore,
+    telemetry,
 };
 
 pub fn execute(args: WorkerArgs) -> anyhow::Result<()> {
@@ -79,11 +80,13 @@ pub(crate) fn run_worker(
     let mut executed_reports = Vec::new();
     let mut idle_cycles = 0_u64;
     let worker_status = loop {
+        let cycle_started_at = std::time::Instant::now();
         let outcome =
             run_next_task::execute_next_task(store, runtime_registry, run_id, artifact_root)?;
 
         match outcome {
             NextTaskExecution::Executed(report) => {
+                telemetry::record_worker_cycle("executed", once, cycle_started_at.elapsed());
                 tracing::info!(run_id = %report.run_id(), task_id = %report.task_id(), "worker executed task");
                 executed_reports.push(report);
 
@@ -92,6 +95,7 @@ pub(crate) fn run_worker(
                 }
             }
             NextTaskExecution::Idle(idle) => {
+                telemetry::record_worker_cycle("idle", once, cycle_started_at.elapsed());
                 idle_cycles += 1;
                 let run_status = idle.run_status().map(str::to_string);
 

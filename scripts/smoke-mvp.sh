@@ -87,6 +87,13 @@ WORKER_OUTPUT="$("$BIN" worker \
 printf '%s\n' "$WORKER_OUTPUT"
 printf '%s\n' "$WORKER_OUTPUT" | grep -q '^worker_status: succeeded$'
 
+QUALITY_OUTPUT="$("$BIN" evaluate-run-quality \
+  --database-url "$DATABASE_URL" \
+  --artifact-root "$ARTIFACT_ROOT" \
+  --run-id "$RUN_ID")"
+printf '%s\n' "$QUALITY_OUTPUT"
+printf '%s\n' "$QUALITY_OUTPUT" | grep -q '^passed: true$'
+
 "$BIN" export-pr-candidate \
   --database-url "$DATABASE_URL" \
   --artifact-root "$ARTIFACT_ROOT" \

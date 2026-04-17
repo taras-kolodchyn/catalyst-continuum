@@ -1,13 +1,14 @@
 use anyhow::Context;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use std::time::Instant;
 use tiny_http::{Header, Response, Server, StatusCode};
 use uuid::Uuid;
 
 use crate::{
     cli::ServeArgs,
     commands::{
-        create_draft_pr, export_pr_candidate, publish_pr_export, run_next_task,
-        submit_brief::submit_validated_brief, worker,
+        create_draft_pr, evaluate_run_quality, export_pr_candidate, publish_pr_export,
+        run_next_task, submit_brief::submit_validated_brief, worker,
     },
     planning::{
         brief_validation::validate_brief_document, pack_catalog::build_pack_catalog,
@@ -15,6 +16,7 @@ use crate::{
     },
     runtime::RuntimeRegistry,
     storage::postgres::PostgresRunStore,
+    telemetry,
 };
 
 const DEFAULT_RUN_LIST_LIMIT: usize = 20;
@@ -40,6 +42,10 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
     for mut request in server.incoming_requests() {
         let path = request.url().split('?').next().unwrap_or("/");
         let method = request.method().as_str().to_string();
+        let route = route_label(method.as_str(), path);
+        let request_started_at = Instant::now();
+        let request_span = tracing::info_span!("http.request", method = %method, route = route);
+        let _request_span_guard = request_span.enter();
 
         let response = match (method.as_str(), path) {
             ("GET", "/") => json_response(
@@ -56,6 +62,7 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                         "/runs/{run_id}",
                         "POST /runs/{run_id}/tasks/next",
                         "POST /runs/{run_id}/worker/once",
+                        "POST /runs/{run_id}/evaluate-quality",
                         "POST /runs/{run_id}/export-pr-candidate",
                         "POST /runs/{run_id}/publish-pr-export",
                         "POST /runs/{run_id}/draft-pr",
@@ -251,6 +258,45 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                                 &ErrorResponse {
                                     error: format!(
                                         "failed to run worker once for run {run_id}: {error}"
+                                    ),
+                                },
+                            ),
+                        },
+                        Ok(None) => json_response(
+                            StatusCode(404),
+                            &ErrorResponse {
+                                error: format!("run not found: {run_id}"),
+                            },
+                        ),
+                        Err(error) => json_response(
+                            StatusCode(500),
+                            &ErrorResponse {
+                                error: format!("failed to load run {run_id}: {error}"),
+                            },
+                        ),
+                    },
+                    Err(error) => json_response(
+                        StatusCode(400),
+                        &ErrorResponse {
+                            error: error.to_string(),
+                        },
+                    ),
+                }
+            }
+            ("POST", _) if path.starts_with("/runs/") && path.ends_with("/evaluate-quality") => {
+                match parse_run_action_path(path, "/evaluate-quality") {
+                    Ok(run_id) => match store.fetch_run_summary(run_id) {
+                        Ok(Some(_)) => match evaluate_run_quality::evaluate_run_quality(
+                            &mut store,
+                            run_id,
+                            &args.artifact_root,
+                        ) {
+                            Ok(report) => json_response(StatusCode(200), &report),
+                            Err(error) => json_response(
+                                StatusCode(500),
+                                &ErrorResponse {
+                                    error: format!(
+                                        "failed to evaluate quality gate for run {run_id}: {error}"
                                     ),
                                 },
                             ),
@@ -521,6 +567,13 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                 },
             ),
         };
+        let status_code = response.status_code().0;
+        telemetry::record_http_request(
+            method.as_str(),
+            route,
+            status_code.into(),
+            request_started_at.elapsed(),
+        );
 
         if let Err(error) = request.respond(response) {
             tracing::warn!(%error, "failed to send HTTP response");
@@ -568,6 +621,38 @@ where
 
 fn non_empty_option(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|value| !value.is_empty())
+}
+
+fn route_label(method: &str, path: &str) -> &'static str {
+    match (method, path) {
+        ("GET", "/") => "/",
+        ("GET", "/healthz") => "/healthz",
+        ("GET", "/packs") => "/packs",
+        ("GET", "/runs") => "/runs",
+        ("POST", "/briefs/validate") => "/briefs/validate",
+        ("POST", "/briefs/submit") => "/briefs/submit",
+        ("GET", _) if single_path_segment(path, "/packs/").is_some() => "/packs/{pack_id}",
+        ("GET", _) if single_path_segment(path, "/runs/").is_some() => "/runs/{run_id}",
+        ("POST", _) if path.starts_with("/runs/") && path.ends_with("/tasks/next") => {
+            "/runs/{run_id}/tasks/next"
+        }
+        ("POST", _) if path.starts_with("/runs/") && path.ends_with("/worker/once") => {
+            "/runs/{run_id}/worker/once"
+        }
+        ("POST", _) if path.starts_with("/runs/") && path.ends_with("/evaluate-quality") => {
+            "/runs/{run_id}/evaluate-quality"
+        }
+        ("POST", _) if path.starts_with("/runs/") && path.ends_with("/export-pr-candidate") => {
+            "/runs/{run_id}/export-pr-candidate"
+        }
+        ("POST", _) if path.starts_with("/runs/") && path.ends_with("/publish-pr-export") => {
+            "/runs/{run_id}/publish-pr-export"
+        }
+        ("POST", _) if path.starts_with("/runs/") && path.ends_with("/draft-pr") => {
+            "/runs/{run_id}/draft-pr"
+        }
+        _ => "unmatched",
+    }
 }
 
 fn json_response<T: Serialize>(

@@ -1,11 +1,12 @@
-use anyhow::Context;
+use anyhow::{Context, ensure};
 use serde::Serialize;
 use std::path::Path;
 
+use crate::commands::evaluate_run_quality;
 use crate::{
     cli::PublishPrExportArgs,
     models::artifact::ArtifactSummary,
-    planning::{pr_export, pr_publication},
+    planning::{pr_export, pr_publication, quality_gate},
     storage::postgres::PostgresRunStore,
 };
 
@@ -77,10 +78,24 @@ pub(crate) fn publish_pr_export(
     remote_url: Option<&str>,
     push: bool,
 ) -> anyhow::Result<PublishPrExportReport> {
+    let run_status = store.refresh_run_status(run_id)?;
+    ensure!(
+        run_status == "succeeded",
+        "PR publication requires a succeeded run, current status is {}",
+        run_status
+    );
+    let quality_report = evaluate_run_quality::evaluate_run_quality(store, run_id, artifact_root)?;
+    let expected_pr_candidate_id = quality_report.require_passed_for_remote_promotion()?;
     let run_context = store.fetch_run_context(run_id)?;
     let pr_export = store
         .find_latest_run_artifact(run_id, pr_export::PR_EXPORT_ARTIFACT_TYPE)?
         .with_context(|| format!("run {} does not have a pr_export artifact", run_id))?;
+    quality_gate::ensure_artifact_matches_pr_candidate(
+        &pr_export,
+        "source_pr_candidate_artifact_id",
+        expected_pr_candidate_id,
+        "pr_export",
+    )?;
 
     let publication = pr_publication::publish_pr_export(
         &run_context,

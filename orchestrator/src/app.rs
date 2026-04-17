@@ -1,23 +1,42 @@
 use crate::{
     cli::{Cli, Command},
     commands::{
-        create_draft_pr, describe_pack, export_pr_candidate, list_packs, open_github_pr,
-        publish_pr_export, run_next_task, serve, submit_brief, validate_brief, worker,
+        create_draft_pr, describe_pack, describe_run, evaluate_run_quality, export_pr_candidate,
+        list_packs, list_runs, mcp_server, open_github_pr, publish_pr_export, run_next_task, serve,
+        submit_brief, validate_brief, worker,
     },
+    telemetry,
 };
 
 pub fn run(cli: Cli) -> anyhow::Result<()> {
-    match cli.command {
+    let command_name = cli.command.name();
+    let started_at = std::time::Instant::now();
+    let span = tracing::info_span!("command", command = command_name);
+    let _span_guard = span.enter();
+
+    let result = match cli.command {
         Command::Serve(args) => serve::execute(args),
+        Command::McpServer(args) => mcp_server::execute(args),
         Command::DescribePack(args) => describe_pack::execute(args),
+        Command::DescribeRun(args) => describe_run::execute(args),
         Command::ListPacks(args) => list_packs::execute(args),
+        Command::ListRuns(args) => list_runs::execute(args),
         Command::ValidateBrief(args) => validate_brief::execute(args),
         Command::SubmitBrief(args) => submit_brief::execute(args),
         Command::RunNextTask(args) => run_next_task::execute(args),
         Command::Worker(args) => worker::execute(args),
+        Command::EvaluateRunQuality(args) => evaluate_run_quality::execute(args),
         Command::ExportPrCandidate(args) => export_pr_candidate::execute(args),
         Command::PublishPrExport(args) => publish_pr_export::execute(args),
         Command::OpenGithubPr(args) => open_github_pr::execute(args),
         Command::CreateDraftPr(args) => create_draft_pr::execute(args),
-    }
+    };
+
+    telemetry::record_command_execution(
+        command_name,
+        if result.is_ok() { "ok" } else { "error" },
+        started_at.elapsed(),
+    );
+
+    result
 }

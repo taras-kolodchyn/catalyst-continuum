@@ -7,5 +7,6 @@ pub mod packs;
 pub mod pr_candidate;
 pub mod pr_export;
 pub mod pr_publication;
+pub mod quality_gate;
 pub mod tasks;
 pub mod workspace_snapshot;

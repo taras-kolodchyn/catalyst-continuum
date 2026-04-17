@@ -1,4 +1,4 @@
-use anyhow::Context;
+use anyhow::{Context, ensure};
 use serde::Serialize;
 use std::path::Path;
 
@@ -69,6 +69,12 @@ pub(crate) fn export_pr_candidate(
     artifact_root: &Path,
     branch_name: Option<&str>,
 ) -> anyhow::Result<ExportPrCandidateReport> {
+    let run_status = store.refresh_run_status(run_id)?;
+    ensure!(
+        run_status == "succeeded",
+        "PR export requires a succeeded run, current status is {}",
+        run_status
+    );
     let run_context = store.fetch_run_context(run_id)?;
     let pr_candidate = store
         .find_latest_run_artifact(run_id, pr_candidate::PR_CANDIDATE_ARTIFACT_TYPE)?

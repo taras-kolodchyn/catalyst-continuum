@@ -1,7 +1,11 @@
 pub mod create_draft_pr;
 pub mod describe_pack;
+pub mod describe_run;
+pub mod evaluate_run_quality;
 pub mod export_pr_candidate;
 pub mod list_packs;
+pub mod list_runs;
+pub mod mcp_server;
 pub mod open_github_pr;
 pub mod publish_pr_export;
 pub mod run_next_task;

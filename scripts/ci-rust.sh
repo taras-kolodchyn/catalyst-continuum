@@ -8,3 +8,4 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo build --workspace --locked
 cargo test --workspace --locked
+./scripts/mcp-smoke.sh

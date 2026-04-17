@@ -1,6 +1,7 @@
 use anyhow::Context;
 use serde::Serialize;
 use std::path::Path;
+use std::time::Instant;
 
 use crate::{
     cli::RunNextTaskArgs,
@@ -8,6 +9,7 @@ use crate::{
     planning::{materialization, packs::PackDefinition, pr_candidate, workspace_snapshot},
     runtime::{RuntimeRegistry, TaskExecutionContext, TaskExecutionResult, TaskWorkspace},
     storage::postgres::PostgresRunStore,
+    telemetry,
 };
 
 pub fn execute(args: RunNextTaskArgs) -> anyhow::Result<()> {
@@ -144,6 +146,7 @@ pub fn execute_next_task(
     run_id: Option<uuid::Uuid>,
     artifact_root: &Path,
 ) -> anyhow::Result<NextTaskExecution> {
+    let started_at = Instant::now();
     let selected_task = match store.fetch_next_runnable_task(run_id)? {
         Some(task) => task,
         None => {
@@ -157,6 +160,14 @@ pub fn execute_next_task(
             }));
         }
     };
+    let execution_span = tracing::info_span!(
+        "task_execution",
+        run_id = %selected_task.run_id,
+        task_id = %selected_task.task_id,
+        provider = %selected_task.execution.provider,
+        task_kind = %selected_task.kind
+    );
+    let _execution_span_guard = execution_span.enter();
 
     let running_task = store.mark_task_running(selected_task.task_id)?;
     store.refresh_run_status(running_task.run_id)?;
@@ -208,6 +219,11 @@ pub fn execute_next_task(
         execution.failure_reason.as_deref(),
     )?;
     let run_status = store.refresh_run_status(finished_task.run_id)?;
+    telemetry::record_task_execution(
+        &running_task.execution.provider,
+        &finished_task.status,
+        started_at.elapsed(),
+    );
 
     Ok(NextTaskExecution::Executed(Box::new(TaskExecutionReport {
         run_id: finished_task.run_id,

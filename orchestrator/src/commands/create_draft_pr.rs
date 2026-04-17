@@ -4,6 +4,7 @@ use std::path::Path;
 
 use crate::{
     cli::CreateDraftPrArgs,
+    commands::evaluate_run_quality,
     models::artifact::ArtifactSummary,
     planning::{github_pr, pr_candidate, pr_export, pr_publication},
     storage::postgres::PostgresRunStore,
@@ -42,11 +43,19 @@ pub(crate) fn create_draft_pr(
         "draft PR creation requires a succeeded run, current status is {}",
         run_status
     );
+    let quality_report = evaluate_run_quality::evaluate_run_quality(store, run_id, artifact_root)?;
+    let expected_pr_candidate_id = quality_report.require_passed_for_remote_promotion()?;
 
     let run_context = store.fetch_run_context(run_id)?;
     let pr_candidate = store
         .find_latest_run_artifact(run_id, pr_candidate::PR_CANDIDATE_ARTIFACT_TYPE)?
         .with_context(|| format!("run {} does not have a pr_candidate artifact", run_id))?;
+    ensure!(
+        pr_candidate.artifact_id == expected_pr_candidate_id,
+        "pr_candidate artifact {} is stale: current quality gate covers {}",
+        pr_candidate.artifact_id,
+        expected_pr_candidate_id
+    );
 
     let export =
         pr_export::export_pr_candidate(&run_context, &pr_candidate, artifact_root, branch_name)?;

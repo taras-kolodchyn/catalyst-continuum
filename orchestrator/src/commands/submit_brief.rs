@@ -1,5 +1,6 @@
 use anyhow::Context;
 use std::path::Path;
+use std::time::Instant;
 
 use crate::{
     cli::SubmitBriefArgs,
@@ -14,6 +15,7 @@ use crate::{
         tasks::materialize_tasks,
     },
     storage::postgres::PostgresRunStore,
+    telemetry,
 };
 
 pub fn execute(args: SubmitBriefArgs) -> anyhow::Result<()> {
@@ -64,9 +66,18 @@ pub fn submit_validated_brief(
     dry_run: bool,
     trigger: &str,
 ) -> anyhow::Result<SubmissionRecord> {
+    let started_at = Instant::now();
     let brief = validated.brief;
     let report = validated.report;
     let pack = validated.pack;
+    let submission_span = tracing::info_span!(
+        "brief_submission",
+        brief_id = %brief.brief_id,
+        pack_id = %pack.pack_id,
+        dry_run,
+        trigger = trigger
+    );
+    let _submission_span_guard = submission_span.enter();
 
     tracing::info!(
         brief_id = %brief.brief_id,
@@ -103,6 +114,15 @@ pub fn submit_validated_brief(
         store.ensure_schema()?;
         store.insert_run_with_artifacts(&draft, &[generated_backlog.artifact], &task_drafts)?
     };
+
+    telemetry::record_brief_submission(
+        trigger,
+        &pack.pack_id,
+        dry_run,
+        submission.tasks.len() as u64,
+        submission.artifacts.len() as u64,
+        started_at.elapsed(),
+    );
 
     Ok(submission)
 }

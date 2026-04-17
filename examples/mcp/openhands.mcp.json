@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "catalyst-continuum": {
+      "command": "cargo",
+      "args": [
+        "run",
+        "-q",
+        "-p",
+        "catalyst-continuum-orchestrator",
+        "--",
+        "mcp-server",
+        "--artifact-root",
+        ".continuum/artifacts"
+      ],
+      "env": {
+        "CATALYST_DATABASE_URL": "postgres://postgres:postgres@127.0.0.1:5432/catalyst_continuum"
+      }
+    }
+  }
+}
