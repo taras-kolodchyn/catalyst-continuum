@@ -628,9 +628,8 @@ impl PostgresRunStore {
             "succeeded"
         } else if running_count > 0 {
             "executing"
-        } else if queued_count > 0 {
-            "queued"
         } else {
+            let _ = queued_count;
             "queued"
         };
 

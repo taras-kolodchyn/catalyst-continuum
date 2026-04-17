@@ -17,13 +17,24 @@ catalyst-continuum-orchestrator create-draft-pr \
 GitHub Actions currently validates the bootstrap repository with:
 
 - `cargo fmt --all --check`
+- `cargo clippy --workspace --all-targets -- -D warnings`
 - `cargo build --workspace --locked`
 - `cargo test --workspace --locked`
 - `docker compose --env-file deploy/compose/.env.example -f deploy/compose/compose.yaml config`
+- end-to-end smoke flow: `submit-brief -> worker -> export-pr-candidate -> publish-pr-export`
 
-Local runs through `act` use the default image pinned in [`.actrc`](.actrc).
+Local runs through `act` use the default image and container architecture pinned in [`.actrc`](.actrc).
+
+The same checks can be run directly without GitHub Actions:
+
+```bash
+./scripts/ci-rust.sh
+./scripts/ci-compose.sh
+./scripts/smoke-mvp.sh
+```
 
 ```bash
 act pull_request -W .github/workflows/ci.yml -j rust
 act pull_request -W .github/workflows/ci.yml -j compose
+act pull_request -W .github/workflows/ci.yml -j smoke
 ```

@@ -52,7 +52,7 @@ pub struct TaskExecutionReport {
 #[derive(Debug, Serialize)]
 #[serde(tag = "outcome", rename_all = "snake_case")]
 pub enum NextTaskExecution {
-    Executed(TaskExecutionReport),
+    Executed(Box<TaskExecutionReport>),
     Idle(NoRunnableTask),
 }
 
@@ -209,7 +209,7 @@ pub fn execute_next_task(
     )?;
     let run_status = store.refresh_run_status(finished_task.run_id)?;
 
-    Ok(NextTaskExecution::Executed(TaskExecutionReport {
+    Ok(NextTaskExecution::Executed(Box::new(TaskExecutionReport {
         run_id: finished_task.run_id,
         run_status,
         task: finished_task,
@@ -217,7 +217,7 @@ pub fn execute_next_task(
         provider: running_task.execution.provider,
         image: running_task.execution.image,
         exit_code: execution.exit_code,
-    }))
+    })))
 }
 
 fn build_execution_context(

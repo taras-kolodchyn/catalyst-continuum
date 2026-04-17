@@ -23,19 +23,13 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.94.1
-          components: rustfmt
+          components: rustfmt, clippy
 
       - name: Cache Rust artifacts
         uses: Swatinem/rust-cache@v2
 
-      - name: Check formatting
-        run: cargo fmt --all --check
-
-      - name: Build workspace
-        run: cargo build --workspace --locked
-
-      - name: Test workspace
-        run: cargo test --workspace --locked
+      - name: Run Rust CI checks
+        run: ./scripts/ci-rust.sh
 
   compose:
     runs-on: ubuntu-latest
@@ -44,4 +38,24 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Validate Docker Compose configuration
-        run: docker compose --env-file deploy/compose/.env.example -f deploy/compose/compose.yaml config >/dev/null
+        run: ./scripts/ci-compose.sh
+
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.94.1
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build workspace
+        run: cargo build --workspace --locked
+
+      - name: Run MVP smoke test
+        run: ./scripts/smoke-mvp.sh

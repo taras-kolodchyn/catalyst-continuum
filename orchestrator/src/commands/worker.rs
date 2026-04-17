@@ -72,7 +72,7 @@ struct WorkerReport {
     run_id: Option<uuid::Uuid>,
     tasks_executed: usize,
     idle_cycles: u64,
-    last_execution: Option<run_next_task::TaskExecutionReport>,
+    last_execution: Option<Box<run_next_task::TaskExecutionReport>>,
 }
 
 impl WorkerReport {
