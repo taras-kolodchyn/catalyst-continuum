@@ -18,6 +18,7 @@ GitHub Actions currently validates the bootstrap repository with:
 
 - `./scripts/check-versions.sh`
 - `./scripts/lint-shell.sh`
+- `./scripts/ci-act.sh`
 - `./scripts/generate-sbom.sh`
 - `cargo fmt --all --check`
 - `cargo clippy --workspace --all-targets -- -D warnings`
@@ -26,7 +27,7 @@ GitHub Actions currently validates the bootstrap repository with:
 - `docker compose --env-file deploy/compose/.env.example -f deploy/compose/compose.yaml config`
 - end-to-end smoke flow: `submit-brief -> worker -> export-pr-candidate -> publish-pr-export`
 
-Local runs through `act` use the default image and container architecture pinned in [`.actrc`](.actrc).
+Local runs through `act` use the runner image and container architecture pinned in [`.actrc`](.actrc), with the canonical values tracked in [`versions.env`](versions.env).
 Pinned version policy and update automation are documented in [VERSIONS.md](VERSIONS.md).
 GitHub Actions are pinned to commit SHAs instead of floating tags.
 Docker base and runtime images are pinned by tag and digest.
@@ -36,6 +37,7 @@ The same checks can be run directly without GitHub Actions:
 ```bash
 ./scripts/check-versions.sh
 ./scripts/lint-shell.sh
+./scripts/ci-act.sh -j versions
 ./scripts/generate-sbom.sh
 ./scripts/ci-rust.sh
 ./scripts/ci-compose.sh
@@ -43,7 +45,9 @@ The same checks can be run directly without GitHub Actions:
 ```
 
 ```bash
-act pull_request -W .github/workflows/ci.yml -j rust
-act pull_request -W .github/workflows/ci.yml -j compose
-act pull_request -W .github/workflows/ci.yml -j smoke
+./scripts/ci-act.sh -l
+./scripts/ci-act.sh -j rust
+./scripts/ci-act.sh -j compose
+./scripts/ci-act.sh -j smoke
+./scripts/ci-act.sh -n
 ```

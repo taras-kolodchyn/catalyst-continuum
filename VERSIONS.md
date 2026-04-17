@@ -49,12 +49,19 @@ source it directly are validated by `./scripts/check-versions.sh` in CI.
 - Syft SBOM generator image: `anchore/syft:v1.42.4@sha256:e9f29bec38cc856bfd3a7966d2f99711b5b244a531bf121da9de3b47789eecfa`
   - Declared in [versions.env](versions.env)
 
+- Local `act` runner image: `catthehacker/ubuntu:act-latest@sha256:f58445a786d6ad7460b450e104a1589527e9c3a3fd2b4445367d06d1edc75454`
+  - Declared in [versions.env](versions.env) and [`.actrc`](.actrc)
+
+- Local `act` container architecture: `linux/amd64`
+  - Declared in [versions.env](versions.env) and [`.actrc`](.actrc)
+
 ## Update Policy
 
 - Cargo dependencies are updated through Dependabot PRs and validated by CI.
 - GitHub Actions dependencies are updated through Dependabot PRs and reviewed before merge.
 - GitHub Actions workflow refs are pinned to full commit SHAs instead of moving tags.
 - Dockerfile and Docker Compose image references should be updated together with their digests.
+- Local `act` runner image and architecture should be updated together with [`.actrc`](.actrc) and validated by `./scripts/check-versions.sh`.
 - Container SBOMs are generated from the built orchestrator image in CI and uploaded as workflow artifacts.
 - Version bumps should land with green `rust`, `compose`, and `smoke` checks.
 - For anything with behavior or migration risk, prefer one dependency family per PR.
