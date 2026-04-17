@@ -188,7 +188,12 @@ mod tests {
 
         assert_eq!(tasks[0].assigned_pack.as_deref(), Some("container-service"));
         assert_eq!(tasks[0].execution.provider, "docker");
-        assert_eq!(tasks[0].execution.image.as_deref(), Some("busybox:1.37.0"));
+        assert_eq!(
+            tasks[0].execution.image.as_deref(),
+            Some(
+                "busybox:1.37.0@sha256:1487d0af5f52b4ba31c7e465126ee2123fe3f2305d638e7827681e7cf6c83d5e"
+            )
+        );
         assert!(tasks[0].execution.command[2].contains("task_kind=plan"));
         assert_eq!(tasks[0].dependency_task_ids, json!([]));
         assert_eq!(tasks[1].dependency_task_ids, json!([tasks[0].task_id]));
@@ -227,7 +232,10 @@ mod tests {
             approval_required: None,
             execution: crate::planning::packs::PackExecutionTemplate {
                 provider: None,
-                image: Some("busybox:1.37.0".to_string()),
+                image: Some(
+                    "busybox:1.37.0@sha256:1487d0af5f52b4ba31c7e465126ee2123fe3f2305d638e7827681e7cf6c83d5e"
+                        .to_string(),
+                ),
                 command: vec!["sh".to_string(), "-lc".to_string(), "echo ok".to_string()],
                 working_directory: None,
                 sandbox_profile: None,

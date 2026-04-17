@@ -661,7 +661,10 @@ fn row_to_task_summary(row: &postgres::Row) -> TaskSummary {
         execution: serde_json::from_value::<TaskExecutionSpec>(row.get("execution")).unwrap_or(
             TaskExecutionSpec {
                 provider: "docker".to_string(),
-                image: Some("busybox:1.37.0".to_string()),
+                image: Some(
+                    "busybox:1.37.0@sha256:1487d0af5f52b4ba31c7e465126ee2123fe3f2305d638e7827681e7cf6c83d5e"
+                        .to_string(),
+                ),
                 command: vec![
                     "sh".to_string(),
                     "-lc".to_string(),

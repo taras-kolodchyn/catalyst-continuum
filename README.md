@@ -28,6 +28,7 @@ GitHub Actions currently validates the bootstrap repository with:
 Local runs through `act` use the default image and container architecture pinned in [`.actrc`](.actrc).
 Pinned version policy and update automation are documented in [VERSIONS.md](VERSIONS.md).
 GitHub Actions are pinned to commit SHAs instead of floating tags.
+Docker base and runtime images are pinned by tag and digest.
 
 The same checks can be run directly without GitHub Actions:
 

@@ -27,19 +27,22 @@ source it directly are validated by `./scripts/check-versions.sh` in CI.
 
 ### Runtime and Local Infrastructure
 
-- PostgreSQL image: `18.3`
+- PostgreSQL image: `postgres:18.3@sha256:52e6ffd11fddd081ae63880b635b2a61c14008c17fc98cdc7ce5472265516dd0`
   - Declared in [deploy/compose/.env.example](deploy/compose/.env.example)
 
-- Redis image: `7.2.4`
+- Redis image: `redis:7.2.4@sha256:5a93f6b2e391b78e8bd3f9e7e1e1e06aeb5295043b4703fb88392835cec924a0`
   - Declared in [deploy/compose/.env.example](deploy/compose/.env.example)
 
 - Orchestrator local image tag: `0.1.0-dev`
   - Declared in [deploy/compose/.env.example](deploy/compose/.env.example)
 
-- Pack execution image: `busybox:1.37.0`
+- Rust base image: `rust:1.94.1@sha256:652612f07bfbbdfa3af34761c1e435094c00dde4a98036132fca28c7bb2b165c`
+  - Declared in [versions.env](versions.env), [deploy/compose/.env.example](deploy/compose/.env.example), and [orchestrator/Dockerfile](orchestrator/Dockerfile)
+
+- Pack execution image: `busybox:1.37.0@sha256:1487d0af5f52b4ba31c7e465126ee2123fe3f2305d638e7827681e7cf6c83d5e`
   - Declared in [packs/container-service/pack.yaml](packs/container-service/pack.yaml)
 
-- ShellCheck container image: `koalaman/shellcheck-alpine:v0.10.0`
+- ShellCheck container image: `koalaman/shellcheck-alpine:v0.10.0@sha256:5921d946dac740cbeec2fb1c898747b6105e585130cc7f0602eec9a10f7ddb63`
   - Declared in [versions.env](versions.env)
 
 ## Update Policy
@@ -47,7 +50,7 @@ source it directly are validated by `./scripts/check-versions.sh` in CI.
 - Cargo dependencies are updated through Dependabot PRs and validated by CI.
 - GitHub Actions dependencies are updated through Dependabot PRs and reviewed before merge.
 - GitHub Actions workflow refs are pinned to full commit SHAs instead of moving tags.
-- Dockerfile and Docker Compose image references are updated through Dependabot PRs.
+- Dockerfile and Docker Compose image references should be updated together with their digests.
 - Version bumps should land with green `rust`, `compose`, and `smoke` checks.
 - For anything with behavior or migration risk, prefer one dependency family per PR.
 
