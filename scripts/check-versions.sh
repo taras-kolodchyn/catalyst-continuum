@@ -56,8 +56,14 @@ compose_redis_version="$(sed -nE 's/^REDIS_VERSION=(.+)$/\1/p' deploy/compose/.e
 compose_orchestrator_image_tag="$(sed -nE 's/^ORCHESTRATOR_IMAGE_TAG=(.+)$/\1/p' deploy/compose/.env.example)"
 pack_template_rust_image_tag="$(sed -nE 's/^FROM rust:(.+) AS builder$/\1/p' packs/container-service/templates/Dockerfile.tmpl)"
 declared_shellcheck_image="$(sed -nE 's/^SHELLCHECK_IMAGE=(.+)$/\1/p' versions.env)"
+declared_checkout_ref="$(sed -nE 's/^ACTIONS_CHECKOUT_REF=(.+)$/\1/p' versions.env)"
+declared_rust_toolchain_action_ref="$(sed -nE 's/^RUST_TOOLCHAIN_ACTION_REF=(.+)$/\1/p' versions.env)"
+declared_rust_cache_action_ref="$(sed -nE 's/^RUST_CACHE_ACTION_REF=(.+)$/\1/p' versions.env)"
 
 mapfile -t workflow_rust_toolchains < <(sed -nE 's/^ +toolchain: (.+)$/\1/p' .github/workflows/ci.yml)
+mapfile -t workflow_checkout_refs < <(sed -nE 's/^ +uses: actions\/checkout@([0-9a-f]{40}).*$/\1/p' .github/workflows/ci.yml)
+mapfile -t workflow_rust_toolchain_action_refs < <(sed -nE 's/^ +uses: dtolnay\/rust-toolchain@([0-9a-f]{40}).*$/\1/p' .github/workflows/ci.yml)
+mapfile -t workflow_rust_cache_refs < <(sed -nE 's/^ +uses: Swatinem\/rust-cache@([0-9a-f]{40}).*$/\1/p' .github/workflows/ci.yml)
 mapfile -t pack_busybox_versions < <(sed -nE 's/^ +image: busybox:(.+)$/\1/p' packs/container-service/pack.yaml)
 mapfile -t storage_busybox_versions < <(sed -nE 's/.*busybox:([^"]+)".*/\1/p' orchestrator/src/storage/postgres.rs)
 mapfile -t planning_busybox_versions < <(sed -nE 's/.*busybox:([^"]+)".*/\1/p' orchestrator/src/planning/tasks.rs)
@@ -71,8 +77,14 @@ check_value "deploy/compose/.env.example POSTGRES_VERSION" "$POSTGRES_VERSION" "
 check_value "deploy/compose/.env.example REDIS_VERSION" "$REDIS_VERSION" "$compose_redis_version"
 check_value "deploy/compose/.env.example ORCHESTRATOR_IMAGE_TAG" "$ORCHESTRATOR_IMAGE_TAG" "$compose_orchestrator_image_tag"
 check_value "versions.env SHELLCHECK_IMAGE" "$SHELLCHECK_IMAGE" "$declared_shellcheck_image"
+check_value "versions.env ACTIONS_CHECKOUT_REF" "$ACTIONS_CHECKOUT_REF" "$declared_checkout_ref"
+check_value "versions.env RUST_TOOLCHAIN_ACTION_REF" "$RUST_TOOLCHAIN_ACTION_REF" "$declared_rust_toolchain_action_ref"
+check_value "versions.env RUST_CACHE_ACTION_REF" "$RUST_CACHE_ACTION_REF" "$declared_rust_cache_action_ref"
 check_value "packs/container-service/templates/Dockerfile.tmpl builder image" "$RUST_VERSION" "$pack_template_rust_image_tag"
 check_many ".github/workflows/ci.yml Rust toolchain pins" "$RUST_VERSION" "${workflow_rust_toolchains[@]}"
+check_many ".github/workflows/ci.yml actions/checkout refs" "$ACTIONS_CHECKOUT_REF" "${workflow_checkout_refs[@]}"
+check_many ".github/workflows/ci.yml dtolnay/rust-toolchain refs" "$RUST_TOOLCHAIN_ACTION_REF" "${workflow_rust_toolchain_action_refs[@]}"
+check_many ".github/workflows/ci.yml Swatinem/rust-cache refs" "$RUST_CACHE_ACTION_REF" "${workflow_rust_cache_refs[@]}"
 check_many "packs/container-service/pack.yaml busybox images" "$BUSYBOX_VERSION" "${pack_busybox_versions[@]}"
 check_many "orchestrator/src/storage/postgres.rs busybox fallback" "$BUSYBOX_VERSION" "${storage_busybox_versions[@]}"
 check_many "orchestrator/src/planning/tasks.rs busybox references" "$BUSYBOX_VERSION" "${planning_busybox_versions[@]}"

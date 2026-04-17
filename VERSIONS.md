@@ -19,6 +19,12 @@ source it directly are validated by `./scripts/check-versions.sh` in CI.
 
 - Cargo dependency graph: pinned in [Cargo.lock](Cargo.lock)
 
+- GitHub Actions refs:
+  - `actions/checkout`: commit `34e114876b0b11c390a56381ad16ebd13914f8d5` (`v4.3.1`)
+  - `dtolnay/rust-toolchain`: commit `3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9` (`master` at pin time)
+  - `Swatinem/rust-cache`: commit `23869a5bd66c73db3c0ac40331f3206eb23791dc` (`v2.9.1`)
+  - Declared in [versions.env](versions.env) and consumed by [ci.yml](.github/workflows/ci.yml)
+
 ### Runtime and Local Infrastructure
 
 - PostgreSQL image: `18.3`
@@ -40,6 +46,7 @@ source it directly are validated by `./scripts/check-versions.sh` in CI.
 
 - Cargo dependencies are updated through Dependabot PRs and validated by CI.
 - GitHub Actions dependencies are updated through Dependabot PRs and reviewed before merge.
+- GitHub Actions workflow refs are pinned to full commit SHAs instead of moving tags.
 - Dockerfile and Docker Compose image references are updated through Dependabot PRs.
 - Version bumps should land with green `rust`, `compose`, and `smoke` checks.
 - For anything with behavior or migration risk, prefer one dependency family per PR.
