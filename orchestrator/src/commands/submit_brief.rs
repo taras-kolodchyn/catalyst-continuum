@@ -1,4 +1,5 @@
 use anyhow::{Context, ensure};
+use serde_json::json;
 use std::path::Path;
 
 use crate::{
@@ -10,7 +11,8 @@ use crate::{
         task::TaskSummary,
     },
     planning::{
-        backlog::generate_initial_backlog, packs::PackDefinition, tasks::materialize_tasks,
+        backlog::generate_initial_backlog, pack_catalog::resolve_pack_selection,
+        tasks::materialize_tasks,
     },
     storage::postgres::PostgresRunStore,
 };
@@ -58,7 +60,20 @@ pub fn submit_brief_document(
 
     let mut draft = RunDraft::from_brief(&brief, brief_source_path.to_string());
     draft.trigger = trigger.to_string();
-    let pack = PackDefinition::load(draft.selected_pack.as_deref())?;
+    let selection = resolve_pack_selection(draft.selected_pack.as_deref())?;
+    if let Some(metadata) = draft.metadata.as_object_mut() {
+        metadata.insert(
+            "pack_selection".to_string(),
+            json!({
+                "requested_pack_id": selection.requested_pack_id,
+                "resolved_pack_id": selection.resolved_pack_id,
+                "used_default": selection.used_default,
+                "available_pack_ids": selection.available_pack_ids,
+            }),
+        );
+    }
+    let pack = selection.pack;
+    draft.selected_pack = Some(pack.pack_id.clone());
     let generated_backlog =
         generate_initial_backlog(&brief, &draft, &pack, artifact_root, !dry_run)?;
     let task_drafts = materialize_tasks(&draft, &pack, &generated_backlog.document.items)?;
@@ -79,4 +94,114 @@ pub fn submit_brief_document(
     };
 
     Ok(submission)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::planning::packs::DEFAULT_PACK_ID;
+    use std::path::Path;
+
+    #[test]
+    fn resolves_default_pack_during_dry_run_submission() {
+        let submission = submit_brief_document(
+            sample_brief_without_repo_pack(),
+            "examples/briefs/default-pack.yaml",
+            None,
+            Path::new(".tmp"),
+            true,
+            "test",
+        )
+        .expect("submission should succeed");
+
+        assert_eq!(submission.target_pack.as_deref(), Some(DEFAULT_PACK_ID));
+        assert_eq!(
+            submission.tasks[0].assigned_pack.as_deref(),
+            Some(DEFAULT_PACK_ID)
+        );
+    }
+
+    #[test]
+    fn rejects_unknown_repo_pack_with_available_options() {
+        let brief = sample_brief_with_repo_pack("does-not-exist");
+        let error = submit_brief_document(
+            &brief,
+            "examples/briefs/unknown-pack.yaml",
+            None,
+            Path::new(".tmp"),
+            true,
+            "test",
+        )
+        .expect_err("unknown pack should fail");
+        let message = error.to_string();
+
+        assert!(message.contains("unknown repo_pack `does-not-exist`"));
+        assert!(message.contains("container-service"));
+        assert!(message.contains("cli-tool"));
+    }
+
+    fn sample_brief_without_repo_pack() -> &'static str {
+        r#"
+schema_version: v0.1
+brief_id: 33333333-3333-3333-3333-333333333333
+title: Default Pack Selection
+summary: Build a default-pack planning run from a valid structured brief.
+requested_by: product@example.com
+target_users:
+  - internal platform engineers
+goals:
+  - Validate default pack resolution.
+functional_requirements:
+  - id: APP-1
+    title: Create backlog
+    description: Generate the initial backlog from the brief.
+constraints:
+  - Keep the first implementation deterministic.
+deliverables:
+  - backlog artifact
+repository:
+  host: github
+  owner: smartit
+  name: default-pack-demo
+  default_branch: main
+  visibility: private
+execution_preferences:
+  default_runtime_provider: docker
+  sandbox_profile: restricted
+"#
+    }
+
+    fn sample_brief_with_repo_pack(pack_id: &str) -> String {
+        format!(
+            r#"
+schema_version: v0.1
+brief_id: 44444444-4444-4444-4444-444444444444
+title: Unknown Pack Selection
+summary: Build an invalid-pack planning run from a valid structured brief.
+requested_by: product@example.com
+target_users:
+  - internal platform engineers
+goals:
+  - Validate pack selection errors.
+functional_requirements:
+  - id: APP-1
+    title: Create backlog
+    description: Generate the initial backlog from the brief.
+constraints:
+  - Keep the first implementation deterministic.
+deliverables:
+  - backlog artifact
+repository:
+  host: github
+  owner: smartit
+  name: invalid-pack-demo
+  default_branch: main
+  visibility: private
+execution_preferences:
+  repo_pack: {pack_id}
+  default_runtime_provider: docker
+  sandbox_profile: restricted
+"#
+        )
+    }
 }
