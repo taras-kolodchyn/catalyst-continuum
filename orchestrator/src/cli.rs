@@ -16,6 +16,7 @@ pub struct Cli {
 #[derive(Debug, Subcommand)]
 pub enum Command {
     Serve(ServeArgs),
+    DescribePack(DescribePackArgs),
     SubmitBrief(SubmitBriefArgs),
     RunNextTask(RunNextTaskArgs),
     Worker(WorkerArgs),
@@ -39,6 +40,15 @@ pub struct ServeArgs {
         default_value = ".continuum/artifacts"
     )]
     pub artifact_root: PathBuf,
+}
+
+#[derive(Debug, Args)]
+pub struct DescribePackArgs {
+    #[arg(long)]
+    pub pack_id: Option<String>,
+
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Debug, Args)]

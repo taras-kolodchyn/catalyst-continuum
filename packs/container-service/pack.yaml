@@ -3,6 +3,15 @@ pack_id: container-service
 display_name: Container Service
 default_runtime_provider: docker
 default_sandbox_profile: restricted
+generated_repository:
+  runtime:
+    kind: cargo_binary
+    port_env: PORT
+    default_port: 8080
+  smoke:
+    kind: http_json
+    healthcheck_path: /healthz
+    requirements_path: /requirements
 
 backlog_templates:
   - template_id: plan

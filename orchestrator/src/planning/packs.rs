@@ -4,12 +4,12 @@ use std::{
 };
 
 use anyhow::{Context, Result, ensure};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_PACK_ID: &str = "container-service";
 const PACK_ROOT_ENV: &str = "CATALYST_PACK_ROOT";
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PackDefinition {
     pub schema_version: String,
@@ -18,6 +18,8 @@ pub struct PackDefinition {
     pub default_runtime_provider: String,
     #[serde(default)]
     pub default_sandbox_profile: Option<String>,
+    #[serde(default)]
+    pub generated_repository: Option<PackGeneratedRepositoryContract>,
     pub backlog_templates: Vec<PackBacklogTemplate>,
     #[serde(skip)]
     root_path: PathBuf,
@@ -67,6 +69,9 @@ impl PackDefinition {
             !self.default_runtime_provider.trim().is_empty(),
             "pack default_runtime_provider must not be empty"
         );
+        if let Some(generated_repository) = &self.generated_repository {
+            generated_repository.validate()?;
+        }
         ensure!(
             !self.backlog_templates.is_empty(),
             "pack must contain at least one backlog template"
@@ -80,7 +85,7 @@ impl PackDefinition {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PackBacklogTemplate {
     pub template_id: String,
@@ -153,7 +158,7 @@ impl PackBacklogTemplate {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BacklogGenerator {
     Static,
@@ -161,13 +166,13 @@ pub enum BacklogGenerator {
     StaticIfNonFunctionalRequirements,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PriorityStrategy {
     RequirementPriority,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SourceStrategy {
     Goals,
@@ -177,7 +182,7 @@ pub enum SourceStrategy {
     AcceptanceCriteriaAndDeliverables,
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PackDependencyTemplate {
     #[serde(default)]
@@ -200,7 +205,7 @@ impl PackDependencyTemplate {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PackMaterializationTemplate {
     pub artifact_type: String,
@@ -234,7 +239,7 @@ impl PackMaterializationTemplate {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PackMaterializationFile {
     pub path: String,
@@ -266,7 +271,7 @@ impl PackMaterializationFile {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PackExecutionTemplate {
     #[serde(default)]
@@ -290,6 +295,88 @@ impl PackExecutionTemplate {
             "backlog template {} must declare at least one execution.command entry",
             template_id
         );
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PackGeneratedRepositoryContract {
+    pub runtime: PackGeneratedRuntimeContract,
+    #[serde(default)]
+    pub smoke: Option<PackGeneratedSmokeContract>,
+}
+
+impl PackGeneratedRepositoryContract {
+    fn validate(&self) -> Result<()> {
+        self.runtime.validate()?;
+        if let Some(smoke) = &self.smoke {
+            smoke.validate()?;
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum PackGeneratedRuntimeContract {
+    CargoBinary { port_env: String, default_port: u16 },
+}
+
+impl PackGeneratedRuntimeContract {
+    fn validate(&self) -> Result<()> {
+        match self {
+            Self::CargoBinary {
+                port_env,
+                default_port,
+            } => {
+                ensure!(
+                    !port_env.trim().is_empty(),
+                    "generated_repository.runtime.port_env must not be empty"
+                );
+                ensure!(
+                    *default_port > 0,
+                    "generated_repository.runtime.default_port must be greater than zero"
+                );
+            }
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum PackGeneratedSmokeContract {
+    HttpJson {
+        healthcheck_path: String,
+        #[serde(default)]
+        requirements_path: Option<String>,
+    },
+}
+
+impl PackGeneratedSmokeContract {
+    fn validate(&self) -> Result<()> {
+        match self {
+            Self::HttpJson {
+                healthcheck_path,
+                requirements_path,
+            } => {
+                ensure!(
+                    healthcheck_path.starts_with('/'),
+                    "generated_repository.smoke.healthcheck_path must start with '/'"
+                );
+
+                if let Some(requirements_path) = requirements_path {
+                    ensure!(
+                        requirements_path.starts_with('/'),
+                        "generated_repository.smoke.requirements_path must start with '/'"
+                    );
+                }
+            }
+        }
 
         Ok(())
     }
@@ -330,6 +417,10 @@ mod tests {
         let pack = PackDefinition::load(None).expect("default pack should load");
 
         assert_eq!(pack.pack_id, "container-service");
+        assert!(
+            pack.generated_repository.is_some(),
+            "default pack should declare a generated repository contract"
+        );
         assert_eq!(pack.backlog_templates.len(), 5);
         assert_eq!(
             pack.backlog_templates[1].dependencies.required_kinds,
@@ -341,6 +432,22 @@ mod tests {
                 .as_ref()
                 .is_some_and(|entry| !entry.files.is_empty())
         );
+        match pack
+            .generated_repository
+            .as_ref()
+            .expect("generated repository contract should be present")
+            .smoke
+            .as_ref()
+            .expect("smoke contract should be present")
+        {
+            PackGeneratedSmokeContract::HttpJson {
+                healthcheck_path,
+                requirements_path,
+            } => {
+                assert_eq!(healthcheck_path, "/healthz");
+                assert_eq!(requirements_path.as_deref(), Some("/requirements"));
+            }
+        }
     }
 
     #[test]

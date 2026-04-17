@@ -1,4 +1,5 @@
 pub mod create_draft_pr;
+pub mod describe_pack;
 pub mod export_pr_candidate;
 pub mod open_github_pr;
 pub mod publish_pr_export;
