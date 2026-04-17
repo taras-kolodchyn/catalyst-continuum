@@ -24,6 +24,7 @@ curl -X POST --data-binary @examples/briefs/minimal-cli-tool.yaml http://127.0.0
 curl -X POST --data-binary @examples/briefs/minimal-cli-tool.yaml http://127.0.0.1:8080/briefs/submit
 curl -X POST http://127.0.0.1:8080/runs/<RUN_ID>/tasks/next
 curl -X POST http://127.0.0.1:8080/runs/<RUN_ID>/worker/once
+curl -X POST http://127.0.0.1:8080/runs/<RUN_ID>/export-pr-candidate
 curl -X POST http://127.0.0.1:8080/runs/<RUN_ID>/draft-pr
 curl http://127.0.0.1:8080/runs
 curl http://127.0.0.1:8080/runs/<RUN_ID>

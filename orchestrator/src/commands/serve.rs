@@ -5,7 +5,10 @@ use uuid::Uuid;
 
 use crate::{
     cli::ServeArgs,
-    commands::{create_draft_pr, run_next_task, submit_brief::submit_validated_brief, worker},
+    commands::{
+        create_draft_pr, export_pr_candidate, run_next_task, submit_brief::submit_validated_brief,
+        worker,
+    },
     planning::{
         brief_validation::validate_brief_document, pack_catalog::build_pack_catalog,
         packs::PackDefinition, pr_candidate,
@@ -53,6 +56,7 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                         "/runs/{run_id}",
                         "POST /runs/{run_id}/tasks/next",
                         "POST /runs/{run_id}/worker/once",
+                        "POST /runs/{run_id}/export-pr-candidate",
                         "POST /runs/{run_id}/draft-pr",
                         "POST /briefs/validate",
                         "POST /briefs/submit",
@@ -246,6 +250,79 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                                 &ErrorResponse {
                                     error: format!(
                                         "failed to run worker once for run {run_id}: {error}"
+                                    ),
+                                },
+                            ),
+                        },
+                        Ok(None) => json_response(
+                            StatusCode(404),
+                            &ErrorResponse {
+                                error: format!("run not found: {run_id}"),
+                            },
+                        ),
+                        Err(error) => json_response(
+                            StatusCode(500),
+                            &ErrorResponse {
+                                error: format!("failed to load run {run_id}: {error}"),
+                            },
+                        ),
+                    },
+                    Err(error) => json_response(
+                        StatusCode(400),
+                        &ErrorResponse {
+                            error: error.to_string(),
+                        },
+                    ),
+                }
+            }
+            ("POST", _) if path.starts_with("/runs/") && path.ends_with("/export-pr-candidate") => {
+                match parse_run_action_path(path, "/export-pr-candidate") {
+                    Ok(run_id) => match store.fetch_run_summary(run_id) {
+                        Ok(Some(_)) => match store.find_latest_run_artifact(
+                            run_id,
+                            pr_candidate::PR_CANDIDATE_ARTIFACT_TYPE,
+                        ) {
+                            Ok(Some(_)) => {
+                                match read_optional_json_body::<ExportPrCandidateRequest>(
+                                    &mut request,
+                                ) {
+                                    Ok(payload) => match export_pr_candidate::export_pr_candidate(
+                                        &mut store,
+                                        run_id,
+                                        &args.artifact_root,
+                                        non_empty_option(payload.branch_name.as_deref()),
+                                    ) {
+                                        Ok(report) => json_response(StatusCode(200), &report),
+                                        Err(error) => json_response(
+                                            StatusCode(500),
+                                            &ErrorResponse {
+                                                error: format!(
+                                                    "failed to export PR candidate for run {run_id}: {error}"
+                                                ),
+                                            },
+                                        ),
+                                    },
+                                    Err(error) => json_response(
+                                        StatusCode(400),
+                                        &ErrorResponse {
+                                            error: error.to_string(),
+                                        },
+                                    ),
+                                }
+                            }
+                            Ok(None) => json_response(
+                                StatusCode(409),
+                                &ErrorResponse {
+                                    error: format!(
+                                        "PR export requires a pr_candidate artifact for run {run_id}"
+                                    ),
+                                },
+                            ),
+                            Err(error) => json_response(
+                                StatusCode(500),
+                                &ErrorResponse {
+                                    error: format!(
+                                        "failed to inspect PR candidate artifact for run {run_id}: {error}"
                                     ),
                                 },
                             ),
@@ -479,5 +556,11 @@ struct RecentRunsResponse {
 #[serde(default, deny_unknown_fields)]
 struct CreateDraftPrRequest {
     remote_url: Option<String>,
+    branch_name: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct ExportPrCandidateRequest {
     branch_name: Option<String>,
 }
