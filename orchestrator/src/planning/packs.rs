@@ -32,8 +32,20 @@ impl PackDefinition {
     }
 
     pub fn load_by_id(pack_id: &str) -> Result<Self> {
+        Self::load_optional(pack_id)?.ok_or_else(|| {
+            anyhow::anyhow!(
+                "failed to read pack definition: {}",
+                pack_root().join(pack_id).join("pack.yaml").display()
+            )
+        })
+    }
+
+    pub fn load_optional(pack_id: &str) -> Result<Option<Self>> {
         let root_path = pack_root().join(pack_id);
         let path = root_path.join("pack.yaml");
+        if !path.exists() {
+            return Ok(None);
+        }
         let raw = fs::read_to_string(&path)
             .with_context(|| format!("failed to read pack definition: {}", path.display()))?;
         let mut pack: Self = serde_yaml::from_str(&raw)
@@ -41,7 +53,29 @@ impl PackDefinition {
         pack.root_path = root_path;
         pack.validate()?;
 
-        Ok(pack)
+        Ok(Some(pack))
+    }
+
+    pub fn load_all() -> Result<Vec<Self>> {
+        let root = pack_root();
+        let mut pack_ids = fs::read_dir(&root)
+            .with_context(|| format!("failed to read pack root: {}", root.display()))?
+            .filter_map(|entry| entry.ok())
+            .filter_map(|entry| {
+                let path = entry.path();
+                if !path.is_dir() || !path.join("pack.yaml").exists() {
+                    return None;
+                }
+
+                entry.file_name().into_string().ok()
+            })
+            .collect::<Vec<_>>();
+        pack_ids.sort();
+
+        pack_ids
+            .into_iter()
+            .map(|pack_id| Self::load_by_id(&pack_id))
+            .collect()
     }
 
     pub fn template_by_id(&self, template_id: &str) -> Option<&PackBacklogTemplate> {

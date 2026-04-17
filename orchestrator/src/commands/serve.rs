@@ -1,7 +1,11 @@
 use serde::Serialize;
 use tiny_http::{Header, Method, Response, Server, StatusCode};
 
-use crate::{cli::ServeArgs, storage::postgres::PostgresRunStore};
+use crate::{
+    cli::ServeArgs,
+    planning::{pack_catalog::build_pack_catalog, packs::PackDefinition},
+    storage::postgres::PostgresRunStore,
+};
 
 pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
     let mut store = PostgresRunStore::connect(&args.database_url)?;
@@ -29,6 +33,7 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                 &ServiceInfo {
                     service: "catalyst-continuum-orchestrator",
                     status: "ok",
+                    endpoints: vec!["/", "/healthz", "/packs", "/packs/{pack_id}"],
                 },
             ),
             (&Method::Get, "/healthz") => json_response(
@@ -38,6 +43,33 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                     database: "ready",
                 },
             ),
+            (&Method::Get, "/packs") => match build_pack_catalog() {
+                Ok(catalog) => json_response(StatusCode(200), &catalog),
+                Err(error) => json_response(
+                    StatusCode(500),
+                    &ErrorResponse {
+                        error: format!("failed to build pack catalog: {error}"),
+                    },
+                ),
+            },
+            (&Method::Get, _) if path.starts_with("/packs/") => {
+                let pack_id = path.trim_start_matches("/packs/");
+                match PackDefinition::load_optional(pack_id) {
+                    Ok(Some(pack)) => json_response(StatusCode(200), &pack),
+                    Ok(None) => json_response(
+                        StatusCode(404),
+                        &ErrorResponse {
+                            error: format!("pack not found: {pack_id}"),
+                        },
+                    ),
+                    Err(error) => json_response(
+                        StatusCode(500),
+                        &ErrorResponse {
+                            error: format!("failed to load pack {pack_id}: {error}"),
+                        },
+                    ),
+                }
+            }
             _ => json_response(
                 StatusCode(404),
                 &ErrorResponse {
@@ -73,6 +105,7 @@ fn json_response<T: Serialize>(
 struct ServiceInfo {
     service: &'static str,
     status: &'static str,
+    endpoints: Vec<&'static str>,
 }
 
 #[derive(Debug, Serialize)]

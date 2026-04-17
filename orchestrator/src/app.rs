@@ -1,8 +1,8 @@
 use crate::{
     cli::{Cli, Command},
     commands::{
-        create_draft_pr, describe_pack, export_pr_candidate, open_github_pr, publish_pr_export,
-        run_next_task, serve, submit_brief, worker,
+        create_draft_pr, describe_pack, export_pr_candidate, list_packs, open_github_pr,
+        publish_pr_export, run_next_task, serve, submit_brief, worker,
     },
 };
 
@@ -10,6 +10,7 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
     match cli.command {
         Command::Serve(args) => serve::execute(args),
         Command::DescribePack(args) => describe_pack::execute(args),
+        Command::ListPacks(args) => list_packs::execute(args),
         Command::SubmitBrief(args) => submit_brief::execute(args),
         Command::RunNextTask(args) => run_next_task::execute(args),
         Command::Worker(args) => worker::execute(args),

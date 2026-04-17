@@ -17,6 +17,7 @@ pub struct Cli {
 pub enum Command {
     Serve(ServeArgs),
     DescribePack(DescribePackArgs),
+    ListPacks(ListPacksArgs),
     SubmitBrief(SubmitBriefArgs),
     RunNextTask(RunNextTaskArgs),
     Worker(WorkerArgs),
@@ -47,6 +48,12 @@ pub struct DescribePackArgs {
     #[arg(long)]
     pub pack_id: Option<String>,
 
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct ListPacksArgs {
     #[arg(long)]
     pub json: bool,
 }

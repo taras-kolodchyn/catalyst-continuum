@@ -12,6 +12,15 @@ catalyst-continuum-orchestrator create-draft-pr \
   --remote-url "https://github.com/<OWNER>/<REPO>.git"
 ```
 
+Available repository packs can be discovered through the CLI or HTTP API:
+
+```bash
+catalyst-continuum-orchestrator list-packs --json
+catalyst-continuum-orchestrator describe-pack --pack-id container-service --json
+curl http://127.0.0.1:8080/packs
+curl http://127.0.0.1:8080/packs/container-service
+```
+
 ## CI
 
 GitHub Actions runs one workflow, [`.github/workflows/ci.yml`](.github/workflows/ci.yml), with six required checks:

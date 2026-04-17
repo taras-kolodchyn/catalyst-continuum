@@ -1,6 +1,7 @@
 pub mod backlog;
 pub mod github_pr;
 pub mod materialization;
+pub mod pack_catalog;
 pub mod packs;
 pub mod pr_candidate;
 pub mod pr_export;
