@@ -16,7 +16,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  versions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check pinned versions
+        run: ./scripts/check-versions.sh
+
   rust:
+    needs: versions
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -36,6 +47,7 @@ jobs:
         run: ./scripts/ci-rust.sh
 
   compose:
+    needs: versions
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -46,6 +58,7 @@ jobs:
         run: ./scripts/ci-compose.sh
 
   smoke:
+    needs: versions
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

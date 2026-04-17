@@ -2,6 +2,8 @@ use std::{
     fs,
     path::{Path, PathBuf},
     process::Command,
+    thread,
+    time::Duration,
 };
 
 use anyhow::{Context, Result, bail, ensure};
@@ -344,11 +346,7 @@ fn view_pull_request(
 }
 
 fn run_gh(gh_cli: &Path, repository_root: &Path, args: &[&str], error_context: &str) -> Result<()> {
-    let output = Command::new(gh_cli)
-        .current_dir(repository_root)
-        .args(args)
-        .output()
-        .with_context(|| format!("{error_context}: failed to invoke gh"))?;
+    let output = invoke_gh(gh_cli, repository_root, args, error_context)?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -364,11 +362,7 @@ fn run_gh_output(
     args: &[&str],
     error_context: &str,
 ) -> Result<String> {
-    let output = Command::new(gh_cli)
-        .current_dir(repository_root)
-        .args(args)
-        .output()
-        .with_context(|| format!("{error_context}: failed to invoke gh"))?;
+    let output = invoke_gh(gh_cli, repository_root, args, error_context)?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -376,6 +370,35 @@ fn run_gh_output(
     }
 
     String::from_utf8(output.stdout).context("gh output is not valid UTF-8")
+}
+
+fn invoke_gh(
+    gh_cli: &Path,
+    repository_root: &Path,
+    args: &[&str],
+    error_context: &str,
+) -> Result<std::process::Output> {
+    const ETXTBSY: i32 = 26;
+    const MAX_ATTEMPTS: u64 = 3;
+
+    for attempt in 1..=MAX_ATTEMPTS {
+        match Command::new(gh_cli)
+            .current_dir(repository_root)
+            .args(args)
+            .output()
+        {
+            Ok(output) => return Ok(output),
+            Err(error) if error.raw_os_error() == Some(ETXTBSY) && attempt < MAX_ATTEMPTS => {
+                // Temp shell wrappers can briefly hit ETXTBSY on CI/overlay filesystems.
+                thread::sleep(Duration::from_millis(25 * attempt));
+            }
+            Err(error) => {
+                return Err(error).with_context(|| format!("{error_context}: failed to invoke gh"));
+            }
+        }
+    }
+
+    unreachable!("gh invocation loop should return or error before exhausting retries")
 }
 
 fn github_pull_request_artifact_id(run_id: Uuid) -> Uuid {

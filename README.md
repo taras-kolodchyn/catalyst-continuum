@@ -16,6 +16,7 @@ catalyst-continuum-orchestrator create-draft-pr \
 
 GitHub Actions currently validates the bootstrap repository with:
 
+- `./scripts/check-versions.sh`
 - `cargo fmt --all --check`
 - `cargo clippy --workspace --all-targets -- -D warnings`
 - `cargo build --workspace --locked`
@@ -29,6 +30,7 @@ Pinned version policy and update automation are documented in [VERSIONS.md](VERS
 The same checks can be run directly without GitHub Actions:
 
 ```bash
+./scripts/check-versions.sh
 ./scripts/ci-rust.sh
 ./scripts/ci-compose.sh
 ./scripts/smoke-mvp.sh
