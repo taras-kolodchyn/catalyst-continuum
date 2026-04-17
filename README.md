@@ -22,6 +22,7 @@ curl http://127.0.0.1:8080/packs
 curl http://127.0.0.1:8080/packs/container-service
 curl -X POST --data-binary @examples/briefs/minimal-cli-tool.yaml http://127.0.0.1:8080/briefs/validate
 curl -X POST --data-binary @examples/briefs/minimal-cli-tool.yaml http://127.0.0.1:8080/briefs/submit
+curl -X POST http://127.0.0.1:8080/runs/<RUN_ID>/tasks/next
 curl http://127.0.0.1:8080/runs
 curl http://127.0.0.1:8080/runs/<RUN_ID>
 ```

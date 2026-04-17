@@ -4,11 +4,12 @@ use uuid::Uuid;
 
 use crate::{
     cli::ServeArgs,
-    commands::submit_brief::submit_validated_brief,
+    commands::{run_next_task, submit_brief::submit_validated_brief},
     planning::{
         brief_validation::validate_brief_document, pack_catalog::build_pack_catalog,
         packs::PackDefinition,
     },
+    runtime::RuntimeRegistry,
     storage::postgres::PostgresRunStore,
 };
 
@@ -17,6 +18,7 @@ const DEFAULT_RUN_LIST_LIMIT: usize = 20;
 pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
     let mut store = PostgresRunStore::connect(&args.database_url)?;
     store.ensure_schema()?;
+    let runtime_registry = RuntimeRegistry::default();
 
     let server = Server::http(&args.bind_addr).map_err(|error| {
         anyhow::anyhow!(
@@ -48,6 +50,7 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                         "/packs/{pack_id}",
                         "/runs",
                         "/runs/{run_id}",
+                        "POST /runs/{run_id}/tasks/next",
                         "POST /briefs/validate",
                         "POST /briefs/submit",
                     ],
@@ -84,8 +87,9 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                     },
                 ),
             },
-            ("GET", _) if path.starts_with("/runs/") => {
-                let run_id = path.trim_start_matches("/runs/");
+            ("GET", _) if single_path_segment(path, "/runs/").is_some() => {
+                let run_id = single_path_segment(path, "/runs/")
+                    .expect("run path guard should provide a single path segment");
                 match parse_run_id(run_id) {
                     Ok(run_id) => match store.fetch_run_detail(run_id) {
                         Ok(Some(run)) => json_response(StatusCode(200), &run),
@@ -110,8 +114,9 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                     ),
                 }
             }
-            ("GET", _) if path.starts_with("/packs/") => {
-                let pack_id = path.trim_start_matches("/packs/");
+            ("GET", _) if single_path_segment(path, "/packs/").is_some() => {
+                let pack_id = single_path_segment(path, "/packs/")
+                    .expect("pack path guard should provide a single path segment");
                 match PackDefinition::load_optional(pack_id) {
                     Ok(Some(pack)) => json_response(StatusCode(200), &pack),
                     Ok(None) => json_response(
@@ -181,6 +186,46 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                     },
                 ),
             },
+            ("POST", _) if path.starts_with("/runs/") && path.ends_with("/tasks/next") => {
+                match parse_run_action_path(path, "/tasks/next") {
+                    Ok(run_id) => match store.fetch_run_summary(run_id) {
+                        Ok(Some(_)) => match run_next_task::execute_next_task(
+                            &mut store,
+                            &runtime_registry,
+                            Some(run_id),
+                            &args.artifact_root,
+                        ) {
+                            Ok(outcome) => json_response(StatusCode(200), &outcome),
+                            Err(error) => json_response(
+                                StatusCode(500),
+                                &ErrorResponse {
+                                    error: format!(
+                                        "failed to execute next task for run {run_id}: {error}"
+                                    ),
+                                },
+                            ),
+                        },
+                        Ok(None) => json_response(
+                            StatusCode(404),
+                            &ErrorResponse {
+                                error: format!("run not found: {run_id}"),
+                            },
+                        ),
+                        Err(error) => json_response(
+                            StatusCode(500),
+                            &ErrorResponse {
+                                error: format!("failed to load run {run_id}: {error}"),
+                            },
+                        ),
+                    },
+                    Err(error) => json_response(
+                        StatusCode(400),
+                        &ErrorResponse {
+                            error: error.to_string(),
+                        },
+                    ),
+                }
+            }
             _ => json_response(
                 StatusCode(404),
                 &ErrorResponse {
@@ -199,6 +244,20 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
 
 fn parse_run_id(value: &str) -> anyhow::Result<Uuid> {
     Uuid::parse_str(value).map_err(|error| anyhow::anyhow!("invalid run id `{value}`: {error}"))
+}
+
+fn parse_run_action_path(path: &str, suffix: &str) -> anyhow::Result<Uuid> {
+    let run_id = path
+        .strip_prefix("/runs/")
+        .and_then(|value| value.strip_suffix(suffix))
+        .ok_or_else(|| anyhow::anyhow!("invalid run action path: {path}"))?;
+
+    parse_run_id(run_id)
+}
+
+fn single_path_segment<'a>(path: &'a str, prefix: &str) -> Option<&'a str> {
+    path.strip_prefix(prefix)
+        .filter(|value| !value.is_empty() && !value.contains('/'))
 }
 
 fn read_request_body(request: &mut tiny_http::Request) -> std::io::Result<String> {

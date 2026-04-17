@@ -577,6 +577,15 @@ impl PostgresRunStore {
         Ok(rows.iter().map(row_to_run_summary).collect())
     }
 
+    pub fn fetch_run_summary(&mut self, run_id: Uuid) -> Result<Option<RunSummary>> {
+        let row = self
+            .client
+            .query_opt(&run_summary_query("runs.run_id = $1", None), &[&run_id])
+            .with_context(|| format!("failed to fetch run summary: {run_id}"))?;
+
+        Ok(row.as_ref().map(row_to_run_summary))
+    }
+
     pub fn list_run_tasks(&mut self, run_id: Uuid) -> Result<Vec<TaskSummary>> {
         let rows = self
             .client
@@ -619,16 +628,9 @@ impl PostgresRunStore {
     }
 
     pub fn fetch_run_detail(&mut self, run_id: Uuid) -> Result<Option<RunDetail>> {
-        let row = self
-            .client
-            .query_opt(&run_summary_query("runs.run_id = $1", None), &[&run_id])
-            .with_context(|| format!("failed to fetch run summary: {run_id}"))?;
-
-        let Some(row) = row else {
+        let Some(run) = self.fetch_run_summary(run_id)? else {
             return Ok(None);
         };
-
-        let run = row_to_run_summary(&row);
         let tasks = self.list_run_tasks(run_id)?;
         let artifacts = self.list_run_artifacts(run_id, &[])?;
 
