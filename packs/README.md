@@ -3,6 +3,7 @@
 Repository packs define opinionated scaffolding and task templates for different product types.
 The orchestrator can expose the available pack catalog through `list-packs` and `GET /packs`,
 while `describe-pack` and `GET /packs/{pack_id}` return per-pack detail.
+Brief preflight without run creation is available through `validate-brief` and `POST /briefs/validate`.
 
 Initial target:
 

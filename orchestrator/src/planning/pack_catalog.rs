@@ -83,7 +83,7 @@ fn unknown_pack_error(pack_id: &str, available_pack_ids: &[String]) -> anyhow::E
 }
 
 impl PackCatalogEntry {
-    fn from_pack(pack: &PackDefinition) -> Self {
+    pub fn from_pack(pack: &PackDefinition) -> Self {
         let task_kinds = pack
             .backlog_templates
             .iter()

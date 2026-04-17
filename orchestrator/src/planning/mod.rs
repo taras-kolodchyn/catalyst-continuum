@@ -1,4 +1,5 @@
 pub mod backlog;
+pub mod brief_validation;
 pub mod github_pr;
 pub mod materialization;
 pub mod pack_catalog;

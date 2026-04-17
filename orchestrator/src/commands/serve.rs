@@ -1,9 +1,12 @@
 use serde::Serialize;
-use tiny_http::{Header, Method, Response, Server, StatusCode};
+use tiny_http::{Header, Response, Server, StatusCode};
 
 use crate::{
     cli::ServeArgs,
-    planning::{pack_catalog::build_pack_catalog, packs::PackDefinition},
+    planning::{
+        brief_validation::validate_brief_document, pack_catalog::build_pack_catalog,
+        packs::PackDefinition,
+    },
     storage::postgres::PostgresRunStore,
 };
 
@@ -24,26 +27,33 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
         "orchestrator HTTP scaffold listening"
     );
 
-    for request in server.incoming_requests() {
+    for mut request in server.incoming_requests() {
         let path = request.url().split('?').next().unwrap_or("/");
+        let method = request.method().as_str().to_string();
 
-        let response = match (request.method(), path) {
-            (&Method::Get, "/") => json_response(
+        let response = match (method.as_str(), path) {
+            ("GET", "/") => json_response(
                 StatusCode(200),
                 &ServiceInfo {
                     service: "catalyst-continuum-orchestrator",
                     status: "ok",
-                    endpoints: vec!["/", "/healthz", "/packs", "/packs/{pack_id}"],
+                    endpoints: vec![
+                        "/",
+                        "/healthz",
+                        "/packs",
+                        "/packs/{pack_id}",
+                        "POST /briefs/validate",
+                    ],
                 },
             ),
-            (&Method::Get, "/healthz") => json_response(
+            ("GET", "/healthz") => json_response(
                 StatusCode(200),
                 &HealthResponse {
                     status: "ok",
                     database: "ready",
                 },
             ),
-            (&Method::Get, "/packs") => match build_pack_catalog() {
+            ("GET", "/packs") => match build_pack_catalog() {
                 Ok(catalog) => json_response(StatusCode(200), &catalog),
                 Err(error) => json_response(
                     StatusCode(500),
@@ -52,7 +62,7 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                     },
                 ),
             },
-            (&Method::Get, _) if path.starts_with("/packs/") => {
+            ("GET", _) if path.starts_with("/packs/") => {
                 let pack_id = path.trim_start_matches("/packs/");
                 match PackDefinition::load_optional(pack_id) {
                     Ok(Some(pack)) => json_response(StatusCode(200), &pack),
@@ -70,10 +80,27 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                     ),
                 }
             }
+            ("POST", "/briefs/validate") => match read_request_body(&mut request) {
+                Ok(body) => match validate_brief_document(&body, "http:POST /briefs/validate") {
+                    Ok(validated) => json_response(StatusCode(200), &validated.report),
+                    Err(error) => json_response(
+                        StatusCode(400),
+                        &ErrorResponse {
+                            error: error.to_string(),
+                        },
+                    ),
+                },
+                Err(error) => json_response(
+                    StatusCode(400),
+                    &ErrorResponse {
+                        error: format!("failed to read request body: {error}"),
+                    },
+                ),
+            },
             _ => json_response(
                 StatusCode(404),
                 &ErrorResponse {
-                    error: format!("route not found: {} {}", request.method().as_str(), path),
+                    error: format!("route not found: {} {}", method, path),
                 },
             ),
         };
@@ -84,6 +111,12 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+fn read_request_body(request: &mut tiny_http::Request) -> std::io::Result<String> {
+    let mut body = String::new();
+    request.as_reader().read_to_string(&mut body)?;
+    Ok(body)
 }
 
 fn json_response<T: Serialize>(

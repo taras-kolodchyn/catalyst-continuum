@@ -17,8 +17,10 @@ Available repository packs can be discovered through the CLI or HTTP API:
 ```bash
 catalyst-continuum-orchestrator list-packs --json
 catalyst-continuum-orchestrator describe-pack --pack-id container-service --json
+catalyst-continuum-orchestrator validate-brief --file examples/briefs/minimal-cli-tool.yaml --json
 curl http://127.0.0.1:8080/packs
 curl http://127.0.0.1:8080/packs/container-service
+curl -X POST --data-binary @examples/briefs/minimal-cli-tool.yaml http://127.0.0.1:8080/briefs/validate
 ```
 
 ## CI

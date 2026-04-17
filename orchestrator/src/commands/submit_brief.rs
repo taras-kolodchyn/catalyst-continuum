@@ -1,17 +1,15 @@
-use anyhow::{Context, ensure};
-use serde_json::json;
+use anyhow::Context;
 use std::path::Path;
 
 use crate::{
     cli::SubmitBriefArgs,
     models::{
         artifact::ArtifactSummary,
-        brief::Brief,
         run::{RunDraft, SubmissionRecord},
         task::TaskSummary,
     },
     planning::{
-        backlog::generate_initial_backlog, pack_catalog::resolve_pack_selection,
+        backlog::generate_initial_backlog, brief_validation::validate_brief_document,
         tasks::materialize_tasks,
     },
     storage::postgres::PostgresRunStore,
@@ -46,33 +44,27 @@ pub fn submit_brief_document(
     dry_run: bool,
     trigger: &str,
 ) -> anyhow::Result<SubmissionRecord> {
-    let brief: Brief = serde_yaml::from_str(raw_brief)
-        .with_context(|| format!("failed to parse brief YAML: {brief_source_path}"))?;
+    let validated = validate_brief_document(raw_brief, brief_source_path)?;
+    let brief = validated.brief;
+    let report = validated.report;
+    let pack = validated.pack;
 
-    brief.validate()?;
-
-    tracing::info!(brief_id = %brief.brief_id, title = %brief.title, "accepted brief for planning");
-
-    ensure!(
-        brief.execution_preferences.is_some() || brief.repository.is_some(),
-        "brief should declare either repository info or execution preferences for v0.1 planning"
+    tracing::info!(
+        brief_id = %brief.brief_id,
+        title = %brief.title,
+        resolved_pack = %pack.pack_id,
+        "accepted brief for planning"
     );
 
     let mut draft = RunDraft::from_brief(&brief, brief_source_path.to_string());
     draft.trigger = trigger.to_string();
-    let selection = resolve_pack_selection(draft.selected_pack.as_deref())?;
     if let Some(metadata) = draft.metadata.as_object_mut() {
         metadata.insert(
             "pack_selection".to_string(),
-            json!({
-                "requested_pack_id": selection.requested_pack_id,
-                "resolved_pack_id": selection.resolved_pack_id,
-                "used_default": selection.used_default,
-                "available_pack_ids": selection.available_pack_ids,
-            }),
+            serde_json::to_value(&report.pack_selection)
+                .context("failed to serialize pack selection metadata")?,
         );
     }
-    let pack = selection.pack;
     draft.selected_pack = Some(pack.pack_id.clone());
     let generated_backlog =
         generate_initial_backlog(&brief, &draft, &pack, artifact_root, !dry_run)?;

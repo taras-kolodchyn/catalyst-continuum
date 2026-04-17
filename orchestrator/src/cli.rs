@@ -18,6 +18,7 @@ pub enum Command {
     Serve(ServeArgs),
     DescribePack(DescribePackArgs),
     ListPacks(ListPacksArgs),
+    ValidateBrief(ValidateBriefArgs),
     SubmitBrief(SubmitBriefArgs),
     RunNextTask(RunNextTaskArgs),
     Worker(WorkerArgs),
@@ -54,6 +55,15 @@ pub struct DescribePackArgs {
 
 #[derive(Debug, Args)]
 pub struct ListPacksArgs {
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct ValidateBriefArgs {
+    #[arg(long, short = 'f')]
+    pub file: PathBuf,
+
     #[arg(long)]
     pub json: bool,
 }

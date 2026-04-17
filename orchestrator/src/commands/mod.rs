@@ -7,4 +7,5 @@ pub mod publish_pr_export;
 pub mod run_next_task;
 pub mod serve;
 pub mod submit_brief;
+pub mod validate_brief;
 pub mod worker;
