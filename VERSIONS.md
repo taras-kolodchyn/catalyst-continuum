@@ -24,6 +24,7 @@ source it directly are validated by `./scripts/check-versions.sh` in CI.
   - `dtolnay/rust-toolchain`: commit `3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9` (`master` at pin time)
   - `Swatinem/rust-cache`: commit `23869a5bd66c73db3c0ac40331f3206eb23791dc` (`v2.9.1`)
   - `actions/upload-artifact`: commit `ea165f8d65b6e75b540449e92b4886f43607fa02` (`v4.6.2`)
+  - `actions/attest`: commit `59d89421af93a897026c735860bf21b6eb4f7b26` (`v4.1.0`)
   - Declared in [versions.env](versions.env) and consumed by [ci.yml](.github/workflows/ci.yml)
 
 ### Runtime and Local Infrastructure
@@ -63,6 +64,7 @@ source it directly are validated by `./scripts/check-versions.sh` in CI.
 - Dockerfile and Docker Compose image references should be updated together with their digests.
 - Local `act` runner image and architecture should be updated together with [`.actrc`](.actrc) and validated by `./scripts/check-versions.sh`.
 - Container SBOMs are generated from the built orchestrator image in CI and uploaded as workflow artifacts.
+- GitHub Actions also generates a Sigstore-backed provenance attestation for the uploaded SBOM artifact.
 - Version bumps should land with green `rust`, `compose`, and `smoke` checks.
 - For anything with behavior or migration risk, prefer one dependency family per PR.
 

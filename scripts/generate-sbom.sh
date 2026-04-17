@@ -27,10 +27,9 @@ docker image inspect "$IMAGE_REF" >"$METADATA_PATH"
 docker run --rm \
   -e DOCKER_HOST=unix:///var/run/docker.sock \
   -v /var/run/docker.sock:/var/run/docker.sock \
-  -v "$OUTPUT_DIR:/output" \
   "$SYFT_IMAGE" \
   "docker:${IMAGE_REF}" \
-  -o "spdx-json=/output/$(basename "$SBOM_PATH")"
+  -o spdx-json >"$SBOM_PATH"
 
 python3 - "$SBOM_PATH" "$METADATA_PATH" <<'PY'
 import json

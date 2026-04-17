@@ -20,6 +20,7 @@ GitHub Actions currently validates the bootstrap repository with:
 - `./scripts/lint-shell.sh`
 - `./scripts/ci-act.sh`
 - `./scripts/generate-sbom.sh`
+- GitHub/Sigstore provenance attestation for the uploaded SBOM artifact
 - `cargo fmt --all --check`
 - `cargo clippy --workspace --all-targets -- -D warnings`
 - `cargo build --workspace --locked`
@@ -27,7 +28,7 @@ GitHub Actions currently validates the bootstrap repository with:
 - `docker compose --env-file deploy/compose/.env.example -f deploy/compose/compose.yaml config`
 - end-to-end smoke flow: `submit-brief -> worker -> export-pr-candidate -> publish-pr-export`
 
-Local runs through `act` use the runner image and container architecture pinned in [`.actrc`](.actrc), with the canonical values tracked in [`versions.env`](versions.env).
+Local runs through `act` use the runner image and container architecture pinned in [`.actrc`](.actrc), with the canonical values tracked in [`versions.env`](versions.env). GitHub-only publication steps such as artifact upload and attestation are skipped under `act`, because local runs do not expose GitHub runtime tokens, OIDC tokens, or the attestations API.
 Pinned version policy and update automation are documented in [VERSIONS.md](VERSIONS.md).
 GitHub Actions are pinned to commit SHAs instead of floating tags.
 Docker base and runtime images are pinned by tag and digest.
@@ -50,4 +51,11 @@ The same checks can be run directly without GitHub Actions:
 ./scripts/ci-act.sh -j compose
 ./scripts/ci-act.sh -j smoke
 ./scripts/ci-act.sh -n
+```
+
+To verify a downloaded SBOM artifact against its GitHub attestation:
+
+```bash
+gh run download <RUN_ID> -n orchestrator-sbom -D /tmp/orchestrator-sbom
+./scripts/verify-github-attestation.sh /tmp/orchestrator-sbom/orchestrator-image.spdx.json
 ```

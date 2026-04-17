@@ -71,6 +71,7 @@ declared_checkout_ref="$(sed -nE 's/^ACTIONS_CHECKOUT_REF=(.+)$/\1/p' versions.e
 declared_rust_toolchain_action_ref="$(sed -nE 's/^RUST_TOOLCHAIN_ACTION_REF=(.+)$/\1/p' versions.env)"
 declared_rust_cache_action_ref="$(sed -nE 's/^RUST_CACHE_ACTION_REF=(.+)$/\1/p' versions.env)"
 declared_upload_artifact_action_ref="$(sed -nE 's/^UPLOAD_ARTIFACT_ACTION_REF=(.+)$/\1/p' versions.env)"
+declared_attest_action_ref="$(sed -nE 's/^ATTEST_ACTION_REF=(.+)$/\1/p' versions.env)"
 actrc_runner_image="$(sed -nE 's/^-P ubuntu-latest=(.+)$/\1/p' .actrc)"
 actrc_container_architecture="$(sed -nE 's/^--container-architecture (.+)$/\1/p' .actrc)"
 
@@ -79,6 +80,7 @@ mapfile -t workflow_checkout_refs < <(sed -nE 's/^ +uses: actions\/checkout@([0-
 mapfile -t workflow_rust_toolchain_action_refs < <(sed -nE 's/^ +uses: dtolnay\/rust-toolchain@([0-9a-f]{40}).*$/\1/p' .github/workflows/ci.yml)
 mapfile -t workflow_rust_cache_refs < <(sed -nE 's/^ +uses: Swatinem\/rust-cache@([0-9a-f]{40}).*$/\1/p' .github/workflows/ci.yml)
 mapfile -t workflow_upload_artifact_refs < <(sed -nE 's/^ +uses: actions\/upload-artifact@([0-9a-f]{40}).*$/\1/p' .github/workflows/ci.yml)
+mapfile -t workflow_attest_action_refs < <(sed -nE 's/^ +uses: actions\/attest@([0-9a-f]{40}).*$/\1/p' .github/workflows/ci.yml)
 mapfile -t pack_busybox_images < <(sed -nE 's/^ +image: (busybox:[^ ]+)$/\1/p' packs/container-service/pack.yaml)
 mapfile -t storage_busybox_images < <(sed -nE 's/.*(busybox:[^"]+)".*/\1/p' orchestrator/src/storage/postgres.rs)
 mapfile -t planning_busybox_images < <(sed -nE 's/.*(busybox:[^"]+)".*/\1/p' orchestrator/src/planning/tasks.rs)
@@ -107,6 +109,7 @@ check_value "versions.env ACTIONS_CHECKOUT_REF" "$ACTIONS_CHECKOUT_REF" "$declar
 check_value "versions.env RUST_TOOLCHAIN_ACTION_REF" "$RUST_TOOLCHAIN_ACTION_REF" "$declared_rust_toolchain_action_ref"
 check_value "versions.env RUST_CACHE_ACTION_REF" "$RUST_CACHE_ACTION_REF" "$declared_rust_cache_action_ref"
 check_value "versions.env UPLOAD_ARTIFACT_ACTION_REF" "$UPLOAD_ARTIFACT_ACTION_REF" "$declared_upload_artifact_action_ref"
+check_value "versions.env ATTEST_ACTION_REF" "$ATTEST_ACTION_REF" "$declared_attest_action_ref"
 check_value ".actrc ubuntu-latest runner image" "$ACT_RUNNER_IMAGE" "$actrc_runner_image"
 check_value ".actrc container architecture" "$ACT_CONTAINER_ARCHITECTURE" "$actrc_container_architecture"
 check_value \
@@ -118,6 +121,7 @@ check_many ".github/workflows/ci.yml actions/checkout refs" "$ACTIONS_CHECKOUT_R
 check_many ".github/workflows/ci.yml dtolnay/rust-toolchain refs" "$RUST_TOOLCHAIN_ACTION_REF" "${workflow_rust_toolchain_action_refs[@]}"
 check_many ".github/workflows/ci.yml Swatinem/rust-cache refs" "$RUST_CACHE_ACTION_REF" "${workflow_rust_cache_refs[@]}"
 check_many ".github/workflows/ci.yml actions/upload-artifact refs" "$UPLOAD_ARTIFACT_ACTION_REF" "${workflow_upload_artifact_refs[@]}"
+check_many ".github/workflows/ci.yml actions/attest refs" "$ATTEST_ACTION_REF" "${workflow_attest_action_refs[@]}"
 check_many \
   "packs/container-service/pack.yaml busybox images" \
   "busybox:${BUSYBOX_VERSION}@${BUSYBOX_IMAGE_DIGEST}" \
