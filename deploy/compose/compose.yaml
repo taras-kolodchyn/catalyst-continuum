@@ -1,0 +1,63 @@
+services:
+  postgres:
+    image: postgres:${POSTGRES_VERSION}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:${REDIS_VERSION}
+    restart: unless-stopped
+    command:
+      [
+        "redis-server",
+        "--appendonly",
+        "no",
+        "--save",
+        "",
+        "--requirepass",
+        "${REDIS_PASSWORD}",
+      ]
+    ports:
+      - "${REDIS_PORT}:6379"
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a ${REDIS_PASSWORD} ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  orchestrator:
+    image: catalyst-continuum-orchestrator:${ORCHESTRATOR_IMAGE_TAG}
+    build:
+      context: ../..
+      dockerfile: orchestrator/Dockerfile
+      args:
+        RUST_IMAGE_TAG: ${RUST_IMAGE_TAG}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      RUST_LOG: ${ORCHESTRATOR_LOG_LEVEL}
+      CATALYST_BIND_ADDR: 0.0.0.0:8080
+      CATALYST_DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      CATALYST_REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+    command: ["serve", "--bind-addr", "0.0.0.0:8080"]
+    ports:
+      - "${ORCHESTRATOR_PORT}:8080"
+
+volumes:
+  postgres-data:

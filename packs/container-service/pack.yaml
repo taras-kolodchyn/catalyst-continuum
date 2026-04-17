@@ -1,0 +1,169 @@
+schema_version: v0.1
+pack_id: container-service
+display_name: Container Service
+default_runtime_provider: docker
+default_sandbox_profile: restricted
+
+backlog_templates:
+  - template_id: plan
+    generator: static
+    id: PLAN-001
+    kind: plan
+    priority: high
+    title: Translate the brief into an implementation plan
+    description_template: >
+      Use the brief goals, constraints, and deliverables to define the first
+      executable plan for {{brief.title}}.
+    source_strategy: goals
+    dependencies: {}
+    execution:
+      image: busybox:1.37.0
+      timeout_seconds: 30
+      command:
+        - sh
+        - -lc
+        - >
+          set -eu; printf 'task_kind={{task.kind}}\n'; printf 'task_title=%s\n'
+          "$CONTINUUM_TASK_TITLE"; printf 'task_description=%s\n'
+          "$CONTINUUM_TASK_DESCRIPTION"; printf 'source_refs=%s\n'
+          "$CONTINUUM_SOURCE_REFS"; printf 'planned_action=translate-brief-to-plan\n';
+          printf 'result=completed\n';
+
+  - template_id: scaffold
+    generator: static
+    id: SCAFFOLD-001
+    kind: scaffold
+    priority: high
+    title: Scaffold the repository baseline
+    description: Create the repository skeleton, pack-specific structure, and core delivery files.
+    source_strategy: selected_pack
+    dependencies:
+      required_kinds:
+        - plan
+    materialization:
+      artifact_type: scaffold_bundle
+      output_dir: scaffold-bundle
+      files:
+        - path: README.md
+          template_file: templates/README.md.tmpl
+        - path: Cargo.toml
+          template_file: templates/Cargo.toml.tmpl
+        - path: src/main.rs
+          template_file: templates/src/main.rs.tmpl
+        - path: Dockerfile
+          template_file: templates/Dockerfile.tmpl
+        - path: .gitignore
+          template_file: templates/gitignore.tmpl
+    execution:
+      image: busybox:1.37.0
+      timeout_seconds: 30
+      command:
+        - sh
+        - -lc
+        - >
+          set -eu; printf 'task_kind={{task.kind}}\n'; printf 'task_title=%s\n'
+          "$CONTINUUM_TASK_TITLE"; printf 'task_description=%s\n'
+          "$CONTINUUM_TASK_DESCRIPTION"; printf 'source_refs=%s\n'
+          "$CONTINUUM_SOURCE_REFS"; printf 'planned_action=prepare-repository-skeleton\n';
+          printf 'result=completed\n';
+
+  - template_id: code_requirement
+    generator: per_functional_requirement
+    id_template: CODE-{{index_3}}
+    kind: code
+    priority_strategy: requirement_priority
+    default_priority: medium
+    title_template: Implement {{requirement.title}}
+    description_template: "{{requirement.description}}"
+    source_strategy: requirement_id
+    dependencies:
+      required_kinds:
+        - scaffold
+      fallback_kinds:
+        - plan
+    materialization:
+      artifact_type: code_bundle
+      output_dir: code-bundle
+      files:
+        - path: src/features/{{source_ref.ident}}.rs
+          template_file: templates/code/feature.rs.tmpl
+        - path: docs/{{source_ref.slug}}.md
+          template_file: templates/code/requirement.md.tmpl
+    execution:
+      image: busybox:1.37.0
+      working_directory: /workspace
+      timeout_seconds: 30
+      command:
+        - sh
+        - -lc
+        - >
+          set -eu; test "$CONTINUUM_WORKSPACE_PRESENT" = "1"; test -f Cargo.toml;
+          test -f src/main.rs; printf 'task_kind={{task.kind}}\n'; printf 'workspace_path=%s\n'
+          "$CONTINUUM_WORKSPACE_PATH"; printf 'task_title=%s\n'
+          "$CONTINUUM_TASK_TITLE"; printf 'source_refs=%s\n'
+          "$CONTINUUM_SOURCE_REFS"; printf 'planned_action=implement-requirement-slice\n';
+          printf 'result=completed\n';
+
+  - template_id: qual_non_functional
+    generator: static_if_non_functional_requirements
+    id: QUAL-001
+    kind: test
+    priority: high
+    title: Cover non-functional requirements
+    description: Add checks that validate the non-functional requirements captured in the brief.
+    source_strategy: non_functional_requirement_ids
+    dependencies:
+      required_kinds:
+        - code
+        - scaffold
+      fallback_kinds:
+        - plan
+    execution:
+      image: busybox:1.37.0
+      working_directory: /workspace
+      timeout_seconds: 30
+      command:
+        - sh
+        - -lc
+        - >
+          set -eu; test "$CONTINUUM_WORKSPACE_PRESENT" = "1"; test -f README.md;
+          test -f Cargo.toml; test -f Dockerfile; test -f src/main.rs;
+          feature_count="$(find src/features -maxdepth 1 -type f | wc -l | tr -d ' ')";
+          doc_count="$(find docs -maxdepth 1 -type f | wc -l | tr -d ' ')";
+          [ "$feature_count" -ge 1 ]; [ "$doc_count" -ge 1 ];
+          printf 'task_kind={{task.kind}}\n'; printf 'workspace_path=%s\n'
+          "$CONTINUUM_WORKSPACE_PATH"; printf 'feature_count=%s\n'
+          "$feature_count"; printf 'doc_count=%s\n' "$doc_count"; printf 'result=verified\n';
+
+  - template_id: acceptance_validation
+    generator: static
+    id: TEST-001
+    kind: test
+    priority: high
+    title: Validate acceptance criteria and deliverables
+    description: >
+      Add the minimum verification needed to confirm the generated proof of
+      concept matches the brief.
+    source_strategy: acceptance_criteria_and_deliverables
+    dependencies:
+      required_kinds:
+        - code
+        - scaffold
+      fallback_kinds:
+        - plan
+    execution:
+      image: busybox:1.37.0
+      working_directory: /workspace
+      timeout_seconds: 30
+      command:
+        - sh
+        - -lc
+        - >
+          set -eu; test "$CONTINUUM_WORKSPACE_PRESENT" = "1"; test -f README.md;
+          test -f Cargo.toml; test -f Dockerfile; test -f src/main.rs;
+          feature_count="$(find src/features -maxdepth 1 -type f | wc -l | tr -d ' ')";
+          doc_count="$(find docs -maxdepth 1 -type f | wc -l | tr -d ' ')";
+          [ "$feature_count" -ge 1 ]; [ "$doc_count" -ge 1 ];
+          printf 'task_kind={{task.kind}}\n'; printf 'workspace_path=%s\n'
+          "$CONTINUUM_WORKSPACE_PATH"; printf 'feature_count=%s\n'
+          "$feature_count"; printf 'doc_count=%s\n' "$doc_count"; printf 'result=verified\n';
