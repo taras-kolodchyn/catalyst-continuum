@@ -1,5 +1,6 @@
 use anyhow::Context;
 use serde::Serialize;
+use std::path::Path;
 
 use crate::{
     cli::PublishPrExportArgs,
@@ -11,18 +12,82 @@ use crate::{
 pub fn execute(args: PublishPrExportArgs) -> anyhow::Result<()> {
     let mut store = PostgresRunStore::connect(&args.database_url)?;
     store.ensure_schema()?;
+    let report = publish_pr_export(
+        &mut store,
+        args.run_id,
+        &args.artifact_root,
+        args.remote_url.as_deref(),
+        args.push,
+    )?;
 
-    let run_context = store.fetch_run_context(args.run_id)?;
+    if args.pretty {
+        print!("{}", serde_yaml::to_string(&report)?);
+    } else {
+        println!("{}", report.render_text()?);
+    }
+
+    Ok(())
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct PublishPrExportReport {
+    run_id: uuid::Uuid,
+    source_pr_export_artifact_id: uuid::Uuid,
+    head_branch: String,
+    base_branch: String,
+    remote_url: String,
+    push_status: String,
+    artifact: ArtifactSummary,
+}
+
+impl PublishPrExportReport {
+    pub(crate) fn render_text(&self) -> anyhow::Result<String> {
+        let mut output = String::new();
+
+        use std::fmt::Write as _;
+
+        writeln!(&mut output, "run_id: {}", self.run_id)
+            .context("failed to render PR publication report")?;
+        writeln!(
+            &mut output,
+            "source_pr_export_artifact_id: {}",
+            self.source_pr_export_artifact_id
+        )
+        .context("failed to render PR publication report")?;
+        writeln!(&mut output, "head_branch: {}", self.head_branch)
+            .context("failed to render PR publication report")?;
+        writeln!(&mut output, "base_branch: {}", self.base_branch)
+            .context("failed to render PR publication report")?;
+        writeln!(&mut output, "remote_url: {}", self.remote_url)
+            .context("failed to render PR publication report")?;
+        writeln!(&mut output, "push_status: {}", self.push_status)
+            .context("failed to render PR publication report")?;
+        writeln!(&mut output, "artifact:").context("failed to render PR publication report")?;
+        writeln!(&mut output, "{}", self.artifact.render_text()?)
+            .context("failed to render PR publication report")?;
+
+        Ok(output)
+    }
+}
+
+pub(crate) fn publish_pr_export(
+    store: &mut PostgresRunStore,
+    run_id: uuid::Uuid,
+    artifact_root: &Path,
+    remote_url: Option<&str>,
+    push: bool,
+) -> anyhow::Result<PublishPrExportReport> {
+    let run_context = store.fetch_run_context(run_id)?;
     let pr_export = store
-        .find_latest_run_artifact(args.run_id, pr_export::PR_EXPORT_ARTIFACT_TYPE)?
-        .with_context(|| format!("run {} does not have a pr_export artifact", args.run_id))?;
+        .find_latest_run_artifact(run_id, pr_export::PR_EXPORT_ARTIFACT_TYPE)?
+        .with_context(|| format!("run {} does not have a pr_export artifact", run_id))?;
 
     let publication = pr_publication::publish_pr_export(
         &run_context,
         &pr_export,
-        &args.artifact_root,
-        args.remote_url.as_deref(),
-        args.push,
+        artifact_root,
+        remote_url,
+        push,
     )?;
     let artifact = store.upsert_artifact(&publication)?;
     let head_branch = artifact
@@ -70,62 +135,13 @@ pub fn execute(args: PublishPrExportArgs) -> anyhow::Result<()> {
             )
         })?;
 
-    let report = PublishPrExportReport {
-        run_id: args.run_id,
+    Ok(PublishPrExportReport {
+        run_id,
         source_pr_export_artifact_id: pr_export.artifact_id,
         head_branch,
         base_branch,
         remote_url,
         push_status,
         artifact,
-    };
-
-    if args.pretty {
-        print!("{}", serde_yaml::to_string(&report)?);
-    } else {
-        println!("{}", report.render_text()?);
-    }
-
-    Ok(())
-}
-
-#[derive(Debug, Serialize)]
-struct PublishPrExportReport {
-    run_id: uuid::Uuid,
-    source_pr_export_artifact_id: uuid::Uuid,
-    head_branch: String,
-    base_branch: String,
-    remote_url: String,
-    push_status: String,
-    artifact: ArtifactSummary,
-}
-
-impl PublishPrExportReport {
-    fn render_text(&self) -> anyhow::Result<String> {
-        let mut output = String::new();
-
-        use std::fmt::Write as _;
-
-        writeln!(&mut output, "run_id: {}", self.run_id)
-            .context("failed to render PR publication report")?;
-        writeln!(
-            &mut output,
-            "source_pr_export_artifact_id: {}",
-            self.source_pr_export_artifact_id
-        )
-        .context("failed to render PR publication report")?;
-        writeln!(&mut output, "head_branch: {}", self.head_branch)
-            .context("failed to render PR publication report")?;
-        writeln!(&mut output, "base_branch: {}", self.base_branch)
-            .context("failed to render PR publication report")?;
-        writeln!(&mut output, "remote_url: {}", self.remote_url)
-            .context("failed to render PR publication report")?;
-        writeln!(&mut output, "push_status: {}", self.push_status)
-            .context("failed to render PR publication report")?;
-        writeln!(&mut output, "artifact:").context("failed to render PR publication report")?;
-        writeln!(&mut output, "{}", self.artifact.render_text()?)
-            .context("failed to render PR publication report")?;
-
-        Ok(output)
-    }
+    })
 }
