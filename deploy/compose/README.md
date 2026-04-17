@@ -37,6 +37,9 @@ docker compose --env-file deploy/compose/.env.example -f deploy/compose/compose.
 5. Open the local interfaces:
 
 - Orchestrator HTTP: `http://127.0.0.1:8080`
+  - Liveness: `http://127.0.0.1:8080/livez`
+  - Readiness: `http://127.0.0.1:8080/readyz`
+  - Backward-compatible health alias: `http://127.0.0.1:8080/healthz`
 - Grafana: `http://127.0.0.1:3000`
   - Default login from `.env.example`: `admin` / `continuum-dev`
 - Prometheus: `http://127.0.0.1:9090`

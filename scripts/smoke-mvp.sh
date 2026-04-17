@@ -17,9 +17,14 @@ POSTGRES_PASSWORD="${SMOKE_POSTGRES_PASSWORD:-continuum-dev}"
 POSTGRES_PORT="${SMOKE_POSTGRES_PORT:-55432}"
 POSTGRES_CONTAINER_NAME="continuum-smoke-postgres-$$"
 STARTED_POSTGRES=0
+ORCHESTRATOR_PID=""
 SERVICE_PID=""
 
 cleanup() {
+  if [ -n "$ORCHESTRATOR_PID" ]; then
+    kill "$ORCHESTRATOR_PID" >/dev/null 2>&1 || true
+    wait "$ORCHESTRATOR_PID" >/dev/null 2>&1 || true
+  fi
   if [ -n "$SERVICE_PID" ]; then
     kill "$SERVICE_PID" >/dev/null 2>&1 || true
     wait "$SERVICE_PID" >/dev/null 2>&1 || true
@@ -68,6 +73,61 @@ cargo build --quiet --locked
 rm -rf "$ARTIFACT_ROOT"
 mkdir -p "$ARTIFACT_ROOT"
 
+ORCHESTRATOR_HTTP_PORT="${SMOKE_HTTP_PORT:-$(python3 - <<'PY'
+import socket
+
+with socket.socket() as sock:
+    sock.bind(("127.0.0.1", 0))
+    print(sock.getsockname()[1])
+PY
+)}"
+ORCHESTRATOR_LOG="$ARTIFACT_ROOT/orchestrator-http.log"
+LIVENESS_FILE="$ARTIFACT_ROOT/orchestrator-livez.json"
+READINESS_FILE="$ARTIFACT_ROOT/orchestrator-readyz.json"
+HEALTH_FILE="$ARTIFACT_ROOT/orchestrator-healthz.json"
+
+"$BIN" serve \
+  --bind-addr "127.0.0.1:${ORCHESTRATOR_HTTP_PORT}" \
+  --database-url "$DATABASE_URL" \
+  --artifact-root "$ARTIFACT_ROOT" >"$ORCHESTRATOR_LOG" 2>&1 &
+ORCHESTRATOR_PID="$!"
+
+for _ in $(seq 1 30); do
+  if curl -fsS "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/livez" >"$LIVENESS_FILE" 2>/dev/null \
+    && curl -fsS "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/readyz" >"$READINESS_FILE" 2>/dev/null; then
+    break
+  fi
+
+  if ! kill -0 "$ORCHESTRATOR_PID" >/dev/null 2>&1; then
+    cat "$ORCHESTRATOR_LOG" >&2
+    echo "orchestrator HTTP server exited before becoming ready" >&2
+    exit 1
+  fi
+
+  sleep 1
+done
+
+curl -fsS "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/healthz" >"$HEALTH_FILE"
+
+python3 - "$LIVENESS_FILE" "$READINESS_FILE" "$HEALTH_FILE" <<'PY'
+import json
+import pathlib
+import sys
+
+livez = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+readyz = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
+healthz = json.loads(pathlib.Path(sys.argv[3]).read_text(encoding="utf-8"))
+
+assert livez["status"] == "ok", livez
+assert livez["database"] == "not_checked", livez
+assert readyz["status"] == "ok", readyz
+assert readyz["database"] == "ready", readyz
+assert readyz["schema"] == "ready", readyz
+assert healthz["status"] == "ok", healthz
+assert healthz["database"] == "ready", healthz
+assert healthz["schema"] == "ready", healthz
+PY
+
 SUBMISSION_OUTPUT="$("$BIN" submit-brief \
   --database-url "$DATABASE_URL" \
   --artifact-root "$ARTIFACT_ROOT" \
@@ -77,6 +137,25 @@ PACK_ID="$(printf '%s\n' "$SUBMISSION_OUTPUT" | awk '/^target_pack:/ {print $2; 
 
 test -n "$RUN_ID"
 test -n "$PACK_ID"
+
+RUNS_HTTP_FILE="$ARTIFACT_ROOT/http-runs.json"
+RUN_DETAIL_HTTP_FILE="$ARTIFACT_ROOT/http-run-detail.json"
+curl -fsS "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/runs" >"$RUNS_HTTP_FILE"
+curl -fsS "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/runs/${RUN_ID}" >"$RUN_DETAIL_HTTP_FILE"
+python3 - "$RUNS_HTTP_FILE" "$RUN_DETAIL_HTTP_FILE" "$RUN_ID" <<'PY'
+import json
+import pathlib
+import sys
+
+runs = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+run_detail = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
+run_id = sys.argv[3]
+
+assert runs["count"] >= 1, runs
+assert any(run["run_id"] == run_id for run in runs["runs"]), runs
+assert run_detail["run_id"] == run_id, run_detail
+assert isinstance(run_detail["tasks"], list), run_detail
+PY
 
 POLICY_OUTPUT="$("$BIN" evaluate-run-policy \
   --database-url "$DATABASE_URL" \
@@ -91,6 +170,8 @@ POLICY_ARTIFACT_FILE="$ARTIFACT_ROOT/policy-artifact.json"
   --database-url "$DATABASE_URL" \
   --artifact-id "$POLICY_ARTIFACT_ID" \
   --json >"$POLICY_ARTIFACT_FILE"
+POLICY_ARTIFACT_HTTP_FILE="$ARTIFACT_ROOT/http-policy-artifact.json"
+curl -fsS "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/artifacts/${POLICY_ARTIFACT_ID}" >"$POLICY_ARTIFACT_HTTP_FILE"
 python3 - "$POLICY_ARTIFACT_FILE" <<'PY'
 import json
 import pathlib
@@ -101,6 +182,20 @@ assert artifact["artifact"]["artifact_type"] == "policy_report", artifact
 assert artifact["metadata"]["passed"] is True, artifact
 assert artifact["manifest"]["artifact_type"] == "policy_report", artifact
 assert artifact["manifest"]["passed"] is True, artifact
+PY
+python3 - "$POLICY_ARTIFACT_HTTP_FILE" "$POLICY_ARTIFACT_ID" "$RUN_ID" <<'PY'
+import json
+import pathlib
+import sys
+
+artifact = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+artifact_id = sys.argv[2]
+run_id = sys.argv[3]
+
+assert artifact["artifact"]["artifact_id"] == artifact_id, artifact
+assert artifact["run_id"] == run_id, artifact
+assert artifact["artifact"]["artifact_type"] == "policy_report", artifact
+assert artifact["metadata"]["passed"] is True, artifact
 PY
 
 WORKER_OUTPUT="$("$BIN" worker \

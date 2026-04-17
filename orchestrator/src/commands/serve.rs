@@ -16,7 +16,7 @@ use crate::{
         packs::PackDefinition, pr_candidate,
     },
     runtime::RuntimeRegistry,
-    storage::postgres::PostgresRunStore,
+    storage::postgres::{DatabaseReadiness, PostgresRunStore},
     telemetry,
 };
 
@@ -56,7 +56,9 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                     status: "ok",
                     endpoints: vec![
                         "/",
+                        "/livez",
                         "/healthz",
+                        "/readyz",
                         "/packs",
                         "/packs/{pack_id}",
                         "/artifacts/{artifact_id}",
@@ -74,13 +76,18 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                     ],
                 },
             ),
-            ("GET", "/healthz") => json_response(
+            ("GET", "/livez") => json_response(
                 StatusCode(200),
-                &HealthResponse {
+                &LivenessResponse {
                     status: "ok",
-                    database: "ready",
+                    service: "catalyst-continuum-orchestrator",
+                    database: "not_checked",
                 },
             ),
+            ("GET", "/healthz") | ("GET", "/readyz") => {
+                let (status, payload) = readiness_payload(store.probe_readiness());
+                json_response(status, &payload)
+            }
             ("GET", "/packs") => match build_pack_catalog() {
                 Ok(catalog) => json_response(StatusCode(200), &catalog),
                 Err(error) => json_response(
@@ -701,10 +708,53 @@ fn non_empty_option(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|value| !value.is_empty())
 }
 
+fn readiness_payload(probe: anyhow::Result<DatabaseReadiness>) -> (StatusCode, ReadinessResponse) {
+    match probe {
+        Ok(readiness) if readiness.schema_ready => (
+            StatusCode(200),
+            ReadinessResponse {
+                status: "ok",
+                service: "catalyst-continuum-orchestrator",
+                database: "ready",
+                schema: "ready",
+                database_name: Some(readiness.database_name),
+                missing_tables: Vec::new(),
+                error: None,
+            },
+        ),
+        Ok(readiness) => (
+            StatusCode(503),
+            ReadinessResponse {
+                status: "degraded",
+                service: "catalyst-continuum-orchestrator",
+                database: "ready",
+                schema: "missing_tables",
+                database_name: Some(readiness.database_name),
+                missing_tables: readiness.missing_tables,
+                error: None,
+            },
+        ),
+        Err(error) => (
+            StatusCode(503),
+            ReadinessResponse {
+                status: "error",
+                service: "catalyst-continuum-orchestrator",
+                database: "unavailable",
+                schema: "unknown",
+                database_name: None,
+                missing_tables: Vec::new(),
+                error: Some(error.to_string()),
+            },
+        ),
+    }
+}
+
 fn route_label(method: &str, path: &str) -> &'static str {
     match (method, path) {
         ("GET", "/") => "/",
+        ("GET", "/livez") => "/livez",
         ("GET", "/healthz") => "/healthz",
+        ("GET", "/readyz") => "/readyz",
         ("GET", "/packs") => "/packs",
         ("GET", _) if single_path_segment(path, "/artifacts/").is_some() => {
             "/artifacts/{artifact_id}"
@@ -778,9 +828,21 @@ struct ServiceInfo {
 }
 
 #[derive(Debug, Serialize)]
-struct HealthResponse {
+struct LivenessResponse {
     status: &'static str,
     database: &'static str,
+    service: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+struct ReadinessResponse {
+    status: &'static str,
+    service: &'static str,
+    database: &'static str,
+    schema: &'static str,
+    database_name: Option<String>,
+    missing_tables: Vec<String>,
+    error: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -812,4 +874,66 @@ struct ExportPrCandidateRequest {
 struct PublishPrExportRequest {
     remote_url: Option<String>,
     push: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{readiness_payload, route_label};
+    use crate::storage::postgres::DatabaseReadiness;
+    use anyhow::anyhow;
+    use tiny_http::StatusCode;
+
+    #[test]
+    fn maps_ready_database_probe_to_ok_response() {
+        let (status, payload) = readiness_payload(Ok(DatabaseReadiness {
+            database_name: "continuum".to_string(),
+            schema_ready: true,
+            missing_tables: Vec::new(),
+        }));
+
+        assert_eq!(status, StatusCode(200));
+        assert_eq!(payload.status, "ok");
+        assert_eq!(payload.database, "ready");
+        assert_eq!(payload.schema, "ready");
+        assert_eq!(payload.database_name.as_deref(), Some("continuum"));
+        assert!(payload.error.is_none());
+    }
+
+    #[test]
+    fn maps_missing_schema_probe_to_service_unavailable() {
+        let (status, payload) = readiness_payload(Ok(DatabaseReadiness {
+            database_name: "continuum".to_string(),
+            schema_ready: false,
+            missing_tables: vec!["tasks".to_string()],
+        }));
+
+        assert_eq!(status, StatusCode(503));
+        assert_eq!(payload.status, "degraded");
+        assert_eq!(payload.database, "ready");
+        assert_eq!(payload.schema, "missing_tables");
+        assert_eq!(payload.missing_tables, vec!["tasks".to_string()]);
+    }
+
+    #[test]
+    fn maps_database_failure_to_service_unavailable() {
+        let (status, payload) = readiness_payload(Err(anyhow!("database offline")));
+
+        assert_eq!(status, StatusCode(503));
+        assert_eq!(payload.status, "error");
+        assert_eq!(payload.database, "unavailable");
+        assert_eq!(payload.schema, "unknown");
+        assert!(
+            payload
+                .error
+                .as_deref()
+                .is_some_and(|error| error.contains("database offline"))
+        );
+    }
+
+    #[test]
+    fn labels_new_health_routes() {
+        assert_eq!(route_label("GET", "/livez"), "/livez");
+        assert_eq!(route_label("GET", "/healthz"), "/healthz");
+        assert_eq!(route_label("GET", "/readyz"), "/readyz");
+    }
 }

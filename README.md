@@ -70,6 +70,9 @@ catalyst-continuum-orchestrator describe-artifact --database-url "$CATALYST_DATA
 catalyst-continuum-orchestrator list-runs --database-url "$CATALYST_DATABASE_URL" --json
 catalyst-continuum-orchestrator describe-run --database-url "$CATALYST_DATABASE_URL" --run-id "<RUN_ID>" --json
 catalyst-continuum-orchestrator validate-brief --file examples/briefs/minimal-cli-tool.yaml --json
+curl http://127.0.0.1:8080/livez
+curl http://127.0.0.1:8080/healthz
+curl http://127.0.0.1:8080/readyz
 curl http://127.0.0.1:8080/packs
 curl http://127.0.0.1:8080/packs/container-service
 curl http://127.0.0.1:8080/artifacts/<ARTIFACT_ID>
@@ -119,7 +122,7 @@ GitHub Actions runs one workflow, [`.github/workflows/ci.yml`](.github/workflows
 - `sbom`: builds the orchestrator image, generates an SPDX SBOM, uploads the SBOM artifact, and creates a GitHub/Sigstore provenance attestation for that uploaded artifact
 - `rust`: runs `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo build --workspace --locked`, and `cargo test --workspace --locked`
 - `compose`: validates `deploy/compose/compose.yaml` with the pinned `.env.example`
-- `smoke`: exercises the bootstrap flow end to end for both the `container-service` and `cli-tool` packs: `submit-brief -> evaluate-run-policy -> describe-artifact(policy_report) -> worker -> evaluate-run-quality -> describe-artifact(quality_report) -> export-pr-candidate -> publish-pr-export`
+- `smoke`: exercises the bootstrap flow end to end for both the `container-service` and `cli-tool` packs, including HTTP `livez/readyz` probes and run/artifact inspection: `serve -> livez/readyz -> submit-brief -> GET /runs/{run_id} -> evaluate-run-policy -> GET /artifacts/{policy_artifact_id} -> worker -> evaluate-run-quality -> describe-artifact(quality_report) -> export-pr-candidate -> publish-pr-export`
 
 Local runs through `act` use the runner image and container architecture pinned in [`.actrc`](.actrc), with the canonical values tracked in [`versions.env`](versions.env). GitHub-only publication steps such as artifact upload and attestation are skipped under `act`, because local runs do not expose GitHub runtime tokens, OIDC tokens, or the attestations API. The underlying build and SBOM generation steps still run locally.
 Pinned version policy and update automation are documented in [VERSIONS.md](VERSIONS.md).
@@ -137,7 +140,7 @@ The core checks can be run directly without GitHub Actions:
 ./scripts/ci-smoke.sh
 ```
 
-`./scripts/smoke-mvp.sh` still runs a single end-to-end smoke pass, including policy/quality artifact inspection and the automated run quality gate, and accepts `SMOKE_BRIEF_FILE` to target a specific brief, for example `examples/briefs/minimal-container-service.yaml` or `examples/briefs/minimal-cli-tool.yaml`.
+`./scripts/smoke-mvp.sh` still runs a single end-to-end smoke pass, now including orchestrator HTTP liveness/readiness probes plus policy/quality artifact inspection and the automated run quality gate, and accepts `SMOKE_BRIEF_FILE` to target a specific brief, for example `examples/briefs/minimal-container-service.yaml` or `examples/briefs/minimal-cli-tool.yaml`.
 
 To reproduce the workflow structure locally through `act`:
 

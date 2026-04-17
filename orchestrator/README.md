@@ -23,6 +23,6 @@ Its responsibilities will grow into:
 For now, the crate provides:
 
 - a CLI for pack inspection, artifact inspection, brief validation/submission, run inspection, explicit run policy evaluation, worker execution, automated run quality evaluation, and PR promotion steps
-- a narrow HTTP control-plane scaffold for health, pack discovery, artifact/run inspection, quality evaluation, and automation hooks
+- a narrow HTTP control-plane scaffold for liveness/readiness, pack discovery, artifact/run inspection, quality evaluation, and automation hooks
 - an initial MCP stdio server for agent-facing tool access on top of the same Rust command layer
 - brief-level control-plane policy enforcement with persisted `policy_report` artifacts and execution-time guards for task kind, runtime provider, and sandbox profile

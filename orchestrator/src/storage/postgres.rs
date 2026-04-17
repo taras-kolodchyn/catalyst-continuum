@@ -17,6 +17,12 @@ pub struct PostgresRunStore {
     client: Client,
 }
 
+pub struct DatabaseReadiness {
+    pub database_name: String,
+    pub schema_ready: bool,
+    pub missing_tables: Vec<String>,
+}
+
 impl PostgresRunStore {
     pub fn connect(database_url: &str) -> Result<Self> {
         let client = Client::connect(database_url, NoTls)
@@ -31,6 +37,41 @@ impl PostgresRunStore {
             .context("failed to bootstrap postgres schema")?;
 
         Ok(())
+    }
+
+    pub fn probe_readiness(&mut self) -> Result<DatabaseReadiness> {
+        let row = self
+            .client
+            .query_one(
+                "SELECT
+                    current_database() AS database_name,
+                    to_regclass('public.runs') IS NOT NULL AS has_runs,
+                    to_regclass('public.artifacts') IS NOT NULL AS has_artifacts,
+                    to_regclass('public.tasks') IS NOT NULL AS has_tasks",
+                &[],
+            )
+            .context("failed to probe postgres readiness")?;
+
+        let database_name: String = row.get("database_name");
+        let mut missing_tables = Vec::new();
+
+        if !row.get::<_, bool>("has_runs") {
+            missing_tables.push("runs".to_string());
+        }
+
+        if !row.get::<_, bool>("has_artifacts") {
+            missing_tables.push("artifacts".to_string());
+        }
+
+        if !row.get::<_, bool>("has_tasks") {
+            missing_tables.push("tasks".to_string());
+        }
+
+        Ok(DatabaseReadiness {
+            database_name,
+            schema_ready: missing_tables.is_empty(),
+            missing_tables,
+        })
     }
 
     pub fn insert_run_with_artifacts(
