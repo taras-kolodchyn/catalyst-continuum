@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use crate::{
     cli::ServeArgs,
-    commands::{run_next_task, submit_brief::submit_validated_brief},
+    commands::{run_next_task, submit_brief::submit_validated_brief, worker},
     planning::{
         brief_validation::validate_brief_document, pack_catalog::build_pack_catalog,
         packs::PackDefinition,
@@ -51,6 +51,7 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                         "/runs",
                         "/runs/{run_id}",
                         "POST /runs/{run_id}/tasks/next",
+                        "POST /runs/{run_id}/worker/once",
                         "POST /briefs/validate",
                         "POST /briefs/submit",
                     ],
@@ -201,6 +202,48 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                                 &ErrorResponse {
                                     error: format!(
                                         "failed to execute next task for run {run_id}: {error}"
+                                    ),
+                                },
+                            ),
+                        },
+                        Ok(None) => json_response(
+                            StatusCode(404),
+                            &ErrorResponse {
+                                error: format!("run not found: {run_id}"),
+                            },
+                        ),
+                        Err(error) => json_response(
+                            StatusCode(500),
+                            &ErrorResponse {
+                                error: format!("failed to load run {run_id}: {error}"),
+                            },
+                        ),
+                    },
+                    Err(error) => json_response(
+                        StatusCode(400),
+                        &ErrorResponse {
+                            error: error.to_string(),
+                        },
+                    ),
+                }
+            }
+            ("POST", _) if path.starts_with("/runs/") && path.ends_with("/worker/once") => {
+                match parse_run_action_path(path, "/worker/once") {
+                    Ok(run_id) => match store.fetch_run_summary(run_id) {
+                        Ok(Some(_)) => match worker::run_worker(
+                            &mut store,
+                            &runtime_registry,
+                            Some(run_id),
+                            &args.artifact_root,
+                            true,
+                            0,
+                        ) {
+                            Ok(report) => json_response(StatusCode(200), &report),
+                            Err(error) => json_response(
+                                StatusCode(500),
+                                &ErrorResponse {
+                                    error: format!(
+                                        "failed to run worker once for run {run_id}: {error}"
                                     ),
                                 },
                             ),
