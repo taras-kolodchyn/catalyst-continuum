@@ -23,7 +23,7 @@ use crate::{
     planning::{
         packs::{PackDefinition, PackGeneratedRuntimeContract, PackGeneratedSmokeContract},
         pr_candidate::PR_CANDIDATE_ARTIFACT_TYPE,
-        workspace_snapshot::SNAPSHOT_ARTIFACT_TYPE,
+        workspace_snapshot::{PATCH_ARTIFACT_TYPE, SNAPSHOT_ARTIFACT_TYPE, SOURCE_ARTIFACT_TYPES},
     },
 };
 
@@ -129,6 +129,8 @@ pub fn evaluate_run_quality(
             latest_pr_candidate,
             "pr_candidate",
         ),
+        evaluate_workspace_snapshot_freshness_check(artifacts),
+        evaluate_pr_candidate_freshness_check(artifacts),
     ];
     checks.push(evaluate_generated_repository_smoke(
         run,
@@ -356,6 +358,164 @@ fn evaluate_artifact_presence_check(
                 "artifact_type": artifact_type,
             }),
         ),
+    }
+}
+
+fn evaluate_workspace_snapshot_freshness_check(artifacts: &[ArtifactSummary]) -> QualityCheck {
+    let Some(latest_snapshot) = latest_artifact_of_type(artifacts, SNAPSHOT_ARTIFACT_TYPE) else {
+        return QualityCheck::skipped(
+            "workspace_snapshot_fresh",
+            "cannot verify snapshot freshness without a workspace_snapshot artifact",
+            json!({}),
+        );
+    };
+
+    let latest_source_artifacts = SOURCE_ARTIFACT_TYPES
+        .iter()
+        .filter_map(|artifact_type| {
+            latest_artifact_of_type(artifacts, artifact_type)
+                .map(|artifact| (*artifact_type, artifact))
+        })
+        .collect::<Vec<_>>();
+    if latest_source_artifacts.is_empty() {
+        return QualityCheck::skipped(
+            "workspace_snapshot_fresh",
+            "run does not contain source bundle artifacts for snapshot freshness evaluation",
+            json!({
+                "workspace_snapshot_artifact_id": latest_snapshot.artifact_id,
+            }),
+        );
+    }
+
+    let referenced_source_artifact_ids =
+        match artifact_metadata_uuid_list(latest_snapshot, "source_artifact_ids") {
+            Ok(ids) => ids,
+            Err(error) => {
+                return QualityCheck::failed(
+                    "workspace_snapshot_fresh",
+                    format!("workspace snapshot metadata is invalid: {error:#}"),
+                    json!({
+                        "workspace_snapshot_artifact_id": latest_snapshot.artifact_id,
+                    }),
+                );
+            }
+        };
+
+    let stale_source_artifacts = latest_source_artifacts
+        .iter()
+        .filter(|(_, artifact)| !referenced_source_artifact_ids.contains(&artifact.artifact_id))
+        .map(|(artifact_type, artifact)| {
+            json!({
+                "artifact_type": artifact_type,
+                "artifact_id": artifact.artifact_id,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    if stale_source_artifacts.is_empty() {
+        QualityCheck::passed(
+            "workspace_snapshot_fresh",
+            "latest workspace snapshot references the newest source bundles",
+            json!({
+                "workspace_snapshot_artifact_id": latest_snapshot.artifact_id,
+                "source_artifact_ids": referenced_source_artifact_ids,
+            }),
+        )
+    } else {
+        QualityCheck::failed(
+            "workspace_snapshot_fresh",
+            "latest workspace snapshot is stale relative to the newest source bundles",
+            json!({
+                "workspace_snapshot_artifact_id": latest_snapshot.artifact_id,
+                "source_artifact_ids": referenced_source_artifact_ids,
+                "stale_source_artifacts": stale_source_artifacts,
+            }),
+        )
+    }
+}
+
+fn evaluate_pr_candidate_freshness_check(artifacts: &[ArtifactSummary]) -> QualityCheck {
+    let Some(latest_pr_candidate) = latest_artifact_of_type(artifacts, PR_CANDIDATE_ARTIFACT_TYPE)
+    else {
+        return QualityCheck::skipped(
+            "pr_candidate_fresh",
+            "cannot verify PR candidate freshness without a pr_candidate artifact",
+            json!({}),
+        );
+    };
+    let Some(latest_snapshot) = latest_artifact_of_type(artifacts, SNAPSHOT_ARTIFACT_TYPE) else {
+        return QualityCheck::failed(
+            "pr_candidate_fresh",
+            "cannot verify PR candidate freshness without a workspace_snapshot artifact",
+            json!({
+                "pr_candidate_artifact_id": latest_pr_candidate.artifact_id,
+            }),
+        );
+    };
+    let Some(latest_patch) = latest_artifact_of_type(artifacts, PATCH_ARTIFACT_TYPE) else {
+        return QualityCheck::failed(
+            "pr_candidate_fresh",
+            "cannot verify PR candidate freshness without a workspace_patch artifact",
+            json!({
+                "pr_candidate_artifact_id": latest_pr_candidate.artifact_id,
+            }),
+        );
+    };
+
+    let referenced_snapshot_artifact_id = match artifact_metadata_uuid(
+        latest_pr_candidate,
+        "latest_workspace_snapshot_artifact_id",
+    ) {
+        Ok(artifact_id) => artifact_id,
+        Err(error) => {
+            return QualityCheck::failed(
+                "pr_candidate_fresh",
+                format!("PR candidate metadata is invalid: {error:#}"),
+                json!({
+                    "pr_candidate_artifact_id": latest_pr_candidate.artifact_id,
+                }),
+            );
+        }
+    };
+    let referenced_patch_artifact_ids =
+        match artifact_metadata_uuid_list(latest_pr_candidate, "patch_artifact_ids") {
+            Ok(ids) => ids,
+            Err(error) => {
+                return QualityCheck::failed(
+                    "pr_candidate_fresh",
+                    format!("PR candidate metadata is invalid: {error:#}"),
+                    json!({
+                        "pr_candidate_artifact_id": latest_pr_candidate.artifact_id,
+                    }),
+                );
+            }
+        };
+
+    let snapshot_is_current = referenced_snapshot_artifact_id == latest_snapshot.artifact_id;
+    let patch_is_current = referenced_patch_artifact_ids.contains(&latest_patch.artifact_id);
+
+    if snapshot_is_current && patch_is_current {
+        QualityCheck::passed(
+            "pr_candidate_fresh",
+            "latest PR candidate references the newest snapshot and patch artifacts",
+            json!({
+                "pr_candidate_artifact_id": latest_pr_candidate.artifact_id,
+                "latest_workspace_snapshot_artifact_id": referenced_snapshot_artifact_id,
+                "patch_artifact_ids": referenced_patch_artifact_ids,
+            }),
+        )
+    } else {
+        QualityCheck::failed(
+            "pr_candidate_fresh",
+            "latest PR candidate is stale relative to the newest snapshot or patch artifacts",
+            json!({
+                "pr_candidate_artifact_id": latest_pr_candidate.artifact_id,
+                "referenced_workspace_snapshot_artifact_id": referenced_snapshot_artifact_id,
+                "current_workspace_snapshot_artifact_id": latest_snapshot.artifact_id,
+                "referenced_patch_artifact_ids": referenced_patch_artifact_ids,
+                "current_workspace_patch_artifact_id": latest_patch.artifact_id,
+            }),
+        )
     }
 }
 
@@ -794,6 +954,41 @@ fn latest_artifact_of_type<'a>(
         .find(|artifact| artifact.artifact_type == artifact_type)
 }
 
+fn artifact_metadata_uuid_list(artifact: &ArtifactSummary, key: &str) -> Result<Vec<Uuid>> {
+    let values = artifact
+        .metadata
+        .get(key)
+        .and_then(Value::as_array)
+        .with_context(|| {
+            format!(
+                "artifact {} is missing metadata.{key}",
+                artifact.artifact_id
+            )
+        })?;
+
+    values
+        .iter()
+        .map(|value| {
+            let raw = value.as_str().with_context(|| {
+                format!(
+                    "artifact {} has invalid metadata.{key}: expected array of UUID strings",
+                    artifact.artifact_id
+                )
+            })?;
+
+            Uuid::parse_str(raw).map_err(|error| {
+                anyhow!(
+                    "artifact {} has invalid metadata.{} UUID `{}`: {}",
+                    artifact.artifact_id,
+                    key,
+                    raw,
+                    error
+                )
+            })
+        })
+        .collect()
+}
+
 fn load_requirement_ids(repository_root: &Path) -> Vec<String> {
     let requirements_root = repository_root.join("requirements");
     let mut ids = fs::read_dir(&requirements_root)
@@ -956,7 +1151,11 @@ struct CommandOutcome {
 mod tests {
     use super::*;
 
-    use crate::planning::packs::PackDefinition;
+    use crate::planning::{
+        packs::PackDefinition,
+        pr_candidate::PR_CANDIDATE_ARTIFACT_TYPE,
+        workspace_snapshot::{PATCH_ARTIFACT_TYPE, SNAPSHOT_ARTIFACT_TYPE},
+    };
 
     #[test]
     fn produces_failed_quality_gate_when_run_is_not_ready() {
@@ -988,5 +1187,96 @@ mod tests {
         assert!(Path::new(&evaluation.artifact.location_value).is_file());
 
         let _ = fs::remove_dir_all(temp_root);
+    }
+
+    #[test]
+    fn passes_workspace_snapshot_freshness_when_latest_sources_are_referenced() {
+        let scaffold_bundle_id = Uuid::new_v4();
+        let code_bundle_id = Uuid::new_v4();
+        let workspace_snapshot_id = Uuid::new_v4();
+        let check = evaluate_workspace_snapshot_freshness_check(&[
+            sample_artifact("scaffold_bundle", scaffold_bundle_id, json!({})),
+            sample_artifact("code_bundle", code_bundle_id, json!({})),
+            sample_artifact(
+                SNAPSHOT_ARTIFACT_TYPE,
+                workspace_snapshot_id,
+                json!({
+                    "source_artifact_ids": [
+                        scaffold_bundle_id.to_string(),
+                        code_bundle_id.to_string(),
+                    ],
+                }),
+            ),
+        ]);
+
+        assert_eq!(check.status, "passed");
+    }
+
+    #[test]
+    fn fails_workspace_snapshot_freshness_when_latest_bundle_is_missing() {
+        let scaffold_bundle_id = Uuid::new_v4();
+        let code_bundle_id = Uuid::new_v4();
+        let stale_code_bundle_id = Uuid::new_v4();
+        let check = evaluate_workspace_snapshot_freshness_check(&[
+            sample_artifact("scaffold_bundle", scaffold_bundle_id, json!({})),
+            sample_artifact("code_bundle", stale_code_bundle_id, json!({})),
+            sample_artifact("code_bundle", code_bundle_id, json!({})),
+            sample_artifact(
+                SNAPSHOT_ARTIFACT_TYPE,
+                Uuid::new_v4(),
+                json!({
+                    "source_artifact_ids": [
+                        scaffold_bundle_id.to_string(),
+                        stale_code_bundle_id.to_string(),
+                    ],
+                }),
+            ),
+        ]);
+
+        assert_eq!(check.status, "failed");
+        assert_eq!(check.check_id, "workspace_snapshot_fresh");
+    }
+
+    #[test]
+    fn fails_pr_candidate_freshness_when_latest_patch_is_not_referenced() {
+        let latest_snapshot_id = Uuid::new_v4();
+        let stale_patch_id = Uuid::new_v4();
+        let latest_patch_id = Uuid::new_v4();
+        let check = evaluate_pr_candidate_freshness_check(&[
+            sample_artifact(
+                SNAPSHOT_ARTIFACT_TYPE,
+                latest_snapshot_id,
+                json!({
+                    "source_artifact_ids": [],
+                }),
+            ),
+            sample_artifact(PATCH_ARTIFACT_TYPE, stale_patch_id, json!({})),
+            sample_artifact(PATCH_ARTIFACT_TYPE, latest_patch_id, json!({})),
+            sample_artifact(
+                PR_CANDIDATE_ARTIFACT_TYPE,
+                Uuid::new_v4(),
+                json!({
+                    "latest_workspace_snapshot_artifact_id": latest_snapshot_id.to_string(),
+                    "patch_artifact_ids": [stale_patch_id.to_string()],
+                }),
+            ),
+        ]);
+
+        assert_eq!(check.status, "failed");
+        assert_eq!(check.check_id, "pr_candidate_fresh");
+    }
+
+    fn sample_artifact(artifact_type: &str, artifact_id: Uuid, metadata: Value) -> ArtifactSummary {
+        ArtifactSummary {
+            artifact_id,
+            artifact_type: artifact_type.to_string(),
+            format: "directory".to_string(),
+            location_kind: "path".to_string(),
+            location_value: format!("/tmp/{}", artifact_id),
+            content_digest: format!("sha256:{artifact_id}"),
+            metadata,
+            created_at: Some("2026-04-18T00:00:00Z".to_string()),
+            persisted: true,
+        }
     }
 }

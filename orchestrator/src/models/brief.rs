@@ -195,6 +195,8 @@ pub struct BriefPolicy {
     #[serde(default)]
     pub max_total_timeout_seconds: Option<u64>,
     #[serde(default)]
+    pub max_task_retry_count: Option<u32>,
+    #[serde(default)]
     pub allowed_task_kinds: Vec<String>,
     #[serde(default)]
     pub allowed_runtime_providers: Vec<String>,

@@ -340,7 +340,7 @@ impl PostgresRunStore {
                 &format!(
                     "UPDATE tasks
                     SET status = 'running',
-                        started_at = COALESCE(started_at, NOW()),
+                        started_at = NOW(),
                         failure_reason = NULL
                     WHERE task_id = $1
                     RETURNING
@@ -381,6 +381,7 @@ impl PostgresRunStore {
         task_id: Uuid,
         status: &str,
         failure_reason: Option<&str>,
+        metadata: &Value,
     ) -> Result<TaskSummary> {
         let row = self
             .client
@@ -389,7 +390,8 @@ impl PostgresRunStore {
                     "UPDATE tasks
                     SET status = $2,
                         completed_at = NOW(),
-                        failure_reason = $3
+                        failure_reason = $3,
+                        metadata = $4
                     WHERE task_id = $1
                     RETURNING
                         task_id,
@@ -417,9 +419,59 @@ impl PostgresRunStore {
                         END AS completed_at,
                         failure_reason"
                 ),
-                &[&task_id, &status, &failure_reason],
+                &[&task_id, &status, &failure_reason, &metadata],
             )
             .context("failed to mark task finished")?;
+
+        Ok(row_to_task_summary(&row))
+    }
+
+    pub fn requeue_task(
+        &mut self,
+        task_id: Uuid,
+        failure_reason: Option<&str>,
+        metadata: &Value,
+    ) -> Result<TaskSummary> {
+        let row = self
+            .client
+            .query_one(
+                &format!(
+                    "UPDATE tasks
+                    SET status = 'queued',
+                        started_at = NULL,
+                        completed_at = NULL,
+                        failure_reason = $2,
+                        metadata = $3
+                    WHERE task_id = $1
+                    RETURNING
+                        task_id,
+                        run_id,
+                        backlog_item_id,
+                        kind,
+                        priority,
+                        title,
+                        description,
+                        status,
+                        execution,
+                        dependency_task_ids,
+                        source_refs,
+                        assigned_pack,
+                        approval_required,
+                        metadata,
+                        to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
+                        CASE
+                            WHEN started_at IS NULL THEN NULL
+                            ELSE to_char(started_at AT TIME ZONE 'UTC', '{RFC3339_SQL}')
+                        END AS started_at,
+                        CASE
+                            WHEN completed_at IS NULL THEN NULL
+                            ELSE to_char(completed_at AT TIME ZONE 'UTC', '{RFC3339_SQL}')
+                        END AS completed_at,
+                        failure_reason"
+                ),
+                &[&task_id, &failure_reason, &metadata],
+            )
+            .context("failed to requeue task")?;
 
         Ok(row_to_task_summary(&row))
     }
@@ -789,6 +841,8 @@ impl PostgresRunStore {
 }
 
 fn row_to_task_summary(row: &postgres::Row) -> TaskSummary {
+    let metadata: Value = row.get("metadata");
+
     TaskSummary {
         task_id: row.get("task_id"),
         run_id: row.get("run_id"),
@@ -819,7 +873,8 @@ fn row_to_task_summary(row: &postgres::Row) -> TaskSummary {
         source_refs: row.get("source_refs"),
         assigned_pack: row.get("assigned_pack"),
         approval_required: row.get("approval_required"),
-        metadata: row.get("metadata"),
+        retry_state: crate::models::task::retry_state_from_metadata(&metadata),
+        metadata,
         created_at: row.get("created_at"),
         started_at: row.get("started_at"),
         completed_at: row.get("completed_at"),

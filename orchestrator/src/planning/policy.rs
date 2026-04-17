@@ -281,6 +281,7 @@ fn evaluate_policy_declared_check(policy: Option<&BriefPolicy>) -> PolicyCheck {
             json!({
                 "max_task_count": policy.max_task_count,
                 "max_total_timeout_seconds": policy.max_total_timeout_seconds,
+                "max_task_retry_count": policy.max_task_retry_count,
                 "allowed_task_kinds": policy.allowed_task_kinds,
                 "allowed_runtime_providers": policy.allowed_runtime_providers,
                 "allowed_sandbox_profiles": policy.allowed_sandbox_profiles,
@@ -630,6 +631,7 @@ mod tests {
         let brief = sample_brief(Some(BriefPolicy {
             max_task_count: Some(4),
             max_total_timeout_seconds: Some(120),
+            max_task_retry_count: Some(1),
             allowed_task_kinds: vec![
                 "plan".to_string(),
                 "scaffold".to_string(),
@@ -676,6 +678,7 @@ mod tests {
         let brief = sample_brief(Some(BriefPolicy {
             max_task_count: None,
             max_total_timeout_seconds: None,
+            max_task_retry_count: Some(1),
             allowed_task_kinds: vec![],
             allowed_runtime_providers: vec!["docker".to_string()],
             allowed_sandbox_profiles: vec![],

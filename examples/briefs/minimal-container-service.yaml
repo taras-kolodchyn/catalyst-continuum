@@ -43,6 +43,7 @@ execution_preferences:
 policy:
   max_task_count: 8
   max_total_timeout_seconds: 180
+  max_task_retry_count: 1
   allowed_task_kinds:
     - plan
     - scaffold

@@ -206,6 +206,7 @@ impl RuntimeProvider for DockerRuntimeProvider {
             exit_code: artifact_payload.exit_code,
             artifacts: vec![artifact],
             failure_reason,
+            retryable: artifact_payload.exit_code != 0,
         })
     }
 }

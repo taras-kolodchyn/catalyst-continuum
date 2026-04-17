@@ -21,7 +21,7 @@ The rule is simple:
 
 The Rust command/application layer remains the single source of truth underneath all three interfaces.
 
-The first control-plane policy slice now lives in the brief itself. It does not duplicate LiteLLM token or spend budgets. Instead, it constrains orchestration-level behavior such as planned task count, total timeout budget, allowed task kinds, allowed runtime providers, and allowed sandbox profiles. Every accepted submission now emits a `policy_report` artifact alongside the `backlog`.
+The first control-plane policy slice now lives in the brief itself. It does not duplicate LiteLLM token or spend budgets. Instead, it constrains orchestration-level behavior such as planned task count, total timeout budget, bounded retry scheduling, allowed task kinds, allowed runtime providers, and allowed sandbox profiles. Every accepted submission now emits a `policy_report` artifact alongside the `backlog`.
 
 Example:
 
@@ -29,6 +29,7 @@ Example:
 policy:
   max_task_count: 8
   max_total_timeout_seconds: 180
+  max_task_retry_count: 1
   allowed_task_kinds: [plan, scaffold, code, test]
   allowed_runtime_providers: [docker]
   allowed_sandbox_profiles: [restricted]
@@ -50,6 +51,7 @@ catalyst-continuum-orchestrator evaluate-run-quality \
   --run-id "<RUN_ID>"
 ```
 
+The quality gate now checks both presence and freshness of derived artifacts, including whether the latest `workspace_snapshot` still references the newest source bundles and whether the latest `pr_candidate` still points at the newest snapshot and patch set.
 `publish-pr-export`, `open-github-pr`, and `create-draft-pr` re-run this gate automatically and reject stale or unverified `pr_candidate` artifacts.
 
 After that, the run can be promoted into a draft GitHub pull request:

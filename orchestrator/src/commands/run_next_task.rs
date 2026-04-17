@@ -1,11 +1,16 @@
 use anyhow::Context;
 use serde::Serialize;
+use serde_json::Value;
 use std::path::Path;
 use std::time::Instant;
 
 use crate::{
     cli::RunNextTaskArgs,
-    models::{artifact::ArtifactSummary, task::TaskSummary},
+    models::{
+        artifact::ArtifactSummary,
+        run::RunContext,
+        task::{TaskRetryState, TaskSummary, metadata_with_retry_state},
+    },
     planning::{materialization, packs::PackDefinition, policy, pr_candidate, workspace_snapshot},
     runtime::{RuntimeRegistry, TaskExecutionContext, TaskExecutionResult, TaskWorkspace},
     storage::postgres::PostgresRunStore,
@@ -44,6 +49,8 @@ pub struct NoRunnableTask {
 pub struct TaskExecutionReport {
     run_id: uuid::Uuid,
     run_status: String,
+    execution_status: String,
+    retry_scheduled: bool,
     task: TaskSummary,
     artifacts: Vec<ArtifactSummary>,
     provider: String,
@@ -58,6 +65,14 @@ pub enum NextTaskExecution {
     Idle(NoRunnableTask),
 }
 
+#[derive(Debug)]
+struct TaskCompletionPlan {
+    status: String,
+    failure_reason: Option<String>,
+    metadata: Value,
+    retry_scheduled: bool,
+}
+
 impl TaskExecutionReport {
     pub fn render_text(&self) -> anyhow::Result<String> {
         let mut output = String::new();
@@ -67,6 +82,14 @@ impl TaskExecutionReport {
         writeln!(&mut output, "run_id: {}", self.run_id).context("failed to render execution")?;
         writeln!(&mut output, "run_status: {}", self.run_status)
             .context("failed to render execution")?;
+        writeln!(&mut output, "execution_status: {}", self.execution_status)
+            .context("failed to render execution")?;
+        writeln!(
+            &mut output,
+            "retry_scheduled: {}",
+            if self.retry_scheduled { "yes" } else { "no" }
+        )
+        .context("failed to render execution")?;
         writeln!(&mut output, "provider: {}", self.provider)
             .context("failed to render execution")?;
         if let Some(image) = &self.image {
@@ -219,27 +242,132 @@ pub fn execute_next_task(
             artifact_root,
         );
     }
-    let finished_task = store.mark_task_finished(
-        running_task.task_id,
-        &execution.task_status,
-        execution.failure_reason.as_deref(),
-    )?;
+    let completion_plan = plan_task_completion(&run_context, &running_task, &execution);
+    let finished_task = if completion_plan.retry_scheduled {
+        tracing::warn!(
+            run_id = %running_task.run_id,
+            task_id = %running_task.task_id,
+            retry_count = running_task
+                .retry_state
+                .as_ref()
+                .map(|state| state.retry_count + 1)
+                .unwrap_or(1),
+            max_retry_count = running_task
+                .retry_state
+                .as_ref()
+                .map(|state| state.max_retry_count)
+                .or_else(|| max_task_retry_count(&run_context)),
+            "task execution failed and was requeued for retry"
+        );
+        store.requeue_task(
+            running_task.task_id,
+            completion_plan.failure_reason.as_deref(),
+            &completion_plan.metadata,
+        )?
+    } else {
+        store.mark_task_finished(
+            running_task.task_id,
+            &completion_plan.status,
+            completion_plan.failure_reason.as_deref(),
+            &completion_plan.metadata,
+        )?
+    };
     let run_status = store.refresh_run_status(finished_task.run_id)?;
     telemetry::record_task_execution(
         &running_task.execution.provider,
-        &finished_task.status,
+        if completion_plan.retry_scheduled {
+            "retried"
+        } else {
+            &finished_task.status
+        },
         started_at.elapsed(),
     );
 
     Ok(NextTaskExecution::Executed(Box::new(TaskExecutionReport {
         run_id: finished_task.run_id,
         run_status,
+        execution_status: execution.task_status,
+        retry_scheduled: completion_plan.retry_scheduled,
         task: finished_task,
         artifacts,
         provider: running_task.execution.provider,
         image: running_task.execution.image,
         exit_code: execution.exit_code,
     })))
+}
+
+fn plan_task_completion(
+    run_context: &RunContext,
+    task: &TaskSummary,
+    execution: &TaskExecutionResult,
+) -> TaskCompletionPlan {
+    let retry_state = task
+        .retry_state
+        .clone()
+        .or_else(|| max_task_retry_count(run_context).map(TaskRetryState::new));
+
+    match execution.task_status.as_str() {
+        "succeeded" => {
+            let metadata = retry_state
+                .as_ref()
+                .map(|state| metadata_with_retry_state(&task.metadata, &state.after_success()))
+                .unwrap_or_else(|| task.metadata.clone());
+            TaskCompletionPlan {
+                status: "succeeded".to_string(),
+                failure_reason: None,
+                metadata,
+                retry_scheduled: false,
+            }
+        }
+        _ => {
+            let failure_reason = execution
+                .failure_reason
+                .clone()
+                .unwrap_or_else(|| "task execution failed".to_string());
+
+            if execution.retryable
+                && retry_state
+                    .as_ref()
+                    .is_some_and(TaskRetryState::can_schedule_retry)
+            {
+                let next_retry_state = retry_state
+                    .expect("retry state should exist when retry is allowed")
+                    .after_requeue(failure_reason.clone());
+                TaskCompletionPlan {
+                    status: "queued".to_string(),
+                    failure_reason: Some(failure_reason),
+                    metadata: metadata_with_retry_state(&task.metadata, &next_retry_state),
+                    retry_scheduled: true,
+                }
+            } else {
+                let metadata = retry_state
+                    .as_ref()
+                    .map(|state| {
+                        metadata_with_retry_state(
+                            &task.metadata,
+                            &state.after_terminal_failure(failure_reason.clone()),
+                        )
+                    })
+                    .unwrap_or_else(|| task.metadata.clone());
+                TaskCompletionPlan {
+                    status: "failed".to_string(),
+                    failure_reason: Some(failure_reason),
+                    metadata,
+                    retry_scheduled: false,
+                }
+            }
+        }
+    }
+}
+
+fn max_task_retry_count(run_context: &RunContext) -> Option<u32> {
+    run_context
+        .metadata
+        .get("policy")
+        .and_then(|policy| policy.get("max_task_retry_count"))
+        .and_then(Value::as_u64)
+        .and_then(|value| u32::try_from(value).ok())
+        .filter(|value| *value > 0)
 }
 
 fn build_execution_context(
@@ -296,6 +424,7 @@ fn apply_task_materialization(
     if let Err(error) = result {
         execution.task_status = "failed".to_string();
         execution.failure_reason = Some(format!("task post-processing failed: {error:#}"));
+        execution.retryable = false;
     }
 }
 
@@ -313,6 +442,7 @@ fn apply_code_workspace_patch(
         execution.task_status = "failed".to_string();
         execution.failure_reason =
             Some("code task is missing prepared workspace context".to_string());
+        execution.retryable = false;
         return;
     };
 
@@ -337,6 +467,7 @@ fn apply_code_workspace_patch(
     if let Err(error) = result {
         execution.task_status = "failed".to_string();
         execution.failure_reason = Some(format!("code workspace patch failed: {error:#}"));
+        execution.retryable = false;
     }
 }
 
@@ -369,6 +500,7 @@ fn refresh_workspace_snapshot(
     if let Err(error) = result {
         execution.task_status = "failed".to_string();
         execution.failure_reason = Some(format!("workspace snapshot refresh failed: {error:#}"));
+        execution.retryable = false;
     }
 }
 
@@ -412,5 +544,164 @@ fn refresh_pr_candidate(
     if let Err(error) = result {
         execution.task_status = "failed".to_string();
         execution.failure_reason = Some(format!("PR candidate refresh failed: {error:#}"));
+        execution.retryable = false;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{max_task_retry_count, plan_task_completion};
+    use crate::{
+        models::{
+            run::RunContext,
+            task::{TaskExecutionSpec, TaskRetryState, TaskSummary, retry_state_from_metadata},
+        },
+        runtime::TaskExecutionResult,
+    };
+    use serde_json::json;
+    use uuid::Uuid;
+
+    #[test]
+    fn schedules_retry_when_retryable_failure_has_budget() {
+        let run_context = sample_run_context(Some(1));
+        let task = sample_task(None);
+        let execution = TaskExecutionResult::retryable_failure("transient docker failure");
+
+        let plan = plan_task_completion(&run_context, &task, &execution);
+
+        assert_eq!(plan.status, "queued");
+        assert!(plan.retry_scheduled);
+        assert_eq!(
+            plan.failure_reason.as_deref(),
+            Some("transient docker failure")
+        );
+        let retry_state =
+            retry_state_from_metadata(&plan.metadata).expect("retry state should be recorded");
+        assert_eq!(retry_state.attempt_count, 1);
+        assert_eq!(retry_state.retry_count, 1);
+        assert_eq!(retry_state.max_retry_count, 1);
+        assert!(retry_state.retry_scheduled);
+    }
+
+    #[test]
+    fn keeps_terminal_failure_when_retry_budget_is_exhausted() {
+        let run_context = sample_run_context(Some(1));
+        let task = sample_task(Some(TaskRetryState {
+            attempt_count: 1,
+            retry_count: 1,
+            max_retry_count: 1,
+            retry_scheduled: false,
+            last_failure_reason: Some("previous failure".to_string()),
+        }));
+        let execution = TaskExecutionResult::retryable_failure("second failure");
+
+        let plan = plan_task_completion(&run_context, &task, &execution);
+
+        assert_eq!(plan.status, "failed");
+        assert!(!plan.retry_scheduled);
+        let retry_state =
+            retry_state_from_metadata(&plan.metadata).expect("retry state should be recorded");
+        assert_eq!(retry_state.attempt_count, 2);
+        assert_eq!(retry_state.retry_count, 1);
+        assert!(!retry_state.retry_scheduled);
+        assert_eq!(
+            retry_state.last_failure_reason.as_deref(),
+            Some("second failure")
+        );
+    }
+
+    #[test]
+    fn clears_last_failure_after_success() {
+        let run_context = sample_run_context(Some(2));
+        let task = sample_task(Some(TaskRetryState {
+            attempt_count: 1,
+            retry_count: 1,
+            max_retry_count: 2,
+            retry_scheduled: true,
+            last_failure_reason: Some("transient docker failure".to_string()),
+        }));
+        let execution = TaskExecutionResult {
+            task_status: "succeeded".to_string(),
+            exit_code: 0,
+            artifacts: Vec::new(),
+            failure_reason: None,
+            retryable: false,
+        };
+
+        let plan = plan_task_completion(&run_context, &task, &execution);
+
+        assert_eq!(plan.status, "succeeded");
+        assert!(!plan.retry_scheduled);
+        let retry_state =
+            retry_state_from_metadata(&plan.metadata).expect("retry state should be recorded");
+        assert_eq!(retry_state.attempt_count, 2);
+        assert_eq!(retry_state.retry_count, 1);
+        assert!(!retry_state.retry_scheduled);
+        assert_eq!(retry_state.last_failure_reason, None);
+    }
+
+    #[test]
+    fn extracts_retry_policy_limit_from_run_context() {
+        let run_context = sample_run_context(Some(3));
+        assert_eq!(max_task_retry_count(&run_context), Some(3));
+        assert_eq!(max_task_retry_count(&sample_run_context(None)), None);
+    }
+
+    fn sample_run_context(max_task_retry_count: Option<u32>) -> RunContext {
+        RunContext {
+            run_id: Uuid::new_v4(),
+            title: "Retry policy test".to_string(),
+            selected_pack: Some("container-service".to_string()),
+            repository_host: None,
+            repository_owner: None,
+            repository_name: None,
+            repository_default_branch: None,
+            repository_visibility: None,
+            metadata: json!({
+                "policy": {
+                    "max_task_retry_count": max_task_retry_count,
+                }
+            }),
+        }
+    }
+
+    fn sample_task(retry_state: Option<TaskRetryState>) -> TaskSummary {
+        let metadata = retry_state
+            .as_ref()
+            .map(|state| json!({ "retry": state }))
+            .unwrap_or_else(|| json!({}));
+
+        TaskSummary {
+            task_id: Uuid::new_v4(),
+            run_id: Uuid::new_v4(),
+            backlog_item_id: "CODE-001".to_string(),
+            kind: "code".to_string(),
+            priority: "high".to_string(),
+            status: "running".to_string(),
+            title: "Retryable task".to_string(),
+            description: "Exercise retry logic.".to_string(),
+            execution: TaskExecutionSpec {
+                provider: "docker".to_string(),
+                image: Some(
+                    "busybox:1.37.0@sha256:1487d0af5f52b4ba31c7e465126ee2123fe3f2305d638e7827681e7cf6c83d5e"
+                        .to_string(),
+                ),
+                command: vec!["sh".to_string(), "-lc".to_string(), "exit 1".to_string()],
+                working_directory: Some("/workspace".to_string()),
+                sandbox_profile: Some("restricted".to_string()),
+                timeout_seconds: Some(30),
+            },
+            dependency_task_ids: json!([]),
+            source_refs: json!(["test"]),
+            assigned_pack: Some("container-service".to_string()),
+            approval_required: false,
+            retry_state,
+            metadata,
+            created_at: None,
+            started_at: None,
+            completed_at: None,
+            failure_reason: None,
+            persisted: false,
+        }
     }
 }

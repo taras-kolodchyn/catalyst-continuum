@@ -7,7 +7,7 @@ use uuid::Uuid;
 use crate::{
     models::{
         run::RunDraft,
-        task::{TaskDraft, TaskExecutionSpec},
+        task::{TaskDraft, TaskExecutionSpec, TaskRetryState, metadata_with_retry_state},
     },
     planning::{
         backlog::BacklogItem,
@@ -43,6 +43,7 @@ pub fn materialize_tasks(
                     )
                 })?;
             let dependency_task_ids = dependency_task_ids(template, &task_ids_by_kind);
+            let metadata = task_metadata(run, pack, item);
 
             Ok(TaskDraft {
                 task_id: task_ids_by_item[item.id.as_str()],
@@ -60,12 +61,7 @@ pub fn materialize_tasks(
                 approval_required: template
                     .approval_required
                     .unwrap_or(item.kind == "deploy" || item.kind == "review"),
-                metadata: json!({
-                    "generated_from": "initial_backlog",
-                    "brief_id": run.brief_id,
-                    "pack_id": pack.pack_id,
-                    "template_id": item.template_id,
-                }),
+                metadata,
             })
         })
         .collect()
@@ -160,13 +156,37 @@ fn collect_ids_by_kind(
     task_ids_by_kind
 }
 
+fn task_metadata(run: &RunDraft, pack: &PackDefinition, item: &BacklogItem) -> serde_json::Value {
+    let metadata = json!({
+        "generated_from": "initial_backlog",
+        "brief_id": run.brief_id,
+        "pack_id": pack.pack_id,
+        "template_id": item.template_id,
+    });
+
+    match max_task_retry_count_from_run(run) {
+        Some(max_retry_count) => {
+            metadata_with_retry_state(&metadata, &TaskRetryState::new(max_retry_count))
+        }
+        None => metadata,
+    }
+}
+
+fn max_task_retry_count_from_run(run: &RunDraft) -> Option<u32> {
+    run.metadata
+        .get("policy")
+        .and_then(|policy| policy.get("max_task_retry_count"))
+        .and_then(serde_json::Value::as_u64)
+        .and_then(|value| u32::try_from(value).ok())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{
         models::{
             brief::{
-                Brief, ExecutionPreferences, RepositoryHost, RepositoryTarget,
+                Brief, BriefPolicy, ExecutionPreferences, RepositoryHost, RepositoryTarget,
                 RepositoryVisibility, Requirement, RequirementPriority, RuntimeProvider,
             },
             run::RunDraft,
@@ -203,6 +223,46 @@ mod tests {
             Some("/workspace")
         );
         assert!(tasks[2].execution.command[2].contains("CONTINUUM_WORKSPACE_PRESENT"));
+    }
+
+    #[test]
+    fn initializes_retry_metadata_from_brief_policy() {
+        let mut brief = sample_brief();
+        brief.policy = Some(BriefPolicy {
+            max_task_count: Some(6),
+            max_total_timeout_seconds: Some(900),
+            max_task_retry_count: Some(2),
+            allowed_task_kinds: vec![
+                "plan".to_string(),
+                "scaffold".to_string(),
+                "code".to_string(),
+                "test".to_string(),
+            ],
+            allowed_runtime_providers: vec!["docker".to_string()],
+            allowed_sandbox_profiles: vec!["restricted".to_string()],
+        });
+
+        let run = RunDraft::from_brief(&brief, "examples/brief.yaml".to_string());
+        let pack = PackDefinition::load(Some("container-service")).expect("pack should load");
+        let generated = generate_initial_backlog(&brief, &run, &pack, Path::new(".tmp"), false)
+            .expect("backlog should generate");
+
+        let tasks =
+            materialize_tasks(&run, &pack, &generated.document.items).expect("tasks should build");
+
+        assert!(tasks.iter().all(|task| {
+            task.metadata
+                .get("retry")
+                .cloned()
+                .and_then(|value| serde_json::from_value::<TaskRetryState>(value).ok())
+                .is_some_and(|state| {
+                    state.attempt_count == 0
+                        && state.retry_count == 0
+                        && state.max_retry_count == 2
+                        && !state.retry_scheduled
+                        && state.last_failure_reason.is_none()
+                })
+        }));
     }
 
     #[test]

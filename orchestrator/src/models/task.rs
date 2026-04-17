@@ -1,7 +1,9 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Map, Value};
 use uuid::Uuid;
+
+const RETRY_METADATA_KEY: &str = "retry";
 
 #[derive(Debug, Clone)]
 pub struct TaskDraft {
@@ -21,6 +23,15 @@ pub struct TaskDraft {
     pub metadata: Value,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TaskRetryState {
+    pub attempt_count: u32,
+    pub retry_count: u32,
+    pub max_retry_count: u32,
+    pub retry_scheduled: bool,
+    pub last_failure_reason: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct TaskSummary {
     pub task_id: Uuid,
@@ -36,6 +47,8 @@ pub struct TaskSummary {
     pub source_refs: Value,
     pub assigned_pack: Option<String>,
     pub approval_required: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retry_state: Option<TaskRetryState>,
     #[serde(skip_serializing)]
     pub metadata: Value,
     pub created_at: Option<String>,
@@ -61,6 +74,7 @@ impl TaskSummary {
             source_refs: draft.source_refs.clone(),
             assigned_pack: draft.assigned_pack.clone(),
             approval_required: draft.approval_required,
+            retry_state: retry_state_from_metadata(&draft.metadata),
             metadata: draft.metadata.clone(),
             created_at: None,
             started_at: None,
@@ -111,6 +125,33 @@ impl TaskSummary {
                 .context("failed to render task")?;
         }
 
+        if let Some(retry_state) = &self.retry_state {
+            writeln!(&mut output, "attempt_count: {}", retry_state.attempt_count)
+                .context("failed to render task")?;
+            writeln!(&mut output, "retry_count: {}", retry_state.retry_count)
+                .context("failed to render task")?;
+            writeln!(
+                &mut output,
+                "max_retry_count: {}",
+                retry_state.max_retry_count
+            )
+            .context("failed to render task")?;
+            writeln!(
+                &mut output,
+                "retry_scheduled: {}",
+                if retry_state.retry_scheduled {
+                    "yes"
+                } else {
+                    "no"
+                }
+            )
+            .context("failed to render task")?;
+            if let Some(last_failure_reason) = &retry_state.last_failure_reason {
+                writeln!(&mut output, "last_failure_reason: {}", last_failure_reason)
+                    .context("failed to render task")?;
+            }
+        }
+
         write!(
             &mut output,
             "dependency_count: {}",
@@ -120,6 +161,66 @@ impl TaskSummary {
 
         Ok(output)
     }
+}
+
+impl TaskRetryState {
+    pub fn new(max_retry_count: u32) -> Self {
+        Self {
+            attempt_count: 0,
+            retry_count: 0,
+            max_retry_count,
+            retry_scheduled: false,
+            last_failure_reason: None,
+        }
+    }
+
+    pub fn can_schedule_retry(&self) -> bool {
+        self.retry_count < self.max_retry_count
+    }
+
+    pub fn after_success(&self) -> Self {
+        Self {
+            attempt_count: self.attempt_count + 1,
+            retry_count: self.retry_count,
+            max_retry_count: self.max_retry_count,
+            retry_scheduled: false,
+            last_failure_reason: None,
+        }
+    }
+
+    pub fn after_requeue(&self, failure_reason: impl Into<String>) -> Self {
+        Self {
+            attempt_count: self.attempt_count + 1,
+            retry_count: self.retry_count + 1,
+            max_retry_count: self.max_retry_count,
+            retry_scheduled: true,
+            last_failure_reason: Some(failure_reason.into()),
+        }
+    }
+
+    pub fn after_terminal_failure(&self, failure_reason: impl Into<String>) -> Self {
+        Self {
+            attempt_count: self.attempt_count + 1,
+            retry_count: self.retry_count,
+            max_retry_count: self.max_retry_count,
+            retry_scheduled: false,
+            last_failure_reason: Some(failure_reason.into()),
+        }
+    }
+}
+
+pub fn retry_state_from_metadata(metadata: &Value) -> Option<TaskRetryState> {
+    let retry_value = metadata.get(RETRY_METADATA_KEY)?.clone();
+    serde_json::from_value(retry_value).ok()
+}
+
+pub fn metadata_with_retry_state(metadata: &Value, retry_state: &TaskRetryState) -> Value {
+    let mut object = metadata.as_object().cloned().unwrap_or_else(Map::new);
+    object.insert(
+        RETRY_METADATA_KEY.to_string(),
+        serde_json::to_value(retry_state).unwrap_or(Value::Null),
+    );
+    Value::Object(object)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

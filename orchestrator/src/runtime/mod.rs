@@ -19,6 +19,7 @@ pub struct TaskExecutionResult {
     pub exit_code: i32,
     pub artifacts: Vec<ArtifactDraft>,
     pub failure_reason: Option<String>,
+    pub retryable: bool,
 }
 
 impl TaskExecutionResult {
@@ -28,6 +29,18 @@ impl TaskExecutionResult {
             exit_code: -1,
             artifacts: Vec::new(),
             failure_reason: Some(reason.into()),
+            retryable: false,
+        }
+    }
+
+    #[cfg(test)]
+    pub fn retryable_failure(reason: impl Into<String>) -> Self {
+        Self {
+            task_status: "failed".to_string(),
+            exit_code: -1,
+            artifacts: Vec::new(),
+            failure_reason: Some(reason.into()),
+            retryable: true,
         }
     }
 }
@@ -148,6 +161,7 @@ mod tests {
                     metadata: json!({ "provider": "fake" }),
                 }],
                 failure_reason: None,
+                retryable: false,
             })
         }
     }
@@ -206,6 +220,7 @@ mod tests {
             source_refs: json!(["test"]),
             assigned_pack: None,
             approval_required: false,
+            retry_state: None,
             metadata: json!({}),
             created_at: None,
             started_at: None,
