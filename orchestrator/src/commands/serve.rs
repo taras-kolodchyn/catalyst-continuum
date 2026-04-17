@@ -1,13 +1,14 @@
-use serde::Serialize;
+use anyhow::Context;
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use tiny_http::{Header, Response, Server, StatusCode};
 use uuid::Uuid;
 
 use crate::{
     cli::ServeArgs,
-    commands::{run_next_task, submit_brief::submit_validated_brief, worker},
+    commands::{create_draft_pr, run_next_task, submit_brief::submit_validated_brief, worker},
     planning::{
         brief_validation::validate_brief_document, pack_catalog::build_pack_catalog,
-        packs::PackDefinition,
+        packs::PackDefinition, pr_candidate,
     },
     runtime::RuntimeRegistry,
     storage::postgres::PostgresRunStore,
@@ -52,6 +53,7 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                         "/runs/{run_id}",
                         "POST /runs/{run_id}/tasks/next",
                         "POST /runs/{run_id}/worker/once",
+                        "POST /runs/{run_id}/draft-pr",
                         "POST /briefs/validate",
                         "POST /briefs/submit",
                     ],
@@ -269,6 +271,99 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                     ),
                 }
             }
+            ("POST", _) if path.starts_with("/runs/") && path.ends_with("/draft-pr") => {
+                match parse_run_action_path(path, "/draft-pr") {
+                    Ok(run_id) => match store.fetch_run_summary(run_id) {
+                        Ok(Some(_)) => match store.refresh_run_status(run_id) {
+                            Ok(run_status) if run_status != "succeeded" => json_response(
+                                StatusCode(409),
+                                &ErrorResponse {
+                                    error: format!(
+                                        "draft PR creation requires a succeeded run, current status is {} for run {}",
+                                        run_status, run_id
+                                    ),
+                                },
+                            ),
+                            Ok(_) => match store.find_latest_run_artifact(
+                                run_id,
+                                pr_candidate::PR_CANDIDATE_ARTIFACT_TYPE,
+                            ) {
+                                Ok(Some(_)) => {
+                                    match read_optional_json_body::<CreateDraftPrRequest>(
+                                        &mut request,
+                                    ) {
+                                        Ok(payload) => match create_draft_pr::create_draft_pr(
+                                            &mut store,
+                                            run_id,
+                                            &args.artifact_root,
+                                            non_empty_option(payload.remote_url.as_deref()),
+                                            non_empty_option(payload.branch_name.as_deref()),
+                                        ) {
+                                            Ok(report) => json_response(StatusCode(200), &report),
+                                            Err(error) => json_response(
+                                                StatusCode(500),
+                                                &ErrorResponse {
+                                                    error: format!(
+                                                        "failed to create draft PR for run {run_id}: {error}"
+                                                    ),
+                                                },
+                                            ),
+                                        },
+                                        Err(error) => json_response(
+                                            StatusCode(400),
+                                            &ErrorResponse {
+                                                error: error.to_string(),
+                                            },
+                                        ),
+                                    }
+                                }
+                                Ok(None) => json_response(
+                                    StatusCode(409),
+                                    &ErrorResponse {
+                                        error: format!(
+                                            "draft PR creation requires a pr_candidate artifact for run {run_id}"
+                                        ),
+                                    },
+                                ),
+                                Err(error) => json_response(
+                                    StatusCode(500),
+                                    &ErrorResponse {
+                                        error: format!(
+                                            "failed to inspect PR candidate artifact for run {run_id}: {error}"
+                                        ),
+                                    },
+                                ),
+                            },
+                            Err(error) => json_response(
+                                StatusCode(500),
+                                &ErrorResponse {
+                                    error: format!(
+                                        "failed to refresh run status for {run_id}: {error}"
+                                    ),
+                                },
+                            ),
+                        },
+                        Ok(None) => json_response(
+                            StatusCode(404),
+                            &ErrorResponse {
+                                error: format!("run not found: {run_id}"),
+                            },
+                        ),
+                        Err(error) => json_response(
+                            StatusCode(500),
+                            &ErrorResponse {
+                                error: format!("failed to load run {run_id}: {error}"),
+                            },
+                        ),
+                    },
+                    Err(error) => json_response(
+                        StatusCode(400),
+                        &ErrorResponse {
+                            error: error.to_string(),
+                        },
+                    ),
+                }
+            }
             _ => json_response(
                 StatusCode(404),
                 &ErrorResponse {
@@ -307,6 +402,22 @@ fn read_request_body(request: &mut tiny_http::Request) -> std::io::Result<String
     let mut body = String::new();
     request.as_reader().read_to_string(&mut body)?;
     Ok(body)
+}
+
+fn read_optional_json_body<T>(request: &mut tiny_http::Request) -> anyhow::Result<T>
+where
+    T: DeserializeOwned + Default,
+{
+    let body = read_request_body(request).context("failed to read request body")?;
+    if body.trim().is_empty() {
+        return Ok(T::default());
+    }
+
+    serde_json::from_str(&body).context("failed to parse JSON request body")
+}
+
+fn non_empty_option(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|value| !value.is_empty())
 }
 
 fn json_response<T: Serialize>(
@@ -362,4 +473,11 @@ struct ErrorResponse {
 struct RecentRunsResponse {
     count: usize,
     runs: Vec<crate::models::run::RunSummary>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct CreateDraftPrRequest {
+    remote_url: Option<String>,
+    branch_name: Option<String>,
 }

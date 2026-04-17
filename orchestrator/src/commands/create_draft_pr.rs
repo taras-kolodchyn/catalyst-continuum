@@ -1,5 +1,6 @@
 use anyhow::{Context, ensure};
 use serde::Serialize;
+use std::path::Path;
 
 use crate::{
     cli::CreateDraftPrArgs,
@@ -11,41 +12,57 @@ use crate::{
 pub fn execute(args: CreateDraftPrArgs) -> anyhow::Result<()> {
     let mut store = PostgresRunStore::connect(&args.database_url)?;
     store.ensure_schema()?;
+    let report = create_draft_pr(
+        &mut store,
+        args.run_id,
+        &args.artifact_root,
+        args.remote_url.as_deref(),
+        args.branch_name.as_deref(),
+    )?;
 
-    let run_status = store.refresh_run_status(args.run_id)?;
+    if args.pretty {
+        print!("{}", serde_yaml::to_string(&report)?);
+    } else {
+        println!("{}", report.render_text()?);
+    }
+
+    Ok(())
+}
+
+pub(crate) fn create_draft_pr(
+    store: &mut PostgresRunStore,
+    run_id: uuid::Uuid,
+    artifact_root: &Path,
+    remote_url: Option<&str>,
+    branch_name: Option<&str>,
+) -> anyhow::Result<CreateDraftPrReport> {
+    let run_status = store.refresh_run_status(run_id)?;
     ensure!(
         run_status == "succeeded",
         "draft PR creation requires a succeeded run, current status is {}",
         run_status
     );
 
-    let run_context = store.fetch_run_context(args.run_id)?;
+    let run_context = store.fetch_run_context(run_id)?;
     let pr_candidate = store
-        .find_latest_run_artifact(args.run_id, pr_candidate::PR_CANDIDATE_ARTIFACT_TYPE)?
-        .with_context(|| format!("run {} does not have a pr_candidate artifact", args.run_id))?;
+        .find_latest_run_artifact(run_id, pr_candidate::PR_CANDIDATE_ARTIFACT_TYPE)?
+        .with_context(|| format!("run {} does not have a pr_candidate artifact", run_id))?;
 
-    let export = pr_export::export_pr_candidate(
-        &run_context,
-        &pr_candidate,
-        &args.artifact_root,
-        args.branch_name.as_deref(),
-    )?;
+    let export =
+        pr_export::export_pr_candidate(&run_context, &pr_candidate, artifact_root, branch_name)?;
     let exported_artifact = store.upsert_artifact(&export)?;
 
     let publication = pr_publication::publish_pr_export(
         &run_context,
         &exported_artifact,
-        &args.artifact_root,
-        args.remote_url.as_deref(),
+        artifact_root,
+        remote_url,
         true,
     )?;
     let published_artifact = store.upsert_artifact(&publication)?;
 
-    let github_pull_request = github_pr::open_github_pull_request(
-        &run_context,
-        &published_artifact,
-        &args.artifact_root,
-    )?;
+    let github_pull_request =
+        github_pr::open_github_pull_request(&run_context, &published_artifact, artifact_root)?;
     let github_pr_artifact = store.upsert_artifact(&github_pull_request)?;
 
     let branch_name = exported_artifact
@@ -115,7 +132,7 @@ pub fn execute(args: CreateDraftPrArgs) -> anyhow::Result<()> {
         })?;
 
     let report = CreateDraftPrReport {
-        run_id: args.run_id,
+        run_id,
         run_status,
         branch_name,
         commit_sha,
@@ -129,17 +146,11 @@ pub fn execute(args: CreateDraftPrArgs) -> anyhow::Result<()> {
         github_pull_request_artifact: github_pr_artifact,
     };
 
-    if args.pretty {
-        print!("{}", serde_yaml::to_string(&report)?);
-    } else {
-        println!("{}", report.render_text()?);
-    }
-
-    Ok(())
+    Ok(report)
 }
 
 #[derive(Debug, Serialize)]
-struct CreateDraftPrReport {
+pub(crate) struct CreateDraftPrReport {
     run_id: uuid::Uuid,
     run_status: String,
     branch_name: String,
@@ -155,7 +166,7 @@ struct CreateDraftPrReport {
 }
 
 impl CreateDraftPrReport {
-    fn render_text(&self) -> anyhow::Result<String> {
+    pub(crate) fn render_text(&self) -> anyhow::Result<String> {
         let mut output = String::new();
 
         use std::fmt::Write as _;
