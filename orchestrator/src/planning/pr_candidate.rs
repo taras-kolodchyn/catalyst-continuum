@@ -508,6 +508,11 @@ mod tests {
                 .exists()
         );
         assert!(candidate_root.join("repository/docs/app-1.md").exists());
+        assert!(
+            candidate_root
+                .join("repository/requirements/app-1.json")
+                .exists()
+        );
         assert!(!candidate_root.join("repository/.continuum").exists());
         assert!(candidate_root.join("patches/0001-code-001.patch").exists());
         assert!(candidate_root.join("combined.patch").exists());
@@ -518,6 +523,10 @@ mod tests {
         assert!(combined_patch.contains("diff --git a/docs/app-1.md b/docs/app-1.md"));
         assert!(
             combined_patch.contains("diff --git a/src/features/app_1.rs b/src/features/app_1.rs")
+        );
+        assert!(
+            combined_patch
+                .contains("diff --git a/requirements/app-1.json b/requirements/app-1.json")
         );
 
         let manifest: serde_json::Value = serde_json::from_slice(

@@ -8,7 +8,10 @@ RUN cargo build --release
 
 FROM debian:bookworm-slim
 WORKDIR /app
+ENV PORT=8080
 
 COPY --from=builder /app/target/release/{{repository.name}} /usr/local/bin/{{repository.name}}
+COPY requirements requirements
 
+EXPOSE 8080
 ENTRYPOINT ["/usr/local/bin/{{repository.name}}"]

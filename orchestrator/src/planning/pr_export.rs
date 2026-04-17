@@ -522,6 +522,11 @@ mod tests {
                 .join("repository/src/features/app_1.rs")
                 .exists()
         );
+        assert!(
+            export_root
+                .join("repository/requirements/app-1.json")
+                .exists()
+        );
         assert!(!export_root.join("repository/.continuum").exists());
         assert!(export_root.join("patches/0001-code-001.patch").exists());
         assert!(export_root.join("combined.patch").exists());

@@ -8,6 +8,6 @@ Generated from `{{source_ref.primary}}`.
 
 ## Suggested Integration
 
-- Add `src/features/{{source_ref.ident}}.rs` to the service crate.
-- Wire the feature entrypoint into the main application flow.
+- Keep `src/features/{{source_ref.ident}}.rs` aligned with `requirements/{{source_ref.slug}}.json`.
+- Expose the generated slice through the `/requirements` endpoint.
 - Review acceptance criteria for `{{source_ref.value}}` before promoting the change.

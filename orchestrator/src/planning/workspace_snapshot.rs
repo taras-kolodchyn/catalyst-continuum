@@ -763,6 +763,7 @@ mod tests {
         assert!(snapshot_root.join("src/main.rs").exists());
         assert!(snapshot_root.join("src/features/app_1.rs").exists());
         assert!(snapshot_root.join("docs/app-1.md").exists());
+        assert!(snapshot_root.join("requirements/app-1.json").exists());
         assert!(!snapshot_root.join("manifest.json").exists());
         assert!(
             snapshot_root
@@ -776,7 +777,7 @@ mod tests {
         )
         .expect("snapshot manifest should parse");
         assert_eq!(manifest["source_count"], 2);
-        assert_eq!(manifest["file_count"], 7);
+        assert_eq!(manifest["file_count"], 8);
 
         let _ = fs::remove_dir_all(&temp_root);
     }
@@ -827,6 +828,7 @@ mod tests {
         assert!(workspace_path.join("README.md").exists());
         assert!(workspace_path.join("src/main.rs").exists());
         assert!(workspace_path.join("src/features/app_1.rs").exists());
+        assert!(workspace_path.join("requirements/app-1.json").exists());
         assert!(
             workspace_path
                 .join(".continuum/workspace-snapshot.json")
@@ -894,10 +896,13 @@ mod tests {
         assert!(patch.contains("diff --git"));
         assert!(patch.contains("a/docs/app-1.md"));
         assert!(patch.contains("b/docs/app-1.md"));
+        assert!(patch.contains("a/requirements/app-1.json"));
+        assert!(patch.contains("b/requirements/app-1.json"));
         assert!(!patch.contains("workspace/input"));
         assert!(!patch.contains("workspace-snapshot/current"));
         assert!(patch.contains("src/features/app_1.rs"));
         assert!(patch.contains("docs/app-1.md"));
+        assert!(patch.contains("requirements/app-1.json"));
         assert_eq!(
             patch_artifact.metadata["workspace_source_artifact_id"],
             snapshot.artifact_id.to_string()

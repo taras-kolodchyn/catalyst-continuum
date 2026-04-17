@@ -182,6 +182,15 @@ fn replacements(
                 .unwrap_or_default()
                 .to_string(),
         ),
+        (
+            "brief.summary.json",
+            json_string(
+                run.metadata
+                    .get("summary")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default(),
+            ),
+        ),
         ("source_ref.primary", source_ref.primary),
         ("source_ref.kind", source_ref.kind),
         ("source_ref.value", source_ref.value.clone()),
@@ -355,6 +364,18 @@ mod tests {
                 .join("README.md")
                 .exists()
         );
+        let main_rs = fs::read_to_string(
+            temp_root
+                .join("runs")
+                .join(run.run_id.to_string())
+                .join("tasks")
+                .join(task.task_id.to_string())
+                .join("scaffold-bundle")
+                .join("src/main.rs"),
+        )
+        .expect("generated main.rs should be readable");
+        assert!(main_rs.contains("/healthz"));
+        assert!(main_rs.contains("/requirements"));
         assert!(
             temp_root
                 .join("runs")
@@ -407,6 +428,16 @@ mod tests {
                 .join(task.task_id.to_string())
                 .join("code-bundle")
                 .join("docs/app-1.md")
+                .exists()
+        );
+        assert!(
+            temp_root
+                .join("runs")
+                .join(run.run_id.to_string())
+                .join("tasks")
+                .join(task.task_id.to_string())
+                .join("code-bundle")
+                .join("requirements/app-1.json")
                 .exists()
         );
 

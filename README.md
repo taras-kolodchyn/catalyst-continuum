@@ -14,39 +14,38 @@ catalyst-continuum-orchestrator create-draft-pr \
 
 ## CI
 
-GitHub Actions currently validates the bootstrap repository with:
+GitHub Actions runs one workflow, [`.github/workflows/ci.yml`](.github/workflows/ci.yml), with six required checks:
 
-- `./scripts/check-versions.sh`
-- `./scripts/lint-shell.sh`
-- `./scripts/ci-act.sh`
-- `./scripts/generate-sbom.sh`
-- GitHub/Sigstore provenance attestation for the uploaded SBOM artifact
-- `cargo fmt --all --check`
-- `cargo clippy --workspace --all-targets -- -D warnings`
-- `cargo build --workspace --locked`
-- `cargo test --workspace --locked`
-- `docker compose --env-file deploy/compose/.env.example -f deploy/compose/compose.yaml config`
-- end-to-end smoke flow: `submit-brief -> worker -> export-pr-candidate -> publish-pr-export`
+- `versions`: validates version pins from [`versions.env`](versions.env) against the workflow, Dockerfile, Compose env file, pack image refs, and [`.actrc`](.actrc)
+- `shell`: runs ShellCheck across every script under [`scripts/`](scripts)
+- `sbom`: builds the orchestrator image, generates an SPDX SBOM, uploads the SBOM artifact, and creates a GitHub/Sigstore provenance attestation for that uploaded artifact
+- `rust`: runs `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo build --workspace --locked`, and `cargo test --workspace --locked`
+- `compose`: validates `deploy/compose/compose.yaml` with the pinned `.env.example`
+- `smoke`: exercises the bootstrap flow end to end: `submit-brief -> worker -> export-pr-candidate -> publish-pr-export`
 
-Local runs through `act` use the runner image and container architecture pinned in [`.actrc`](.actrc), with the canonical values tracked in [`versions.env`](versions.env). GitHub-only publication steps such as artifact upload and attestation are skipped under `act`, because local runs do not expose GitHub runtime tokens, OIDC tokens, or the attestations API.
+Local runs through `act` use the runner image and container architecture pinned in [`.actrc`](.actrc), with the canonical values tracked in [`versions.env`](versions.env). GitHub-only publication steps such as artifact upload and attestation are skipped under `act`, because local runs do not expose GitHub runtime tokens, OIDC tokens, or the attestations API. The underlying build and SBOM generation steps still run locally.
 Pinned version policy and update automation are documented in [VERSIONS.md](VERSIONS.md).
 GitHub Actions are pinned to commit SHAs instead of floating tags.
 Docker base and runtime images are pinned by tag and digest.
 
-The same checks can be run directly without GitHub Actions:
+The core checks can be run directly without GitHub Actions:
 
 ```bash
 ./scripts/check-versions.sh
 ./scripts/lint-shell.sh
-./scripts/ci-act.sh -j versions
 ./scripts/generate-sbom.sh
 ./scripts/ci-rust.sh
 ./scripts/ci-compose.sh
 ./scripts/smoke-mvp.sh
 ```
 
+To reproduce the workflow structure locally through `act`:
+
 ```bash
 ./scripts/ci-act.sh -l
+./scripts/ci-act.sh -j versions
+./scripts/ci-act.sh -j shell
+./scripts/ci-act.sh -j sbom
 ./scripts/ci-act.sh -j rust
 ./scripts/ci-act.sh -j compose
 ./scripts/ci-act.sh -j smoke

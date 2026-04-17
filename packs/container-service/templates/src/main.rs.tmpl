@@ -1,5 +1,177 @@
-fn main() {
-    println!(
-        "Catalyst Continuum scaffold for {{repository.name}} is ready."
-    );
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+use std::{
+    env, fs,
+    io::{self, BufRead, BufReader, Write},
+    net::{TcpListener, TcpStream},
+    path::Path,
+};
+
+const SERVICE_NAME: &str = {{repository.name.json}};
+const SERVICE_SUMMARY: &str = {{brief.summary.json}};
+const PACK_ID: &str = "{{pack.id}}";
+const RUN_ID: &str = "{{run.id}}";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Requirement {
+    id: String,
+    title: String,
+    description: String,
+    source_ref: String,
+    module: String,
+    doc_path: String,
+}
+
+#[derive(Debug, Clone)]
+struct AppState {
+    requirements: Vec<Requirement>,
+}
+
+impl AppState {
+    fn load() -> io::Result<Self> {
+        Ok(Self {
+            requirements: load_requirements(Path::new("requirements"))?,
+        })
+    }
+}
+
+fn main() -> io::Result<()> {
+    let state = AppState::load()?;
+    let port = env::var("PORT")
+        .ok()
+        .and_then(|value| value.parse::<u16>().ok())
+        .unwrap_or(8080);
+    let listener = TcpListener::bind(("0.0.0.0", port))?;
+
+    eprintln!("{} listening on 0.0.0.0:{}", SERVICE_NAME, port);
+
+    for stream in listener.incoming() {
+        match stream {
+            Ok(stream) => {
+                if let Err(error) = handle_connection(stream, &state) {
+                    eprintln!("request error: {}", error);
+                }
+            }
+            Err(error) => eprintln!("accept error: {}", error),
+        }
+    }
+
+    Ok(())
+}
+
+fn handle_connection(mut stream: TcpStream, state: &AppState) -> io::Result<()> {
+    let mut reader = BufReader::new(stream.try_clone()?);
+    let mut request_line = String::new();
+
+    if reader.read_line(&mut request_line)? == 0 {
+        return Ok(());
+    }
+
+    let mut parts = request_line.split_whitespace();
+    let method = parts.next().unwrap_or("");
+    let path = parts
+        .next()
+        .unwrap_or("/")
+        .split('?')
+        .next()
+        .unwrap_or("/");
+
+    match (method, path) {
+        ("GET", "/") => write_json_response(
+            &mut stream,
+            "200 OK",
+            json!({
+                "service": SERVICE_NAME,
+                "pack": PACK_ID,
+                "run_id": RUN_ID,
+                "summary": SERVICE_SUMMARY,
+                "requirement_count": state.requirements.len(),
+                "endpoints": ["/", "/healthz", "/requirements"],
+            }),
+        ),
+        ("GET", "/healthz") => write_json_response(
+            &mut stream,
+            "200 OK",
+            json!({
+                "status": "ok",
+                "service": SERVICE_NAME,
+                "requirement_count": state.requirements.len(),
+            }),
+        ),
+        ("GET", "/requirements") => write_json_response(
+            &mut stream,
+            "200 OK",
+            json!({
+                "service": SERVICE_NAME,
+                "items": &state.requirements,
+            }),
+        ),
+        ("GET", _) => write_json_response(
+            &mut stream,
+            "404 Not Found",
+            json!({
+                "error": "not_found",
+                "path": path,
+            }),
+        ),
+        _ => write_json_response(
+            &mut stream,
+            "405 Method Not Allowed",
+            json!({
+                "error": "method_not_allowed",
+                "method": method,
+            }),
+        ),
+    }
+}
+
+fn load_requirements(root: &Path) -> io::Result<Vec<Requirement>> {
+    if !root.is_dir() {
+        return Ok(Vec::new());
+    }
+
+    let mut paths = fs::read_dir(root)?
+        .map(|entry| entry.map(|value| value.path()))
+        .collect::<Result<Vec<_>, _>>()?;
+    paths.sort();
+
+    let mut requirements = Vec::new();
+
+    for path in paths {
+        if path.extension().and_then(|value| value.to_str()) != Some("json") {
+            continue;
+        }
+
+        let payload = fs::read(&path)?;
+        let requirement = serde_json::from_slice(&payload).map_err(|error| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("failed to parse {}: {}", path.display(), error),
+            )
+        })?;
+        requirements.push(requirement);
+    }
+
+    Ok(requirements)
+}
+
+fn write_json_response(
+    stream: &mut TcpStream,
+    status: &str,
+    payload: serde_json::Value,
+) -> io::Result<()> {
+    let body = serde_json::to_vec_pretty(&payload).map_err(|error| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("failed to serialize JSON response: {}", error),
+        )
+    })?;
+
+    write!(
+        stream,
+        "HTTP/1.1 {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        status,
+        body.len()
+    )?;
+    stream.write_all(&body)
 }

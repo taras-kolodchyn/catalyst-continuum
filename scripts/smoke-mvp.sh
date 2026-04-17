@@ -17,8 +17,13 @@ POSTGRES_PASSWORD="${SMOKE_POSTGRES_PASSWORD:-continuum-dev}"
 POSTGRES_PORT="${SMOKE_POSTGRES_PORT:-55432}"
 POSTGRES_CONTAINER_NAME="continuum-smoke-postgres-$$"
 STARTED_POSTGRES=0
+SERVICE_PID=""
 
 cleanup() {
+  if [ -n "$SERVICE_PID" ]; then
+    kill "$SERVICE_PID" >/dev/null 2>&1 || true
+    wait "$SERVICE_PID" >/dev/null 2>&1 || true
+  fi
   if [ "$STARTED_POSTGRES" -eq 1 ]; then
     docker rm -f "$POSTGRES_CONTAINER_NAME" >/dev/null 2>&1 || true
   fi
@@ -100,6 +105,62 @@ printf '%s\n' "$PUBLICATION_OUTPUT" | grep -q '^push_status: pushed$'
 
 BRANCH_NAME="$(printf '%s\n' "$PUBLICATION_OUTPUT" | awk '/^head_branch:/ {print $2; exit}')"
 test -n "$BRANCH_NAME"
+
+GENERATED_REPO="$EXPORT_ROOT/repository"
+SERVICE_PORT="${SMOKE_SERVICE_PORT:-38080}"
+SERVICE_TARGET_DIR="$REMOTE_ROOT/generated-target"
+SERVICE_LOG="$REMOTE_ROOT/generated-service.log"
+HEALTH_OUTPUT="$REMOTE_ROOT/generated-service-health.json"
+REQUIREMENTS_OUTPUT="$REMOTE_ROOT/generated-service-requirements.json"
+
+(
+  cd "$GENERATED_REPO"
+  CARGO_TARGET_DIR="$SERVICE_TARGET_DIR" cargo build --quiet
+)
+
+(
+  cd "$GENERATED_REPO"
+  CARGO_TARGET_DIR="$SERVICE_TARGET_DIR" PORT="$SERVICE_PORT" cargo run --quiet
+) >"$SERVICE_LOG" 2>&1 &
+SERVICE_PID="$!"
+
+for _ in $(seq 1 30); do
+  if curl -fsS "http://127.0.0.1:${SERVICE_PORT}/healthz" >"$HEALTH_OUTPUT"; then
+    break
+  fi
+
+  if ! kill -0 "$SERVICE_PID" >/dev/null 2>&1; then
+    cat "$SERVICE_LOG" >&2
+    echo "generated service exited before becoming ready" >&2
+    exit 1
+  fi
+
+  sleep 1
+done
+
+curl -fsS "http://127.0.0.1:${SERVICE_PORT}/healthz" >"$HEALTH_OUTPUT"
+curl -fsS "http://127.0.0.1:${SERVICE_PORT}/requirements" >"$REQUIREMENTS_OUTPUT"
+
+python3 - "$HEALTH_OUTPUT" "$REQUIREMENTS_OUTPUT" <<'PY'
+import json
+import pathlib
+import sys
+
+health = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+requirements = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
+
+assert health["status"] == "ok", health
+assert health["service"] == "catalyst-continuum-demo", health
+assert health["requirement_count"] == 2, health
+
+items = requirements["items"]
+assert len(items) == 2, requirements
+assert {item["id"] for item in items} == {"APP-1", "APP-2"}, requirements
+PY
+
+kill "$SERVICE_PID" >/dev/null 2>&1 || true
+wait "$SERVICE_PID" >/dev/null 2>&1 || true
+SERVICE_PID=""
 
 test -d "$EXPORT_ROOT/repository/.git"
 test -f "$EXPORT_ROOT/manifest.json"

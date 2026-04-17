@@ -89,6 +89,8 @@ backlog_templates:
           template_file: templates/code/feature.rs.tmpl
         - path: docs/{{source_ref.slug}}.md
           template_file: templates/code/requirement.md.tmpl
+        - path: requirements/{{source_ref.slug}}.json
+          template_file: templates/code/requirement.json.tmpl
     execution:
       image: busybox:1.37.0@sha256:1487d0af5f52b4ba31c7e465126ee2123fe3f2305d638e7827681e7cf6c83d5e
       working_directory: /workspace
@@ -128,12 +130,14 @@ backlog_templates:
         - >
           set -eu; test "$CONTINUUM_WORKSPACE_PRESENT" = "1"; test -f README.md;
           test -f Cargo.toml; test -f Dockerfile; test -f src/main.rs;
-          feature_count="$(find src/features -maxdepth 1 -type f | wc -l | tr -d ' ')";
-          doc_count="$(find docs -maxdepth 1 -type f | wc -l | tr -d ' ')";
-          [ "$feature_count" -ge 1 ]; [ "$doc_count" -ge 1 ];
+          feature_count="$(find src/features -maxdepth 1 -type f -name '*.rs' | wc -l | tr -d ' ')";
+          doc_count="$(find docs -maxdepth 1 -type f -name '*.md' | wc -l | tr -d ' ')";
+          requirement_count="$(find requirements -maxdepth 1 -type f -name '*.json' | wc -l | tr -d ' ')";
+          [ "$feature_count" -ge 1 ]; [ "$doc_count" -ge 1 ]; [ "$requirement_count" -ge 1 ];
           printf 'task_kind={{task.kind}}\n'; printf 'workspace_path=%s\n'
           "$CONTINUUM_WORKSPACE_PATH"; printf 'feature_count=%s\n'
-          "$feature_count"; printf 'doc_count=%s\n' "$doc_count"; printf 'result=verified\n';
+          "$feature_count"; printf 'doc_count=%s\n' "$doc_count"; printf 'requirement_count=%s\n'
+          "$requirement_count"; printf 'result=verified\n';
 
   - template_id: acceptance_validation
     generator: static
@@ -161,9 +165,11 @@ backlog_templates:
         - >
           set -eu; test "$CONTINUUM_WORKSPACE_PRESENT" = "1"; test -f README.md;
           test -f Cargo.toml; test -f Dockerfile; test -f src/main.rs;
-          feature_count="$(find src/features -maxdepth 1 -type f | wc -l | tr -d ' ')";
-          doc_count="$(find docs -maxdepth 1 -type f | wc -l | tr -d ' ')";
-          [ "$feature_count" -ge 1 ]; [ "$doc_count" -ge 1 ];
+          feature_count="$(find src/features -maxdepth 1 -type f -name '*.rs' | wc -l | tr -d ' ')";
+          doc_count="$(find docs -maxdepth 1 -type f -name '*.md' | wc -l | tr -d ' ')";
+          requirement_count="$(find requirements -maxdepth 1 -type f -name '*.json' | wc -l | tr -d ' ')";
+          [ "$feature_count" -ge 1 ]; [ "$doc_count" -ge 1 ]; [ "$requirement_count" -ge 1 ];
           printf 'task_kind={{task.kind}}\n'; printf 'workspace_path=%s\n'
           "$CONTINUUM_WORKSPACE_PATH"; printf 'feature_count=%s\n'
-          "$feature_count"; printf 'doc_count=%s\n' "$doc_count"; printf 'result=verified\n';
+          "$feature_count"; printf 'doc_count=%s\n' "$doc_count"; printf 'requirement_count=%s\n'
+          "$requirement_count"; printf 'result=verified\n';
