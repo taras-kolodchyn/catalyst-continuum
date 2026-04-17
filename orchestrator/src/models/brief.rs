@@ -35,6 +35,8 @@ pub struct Brief {
     #[serde(default)]
     pub execution_preferences: Option<ExecutionPreferences>,
     #[serde(default)]
+    pub policy: Option<BriefPolicy>,
+    #[serde(default)]
     pub budget_policy_hint: Option<String>,
     #[serde(default)]
     pub metadata: BTreeMap<String, String>,
@@ -67,6 +69,9 @@ impl Brief {
             !self.constraints.is_empty(),
             "brief must declare at least one constraint"
         );
+        if let Some(policy) = &self.policy {
+            policy.validate()?;
+        }
 
         for requirement in self
             .functional_requirements
@@ -180,4 +185,58 @@ pub enum RuntimeProvider {
     Docker,
     Proxmox,
     Kubernetes,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BriefPolicy {
+    #[serde(default)]
+    pub max_task_count: Option<usize>,
+    #[serde(default)]
+    pub max_total_timeout_seconds: Option<u64>,
+    #[serde(default)]
+    pub allowed_task_kinds: Vec<String>,
+    #[serde(default)]
+    pub allowed_runtime_providers: Vec<String>,
+    #[serde(default)]
+    pub allowed_sandbox_profiles: Vec<String>,
+}
+
+impl BriefPolicy {
+    fn validate(&self) -> Result<()> {
+        if let Some(max_task_count) = self.max_task_count {
+            ensure!(
+                max_task_count > 0,
+                "policy.max_task_count must be greater than zero"
+            );
+        }
+        if let Some(max_total_timeout_seconds) = self.max_total_timeout_seconds {
+            ensure!(
+                max_total_timeout_seconds > 0,
+                "policy.max_total_timeout_seconds must be greater than zero"
+            );
+        }
+        validate_policy_list("policy.allowed_task_kinds", &self.allowed_task_kinds)?;
+        validate_policy_list(
+            "policy.allowed_runtime_providers",
+            &self.allowed_runtime_providers,
+        )?;
+        validate_policy_list(
+            "policy.allowed_sandbox_profiles",
+            &self.allowed_sandbox_profiles,
+        )?;
+
+        Ok(())
+    }
+}
+
+fn validate_policy_list(field_name: &str, values: &[String]) -> Result<()> {
+    for value in values {
+        ensure!(
+            !value.trim().is_empty(),
+            "{field_name} must not contain empty strings"
+        );
+    }
+
+    Ok(())
 }

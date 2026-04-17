@@ -117,11 +117,13 @@ Stateful tools need `CATALYST_DATABASE_URL`:
 - `describe_run`
 - `run_next_task`
 - `run_worker_once`
+- `evaluate_run_policy`
 - `evaluate_run_quality`
 - `export_pr_candidate`
 - `publish_pr_export`
 - `open_github_pr`
 
+`evaluate_run_policy` is the visibility tool for OpenHands when it needs to inspect whether the current run still satisfies control-plane policy constraints such as runtime provider, sandbox profile, and planned timeout budget.
 `evaluate_run_quality` is the visibility tool for OpenHands when it needs to inspect whether a run is ready for remote PR promotion. Even if OpenHands skips that explicit call, `publish_pr_export` and `open_github_pr` will enforce the same automated gate before pushing changes outward.
 
 ## Reliability Note

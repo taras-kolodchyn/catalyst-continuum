@@ -1,6 +1,7 @@
 pub mod create_draft_pr;
 pub mod describe_pack;
 pub mod describe_run;
+pub mod evaluate_run_policy;
 pub mod evaluate_run_quality;
 pub mod export_pr_candidate;
 pub mod list_packs;

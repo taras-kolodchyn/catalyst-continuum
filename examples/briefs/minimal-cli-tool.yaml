@@ -40,3 +40,15 @@ execution_preferences:
   repo_pack: cli-tool
   default_runtime_provider: docker
   sandbox_profile: restricted
+policy:
+  max_task_count: 8
+  max_total_timeout_seconds: 180
+  allowed_task_kinds:
+    - plan
+    - scaffold
+    - code
+    - test
+  allowed_runtime_providers:
+    - docker
+  allowed_sandbox_profiles:
+    - restricted

@@ -1,9 +1,9 @@
 use crate::{
     cli::{Cli, Command},
     commands::{
-        create_draft_pr, describe_pack, describe_run, evaluate_run_quality, export_pr_candidate,
-        list_packs, list_runs, mcp_server, open_github_pr, publish_pr_export, run_next_task, serve,
-        submit_brief, validate_brief, worker,
+        create_draft_pr, describe_pack, describe_run, evaluate_run_policy, evaluate_run_quality,
+        export_pr_candidate, list_packs, list_runs, mcp_server, open_github_pr, publish_pr_export,
+        run_next_task, serve, submit_brief, validate_brief, worker,
     },
     telemetry,
 };
@@ -25,6 +25,7 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
         Command::SubmitBrief(args) => submit_brief::execute(args),
         Command::RunNextTask(args) => run_next_task::execute(args),
         Command::Worker(args) => worker::execute(args),
+        Command::EvaluateRunPolicy(args) => evaluate_run_policy::execute(args),
         Command::EvaluateRunQuality(args) => evaluate_run_quality::execute(args),
         Command::ExportPrCandidate(args) => export_pr_candidate::execute(args),
         Command::PublishPrExport(args) => publish_pr_export::execute(args),

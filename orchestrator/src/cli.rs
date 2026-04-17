@@ -25,6 +25,7 @@ pub enum Command {
     SubmitBrief(SubmitBriefArgs),
     RunNextTask(RunNextTaskArgs),
     Worker(WorkerArgs),
+    EvaluateRunPolicy(EvaluateRunPolicyArgs),
     EvaluateRunQuality(EvaluateRunQualityArgs),
     ExportPrCandidate(ExportPrCandidateArgs),
     PublishPrExport(PublishPrExportArgs),
@@ -45,6 +46,7 @@ impl Command {
             Self::SubmitBrief(_) => "submit-brief",
             Self::RunNextTask(_) => "run-next-task",
             Self::Worker(_) => "worker",
+            Self::EvaluateRunPolicy(_) => "evaluate-run-policy",
             Self::EvaluateRunQuality(_) => "evaluate-run-quality",
             Self::ExportPrCandidate(_) => "export-pr-candidate",
             Self::PublishPrExport(_) => "publish-pr-export",
@@ -192,6 +194,25 @@ pub struct WorkerArgs {
 
     #[arg(long)]
     pub once: bool,
+
+    #[arg(long)]
+    pub pretty: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct EvaluateRunPolicyArgs {
+    #[arg(long, env = "CATALYST_DATABASE_URL")]
+    pub database_url: String,
+
+    #[arg(
+        long,
+        env = "CATALYST_ARTIFACT_ROOT",
+        default_value = ".continuum/artifacts"
+    )]
+    pub artifact_root: PathBuf,
+
+    #[arg(long)]
+    pub run_id: Uuid,
 
     #[arg(long)]
     pub pretty: bool,

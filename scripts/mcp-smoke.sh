@@ -105,6 +105,7 @@ expected_tools = {
     "describe_run",
     "run_next_task",
     "run_worker_once",
+    "evaluate_run_policy",
     "evaluate_run_quality",
     "export_pr_candidate",
     "publish_pr_export",

@@ -53,6 +53,12 @@ Planned providers:
 
 LiteLLM acts as the local LLM gateway and proxy. It should provide routing, rate limiting, caching, and cost control for multiple model providers.
 
+Implementation boundary note:
+
+- model-spend and token budgets should stay in LiteLLM
+- orchestration-level policy should stay in the Rust control plane
+- that control-plane policy covers task/runtime/sandbox rules rather than duplicating LiteLLM accounting
+
 Local development guidance:
 
 - On macOS, prefer MLX for optimized Apple Silicon local inference.

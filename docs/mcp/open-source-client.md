@@ -40,6 +40,7 @@ Stateful tools require `CATALYST_DATABASE_URL` or `--database-url` when launchin
 - `describe_run`
 - `run_next_task`
 - `run_worker_once`
+- `evaluate_run_policy`
 - `evaluate_run_quality`
 - `export_pr_candidate`
 - `publish_pr_export`
@@ -94,7 +95,7 @@ The script verifies:
 - `tools/list`
 - `tools/call` against `validate_brief`
 
-For stateful sessions, `evaluate_run_quality` is the key checkpoint before any remote PR promotion flow. Agent clients can call it explicitly for visibility, but `publish_pr_export` and `open_github_pr` also enforce it automatically.
+For stateful sessions, `evaluate_run_policy` is the policy visibility checkpoint and `evaluate_run_quality` is the remote-promotion quality checkpoint. Agent clients can call both explicitly for inspection, while `publish_pr_export` and `open_github_pr` still enforce the quality gate automatically.
 
 ## Notes
 

@@ -12,6 +12,7 @@ use crate::{
     planning::{
         backlog::generate_initial_backlog,
         brief_validation::{ValidatedBriefSubmission, validate_brief_document},
+        policy,
         tasks::materialize_tasks,
     },
     storage::postgres::PostgresRunStore,
@@ -99,11 +100,17 @@ pub fn submit_validated_brief(
     let generated_backlog =
         generate_initial_backlog(&brief, &draft, &pack, artifact_root, !dry_run)?;
     let task_drafts = materialize_tasks(&draft, &pack, &generated_backlog.document.items)?;
+    let policy_evaluation =
+        policy::evaluate_submission_policy(&draft, &brief, &pack, &task_drafts, artifact_root)?;
+    if !policy_evaluation.passed {
+        return Err(policy::policy_failure_error(&policy_evaluation));
+    }
 
     let submission = if dry_run {
         task_drafts.iter().fold(
             SubmissionRecord::from_draft(&draft)
-                .with_artifact(ArtifactSummary::from_draft(&generated_backlog.artifact)),
+                .with_artifact(ArtifactSummary::from_draft(&generated_backlog.artifact))
+                .with_artifact(ArtifactSummary::from_draft(&policy_evaluation.artifact)),
             |submission, task| submission.with_task(TaskSummary::from_draft(task)),
         )
     } else {
@@ -112,7 +119,11 @@ pub fn submit_validated_brief(
         )?;
         let mut store = PostgresRunStore::connect(database_url)?;
         store.ensure_schema()?;
-        store.insert_run_with_artifacts(&draft, &[generated_backlog.artifact], &task_drafts)?
+        store.insert_run_with_artifacts(
+            &draft,
+            &[generated_backlog.artifact, policy_evaluation.artifact],
+            &task_drafts,
+        )?
     };
 
     telemetry::record_brief_submission(
@@ -150,6 +161,12 @@ mod tests {
             submission.tasks[0].assigned_pack.as_deref(),
             Some(DEFAULT_PACK_ID)
         );
+        assert!(
+            submission
+                .artifacts
+                .iter()
+                .any(|artifact| artifact.artifact_type == "policy_report")
+        );
     }
 
     #[test]
@@ -169,6 +186,21 @@ mod tests {
         assert!(message.contains("unknown repo_pack `does-not-exist`"));
         assert!(message.contains("container-service"));
         assert!(message.contains("cli-tool"));
+    }
+
+    #[test]
+    fn rejects_brief_when_policy_disallows_planned_task_kind() {
+        let error = submit_brief_document(
+            &sample_brief_with_task_kind_policy("plan"),
+            "examples/briefs/policy-reject.yaml",
+            None,
+            Path::new(".tmp"),
+            true,
+            "test",
+        )
+        .expect_err("policy should reject the planned task set");
+
+        assert!(error.to_string().contains("allowed_task_kinds"));
     }
 
     fn sample_brief_without_repo_pack() -> &'static str {
@@ -232,6 +264,43 @@ execution_preferences:
   repo_pack: {pack_id}
   default_runtime_provider: docker
   sandbox_profile: restricted
+"#
+        )
+    }
+
+    fn sample_brief_with_task_kind_policy(allowed_task_kind: &str) -> String {
+        format!(
+            r#"
+schema_version: v0.1
+brief_id: 55555555-5555-5555-5555-555555555555
+title: Policy Rejection
+summary: Build a planning run that should be rejected by the control-plane policy.
+requested_by: product@example.com
+target_users:
+  - internal platform engineers
+goals:
+  - Validate policy rejection.
+functional_requirements:
+  - id: APP-1
+    title: Create backlog
+    description: Generate the initial backlog from the brief.
+constraints:
+  - Keep the first implementation deterministic.
+deliverables:
+  - backlog artifact
+repository:
+  host: github
+  owner: smartit
+  name: policy-rejection-demo
+  default_branch: main
+  visibility: private
+execution_preferences:
+  repo_pack: container-service
+  default_runtime_provider: docker
+  sandbox_profile: restricted
+policy:
+  allowed_task_kinds:
+    - {allowed_task_kind}
 "#
         )
     }

@@ -382,6 +382,7 @@ mod tests {
                 default_runtime_provider: Some(RuntimeProvider::Docker),
                 sandbox_profile: Some("restricted".to_string()),
             }),
+            policy: None,
             budget_policy_hint: None,
             metadata: BTreeMap::new(),
         }

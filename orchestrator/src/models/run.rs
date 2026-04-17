@@ -48,6 +48,7 @@ impl RunDraft {
             "problem_statement": brief.problem_statement,
             "deliverables": brief.deliverables,
             "acceptance_criteria": brief.acceptance_criteria,
+            "policy": brief.policy,
             "budget_policy_hint": brief.budget_policy_hint,
             "target_users": brief.target_users,
             "constraints": brief.constraints,

@@ -6,7 +6,7 @@ use std::time::Instant;
 use crate::{
     cli::RunNextTaskArgs,
     models::{artifact::ArtifactSummary, task::TaskSummary},
-    planning::{materialization, packs::PackDefinition, pr_candidate, workspace_snapshot},
+    planning::{materialization, packs::PackDefinition, policy, pr_candidate, workspace_snapshot},
     runtime::{RuntimeRegistry, TaskExecutionContext, TaskExecutionResult, TaskWorkspace},
     storage::postgres::PostgresRunStore,
     telemetry,
@@ -171,12 +171,18 @@ pub fn execute_next_task(
 
     let running_task = store.mark_task_running(selected_task.task_id)?;
     store.refresh_run_status(running_task.run_id)?;
+    let run_context = store.fetch_run_context(running_task.run_id)?;
 
     let execution_context = build_execution_context(store, &running_task, artifact_root);
     let mut execution = match &execution_context {
-        Ok(execution_context) => runtime_registry
-            .execute_task(&running_task, execution_context, artifact_root)
-            .unwrap_or_else(|error| TaskExecutionResult::failed(format!("{error:#}"))),
+        Ok(execution_context) => {
+            match policy::enforce_task_execution_policy(&run_context, &running_task) {
+                Ok(()) => runtime_registry
+                    .execute_task(&running_task, execution_context, artifact_root)
+                    .unwrap_or_else(|error| TaskExecutionResult::failed(format!("{error:#}"))),
+                Err(error) => TaskExecutionResult::failed(format!("{error:#}")),
+            }
+        }
         Err(error) => TaskExecutionResult::failed(format!("{error:#}")),
     };
     if execution.task_status == "succeeded" {

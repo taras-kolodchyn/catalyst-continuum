@@ -21,6 +21,27 @@ The rule is simple:
 
 The Rust command/application layer remains the single source of truth underneath all three interfaces.
 
+The first control-plane policy slice now lives in the brief itself. It does not duplicate LiteLLM token or spend budgets. Instead, it constrains orchestration-level behavior such as planned task count, total timeout budget, allowed task kinds, allowed runtime providers, and allowed sandbox profiles. Every accepted submission now emits a `policy_report` artifact alongside the `backlog`.
+
+Example:
+
+```yaml
+policy:
+  max_task_count: 8
+  max_total_timeout_seconds: 180
+  allowed_task_kinds: [plan, scaffold, code, test]
+  allowed_runtime_providers: [docker]
+  allowed_sandbox_profiles: [restricted]
+```
+
+The current run policy can also be re-evaluated explicitly:
+
+```bash
+catalyst-continuum-orchestrator evaluate-run-policy \
+  --database-url "$CATALYST_DATABASE_URL" \
+  --run-id "<RUN_ID>"
+```
+
 Once a run has completed successfully, the orchestrator can evaluate an automated quality gate before any remote PR promotion step. Human approval still stays in GitHub review and merge controls:
 
 ```bash
@@ -54,6 +75,7 @@ curl -X POST --data-binary @examples/briefs/minimal-cli-tool.yaml http://127.0.0
 curl -X POST --data-binary @examples/briefs/minimal-cli-tool.yaml http://127.0.0.1:8080/briefs/submit
 curl -X POST http://127.0.0.1:8080/runs/<RUN_ID>/tasks/next
 curl -X POST http://127.0.0.1:8080/runs/<RUN_ID>/worker/once
+curl -X POST http://127.0.0.1:8080/runs/<RUN_ID>/evaluate-policy
 curl -X POST http://127.0.0.1:8080/runs/<RUN_ID>/evaluate-quality
 curl -X POST http://127.0.0.1:8080/runs/<RUN_ID>/export-pr-candidate
 curl -X POST http://127.0.0.1:8080/runs/<RUN_ID>/publish-pr-export
@@ -80,7 +102,7 @@ catalyst-continuum-orchestrator mcp-server \
   --artifact-root ".continuum/artifacts"
 ```
 
-It currently exposes the first agent-facing tool set over MCP: pack inspection, brief validation and submission, run inspection, task execution, automated quality evaluation, PR export/publication, and GitHub PR opening.
+It currently exposes the first agent-facing tool set over MCP: pack inspection, brief validation and submission, run inspection, task execution, policy evaluation, automated quality evaluation, PR export/publication, and GitHub PR opening.
 Use [examples/mcp/stdio-server.example.json](examples/mcp/stdio-server.example.json) as a neutral client config starting point and `./scripts/mcp-smoke.sh` to validate the lifecycle locally.
 If OpenHands is the target client, prefer [examples/mcp/openhands.mcp.json](examples/mcp/openhands.mcp.json) and the registration flow documented in [docs/mcp/openhands.md](docs/mcp/openhands.md).
 For local OpenHands CLI registration, use `./scripts/openhands-register-mcp.sh`.
@@ -95,7 +117,7 @@ GitHub Actions runs one workflow, [`.github/workflows/ci.yml`](.github/workflows
 - `sbom`: builds the orchestrator image, generates an SPDX SBOM, uploads the SBOM artifact, and creates a GitHub/Sigstore provenance attestation for that uploaded artifact
 - `rust`: runs `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo build --workspace --locked`, and `cargo test --workspace --locked`
 - `compose`: validates `deploy/compose/compose.yaml` with the pinned `.env.example`
-- `smoke`: exercises the bootstrap flow end to end for both the `container-service` and `cli-tool` packs: `submit-brief -> worker -> evaluate-run-quality -> export-pr-candidate -> publish-pr-export`
+- `smoke`: exercises the bootstrap flow end to end for both the `container-service` and `cli-tool` packs: `submit-brief -> evaluate-run-policy -> worker -> evaluate-run-quality -> export-pr-candidate -> publish-pr-export`
 
 Local runs through `act` use the runner image and container architecture pinned in [`.actrc`](.actrc), with the canonical values tracked in [`versions.env`](versions.env). GitHub-only publication steps such as artifact upload and attestation are skipped under `act`, because local runs do not expose GitHub runtime tokens, OIDC tokens, or the attestations API. The underlying build and SBOM generation steps still run locally.
 Pinned version policy and update automation are documented in [VERSIONS.md](VERSIONS.md).

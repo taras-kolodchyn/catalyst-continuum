@@ -7,8 +7,8 @@ use uuid::Uuid;
 use crate::{
     cli::ServeArgs,
     commands::{
-        create_draft_pr, evaluate_run_quality, export_pr_candidate, publish_pr_export,
-        run_next_task, submit_brief::submit_validated_brief, worker,
+        create_draft_pr, evaluate_run_policy, evaluate_run_quality, export_pr_candidate,
+        publish_pr_export, run_next_task, submit_brief::submit_validated_brief, worker,
     },
     planning::{
         brief_validation::validate_brief_document, pack_catalog::build_pack_catalog,
@@ -62,6 +62,7 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                         "/runs/{run_id}",
                         "POST /runs/{run_id}/tasks/next",
                         "POST /runs/{run_id}/worker/once",
+                        "POST /runs/{run_id}/evaluate-policy",
                         "POST /runs/{run_id}/evaluate-quality",
                         "POST /runs/{run_id}/export-pr-candidate",
                         "POST /runs/{run_id}/publish-pr-export",
@@ -258,6 +259,45 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                                 &ErrorResponse {
                                     error: format!(
                                         "failed to run worker once for run {run_id}: {error}"
+                                    ),
+                                },
+                            ),
+                        },
+                        Ok(None) => json_response(
+                            StatusCode(404),
+                            &ErrorResponse {
+                                error: format!("run not found: {run_id}"),
+                            },
+                        ),
+                        Err(error) => json_response(
+                            StatusCode(500),
+                            &ErrorResponse {
+                                error: format!("failed to load run {run_id}: {error}"),
+                            },
+                        ),
+                    },
+                    Err(error) => json_response(
+                        StatusCode(400),
+                        &ErrorResponse {
+                            error: error.to_string(),
+                        },
+                    ),
+                }
+            }
+            ("POST", _) if path.starts_with("/runs/") && path.ends_with("/evaluate-policy") => {
+                match parse_run_action_path(path, "/evaluate-policy") {
+                    Ok(run_id) => match store.fetch_run_summary(run_id) {
+                        Ok(Some(_)) => match evaluate_run_policy::evaluate_run_policy(
+                            &mut store,
+                            run_id,
+                            &args.artifact_root,
+                        ) {
+                            Ok(report) => json_response(StatusCode(200), &report),
+                            Err(error) => json_response(
+                                StatusCode(500),
+                                &ErrorResponse {
+                                    error: format!(
+                                        "failed to evaluate run policy for run {run_id}: {error}"
                                     ),
                                 },
                             ),
@@ -638,6 +678,9 @@ fn route_label(method: &str, path: &str) -> &'static str {
         }
         ("POST", _) if path.starts_with("/runs/") && path.ends_with("/worker/once") => {
             "/runs/{run_id}/worker/once"
+        }
+        ("POST", _) if path.starts_with("/runs/") && path.ends_with("/evaluate-policy") => {
+            "/runs/{run_id}/evaluate-policy"
         }
         ("POST", _) if path.starts_with("/runs/") && path.ends_with("/evaluate-quality") => {
             "/runs/{run_id}/evaluate-quality"

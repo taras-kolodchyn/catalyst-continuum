@@ -78,6 +78,13 @@ PACK_ID="$(printf '%s\n' "$SUBMISSION_OUTPUT" | awk '/^target_pack:/ {print $2; 
 test -n "$RUN_ID"
 test -n "$PACK_ID"
 
+POLICY_OUTPUT="$("$BIN" evaluate-run-policy \
+  --database-url "$DATABASE_URL" \
+  --artifact-root "$ARTIFACT_ROOT" \
+  --run-id "$RUN_ID")"
+printf '%s\n' "$POLICY_OUTPUT"
+printf '%s\n' "$POLICY_OUTPUT" | grep -q '^passed: true$'
+
 WORKER_OUTPUT="$("$BIN" worker \
   --database-url "$DATABASE_URL" \
   --artifact-root "$ARTIFACT_ROOT" \

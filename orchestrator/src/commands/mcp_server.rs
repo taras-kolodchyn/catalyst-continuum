@@ -7,8 +7,8 @@ use serde_json::{Map, Value, json};
 use crate::{
     cli::McpServerArgs,
     commands::{
-        evaluate_run_quality, export_pr_candidate, open_github_pr, publish_pr_export,
-        run_next_task, worker,
+        evaluate_run_policy, evaluate_run_quality, export_pr_candidate, open_github_pr,
+        publish_pr_export, run_next_task, worker,
     },
     planning::{
         brief_validation::validate_brief_document, pack_catalog::build_pack_catalog,
@@ -158,6 +158,12 @@ struct OpenGithubPrToolArgs {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct EvaluateRunQualityToolArgs {
+    run_id: uuid::Uuid,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EvaluateRunPolicyToolArgs {
     run_id: uuid::Uuid,
 }
 
@@ -387,6 +393,7 @@ impl StdioMcpServer {
             "describe_run" => self.call_describe_run(arguments),
             "run_next_task" => self.call_run_next_task(arguments),
             "run_worker_once" => self.call_run_worker_once(arguments),
+            "evaluate_run_policy" => self.call_evaluate_run_policy(arguments),
             "evaluate_run_quality" => self.call_evaluate_run_quality(arguments),
             "export_pr_candidate" => self.call_export_pr_candidate(arguments),
             "publish_pr_export" => self.call_publish_pr_export(arguments),
@@ -545,6 +552,25 @@ impl StdioMcpServer {
                 serde_json::to_value(&report).context("failed to serialize worker report")?;
             Ok(tool_success_with_text(
                 "worker",
+                structured,
+                report.render_text()?,
+            ))
+        })
+    }
+
+    fn call_evaluate_run_policy(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: EvaluateRunPolicyToolArgs = parse_tool_arguments(arguments)?;
+            let mut store = self.open_store()?;
+            let report = evaluate_run_policy::evaluate_run_policy(
+                &mut store,
+                args.run_id,
+                &self.config.artifact_root,
+            )?;
+            let structured =
+                serde_json::to_value(&report).context("failed to serialize run policy report")?;
+            Ok(tool_success_with_text(
+                "policy",
                 structured,
                 report.render_text()?,
             ))
@@ -813,6 +839,11 @@ fn tool_definitions() -> Vec<Value> {
             json_schema_object(&[optional_string_property("run_id", "Optional run UUID.")]),
         ),
         tool_definition(
+            "evaluate_run_policy",
+            "Evaluate the control-plane policy for a run and persist a policy report artifact.",
+            json_schema_object(&[required_string_property("run_id", "Run UUID.")]),
+        ),
+        tool_definition(
             "evaluate_run_quality",
             "Evaluate the automated quality gate for a run and persist a quality report artifact.",
             json_schema_object(&[required_string_property("run_id", "Run UUID.")]),
@@ -964,7 +995,7 @@ mod tests {
 
         assert_eq!(
             output[1]["result"]["tools"].as_array().map(Vec::len),
-            Some(12)
+            Some(13)
         );
         assert_eq!(output[1]["result"]["tools"][0]["name"], "list_packs");
     }
