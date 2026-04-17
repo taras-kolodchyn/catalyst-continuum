@@ -66,11 +66,13 @@ Available repository packs can be discovered through the CLI or HTTP API:
 ```bash
 catalyst-continuum-orchestrator list-packs --json
 catalyst-continuum-orchestrator describe-pack --pack-id container-service --json
+catalyst-continuum-orchestrator describe-artifact --database-url "$CATALYST_DATABASE_URL" --artifact-id "<ARTIFACT_ID>" --json
 catalyst-continuum-orchestrator list-runs --database-url "$CATALYST_DATABASE_URL" --json
 catalyst-continuum-orchestrator describe-run --database-url "$CATALYST_DATABASE_URL" --run-id "<RUN_ID>" --json
 catalyst-continuum-orchestrator validate-brief --file examples/briefs/minimal-cli-tool.yaml --json
 curl http://127.0.0.1:8080/packs
 curl http://127.0.0.1:8080/packs/container-service
+curl http://127.0.0.1:8080/artifacts/<ARTIFACT_ID>
 curl -X POST --data-binary @examples/briefs/minimal-cli-tool.yaml http://127.0.0.1:8080/briefs/validate
 curl -X POST --data-binary @examples/briefs/minimal-cli-tool.yaml http://127.0.0.1:8080/briefs/submit
 curl -X POST http://127.0.0.1:8080/runs/<RUN_ID>/tasks/next
@@ -102,7 +104,7 @@ catalyst-continuum-orchestrator mcp-server \
   --artifact-root ".continuum/artifacts"
 ```
 
-It currently exposes the first agent-facing tool set over MCP: pack inspection, brief validation and submission, run inspection, task execution, policy evaluation, automated quality evaluation, PR export/publication, and GitHub PR opening.
+It currently exposes the first agent-facing tool set over MCP: pack inspection, artifact inspection, brief validation and submission, run inspection, task execution, policy evaluation, automated quality evaluation, PR export/publication, and GitHub PR opening.
 Use [examples/mcp/stdio-server.example.json](examples/mcp/stdio-server.example.json) as a neutral client config starting point and `./scripts/mcp-smoke.sh` to validate the lifecycle locally.
 If OpenHands is the target client, prefer [examples/mcp/openhands.mcp.json](examples/mcp/openhands.mcp.json) and the registration flow documented in [docs/mcp/openhands.md](docs/mcp/openhands.md).
 For local OpenHands CLI registration, use `./scripts/openhands-register-mcp.sh`.
@@ -117,7 +119,7 @@ GitHub Actions runs one workflow, [`.github/workflows/ci.yml`](.github/workflows
 - `sbom`: builds the orchestrator image, generates an SPDX SBOM, uploads the SBOM artifact, and creates a GitHub/Sigstore provenance attestation for that uploaded artifact
 - `rust`: runs `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo build --workspace --locked`, and `cargo test --workspace --locked`
 - `compose`: validates `deploy/compose/compose.yaml` with the pinned `.env.example`
-- `smoke`: exercises the bootstrap flow end to end for both the `container-service` and `cli-tool` packs: `submit-brief -> evaluate-run-policy -> worker -> evaluate-run-quality -> export-pr-candidate -> publish-pr-export`
+- `smoke`: exercises the bootstrap flow end to end for both the `container-service` and `cli-tool` packs: `submit-brief -> evaluate-run-policy -> describe-artifact(policy_report) -> worker -> evaluate-run-quality -> describe-artifact(quality_report) -> export-pr-candidate -> publish-pr-export`
 
 Local runs through `act` use the runner image and container architecture pinned in [`.actrc`](.actrc), with the canonical values tracked in [`versions.env`](versions.env). GitHub-only publication steps such as artifact upload and attestation are skipped under `act`, because local runs do not expose GitHub runtime tokens, OIDC tokens, or the attestations API. The underlying build and SBOM generation steps still run locally.
 Pinned version policy and update automation are documented in [VERSIONS.md](VERSIONS.md).
@@ -135,7 +137,7 @@ The core checks can be run directly without GitHub Actions:
 ./scripts/ci-smoke.sh
 ```
 
-`./scripts/smoke-mvp.sh` still runs a single end-to-end smoke pass, including the automated run quality gate, and accepts `SMOKE_BRIEF_FILE` to target a specific brief, for example `examples/briefs/minimal-container-service.yaml` or `examples/briefs/minimal-cli-tool.yaml`.
+`./scripts/smoke-mvp.sh` still runs a single end-to-end smoke pass, including policy/quality artifact inspection and the automated run quality gate, and accepts `SMOKE_BRIEF_FILE` to target a specific brief, for example `examples/briefs/minimal-container-service.yaml` or `examples/briefs/minimal-cli-tool.yaml`.
 
 To reproduce the workflow structure locally through `act`:
 

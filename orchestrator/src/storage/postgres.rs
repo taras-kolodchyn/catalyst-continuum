@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use uuid::Uuid;
 
 use crate::models::{
-    artifact::{ArtifactDraft, ArtifactSummary},
+    artifact::{ArtifactDraft, ArtifactRecord, ArtifactSummary},
     run::{RunContext, RunDetail, RunDraft, RunSummary, RunTaskCounts, SubmissionRecord},
     task::{TaskDraft, TaskExecutionSpec, TaskSummary},
 };
@@ -536,6 +536,31 @@ impl PostgresRunStore {
         Ok(rows.iter().map(row_to_artifact_summary).collect())
     }
 
+    pub fn fetch_artifact(&mut self, artifact_id: Uuid) -> Result<Option<ArtifactRecord>> {
+        let row = self
+            .client
+            .query_opt(
+                &format!(
+                    "SELECT
+                        run_id,
+                        artifact_id,
+                        type,
+                        format,
+                        location_kind,
+                        location_value,
+                        content_digest,
+                        metadata,
+                        to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at
+                     FROM artifacts
+                     WHERE artifact_id = $1"
+                ),
+                &[&artifact_id],
+            )
+            .with_context(|| format!("failed to fetch artifact: {artifact_id}"))?;
+
+        Ok(row.as_ref().map(row_to_artifact_record))
+    }
+
     pub fn find_latest_run_artifact(
         &mut self,
         run_id: Uuid,
@@ -773,6 +798,13 @@ fn row_to_artifact_summary(row: &postgres::Row) -> ArtifactSummary {
         metadata: row.get("metadata"),
         created_at: row.get("created_at"),
         persisted: true,
+    }
+}
+
+fn row_to_artifact_record(row: &postgres::Row) -> ArtifactRecord {
+    ArtifactRecord {
+        run_id: row.get("run_id"),
+        artifact: row_to_artifact_summary(row),
     }
 }
 

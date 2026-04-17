@@ -84,6 +84,24 @@ POLICY_OUTPUT="$("$BIN" evaluate-run-policy \
   --run-id "$RUN_ID")"
 printf '%s\n' "$POLICY_OUTPUT"
 printf '%s\n' "$POLICY_OUTPUT" | grep -q '^passed: true$'
+POLICY_ARTIFACT_ID="$(printf '%s\n' "$POLICY_OUTPUT" | awk '/^artifact_id:/ {print $2; exit}')"
+test -n "$POLICY_ARTIFACT_ID"
+POLICY_ARTIFACT_FILE="$ARTIFACT_ROOT/policy-artifact.json"
+"$BIN" describe-artifact \
+  --database-url "$DATABASE_URL" \
+  --artifact-id "$POLICY_ARTIFACT_ID" \
+  --json >"$POLICY_ARTIFACT_FILE"
+python3 - "$POLICY_ARTIFACT_FILE" <<'PY'
+import json
+import pathlib
+import sys
+
+artifact = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+assert artifact["artifact"]["artifact_type"] == "policy_report", artifact
+assert artifact["metadata"]["passed"] is True, artifact
+assert artifact["manifest"]["artifact_type"] == "policy_report", artifact
+assert artifact["manifest"]["passed"] is True, artifact
+PY
 
 WORKER_OUTPUT="$("$BIN" worker \
   --database-url "$DATABASE_URL" \
@@ -100,6 +118,24 @@ QUALITY_OUTPUT="$("$BIN" evaluate-run-quality \
   --run-id "$RUN_ID")"
 printf '%s\n' "$QUALITY_OUTPUT"
 printf '%s\n' "$QUALITY_OUTPUT" | grep -q '^passed: true$'
+QUALITY_ARTIFACT_ID="$(printf '%s\n' "$QUALITY_OUTPUT" | awk '/^artifact_id:/ {print $2; exit}')"
+test -n "$QUALITY_ARTIFACT_ID"
+QUALITY_ARTIFACT_FILE="$ARTIFACT_ROOT/quality-artifact.json"
+"$BIN" describe-artifact \
+  --database-url "$DATABASE_URL" \
+  --artifact-id "$QUALITY_ARTIFACT_ID" \
+  --json >"$QUALITY_ARTIFACT_FILE"
+python3 - "$QUALITY_ARTIFACT_FILE" <<'PY'
+import json
+import pathlib
+import sys
+
+artifact = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+assert artifact["artifact"]["artifact_type"] == "quality_report", artifact
+assert artifact["metadata"]["passed"] is True, artifact
+assert artifact["manifest"]["artifact_type"] == "quality_report", artifact
+assert artifact["manifest"]["passed"] is True, artifact
+PY
 
 "$BIN" export-pr-candidate \
   --database-url "$DATABASE_URL" \

@@ -112,6 +112,7 @@ Stateless tools work even without Postgres:
 
 Stateful tools need `CATALYST_DATABASE_URL`:
 
+- `describe_artifact`
 - `submit_brief`
 - `list_runs`
 - `describe_run`
@@ -123,6 +124,7 @@ Stateful tools need `CATALYST_DATABASE_URL`:
 - `publish_pr_export`
 - `open_github_pr`
 
+`describe_artifact` is the general inspection tool for OpenHands when it needs the persisted manifest or metadata behind a `backlog`, `policy_report`, `quality_report`, `pr_export`, or publication artifact referenced by `describe_run`.
 `evaluate_run_policy` is the visibility tool for OpenHands when it needs to inspect whether the current run still satisfies control-plane policy constraints such as runtime provider, sandbox profile, and planned timeout budget.
 `evaluate_run_quality` is the visibility tool for OpenHands when it needs to inspect whether a run is ready for remote PR promotion. Even if OpenHands skips that explicit call, `publish_pr_export` and `open_github_pr` will enforce the same automated gate before pushing changes outward.
 

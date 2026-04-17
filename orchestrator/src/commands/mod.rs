@@ -1,4 +1,5 @@
 pub mod create_draft_pr;
+pub mod describe_artifact;
 pub mod describe_pack;
 pub mod describe_run;
 pub mod evaluate_run_policy;

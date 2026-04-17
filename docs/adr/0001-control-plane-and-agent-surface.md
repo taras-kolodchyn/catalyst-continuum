@@ -57,10 +57,11 @@ The first MCP slice should expose a minimal, high-value tool set:
 
 - `list_packs`
 - `describe_pack`
+- `describe_artifact`
 - `validate_brief`
 - `submit_brief`
 - `list_runs`
-- `get_run`
+- `describe_run`
 - `run_next_task`
 - `run_worker_once`
 - `export_pr_candidate`

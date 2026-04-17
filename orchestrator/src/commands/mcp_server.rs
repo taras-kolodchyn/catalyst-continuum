@@ -7,8 +7,8 @@ use serde_json::{Map, Value, json};
 use crate::{
     cli::McpServerArgs,
     commands::{
-        evaluate_run_policy, evaluate_run_quality, export_pr_candidate, open_github_pr,
-        publish_pr_export, run_next_task, worker,
+        describe_artifact, evaluate_run_policy, evaluate_run_quality, export_pr_candidate,
+        open_github_pr, publish_pr_export, run_next_task, worker,
     },
     planning::{
         brief_validation::validate_brief_document, pack_catalog::build_pack_catalog,
@@ -92,6 +92,12 @@ struct CallToolParams {
 #[serde(deny_unknown_fields)]
 struct DescribePackToolArgs {
     pack_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DescribeArtifactToolArgs {
+    artifact_id: uuid::Uuid,
 }
 
 #[derive(Debug, Deserialize)]
@@ -387,6 +393,7 @@ impl StdioMcpServer {
         let result = match params.name.as_str() {
             "list_packs" => self.call_list_packs(arguments),
             "describe_pack" => self.call_describe_pack(arguments),
+            "describe_artifact" => self.call_describe_artifact(arguments),
             "validate_brief" => self.call_validate_brief(arguments),
             "submit_brief" => self.call_submit_brief(arguments),
             "list_runs" => self.call_list_runs(arguments),
@@ -449,6 +456,22 @@ impl StdioMcpServer {
             let content =
                 serde_json::to_value(&pack).context("failed to serialize pack definition")?;
             Ok(tool_success_object("pack", content))
+        })
+    }
+
+    fn call_describe_artifact(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: DescribeArtifactToolArgs = parse_tool_arguments(arguments)?;
+            let mut store = self.open_store()?;
+            let artifact = describe_artifact::describe_artifact(&mut store, args.artifact_id)?
+                .with_context(|| format!("artifact not found: {}", args.artifact_id))?;
+            let structured =
+                serde_json::to_value(&artifact).context("failed to serialize artifact detail")?;
+            Ok(tool_success_with_text(
+                "artifact",
+                structured,
+                artifact.render_text()?,
+            ))
         })
     }
 
@@ -790,6 +813,11 @@ fn tool_definitions() -> Vec<Value> {
             )]),
         ),
         tool_definition(
+            "describe_artifact",
+            "Fetch one orchestrator artifact with metadata and a safe manifest/text inspection when available.",
+            json_schema_object(&[required_string_property("artifact_id", "Artifact UUID.")]),
+        ),
+        tool_definition(
             "validate_brief",
             "Validate an inline YAML product brief and resolve its repository pack.",
             json_schema_object(&[
@@ -995,7 +1023,7 @@ mod tests {
 
         assert_eq!(
             output[1]["result"]["tools"].as_array().map(Vec::len),
-            Some(13)
+            Some(14)
         );
         assert_eq!(output[1]["result"]["tools"][0]["name"], "list_packs");
     }

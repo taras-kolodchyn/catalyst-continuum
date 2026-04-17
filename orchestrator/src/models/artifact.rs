@@ -30,6 +30,12 @@ pub struct ArtifactSummary {
     pub persisted: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct ArtifactRecord {
+    pub run_id: Uuid,
+    pub artifact: ArtifactSummary,
+}
+
 impl ArtifactSummary {
     pub fn from_draft(draft: &ArtifactDraft) -> Self {
         Self {

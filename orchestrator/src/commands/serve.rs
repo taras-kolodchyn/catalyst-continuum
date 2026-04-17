@@ -7,8 +7,9 @@ use uuid::Uuid;
 use crate::{
     cli::ServeArgs,
     commands::{
-        create_draft_pr, evaluate_run_policy, evaluate_run_quality, export_pr_candidate,
-        publish_pr_export, run_next_task, submit_brief::submit_validated_brief, worker,
+        create_draft_pr, describe_artifact, evaluate_run_policy, evaluate_run_quality,
+        export_pr_candidate, publish_pr_export, run_next_task,
+        submit_brief::submit_validated_brief, worker,
     },
     planning::{
         brief_validation::validate_brief_document, pack_catalog::build_pack_catalog,
@@ -58,6 +59,7 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                         "/healthz",
                         "/packs",
                         "/packs/{pack_id}",
+                        "/artifacts/{artifact_id}",
                         "/runs",
                         "/runs/{run_id}",
                         "POST /runs/{run_id}/tasks/next",
@@ -88,6 +90,37 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                     },
                 ),
             },
+            ("GET", _) if single_path_segment(path, "/artifacts/").is_some() => {
+                let artifact_id = single_path_segment(path, "/artifacts/")
+                    .expect("artifact path guard should provide a single path segment");
+                match parse_artifact_id(artifact_id) {
+                    Ok(artifact_id) => {
+                        match describe_artifact::describe_artifact(&mut store, artifact_id) {
+                            Ok(Some(artifact)) => json_response(StatusCode(200), &artifact),
+                            Ok(None) => json_response(
+                                StatusCode(404),
+                                &ErrorResponse {
+                                    error: format!("artifact not found: {artifact_id}"),
+                                },
+                            ),
+                            Err(error) => json_response(
+                                StatusCode(500),
+                                &ErrorResponse {
+                                    error: format!(
+                                        "failed to fetch artifact {artifact_id}: {error}"
+                                    ),
+                                },
+                            ),
+                        }
+                    }
+                    Err(error) => json_response(
+                        StatusCode(400),
+                        &ErrorResponse {
+                            error: error.to_string(),
+                        },
+                    ),
+                }
+            }
             ("GET", "/runs") => match store.list_runs(DEFAULT_RUN_LIST_LIMIT) {
                 Ok(runs) => json_response(
                     StatusCode(200),
@@ -627,6 +660,11 @@ fn parse_run_id(value: &str) -> anyhow::Result<Uuid> {
     Uuid::parse_str(value).map_err(|error| anyhow::anyhow!("invalid run id `{value}`: {error}"))
 }
 
+fn parse_artifact_id(value: &str) -> anyhow::Result<Uuid> {
+    Uuid::parse_str(value)
+        .map_err(|error| anyhow::anyhow!("invalid artifact id `{value}`: {error}"))
+}
+
 fn parse_run_action_path(path: &str, suffix: &str) -> anyhow::Result<Uuid> {
     let run_id = path
         .strip_prefix("/runs/")
@@ -668,6 +706,9 @@ fn route_label(method: &str, path: &str) -> &'static str {
         ("GET", "/") => "/",
         ("GET", "/healthz") => "/healthz",
         ("GET", "/packs") => "/packs",
+        ("GET", _) if single_path_segment(path, "/artifacts/").is_some() => {
+            "/artifacts/{artifact_id}"
+        }
         ("GET", "/runs") => "/runs",
         ("POST", "/briefs/validate") => "/briefs/validate",
         ("POST", "/briefs/submit") => "/briefs/submit",
