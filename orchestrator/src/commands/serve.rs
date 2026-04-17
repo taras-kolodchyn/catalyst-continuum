@@ -4,6 +4,7 @@ use uuid::Uuid;
 
 use crate::{
     cli::ServeArgs,
+    commands::submit_brief::submit_validated_brief,
     planning::{
         brief_validation::validate_brief_document, pack_catalog::build_pack_catalog,
         packs::PackDefinition,
@@ -48,6 +49,7 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                         "/runs",
                         "/runs/{run_id}",
                         "POST /briefs/validate",
+                        "POST /briefs/submit",
                     ],
                 },
             ),
@@ -143,6 +145,42 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                     },
                 ),
             },
+            ("POST", "/briefs/submit") => match read_request_body(&mut request) {
+                Ok(body) => match validate_brief_document(&body, "http:POST /briefs/submit") {
+                    Ok(validated) => match submit_validated_brief(
+                        validated,
+                        "http:POST /briefs/submit",
+                        Some(&args.database_url),
+                        &args.artifact_root,
+                        false,
+                        "http",
+                    ) {
+                        Ok(submission) => json_response_with_headers(
+                            StatusCode(201),
+                            &submission,
+                            &[header("Location", format!("/runs/{}", submission.run_id))],
+                        ),
+                        Err(error) => json_response(
+                            StatusCode(500),
+                            &ErrorResponse {
+                                error: format!("failed to submit brief: {error}"),
+                            },
+                        ),
+                    },
+                    Err(error) => json_response(
+                        StatusCode(400),
+                        &ErrorResponse {
+                            error: error.to_string(),
+                        },
+                    ),
+                },
+                Err(error) => json_response(
+                    StatusCode(400),
+                    &ErrorResponse {
+                        error: format!("failed to read request body: {error}"),
+                    },
+                ),
+            },
             _ => json_response(
                 StatusCode(404),
                 &ErrorResponse {
@@ -173,15 +211,31 @@ fn json_response<T: Serialize>(
     status: StatusCode,
     value: &T,
 ) -> Response<std::io::Cursor<Vec<u8>>> {
+    json_response_with_headers(status, value, &[])
+}
+
+fn json_response_with_headers<T: Serialize>(
+    status: StatusCode,
+    value: &T,
+    headers: &[Header],
+) -> Response<std::io::Cursor<Vec<u8>>> {
     let body = serde_json::to_vec_pretty(value).unwrap_or_else(|error| {
         format!(r#"{{"error":"failed to serialize response: {error}"}}"#).into_bytes()
     });
-    let header = Header::from_bytes("Content-Type", "application/json; charset=utf-8")
-        .expect("static content-type header should be valid");
-
-    Response::from_data(body)
+    let mut response = Response::from_data(body)
         .with_status_code(status)
-        .with_header(header)
+        .with_header(header("Content-Type", "application/json; charset=utf-8"));
+
+    for response_header in headers.iter().cloned() {
+        response = response.with_header(response_header);
+    }
+
+    response
+}
+
+fn header(name: &str, value: impl AsRef<str>) -> Header {
+    Header::from_bytes(name, value.as_ref())
+        .unwrap_or_else(|_| panic!("invalid static response header: {name}"))
 }
 
 #[derive(Debug, Serialize)]

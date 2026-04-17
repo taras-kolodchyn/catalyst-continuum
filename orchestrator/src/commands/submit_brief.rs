@@ -9,7 +9,8 @@ use crate::{
         task::TaskSummary,
     },
     planning::{
-        backlog::generate_initial_backlog, brief_validation::validate_brief_document,
+        backlog::generate_initial_backlog,
+        brief_validation::{ValidatedBriefSubmission, validate_brief_document},
         tasks::materialize_tasks,
     },
     storage::postgres::PostgresRunStore,
@@ -45,6 +46,24 @@ pub fn submit_brief_document(
     trigger: &str,
 ) -> anyhow::Result<SubmissionRecord> {
     let validated = validate_brief_document(raw_brief, brief_source_path)?;
+    submit_validated_brief(
+        validated,
+        brief_source_path,
+        database_url,
+        artifact_root,
+        dry_run,
+        trigger,
+    )
+}
+
+pub fn submit_validated_brief(
+    validated: ValidatedBriefSubmission,
+    brief_source_path: &str,
+    database_url: Option<&str>,
+    artifact_root: &Path,
+    dry_run: bool,
+    trigger: &str,
+) -> anyhow::Result<SubmissionRecord> {
     let brief = validated.brief;
     let report = validated.report;
     let pack = validated.pack;
