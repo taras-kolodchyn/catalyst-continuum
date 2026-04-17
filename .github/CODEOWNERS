@@ -1,0 +1,14 @@
+# Single-maintainer bootstrap ownership map.
+# Keep branch protection with require_code_owner_reviews=false until at least
+# one additional reviewer or team is available to approve pull requests.
+
+* @taras-kolodchyn
+
+/.github/ @taras-kolodchyn
+/deploy/ @taras-kolodchyn
+/docs/ @taras-kolodchyn
+/orchestrator/ @taras-kolodchyn
+/packs/ @taras-kolodchyn
+/runtime/ @taras-kolodchyn
+/schemas/ @taras-kolodchyn
+/scripts/ @taras-kolodchyn
