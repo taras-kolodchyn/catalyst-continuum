@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::models::{
     artifact::ArtifactSummary,
-    brief::{Brief, RepositoryTarget},
+    brief::{Brief, RepositoryHost, RepositoryTarget, RepositoryVisibility},
     task::TaskSummary,
 };
 
@@ -133,6 +133,43 @@ pub struct SubmissionRecord {
     pub persisted: bool,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct RunTaskCounts {
+    pub total: usize,
+    pub queued: usize,
+    pub running: usize,
+    pub succeeded: usize,
+    pub failed: usize,
+    pub approval_required: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RunSummary {
+    pub run_id: Uuid,
+    pub brief_id: Uuid,
+    pub status: String,
+    pub trigger: String,
+    pub title: String,
+    pub requested_by: Option<String>,
+    pub target_pack: Option<String>,
+    pub repository: Option<RepositoryTarget>,
+    pub goal_count: usize,
+    pub functional_requirement_count: usize,
+    pub constraint_count: usize,
+    pub brief_source_path: String,
+    pub task_counts: RunTaskCounts,
+    pub artifact_count: usize,
+    pub created_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RunDetail {
+    #[serde(flatten)]
+    pub run: RunSummary,
+    pub artifacts: Vec<ArtifactSummary>,
+    pub tasks: Vec<TaskSummary>,
+}
+
 impl SubmissionRecord {
     pub fn from_draft(draft: &RunDraft) -> Self {
         Self {
@@ -231,5 +268,111 @@ impl SubmissionRecord {
         }
 
         Ok(output)
+    }
+}
+
+impl RunSummary {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        run_id: Uuid,
+        brief_id: Uuid,
+        status: String,
+        trigger: String,
+        title: String,
+        requested_by: Option<String>,
+        target_pack: Option<String>,
+        repository: Option<RepositoryTarget>,
+        goal_count: usize,
+        functional_requirement_count: usize,
+        constraint_count: usize,
+        brief_source_path: String,
+        task_counts: RunTaskCounts,
+        artifact_count: usize,
+        created_at: Option<String>,
+    ) -> Self {
+        Self {
+            run_id,
+            brief_id,
+            status,
+            trigger,
+            title,
+            requested_by,
+            target_pack,
+            repository,
+            goal_count,
+            functional_requirement_count,
+            constraint_count,
+            brief_source_path,
+            task_counts,
+            artifact_count,
+            created_at,
+        }
+    }
+
+    pub fn repository_from_parts(
+        host: Option<String>,
+        owner: Option<String>,
+        name: Option<String>,
+        default_branch: Option<String>,
+        visibility: Option<String>,
+    ) -> Option<RepositoryTarget> {
+        if host.is_none()
+            && owner.is_none()
+            && name.is_none()
+            && default_branch.is_none()
+            && visibility.is_none()
+        {
+            return None;
+        }
+
+        Some(RepositoryTarget {
+            host: host.as_deref().and_then(parse_repository_host),
+            owner,
+            name,
+            default_branch,
+            visibility: visibility.as_deref().and_then(parse_repository_visibility),
+        })
+    }
+}
+
+fn parse_repository_host(value: &str) -> Option<RepositoryHost> {
+    match value {
+        "github" => Some(RepositoryHost::Github),
+        _ => None,
+    }
+}
+
+fn parse_repository_visibility(value: &str) -> Option<RepositoryVisibility> {
+    match value {
+        "public" => Some(RepositoryVisibility::Public),
+        "private" => Some(RepositoryVisibility::Private),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RunSummary;
+    use crate::models::brief::{RepositoryHost, RepositoryVisibility};
+
+    #[test]
+    fn reconstructs_repository_target_from_stored_columns() {
+        let repository = RunSummary::repository_from_parts(
+            Some("github".to_string()),
+            Some("smartit".to_string()),
+            Some("catalyst-continuum".to_string()),
+            Some("main".to_string()),
+            Some("private".to_string()),
+        )
+        .expect("repository target should be present");
+
+        assert_eq!(repository.owner.as_deref(), Some("smartit"));
+        assert_eq!(repository.name.as_deref(), Some("catalyst-continuum"));
+        assert_eq!(repository.default_branch.as_deref(), Some("main"));
+        assert!(matches!(repository.host, Some(RepositoryHost::Github)));
+        assert!(matches!(
+            repository.visibility,
+            Some(RepositoryVisibility::Private)
+        ));
     }
 }

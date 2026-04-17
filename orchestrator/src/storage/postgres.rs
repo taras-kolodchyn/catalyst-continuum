@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 use crate::models::{
     artifact::{ArtifactDraft, ArtifactSummary},
-    run::{RunContext, RunDraft, SubmissionRecord},
+    run::{RunContext, RunDetail, RunDraft, RunSummary, RunTaskCounts, SubmissionRecord},
     task::{TaskDraft, TaskExecutionSpec, TaskSummary},
 };
 
@@ -567,6 +567,78 @@ impl PostgresRunStore {
         Ok(row.as_ref().map(row_to_artifact_summary))
     }
 
+    pub fn list_runs(&mut self, limit: usize) -> Result<Vec<RunSummary>> {
+        let limit = i64::try_from(limit).context("run list limit exceeds i64 range")?;
+        let rows = self
+            .client
+            .query(&run_summary_query("TRUE", Some("$1")), &[&limit])
+            .context("failed to list runs")?;
+
+        Ok(rows.iter().map(row_to_run_summary).collect())
+    }
+
+    pub fn list_run_tasks(&mut self, run_id: Uuid) -> Result<Vec<TaskSummary>> {
+        let rows = self
+            .client
+            .query(
+                &format!(
+                    "SELECT
+                        task_id,
+                        run_id,
+                        backlog_item_id,
+                        kind,
+                        priority,
+                        title,
+                        description,
+                        status,
+                        execution,
+                        dependency_task_ids,
+                        source_refs,
+                        assigned_pack,
+                        approval_required,
+                        metadata,
+                        to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
+                        CASE
+                            WHEN started_at IS NULL THEN NULL
+                            ELSE to_char(started_at AT TIME ZONE 'UTC', '{RFC3339_SQL}')
+                        END AS started_at,
+                        CASE
+                            WHEN completed_at IS NULL THEN NULL
+                            ELSE to_char(completed_at AT TIME ZONE 'UTC', '{RFC3339_SQL}')
+                        END AS completed_at,
+                        failure_reason
+                     FROM tasks
+                     WHERE run_id = $1
+                     ORDER BY created_at ASC, backlog_item_id ASC"
+                ),
+                &[&run_id],
+            )
+            .with_context(|| format!("failed to list tasks for run: {run_id}"))?;
+
+        Ok(rows.iter().map(row_to_task_summary).collect())
+    }
+
+    pub fn fetch_run_detail(&mut self, run_id: Uuid) -> Result<Option<RunDetail>> {
+        let row = self
+            .client
+            .query_opt(&run_summary_query("runs.run_id = $1", None), &[&run_id])
+            .with_context(|| format!("failed to fetch run summary: {run_id}"))?;
+
+        let Some(row) = row else {
+            return Ok(None);
+        };
+
+        let run = row_to_run_summary(&row);
+        let tasks = self.list_run_tasks(run_id)?;
+        let artifacts = self.list_run_artifacts(run_id, &[])?;
+
+        Ok(Some(RunDetail {
+            run,
+            artifacts,
+            tasks,
+        }))
+    }
+
     pub fn fetch_run_context(&mut self, run_id: Uuid) -> Result<RunContext> {
         let row = self
             .client
@@ -702,6 +774,39 @@ fn row_to_artifact_summary(row: &postgres::Row) -> ArtifactSummary {
     }
 }
 
+fn row_to_run_summary(row: &postgres::Row) -> RunSummary {
+    RunSummary::new(
+        row.get("run_id"),
+        row.get("brief_id"),
+        row.get("status"),
+        row.get("trigger"),
+        row.get("title"),
+        row.get("requested_by"),
+        row.get("selected_pack"),
+        RunSummary::repository_from_parts(
+            row.get("repository_host"),
+            row.get("repository_owner"),
+            row.get("repository_name"),
+            row.get("repository_default_branch"),
+            row.get("repository_visibility"),
+        ),
+        positive_i64_to_usize(row.get("goal_count")),
+        positive_i64_to_usize(row.get("functional_requirement_count")),
+        positive_i64_to_usize(row.get("constraint_count")),
+        row.get("brief_source_path"),
+        RunTaskCounts {
+            total: positive_i64_to_usize(row.get("task_total_count")),
+            queued: positive_i64_to_usize(row.get("task_queued_count")),
+            running: positive_i64_to_usize(row.get("task_running_count")),
+            succeeded: positive_i64_to_usize(row.get("task_succeeded_count")),
+            failed: positive_i64_to_usize(row.get("task_failed_count")),
+            approval_required: positive_i64_to_usize(row.get("task_approval_required_count")),
+        },
+        positive_i64_to_usize(row.get("artifact_count")),
+        row.get("created_at"),
+    )
+}
+
 fn artifact_summary_from_draft_row(
     artifact: &ArtifactDraft,
     row: &postgres::Row,
@@ -724,4 +829,66 @@ fn dependency_ids(value: &Value) -> Result<Vec<Uuid>> {
         .collect::<Result<Vec<_>>>()?;
 
     Ok(dependency_ids)
+}
+
+fn run_summary_query(where_clause: &str, limit_placeholder: Option<&str>) -> String {
+    let mut sql = format!(
+        "SELECT
+            runs.run_id,
+            runs.brief_id,
+            runs.status,
+            runs.trigger,
+            runs.title,
+            runs.requested_by,
+            runs.selected_pack,
+            runs.repository_host,
+            runs.repository_owner,
+            runs.repository_name,
+            runs.repository_default_branch,
+            runs.repository_visibility,
+            runs.goal_count::bigint AS goal_count,
+            runs.functional_requirement_count::bigint AS functional_requirement_count,
+            runs.constraint_count::bigint AS constraint_count,
+            runs.brief_source_path,
+            to_char(runs.created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
+            COALESCE(task_counts.total_count, 0) AS task_total_count,
+            COALESCE(task_counts.queued_count, 0) AS task_queued_count,
+            COALESCE(task_counts.running_count, 0) AS task_running_count,
+            COALESCE(task_counts.succeeded_count, 0) AS task_succeeded_count,
+            COALESCE(task_counts.failed_count, 0) AS task_failed_count,
+            COALESCE(task_counts.approval_required_count, 0) AS task_approval_required_count,
+            COALESCE(artifact_counts.total_count, 0) AS artifact_count
+         FROM runs
+         LEFT JOIN (
+            SELECT
+                run_id,
+                COUNT(*)::bigint AS total_count,
+                COUNT(*) FILTER (WHERE status = 'queued')::bigint AS queued_count,
+                COUNT(*) FILTER (WHERE status = 'running')::bigint AS running_count,
+                COUNT(*) FILTER (WHERE status = 'succeeded')::bigint AS succeeded_count,
+                COUNT(*) FILTER (WHERE status = 'failed')::bigint AS failed_count,
+                COUNT(*) FILTER (WHERE approval_required)::bigint AS approval_required_count
+            FROM tasks
+            GROUP BY run_id
+         ) AS task_counts ON task_counts.run_id = runs.run_id
+         LEFT JOIN (
+            SELECT
+                run_id,
+                COUNT(*)::bigint AS total_count
+            FROM artifacts
+            GROUP BY run_id
+         ) AS artifact_counts ON artifact_counts.run_id = runs.run_id
+         WHERE {where_clause}
+         ORDER BY runs.created_at DESC, runs.run_id DESC"
+    );
+
+    if let Some(limit_placeholder) = limit_placeholder {
+        sql.push_str(&format!(" LIMIT {limit_placeholder}"));
+    }
+
+    sql
+}
+
+fn positive_i64_to_usize(value: i64) -> usize {
+    usize::try_from(value).unwrap_or_default()
 }

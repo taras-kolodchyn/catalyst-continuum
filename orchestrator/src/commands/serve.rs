@@ -1,5 +1,6 @@
 use serde::Serialize;
 use tiny_http::{Header, Response, Server, StatusCode};
+use uuid::Uuid;
 
 use crate::{
     cli::ServeArgs,
@@ -9,6 +10,8 @@ use crate::{
     },
     storage::postgres::PostgresRunStore,
 };
+
+const DEFAULT_RUN_LIST_LIMIT: usize = 20;
 
 pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
     let mut store = PostgresRunStore::connect(&args.database_url)?;
@@ -42,6 +45,8 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                         "/healthz",
                         "/packs",
                         "/packs/{pack_id}",
+                        "/runs",
+                        "/runs/{run_id}",
                         "POST /briefs/validate",
                     ],
                 },
@@ -62,6 +67,47 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                     },
                 ),
             },
+            ("GET", "/runs") => match store.list_runs(DEFAULT_RUN_LIST_LIMIT) {
+                Ok(runs) => json_response(
+                    StatusCode(200),
+                    &RecentRunsResponse {
+                        count: runs.len(),
+                        runs,
+                    },
+                ),
+                Err(error) => json_response(
+                    StatusCode(500),
+                    &ErrorResponse {
+                        error: format!("failed to list runs: {error}"),
+                    },
+                ),
+            },
+            ("GET", _) if path.starts_with("/runs/") => {
+                let run_id = path.trim_start_matches("/runs/");
+                match parse_run_id(run_id) {
+                    Ok(run_id) => match store.fetch_run_detail(run_id) {
+                        Ok(Some(run)) => json_response(StatusCode(200), &run),
+                        Ok(None) => json_response(
+                            StatusCode(404),
+                            &ErrorResponse {
+                                error: format!("run not found: {run_id}"),
+                            },
+                        ),
+                        Err(error) => json_response(
+                            StatusCode(500),
+                            &ErrorResponse {
+                                error: format!("failed to fetch run {run_id}: {error}"),
+                            },
+                        ),
+                    },
+                    Err(error) => json_response(
+                        StatusCode(400),
+                        &ErrorResponse {
+                            error: error.to_string(),
+                        },
+                    ),
+                }
+            }
             ("GET", _) if path.starts_with("/packs/") => {
                 let pack_id = path.trim_start_matches("/packs/");
                 match PackDefinition::load_optional(pack_id) {
@@ -113,6 +159,10 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn parse_run_id(value: &str) -> anyhow::Result<Uuid> {
+    Uuid::parse_str(value).map_err(|error| anyhow::anyhow!("invalid run id `{value}`: {error}"))
+}
+
 fn read_request_body(request: &mut tiny_http::Request) -> std::io::Result<String> {
     let mut body = String::new();
     request.as_reader().read_to_string(&mut body)?;
@@ -150,4 +200,10 @@ struct HealthResponse {
 #[derive(Debug, Serialize)]
 struct ErrorResponse {
     error: String,
+}
+
+#[derive(Debug, Serialize)]
+struct RecentRunsResponse {
+    count: usize,
+    runs: Vec<crate::models::run::RunSummary>,
 }
