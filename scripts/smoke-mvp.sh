@@ -8,7 +8,7 @@ cd "$ROOT_DIR"
 source "$ROOT_DIR/versions.env"
 
 ARTIFACT_ROOT="${CATALYST_ARTIFACT_ROOT:-$ROOT_DIR/.continuum/ci-artifacts}"
-BRIEF_FILE="${ROOT_DIR}/examples/briefs/minimal-container-service.yaml"
+BRIEF_FILE="${SMOKE_BRIEF_FILE:-$ROOT_DIR/examples/briefs/minimal-container-service.yaml}"
 BIN="${ROOT_DIR}/target/debug/catalyst-continuum-orchestrator"
 POSTGRES_IMAGE="${SMOKE_POSTGRES_IMAGE:-postgres:${POSTGRES_VERSION}@${POSTGRES_IMAGE_DIGEST}}"
 POSTGRES_DB="${SMOKE_POSTGRES_DB:-continuum}"
@@ -118,6 +118,10 @@ SERVICE_TARGET_DIR="$REMOTE_ROOT/generated-target"
 SERVICE_LOG="$REMOTE_ROOT/generated-service.log"
 HEALTH_OUTPUT="$REMOTE_ROOT/generated-service-health.json"
 REQUIREMENTS_OUTPUT="$REMOTE_ROOT/generated-service-requirements.json"
+SUMMARY_OUTPUT="$REMOTE_ROOT/generated-cli-summary.json"
+RUNTIME_DEFAULT_PORT=""
+SMOKE_SUMMARY_COMMAND=""
+SMOKE_REQUIREMENTS_COMMAND=""
 
 readarray -t PACK_CONTRACT_LINES < <(
   python3 - "$PACK_DESCRIPTOR_FILE" <<'PY'
@@ -131,34 +135,32 @@ runtime = generated.get("runtime") or {}
 smoke = generated.get("smoke") or {}
 
 print(runtime.get("kind", ""))
-print(runtime.get("port_env", ""))
+print(runtime.get("port_env", "") or "")
+print(runtime.get("default_port", "") or "")
 print(smoke.get("kind", ""))
-print(smoke.get("healthcheck_path", ""))
-print(smoke.get("requirements_path", ""))
+print(smoke.get("healthcheck_path", "") or "")
+print(smoke.get("requirements_path", "") or "")
+print(smoke.get("summary_command", "") or "")
+print(smoke.get("requirements_command", "") or "")
 PY
 )
 
 GENERATED_RUNTIME_KIND="${PACK_CONTRACT_LINES[0]:-}"
 RUNTIME_PORT_ENV="${PACK_CONTRACT_LINES[1]:-}"
-GENERATED_SMOKE_KIND="${PACK_CONTRACT_LINES[2]:-}"
-SMOKE_HEALTHCHECK_PATH="${PACK_CONTRACT_LINES[3]:-}"
-SMOKE_REQUIREMENTS_PATH="${PACK_CONTRACT_LINES[4]:-}"
+RUNTIME_DEFAULT_PORT="${PACK_CONTRACT_LINES[2]:-}"
+GENERATED_SMOKE_KIND="${PACK_CONTRACT_LINES[3]:-}"
+SMOKE_HEALTHCHECK_PATH="${PACK_CONTRACT_LINES[4]:-}"
+SMOKE_REQUIREMENTS_PATH="${PACK_CONTRACT_LINES[5]:-}"
+SMOKE_SUMMARY_COMMAND="${PACK_CONTRACT_LINES[6]:-}"
+SMOKE_REQUIREMENTS_COMMAND="${PACK_CONTRACT_LINES[7]:-}"
 
 if [ -n "$GENERATED_RUNTIME_KIND" ]; then
   case "$GENERATED_RUNTIME_KIND" in
     cargo_binary)
-      SERVICE_PORT="${SMOKE_SERVICE_PORT:-38080}"
-
       (
         cd "$GENERATED_REPO"
         CARGO_TARGET_DIR="$SERVICE_TARGET_DIR" cargo build --quiet
       )
-
-      (
-        cd "$GENERATED_REPO"
-        CARGO_TARGET_DIR="$SERVICE_TARGET_DIR" env "$RUNTIME_PORT_ENV=$SERVICE_PORT" cargo run --quiet
-      ) >"$SERVICE_LOG" 2>&1 &
-      SERVICE_PID="$!"
       ;;
     *)
       echo "unsupported generated runtime kind: $GENERATED_RUNTIME_KIND" >&2
@@ -170,6 +172,16 @@ if [ -n "$GENERATED_RUNTIME_KIND" ]; then
     "")
       ;;
     http_json)
+      SERVICE_PORT="${SMOKE_SERVICE_PORT:-38080}"
+      test -n "$RUNTIME_PORT_ENV"
+      test -n "$RUNTIME_DEFAULT_PORT"
+
+      (
+        cd "$GENERATED_REPO"
+        CARGO_TARGET_DIR="$SERVICE_TARGET_DIR" env "$RUNTIME_PORT_ENV=$SERVICE_PORT" cargo run --quiet
+      ) >"$SERVICE_LOG" 2>&1 &
+      SERVICE_PID="$!"
+
       for _ in $(seq 1 30); do
         if curl -fsS "http://127.0.0.1:${SERVICE_PORT}${SMOKE_HEALTHCHECK_PATH}" >"$HEALTH_OUTPUT"; then
           break
@@ -214,6 +226,51 @@ if requirements_path:
         json.loads(path.read_text(encoding="utf-8"))["id"]
         for path in sorted((generated_repo / "requirements").glob("*.json"))
     }
+    items = requirements["items"]
+    assert len(items) == len(expected_ids), requirements
+    assert {item["id"] for item in items} == expected_ids, requirements
+PY
+      ;;
+    cli_json)
+      test -n "$SMOKE_SUMMARY_COMMAND"
+
+      (
+        cd "$GENERATED_REPO"
+        CARGO_TARGET_DIR="$SERVICE_TARGET_DIR" cargo run --quiet -- "$SMOKE_SUMMARY_COMMAND"
+      ) >"$SUMMARY_OUTPUT"
+
+      if [ -n "$SMOKE_REQUIREMENTS_COMMAND" ]; then
+        (
+          cd "$GENERATED_REPO"
+          CARGO_TARGET_DIR="$SERVICE_TARGET_DIR" cargo run --quiet -- "$SMOKE_REQUIREMENTS_COMMAND"
+        ) >"$REQUIREMENTS_OUTPUT"
+      fi
+
+      python3 - "$PACK_DESCRIPTOR_FILE" "$GENERATED_REPO" "$SUMMARY_OUTPUT" "$REQUIREMENTS_OUTPUT" <<'PY'
+import json
+import pathlib
+import sys
+import tomllib
+
+pack = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+generated_repo = pathlib.Path(sys.argv[2])
+summary = json.loads(pathlib.Path(sys.argv[3]).read_text(encoding="utf-8"))
+
+package = tomllib.loads((generated_repo / "Cargo.toml").read_text(encoding="utf-8"))
+expected_tool = package["package"]["name"]
+expected_ids = {
+    json.loads(path.read_text(encoding="utf-8"))["id"]
+    for path in sorted((generated_repo / "requirements").glob("*.json"))
+}
+
+assert summary["tool"] == expected_tool, (summary, expected_tool)
+assert summary["pack"] == pack["pack_id"], summary
+assert summary["requirement_count"] == len(expected_ids), summary
+
+smoke = (pack.get("generated_repository") or {}).get("smoke") or {}
+requirements_command = smoke.get("requirements_command")
+if requirements_command:
+    requirements = json.loads(pathlib.Path(sys.argv[4]).read_text(encoding="utf-8"))
     items = requirements["items"]
     assert len(items) == len(expected_ids), requirements
     assert {item["id"] for item in items} == expected_ids, requirements

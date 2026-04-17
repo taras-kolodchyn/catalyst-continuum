@@ -313,6 +313,26 @@ impl PackGeneratedRepositoryContract {
         self.runtime.validate()?;
         if let Some(smoke) = &self.smoke {
             smoke.validate()?;
+            match smoke {
+                PackGeneratedSmokeContract::HttpJson { .. } => match &self.runtime {
+                    PackGeneratedRuntimeContract::CargoBinary {
+                        port_env,
+                        default_port,
+                    } => {
+                        ensure!(
+                            port_env
+                                .as_ref()
+                                .is_some_and(|value| !value.trim().is_empty()),
+                            "generated_repository.runtime.port_env must be set for http_json smoke"
+                        );
+                        ensure!(
+                            default_port.is_some_and(|value| value > 0),
+                            "generated_repository.runtime.default_port must be set for http_json smoke"
+                        );
+                    }
+                },
+                PackGeneratedSmokeContract::CliJson { .. } => {}
+            }
         }
 
         Ok(())
@@ -322,7 +342,12 @@ impl PackGeneratedRepositoryContract {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PackGeneratedRuntimeContract {
-    CargoBinary { port_env: String, default_port: u16 },
+    CargoBinary {
+        #[serde(default)]
+        port_env: Option<String>,
+        #[serde(default)]
+        default_port: Option<u16>,
+    },
 }
 
 impl PackGeneratedRuntimeContract {
@@ -332,13 +357,21 @@ impl PackGeneratedRuntimeContract {
                 port_env,
                 default_port,
             } => {
+                if let Some(port_env) = port_env {
+                    ensure!(
+                        !port_env.trim().is_empty(),
+                        "generated_repository.runtime.port_env must not be empty"
+                    );
+                }
+                if let Some(default_port) = default_port {
+                    ensure!(
+                        *default_port > 0,
+                        "generated_repository.runtime.default_port must be greater than zero"
+                    );
+                }
                 ensure!(
-                    !port_env.trim().is_empty(),
-                    "generated_repository.runtime.port_env must not be empty"
-                );
-                ensure!(
-                    *default_port > 0,
-                    "generated_repository.runtime.default_port must be greater than zero"
+                    port_env.is_some() == default_port.is_some(),
+                    "generated_repository.runtime.port_env and default_port must be set together"
                 );
             }
         }
@@ -354,6 +387,11 @@ pub enum PackGeneratedSmokeContract {
         healthcheck_path: String,
         #[serde(default)]
         requirements_path: Option<String>,
+    },
+    CliJson {
+        summary_command: String,
+        #[serde(default)]
+        requirements_command: Option<String>,
     },
 }
 
@@ -373,6 +411,21 @@ impl PackGeneratedSmokeContract {
                     ensure!(
                         requirements_path.starts_with('/'),
                         "generated_repository.smoke.requirements_path must start with '/'"
+                    );
+                }
+            }
+            Self::CliJson {
+                summary_command,
+                requirements_command,
+            } => {
+                ensure!(
+                    !summary_command.trim().is_empty(),
+                    "generated_repository.smoke.summary_command must not be empty"
+                );
+                if let Some(requirements_command) = requirements_command {
+                    ensure!(
+                        !requirements_command.trim().is_empty(),
+                        "generated_repository.smoke.requirements_command must not be empty"
                     );
                 }
             }
@@ -432,6 +485,20 @@ mod tests {
                 .as_ref()
                 .is_some_and(|entry| !entry.files.is_empty())
         );
+        match &pack
+            .generated_repository
+            .as_ref()
+            .expect("generated repository contract should be present")
+            .runtime
+        {
+            PackGeneratedRuntimeContract::CargoBinary {
+                port_env,
+                default_port,
+            } => {
+                assert_eq!(port_env.as_deref(), Some("PORT"));
+                assert_eq!(*default_port, Some(8080));
+            }
+        }
         match pack
             .generated_repository
             .as_ref()
@@ -446,6 +513,50 @@ mod tests {
             } => {
                 assert_eq!(healthcheck_path, "/healthz");
                 assert_eq!(requirements_path.as_deref(), Some("/requirements"));
+            }
+            PackGeneratedSmokeContract::CliJson { .. } => {
+                panic!("container-service should use http_json smoke")
+            }
+        }
+    }
+
+    #[test]
+    fn loads_cli_tool_pack() {
+        let pack = PackDefinition::load(Some("cli-tool")).expect("cli-tool pack should load");
+
+        assert_eq!(pack.pack_id, "cli-tool");
+        assert_eq!(pack.backlog_templates.len(), 5);
+        match &pack
+            .generated_repository
+            .as_ref()
+            .expect("generated repository contract should be present")
+            .runtime
+        {
+            PackGeneratedRuntimeContract::CargoBinary {
+                port_env,
+                default_port,
+            } => {
+                assert_eq!(port_env.as_deref(), None);
+                assert_eq!(*default_port, None);
+            }
+        }
+        match pack
+            .generated_repository
+            .as_ref()
+            .expect("generated repository contract should be present")
+            .smoke
+            .as_ref()
+            .expect("smoke contract should be present")
+        {
+            PackGeneratedSmokeContract::CliJson {
+                summary_command,
+                requirements_command,
+            } => {
+                assert_eq!(summary_command, "summary");
+                assert_eq!(requirements_command.as_deref(), Some("requirements"));
+            }
+            PackGeneratedSmokeContract::HttpJson { .. } => {
+                panic!("cli-tool should use cli_json smoke")
             }
         }
     }

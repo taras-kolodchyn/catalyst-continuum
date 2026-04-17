@@ -53,13 +53,17 @@ fn render_text(pack: &PackDefinition) -> anyhow::Result<String> {
             } => {
                 writeln!(&mut output, "generated_runtime_kind: cargo_binary")
                     .context("failed to render pack report")?;
-                writeln!(&mut output, "generated_runtime_port_env: {port_env}")
+                if let Some(port_env) = port_env {
+                    writeln!(&mut output, "generated_runtime_port_env: {port_env}")
+                        .context("failed to render pack report")?;
+                }
+                if let Some(default_port) = default_port {
+                    writeln!(
+                        &mut output,
+                        "generated_runtime_default_port: {default_port}"
+                    )
                     .context("failed to render pack report")?;
-                writeln!(
-                    &mut output,
-                    "generated_runtime_default_port: {default_port}"
-                )
-                .context("failed to render pack report")?;
+                }
             }
         }
 
@@ -80,6 +84,25 @@ fn render_text(pack: &PackDefinition) -> anyhow::Result<String> {
                         writeln!(
                             &mut output,
                             "generated_smoke_requirements_path: {requirements_path}"
+                        )
+                        .context("failed to render pack report")?;
+                    }
+                }
+                PackGeneratedSmokeContract::CliJson {
+                    summary_command,
+                    requirements_command,
+                } => {
+                    writeln!(&mut output, "generated_smoke_kind: cli_json")
+                        .context("failed to render pack report")?;
+                    writeln!(
+                        &mut output,
+                        "generated_smoke_summary_command: {summary_command}"
+                    )
+                    .context("failed to render pack report")?;
+                    if let Some(requirements_command) = requirements_command {
+                        writeln!(
+                            &mut output,
+                            "generated_smoke_requirements_command: {requirements_command}"
                         )
                         .context("failed to render pack report")?;
                     }

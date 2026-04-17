@@ -1,0 +1,42 @@
+schema_version: v0.1
+brief_id: 22222222-2222-2222-2222-222222222222
+title: Minimal CLI Tool
+summary: >
+  Build a minimal command-line proof of concept from a structured brief so the
+  orchestrator can validate non-HTTP pack flows end to end.
+requested_by: product@example.com
+target_users:
+  - internal platform engineers
+goals:
+  - Turn a structured brief into a draft backlog.
+  - Scaffold a minimal repository layout for a Rust CLI tool.
+functional_requirements:
+  - id: CLI-1
+    title: Summarize the generated proof of concept
+    description: Emit a machine-readable summary of the generated repository.
+    priority: must
+  - id: CLI-2
+    title: List structured requirements
+    description: Emit the structured requirement catalog through CLI output.
+    priority: must
+constraints:
+  - Keep the first CLI implementation dependency-light.
+  - Use Docker as the initial runtime provider for task execution.
+deliverables:
+  - backlog artifact
+  - scaffold plan artifact
+technical_preferences:
+  languages:
+    - rust
+  infrastructure:
+    - docker compose
+repository:
+  host: github
+  owner: smartit
+  name: catalyst-continuum-cli-demo
+  default_branch: main
+  visibility: private
+execution_preferences:
+  repo_pack: cli-tool
+  default_runtime_provider: docker
+  sandbox_profile: restricted

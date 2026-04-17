@@ -125,5 +125,5 @@ jobs:
       - name: Build workspace
         run: cargo build --workspace --locked
 
-      - name: Run MVP smoke test
-        run: ./scripts/smoke-mvp.sh
+      - name: Run MVP smoke tests
+        run: ./scripts/ci-smoke.sh

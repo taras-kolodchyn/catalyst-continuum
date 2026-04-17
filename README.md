@@ -21,7 +21,7 @@ GitHub Actions runs one workflow, [`.github/workflows/ci.yml`](.github/workflows
 - `sbom`: builds the orchestrator image, generates an SPDX SBOM, uploads the SBOM artifact, and creates a GitHub/Sigstore provenance attestation for that uploaded artifact
 - `rust`: runs `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo build --workspace --locked`, and `cargo test --workspace --locked`
 - `compose`: validates `deploy/compose/compose.yaml` with the pinned `.env.example`
-- `smoke`: exercises the bootstrap flow end to end: `submit-brief -> worker -> export-pr-candidate -> publish-pr-export`
+- `smoke`: exercises the bootstrap flow end to end for both the `container-service` and `cli-tool` packs: `submit-brief -> worker -> export-pr-candidate -> publish-pr-export`
 
 Local runs through `act` use the runner image and container architecture pinned in [`.actrc`](.actrc), with the canonical values tracked in [`versions.env`](versions.env). GitHub-only publication steps such as artifact upload and attestation are skipped under `act`, because local runs do not expose GitHub runtime tokens, OIDC tokens, or the attestations API. The underlying build and SBOM generation steps still run locally.
 Pinned version policy and update automation are documented in [VERSIONS.md](VERSIONS.md).
@@ -36,8 +36,10 @@ The core checks can be run directly without GitHub Actions:
 ./scripts/generate-sbom.sh
 ./scripts/ci-rust.sh
 ./scripts/ci-compose.sh
-./scripts/smoke-mvp.sh
+./scripts/ci-smoke.sh
 ```
+
+`./scripts/smoke-mvp.sh` still runs a single end-to-end smoke pass and accepts `SMOKE_BRIEF_FILE` to target a specific brief, for example `examples/briefs/minimal-container-service.yaml` or `examples/briefs/minimal-cli-tool.yaml`.
 
 To reproduce the workflow structure locally through `act`:
 
