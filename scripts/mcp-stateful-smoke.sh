@@ -20,6 +20,7 @@ GITHUB_WEBHOOK_SECRET="${CATALYST_GITHUB_APP_WEBHOOK_SECRET:-continuum-dev-webho
 GITHUB_APP_INSTALLATION_ID="${MCP_SMOKE_GITHUB_APP_INSTALLATION_ID:-42}"
 WEBHOOK_DELIVERY_ID="${MCP_SMOKE_WEBHOOK_DELIVERY_ID:-11111111-1111-1111-1111-111111111111}"
 PUSH_WEBHOOK_DELIVERY_ID="${MCP_SMOKE_PUSH_WEBHOOK_DELIVERY_ID:-22222222-2222-2222-2222-222222222222}"
+PUSH_WEBHOOK_ACTION_REQUEST_ID="${MCP_SMOKE_PUSH_WEBHOOK_ACTION_REQUEST_ID:-github:${PUSH_WEBHOOK_DELIVERY_ID}:sync_default_branch}"
 ORCHESTRATOR_PID=0
 STARTED_POSTGRES=0
 
@@ -195,7 +196,7 @@ assert response["routing_action"] == "sync_default_branch", response
 assert response["persisted"] is True, response
 PY
 
-python3 - "$DATABASE_URL" "$ARTIFACT_ROOT" "$BRIEF_FILE" "$WEBHOOK_DELIVERY_ID" "$PUSH_WEBHOOK_DELIVERY_ID" <<'PY'
+python3 - "$DATABASE_URL" "$ARTIFACT_ROOT" "$BRIEF_FILE" "$WEBHOOK_DELIVERY_ID" "$PUSH_WEBHOOK_DELIVERY_ID" "$PUSH_WEBHOOK_ACTION_REQUEST_ID" <<'PY'
 import json
 import os
 import pathlib
@@ -207,6 +208,7 @@ artifact_root = sys.argv[2]
 brief_path = pathlib.Path(sys.argv[3])
 webhook_delivery_id = sys.argv[4]
 push_webhook_delivery_id = sys.argv[5]
+push_webhook_action_request_id = sys.argv[6]
 root = pathlib.Path.cwd()
 try:
     brief_source_path = str(brief_path.relative_to(root))
@@ -360,6 +362,8 @@ try:
         "submit_brief",
         "list_github_webhooks",
         "describe_github_webhook",
+        "list_github_webhook_action_requests",
+        "describe_github_webhook_action_request",
         "list_runs",
         "describe_run",
         "run_next_task",
@@ -401,6 +405,19 @@ try:
             f"{deliveries}"
         )
 
+    requests = call_tool(
+        "list_github_webhook_action_requests",
+        {"limit": 10, "status": "pending"},
+        "requests",
+    )
+    if not any(
+        request["request_id"] == push_webhook_action_request_id for request in requests
+    ):
+        fail(
+            "stateful MCP smoke failed: expected webhook action request in "
+            f"list_github_webhook_action_requests, got {requests}"
+        )
+
     webhook_delivery = call_tool(
         "describe_github_webhook",
         {"delivery_id": webhook_delivery_id},
@@ -435,6 +452,32 @@ try:
         fail(
             "stateful MCP smoke failed: push webhook delivery should route to sync_default_branch, got "
             f"{push_webhook_delivery['routing_action']}"
+        )
+
+    push_webhook_action_request = call_tool(
+        "describe_github_webhook_action_request",
+        {"request_id": push_webhook_action_request_id},
+        "request",
+    )
+    if push_webhook_action_request["request_id"] != push_webhook_action_request_id:
+        fail(
+            "stateful MCP smoke failed: describe_github_webhook_action_request returned unexpected request id "
+            f"{push_webhook_action_request['request_id']}"
+        )
+    if push_webhook_action_request["delivery_id"] != push_webhook_delivery_id:
+        fail(
+            "stateful MCP smoke failed: webhook action request should point at push delivery, got "
+            f"{push_webhook_action_request['delivery_id']}"
+        )
+    if push_webhook_action_request["status"] != "pending":
+        fail(
+            "stateful MCP smoke failed: webhook action request should be pending, got "
+            f"{push_webhook_action_request['status']}"
+        )
+    if push_webhook_action_request["action"] != "sync_default_branch":
+        fail(
+            "stateful MCP smoke failed: webhook action request should target sync_default_branch, got "
+            f"{push_webhook_action_request['action']}"
         )
 
     catalog = call_tool("list_packs", {}, "catalog")

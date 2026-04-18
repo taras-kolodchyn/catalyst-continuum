@@ -17,6 +17,7 @@ POSTGRES_PASSWORD="${SMOKE_POSTGRES_PASSWORD:-continuum-dev}"
 POSTGRES_PORT="${SMOKE_POSTGRES_PORT:-55432}"
 GITHUB_WEBHOOK_SECRET="${SMOKE_GITHUB_WEBHOOK_SECRET:-continuum-smoke-webhook-secret}"
 GITHUB_APP_INSTALLATION_ID="${SMOKE_GITHUB_APP_INSTALLATION_ID:-42}"
+PUSH_WEBHOOK_ACTION_REQUEST_ID="${SMOKE_PUSH_WEBHOOK_ACTION_REQUEST_ID:-github:22222222-2222-2222-2222-222222222222:sync_default_branch}"
 POSTGRES_CONTAINER_NAME="continuum-smoke-postgres-$$"
 STARTED_POSTGRES=0
 ORCHESTRATOR_PID=""
@@ -149,9 +150,13 @@ PUSH_WEBHOOK_RESPONSE_FILE="$ARTIFACT_ROOT/github-webhook-push-response.json"
 WEBHOOK_LIST_HTTP_FILE="$ARTIFACT_ROOT/http-webhook-deliveries.json"
 WEBHOOK_PING_DETAIL_HTTP_FILE="$ARTIFACT_ROOT/http-webhook-ping-delivery.json"
 WEBHOOK_PUSH_DETAIL_HTTP_FILE="$ARTIFACT_ROOT/http-webhook-push-delivery.json"
+WEBHOOK_ACTION_LIST_HTTP_FILE="$ARTIFACT_ROOT/http-webhook-action-requests.json"
+WEBHOOK_ACTION_DETAIL_HTTP_FILE="$ARTIFACT_ROOT/http-webhook-action-request.json"
 WEBHOOK_LIST_CLI_FILE="$ARTIFACT_ROOT/cli-webhook-deliveries.json"
 WEBHOOK_PING_DETAIL_CLI_FILE="$ARTIFACT_ROOT/cli-webhook-ping-delivery.json"
 WEBHOOK_PUSH_DETAIL_CLI_FILE="$ARTIFACT_ROOT/cli-webhook-push-delivery.json"
+WEBHOOK_ACTION_LIST_CLI_FILE="$ARTIFACT_ROOT/cli-webhook-action-requests.json"
+WEBHOOK_ACTION_DETAIL_CLI_FILE="$ARTIFACT_ROOT/cli-webhook-action-request.json"
 cat >"$WEBHOOK_PAYLOAD_FILE" <<'EOF'
 {
   "zen": "Keep it logically awesome.",
@@ -257,6 +262,12 @@ curl -fsS \
 curl -fsS \
   "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/github/webhooks/22222222-2222-2222-2222-222222222222" \
   >"$WEBHOOK_PUSH_DETAIL_HTTP_FILE"
+curl -fsS \
+  "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/github/webhook-actions" \
+  >"$WEBHOOK_ACTION_LIST_HTTP_FILE"
+curl -fsS \
+  "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/github/webhook-actions/${PUSH_WEBHOOK_ACTION_REQUEST_ID}" \
+  >"$WEBHOOK_ACTION_DETAIL_HTTP_FILE"
 "$BIN" list-github-webhooks \
   --database-url "$DATABASE_URL" \
   --json >"$WEBHOOK_LIST_CLI_FILE"
@@ -268,13 +279,25 @@ curl -fsS \
   --database-url "$DATABASE_URL" \
   --delivery-id "22222222-2222-2222-2222-222222222222" \
   --json >"$WEBHOOK_PUSH_DETAIL_CLI_FILE"
+"$BIN" list-github-webhook-action-requests \
+  --database-url "$DATABASE_URL" \
+  --json >"$WEBHOOK_ACTION_LIST_CLI_FILE"
+"$BIN" describe-github-webhook-action-request \
+  --database-url "$DATABASE_URL" \
+  --request-id "$PUSH_WEBHOOK_ACTION_REQUEST_ID" \
+  --json >"$WEBHOOK_ACTION_DETAIL_CLI_FILE"
 python3 - \
   "$WEBHOOK_LIST_HTTP_FILE" \
   "$WEBHOOK_PING_DETAIL_HTTP_FILE" \
   "$WEBHOOK_PUSH_DETAIL_HTTP_FILE" \
+  "$WEBHOOK_ACTION_LIST_HTTP_FILE" \
+  "$WEBHOOK_ACTION_DETAIL_HTTP_FILE" \
   "$WEBHOOK_LIST_CLI_FILE" \
   "$WEBHOOK_PING_DETAIL_CLI_FILE" \
-  "$WEBHOOK_PUSH_DETAIL_CLI_FILE" <<'PY'
+  "$WEBHOOK_PUSH_DETAIL_CLI_FILE" \
+  "$WEBHOOK_ACTION_LIST_CLI_FILE" \
+  "$WEBHOOK_ACTION_DETAIL_CLI_FILE" \
+  "$PUSH_WEBHOOK_ACTION_REQUEST_ID" <<'PY'
 import json
 import pathlib
 import sys
@@ -282,9 +305,14 @@ import sys
 http_list = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
 http_ping_detail = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
 http_push_detail = json.loads(pathlib.Path(sys.argv[3]).read_text(encoding="utf-8"))
-cli_list = json.loads(pathlib.Path(sys.argv[4]).read_text(encoding="utf-8"))
-cli_ping_detail = json.loads(pathlib.Path(sys.argv[5]).read_text(encoding="utf-8"))
-cli_push_detail = json.loads(pathlib.Path(sys.argv[6]).read_text(encoding="utf-8"))
+http_action_list = json.loads(pathlib.Path(sys.argv[4]).read_text(encoding="utf-8"))
+http_action_detail = json.loads(pathlib.Path(sys.argv[5]).read_text(encoding="utf-8"))
+cli_list = json.loads(pathlib.Path(sys.argv[6]).read_text(encoding="utf-8"))
+cli_ping_detail = json.loads(pathlib.Path(sys.argv[7]).read_text(encoding="utf-8"))
+cli_push_detail = json.loads(pathlib.Path(sys.argv[8]).read_text(encoding="utf-8"))
+cli_action_list = json.loads(pathlib.Path(sys.argv[9]).read_text(encoding="utf-8"))
+cli_action_detail = json.loads(pathlib.Path(sys.argv[10]).read_text(encoding="utf-8"))
+action_request_id = sys.argv[11]
 ping_delivery_id = "11111111-1111-1111-1111-111111111111"
 push_delivery_id = "22222222-2222-2222-2222-222222222222"
 
@@ -298,6 +326,13 @@ assert http_push_detail["delivery_id"] == push_delivery_id, http_push_detail
 assert http_push_detail["persisted"] is True, http_push_detail
 assert http_push_detail["routing_status"] == "candidate", http_push_detail
 assert http_push_detail["routing_action"] == "sync_default_branch", http_push_detail
+assert http_action_list["count"] >= 1, http_action_list
+assert any(request["request_id"] == action_request_id for request in http_action_list["requests"]), http_action_list
+assert http_action_detail["request_id"] == action_request_id, http_action_detail
+assert http_action_detail["persisted"] is True, http_action_detail
+assert http_action_detail["status"] == "pending", http_action_detail
+assert http_action_detail["action"] == "sync_default_branch", http_action_detail
+assert http_action_detail["delivery_id"] == push_delivery_id, http_action_detail
 assert cli_ping_detail["delivery_id"] == ping_delivery_id, cli_ping_detail
 assert cli_ping_detail["persisted"] is True, cli_ping_detail
 assert cli_ping_detail["routing_status"] == "ignored", cli_ping_detail
@@ -307,6 +342,11 @@ assert cli_push_detail["routing_status"] == "candidate", cli_push_detail
 assert cli_push_detail["routing_action"] == "sync_default_branch", cli_push_detail
 assert any(delivery["delivery_id"] == ping_delivery_id for delivery in cli_list), cli_list
 assert any(delivery["delivery_id"] == push_delivery_id for delivery in cli_list), cli_list
+assert any(request["request_id"] == action_request_id for request in cli_action_list), cli_action_list
+assert cli_action_detail["request_id"] == action_request_id, cli_action_detail
+assert cli_action_detail["persisted"] is True, cli_action_detail
+assert cli_action_detail["status"] == "pending", cli_action_detail
+assert cli_action_detail["action"] == "sync_default_branch", cli_action_detail
 PY
 
 SUBMISSION_OUTPUT="$("$BIN" submit-brief \

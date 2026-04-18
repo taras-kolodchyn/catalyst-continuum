@@ -11,7 +11,7 @@ use crate::{
         export_pr_candidate, open_github_pr, publish_pr_export, run_next_task, worker,
     },
     config::InstanceConfigReport,
-    models::webhook::GitHubWebhookListFilters,
+    models::webhook::{GitHubWebhookActionRequestListFilters, GitHubWebhookListFilters},
     planning::{
         brief_validation::validate_brief_document, pack_catalog::build_pack_catalog,
         packs::PackDefinition,
@@ -159,6 +159,23 @@ struct ListGithubWebhooksToolArgs {
 #[serde(deny_unknown_fields)]
 struct DescribeGithubWebhookToolArgs {
     delivery_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ListGithubWebhookActionRequestsToolArgs {
+    #[serde(default = "default_webhook_limit")]
+    limit: usize,
+    #[serde(default)]
+    status: Option<String>,
+    #[serde(default)]
+    action: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DescribeGithubWebhookActionRequestToolArgs {
+    request_id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -436,6 +453,12 @@ impl StdioMcpServer {
             "submit_brief" => self.call_submit_brief(arguments),
             "list_github_webhooks" => self.call_list_github_webhooks(arguments),
             "describe_github_webhook" => self.call_describe_github_webhook(arguments),
+            "list_github_webhook_action_requests" => {
+                self.call_list_github_webhook_action_requests(arguments)
+            }
+            "describe_github_webhook_action_request" => {
+                self.call_describe_github_webhook_action_request(arguments)
+            }
             "list_runs" => self.call_list_runs(arguments),
             "describe_run" => self.call_describe_run(arguments),
             "run_next_task" => self.call_run_next_task(arguments),
@@ -614,6 +637,43 @@ impl StdioMcpServer {
                 "delivery",
                 structured,
                 delivery.render_text()?,
+            ))
+        })
+    }
+
+    fn call_list_github_webhook_action_requests(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: ListGithubWebhookActionRequestsToolArgs = parse_tool_arguments(arguments)?;
+            let mut store = self.open_store()?;
+            let filters = GitHubWebhookActionRequestListFilters::from_inputs(
+                args.status.as_deref(),
+                args.action.as_deref(),
+            );
+            let requests = store.list_github_webhook_action_requests(args.limit, &filters)?;
+            let structured = serde_json::to_value(&requests)
+                .context("failed to serialize github webhook action request list")?;
+            Ok(tool_success_object("requests", structured))
+        })
+    }
+
+    fn call_describe_github_webhook_action_request(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: DescribeGithubWebhookActionRequestToolArgs = parse_tool_arguments(arguments)?;
+            let mut store = self.open_store()?;
+            let request = store
+                .fetch_github_webhook_action_request(&args.request_id)?
+                .with_context(|| {
+                    format!(
+                        "github webhook action request not found: {}",
+                        args.request_id
+                    )
+                })?;
+            let structured = serde_json::to_value(&request)
+                .context("failed to serialize github webhook action request")?;
+            Ok(tool_success_with_text(
+                "request",
+                structured,
+                request.render_text()?,
             ))
         })
     }
@@ -988,6 +1048,29 @@ fn tool_definitions() -> Vec<Value> {
             )]),
         ),
         tool_definition(
+            "list_github_webhook_action_requests",
+            "List pending or historical GitHub webhook action requests materialized by the control plane.",
+            json_schema_object(&[
+                optional_integer_property("limit", "Maximum number of action requests to return."),
+                optional_string_property(
+                    "status",
+                    "Optional action-request status filter, for example pending.",
+                ),
+                optional_string_property(
+                    "action",
+                    "Optional action filter, for example sync_default_branch.",
+                ),
+            ]),
+        ),
+        tool_definition(
+            "describe_github_webhook_action_request",
+            "Fetch one persisted GitHub webhook action request with routing context.",
+            json_schema_object(&[required_string_property(
+                "request_id",
+                "GitHub webhook action request identifier.",
+            )]),
+        ),
+        tool_definition(
             "list_runs",
             "List recent orchestrator runs.",
             json_schema_object(&[
@@ -1175,7 +1258,7 @@ mod tests {
 
         assert_eq!(
             output[1]["result"]["tools"].as_array().map(Vec::len),
-            Some(18)
+            Some(20)
         );
         assert_eq!(output[1]["result"]["tools"][0]["name"], "list_packs");
         assert!(
@@ -1191,6 +1274,13 @@ mod tests {
                 .is_some_and(|tools| tools
                     .iter()
                     .any(|tool| tool["name"] == "list_github_webhooks"))
+        );
+        assert!(
+            output[1]["result"]["tools"]
+                .as_array()
+                .is_some_and(|tools| tools
+                    .iter()
+                    .any(|tool| tool["name"] == "list_github_webhook_action_requests"))
         );
     }
 

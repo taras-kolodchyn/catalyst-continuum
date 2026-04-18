@@ -22,9 +22,11 @@ pub enum Command {
     DescribeArtifact(DescribeArtifactArgs),
     DescribeLatestArtifact(DescribeLatestArtifactArgs),
     DescribeGithubWebhook(DescribeGithubWebhookArgs),
+    DescribeGithubWebhookActionRequest(DescribeGithubWebhookActionRequestArgs),
     DescribeRun(DescribeRunArgs),
     ListPacks(ListPacksArgs),
     ListGithubWebhooks(ListGithubWebhooksArgs),
+    ListGithubWebhookActionRequests(ListGithubWebhookActionRequestsArgs),
     ListRuns(ListRunsArgs),
     ValidateBrief(ValidateBriefArgs),
     SubmitBrief(SubmitBriefArgs),
@@ -48,9 +50,11 @@ impl Command {
             Self::DescribeArtifact(_) => "describe-artifact",
             Self::DescribeLatestArtifact(_) => "describe-latest-artifact",
             Self::DescribeGithubWebhook(_) => "describe-github-webhook",
+            Self::DescribeGithubWebhookActionRequest(_) => "describe-github-webhook-action-request",
             Self::DescribeRun(_) => "describe-run",
             Self::ListPacks(_) => "list-packs",
             Self::ListGithubWebhooks(_) => "list-github-webhooks",
+            Self::ListGithubWebhookActionRequests(_) => "list-github-webhook-action-requests",
             Self::ListRuns(_) => "list-runs",
             Self::ValidateBrief(_) => "validate-brief",
             Self::SubmitBrief(_) => "submit-brief",
@@ -159,6 +163,24 @@ pub struct ListGithubWebhooksArgs {
 }
 
 #[derive(Debug, Args)]
+pub struct ListGithubWebhookActionRequestsArgs {
+    #[arg(long, env = "CATALYST_DATABASE_URL")]
+    pub database_url: String,
+
+    #[arg(long, default_value_t = 20)]
+    pub limit: usize,
+
+    #[arg(long)]
+    pub status: Option<String>,
+
+    #[arg(long)]
+    pub action: Option<String>,
+
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Debug, Args)]
 pub struct DescribeArtifactArgs {
     #[arg(long, env = "CATALYST_DATABASE_URL")]
     pub database_url: String,
@@ -235,6 +257,18 @@ pub struct DescribeGithubWebhookArgs {
 
     #[arg(long)]
     pub delivery_id: String,
+
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct DescribeGithubWebhookActionRequestArgs {
+    #[arg(long, env = "CATALYST_DATABASE_URL")]
+    pub database_url: String,
+
+    #[arg(long)]
+    pub request_id: String,
 
     #[arg(long)]
     pub json: bool,

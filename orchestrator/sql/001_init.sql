@@ -90,6 +90,30 @@ CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_created_at ON webhook_deliveri
 CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_event ON webhook_deliveries (event);
 CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_repository ON webhook_deliveries (repository_full_name);
 
+CREATE TABLE IF NOT EXISTS webhook_action_requests (
+    request_id TEXT PRIMARY KEY,
+    provider TEXT NOT NULL,
+    delivery_id TEXT NOT NULL REFERENCES webhook_deliveries (delivery_id) ON DELETE CASCADE,
+    action TEXT NOT NULL,
+    status TEXT NOT NULL,
+    repository_full_name TEXT,
+    repository_default_branch TEXT,
+    installation_id BIGINT,
+    ref_name TEXT,
+    requested_reason TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_webhook_action_requests_delivery_action
+    ON webhook_action_requests (provider, delivery_id, action);
+CREATE INDEX IF NOT EXISTS idx_webhook_action_requests_created_at
+    ON webhook_action_requests (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_webhook_action_requests_status
+    ON webhook_action_requests (status);
+CREATE INDEX IF NOT EXISTS idx_webhook_action_requests_delivery
+    ON webhook_action_requests (delivery_id);
+
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS failure_reason TEXT;
@@ -111,3 +135,11 @@ ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS outcome TEXT NOT NULL DE
 ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS receipt_path TEXT NOT NULL DEFAULT '';
 ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS message TEXT NOT NULL DEFAULT '';
 ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+ALTER TABLE webhook_action_requests ADD COLUMN IF NOT EXISTS provider TEXT NOT NULL DEFAULT 'github';
+ALTER TABLE webhook_action_requests ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'pending';
+ALTER TABLE webhook_action_requests ADD COLUMN IF NOT EXISTS repository_full_name TEXT;
+ALTER TABLE webhook_action_requests ADD COLUMN IF NOT EXISTS repository_default_branch TEXT;
+ALTER TABLE webhook_action_requests ADD COLUMN IF NOT EXISTS installation_id BIGINT;
+ALTER TABLE webhook_action_requests ADD COLUMN IF NOT EXISTS ref_name TEXT;
+ALTER TABLE webhook_action_requests ADD COLUMN IF NOT EXISTS requested_reason TEXT NOT NULL DEFAULT '';
+ALTER TABLE webhook_action_requests ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();

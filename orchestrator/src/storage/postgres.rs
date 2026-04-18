@@ -8,7 +8,11 @@ use crate::models::{
     artifact::{ArtifactDraft, ArtifactRecord, ArtifactSummary},
     run::{RunContext, RunDetail, RunDraft, RunSummary, RunTaskCounts, SubmissionRecord},
     task::{TaskDraft, TaskExecutionSpec, TaskSummary},
-    webhook::{GitHubWebhookDeliveryDraft, GitHubWebhookDeliverySummary, GitHubWebhookListFilters},
+    webhook::{
+        GitHubWebhookActionRequestDraft, GitHubWebhookActionRequestListFilters,
+        GitHubWebhookActionRequestSummary, GitHubWebhookDeliveryDraft,
+        GitHubWebhookDeliverySummary, GitHubWebhookListFilters,
+    },
 };
 
 const INIT_SQL: &str = include_str!("../../sql/001_init.sql");
@@ -64,7 +68,8 @@ impl PostgresRunStore {
                     to_regclass('public.runs') IS NOT NULL AS has_runs,
                     to_regclass('public.artifacts') IS NOT NULL AS has_artifacts,
                     to_regclass('public.tasks') IS NOT NULL AS has_tasks,
-                    to_regclass('public.webhook_deliveries') IS NOT NULL AS has_webhook_deliveries",
+                    to_regclass('public.webhook_deliveries') IS NOT NULL AS has_webhook_deliveries,
+                    to_regclass('public.webhook_action_requests') IS NOT NULL AS has_webhook_action_requests",
                 &[],
             )
             .context("failed to probe postgres readiness")?;
@@ -86,6 +91,10 @@ impl PostgresRunStore {
 
         if !row.get::<_, bool>("has_webhook_deliveries") {
             missing_tables.push("webhook_deliveries".to_string());
+        }
+
+        if !row.get::<_, bool>("has_webhook_action_requests") {
+            missing_tables.push("webhook_action_requests".to_string());
         }
 
         Ok(DatabaseReadiness {
@@ -873,6 +882,219 @@ impl PostgresRunStore {
             .collect())
     }
 
+    pub fn upsert_github_webhook_action_request(
+        &mut self,
+        request: &GitHubWebhookActionRequestDraft,
+    ) -> Result<GitHubWebhookActionRequestSummary> {
+        let row = self
+            .client
+            .query_one(
+                &format!(
+                    "INSERT INTO webhook_action_requests (
+                        request_id,
+                        provider,
+                        delivery_id,
+                        action,
+                        status,
+                        repository_full_name,
+                        repository_default_branch,
+                        installation_id,
+                        ref_name,
+                        requested_reason
+                    ) VALUES (
+                        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+                    )
+                    ON CONFLICT (provider, delivery_id, action) DO UPDATE
+                    SET status = EXCLUDED.status,
+                        repository_full_name = EXCLUDED.repository_full_name,
+                        repository_default_branch = EXCLUDED.repository_default_branch,
+                        installation_id = EXCLUDED.installation_id,
+                        ref_name = EXCLUDED.ref_name,
+                        requested_reason = EXCLUDED.requested_reason,
+                        updated_at = NOW()
+                    RETURNING
+                        request_id,
+                        provider,
+                        delivery_id,
+                        action,
+                        status,
+                        repository_full_name,
+                        repository_default_branch,
+                        installation_id,
+                        ref_name,
+                        requested_reason,
+                        to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
+                        to_char(updated_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS updated_at"
+                ),
+                &[
+                    &request.request_id,
+                    &request.provider,
+                    &request.delivery_id,
+                    &request.action,
+                    &request.status,
+                    &request.repository_full_name,
+                    &request.repository_default_branch,
+                    &request.installation_id,
+                    &request.ref_name,
+                    &request.requested_reason,
+                ],
+            )
+            .context("failed to upsert github webhook action request")?;
+
+        Ok(row_to_github_webhook_action_request_summary(&row))
+    }
+
+    pub fn fetch_github_webhook_action_request(
+        &mut self,
+        request_id: &str,
+    ) -> Result<Option<GitHubWebhookActionRequestSummary>> {
+        let row = self
+            .client
+            .query_opt(
+                &format!(
+                    "SELECT
+                        request_id,
+                        provider,
+                        delivery_id,
+                        action,
+                        status,
+                        repository_full_name,
+                        repository_default_branch,
+                        installation_id,
+                        ref_name,
+                        requested_reason,
+                        to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
+                        to_char(updated_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS updated_at
+                     FROM webhook_action_requests
+                     WHERE request_id = $1"
+                ),
+                &[&request_id],
+            )
+            .with_context(|| {
+                format!("failed to fetch github webhook action request: {request_id}")
+            })?;
+
+        Ok(row
+            .as_ref()
+            .map(row_to_github_webhook_action_request_summary))
+    }
+
+    pub fn list_github_webhook_action_requests(
+        &mut self,
+        limit: usize,
+        filters: &GitHubWebhookActionRequestListFilters,
+    ) -> Result<Vec<GitHubWebhookActionRequestSummary>> {
+        let limit =
+            i64::try_from(limit).context("webhook action request list limit exceeds i64 range")?;
+        let rows = match (filters.status.as_deref(), filters.action.as_deref()) {
+            (None, None) => self
+                .client
+                .query(
+                    &format!(
+                        "SELECT
+                            request_id,
+                            provider,
+                            delivery_id,
+                            action,
+                            status,
+                            repository_full_name,
+                            repository_default_branch,
+                            installation_id,
+                            ref_name,
+                            requested_reason,
+                            to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
+                            to_char(updated_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS updated_at
+                         FROM webhook_action_requests
+                         ORDER BY created_at DESC, request_id DESC
+                         LIMIT $1"
+                    ),
+                    &[&limit],
+                )
+                .context("failed to list github webhook action requests")?,
+            (Some(status), None) => self
+                .client
+                .query(
+                    &format!(
+                        "SELECT
+                            request_id,
+                            provider,
+                            delivery_id,
+                            action,
+                            status,
+                            repository_full_name,
+                            repository_default_branch,
+                            installation_id,
+                            ref_name,
+                            requested_reason,
+                            to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
+                            to_char(updated_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS updated_at
+                         FROM webhook_action_requests
+                         WHERE status = $2
+                         ORDER BY created_at DESC, request_id DESC
+                         LIMIT $1"
+                    ),
+                    &[&limit, &status],
+                )
+                .context("failed to list github webhook action requests")?,
+            (None, Some(action)) => self
+                .client
+                .query(
+                    &format!(
+                        "SELECT
+                            request_id,
+                            provider,
+                            delivery_id,
+                            action,
+                            status,
+                            repository_full_name,
+                            repository_default_branch,
+                            installation_id,
+                            ref_name,
+                            requested_reason,
+                            to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
+                            to_char(updated_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS updated_at
+                         FROM webhook_action_requests
+                         WHERE action = $2
+                         ORDER BY created_at DESC, request_id DESC
+                         LIMIT $1"
+                    ),
+                    &[&limit, &action],
+                )
+                .context("failed to list github webhook action requests")?,
+            (Some(status), Some(action)) => self
+                .client
+                .query(
+                    &format!(
+                        "SELECT
+                            request_id,
+                            provider,
+                            delivery_id,
+                            action,
+                            status,
+                            repository_full_name,
+                            repository_default_branch,
+                            installation_id,
+                            ref_name,
+                            requested_reason,
+                            to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
+                            to_char(updated_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS updated_at
+                         FROM webhook_action_requests
+                         WHERE status = $2
+                           AND action = $3
+                         ORDER BY created_at DESC, request_id DESC
+                         LIMIT $1"
+                    ),
+                    &[&limit, &status, &action],
+                )
+                .context("failed to list github webhook action requests")?,
+        };
+
+        Ok(rows
+            .iter()
+            .map(row_to_github_webhook_action_request_summary)
+            .collect())
+    }
+
     pub fn list_run_artifacts(
         &mut self,
         run_id: Uuid,
@@ -1252,6 +1474,26 @@ fn row_to_github_webhook_delivery_summary(row: &postgres::Row) -> GitHubWebhookD
         outcome: row.get("outcome"),
         receipt_path: row.get("receipt_path"),
         message: row.get("message"),
+        created_at: row.get("created_at"),
+        updated_at: row.get("updated_at"),
+        persisted: true,
+    }
+}
+
+fn row_to_github_webhook_action_request_summary(
+    row: &postgres::Row,
+) -> GitHubWebhookActionRequestSummary {
+    GitHubWebhookActionRequestSummary {
+        request_id: row.get("request_id"),
+        provider: row.get("provider"),
+        delivery_id: row.get("delivery_id"),
+        action: row.get("action"),
+        status: row.get("status"),
+        repository_full_name: row.get("repository_full_name"),
+        repository_default_branch: row.get("repository_default_branch"),
+        installation_id: row.get("installation_id"),
+        ref_name: row.get("ref_name"),
+        requested_reason: row.get("requested_reason"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
         persisted: true,
