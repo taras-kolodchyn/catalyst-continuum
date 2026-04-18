@@ -222,6 +222,7 @@ try:
         "list_packs",
         "describe_pack",
         "describe_artifact",
+        "describe_latest_artifact",
         "validate_brief",
         "submit_brief",
         "list_runs",

@@ -36,6 +36,7 @@ Stateless tools do not require Postgres:
 Stateful tools require `CATALYST_DATABASE_URL` or `--database-url` when launching the server:
 
 - `describe_artifact`
+- `describe_latest_artifact`
 - `submit_brief`
 - `list_runs`
 - `describe_run`
@@ -107,7 +108,7 @@ The stateful companion script verifies:
 - `evaluate_run_quality`
 - `describe_artifact` for the persisted policy and quality reports
 
-For stateful sessions, `describe_artifact` is the generic inspection tool for persisted manifests and artifact metadata, `evaluate_run_policy` is the policy visibility checkpoint, and `evaluate_run_quality` is the remote-promotion quality checkpoint. Agent clients can call all three explicitly for inspection, while `publish_pr_export` and `open_github_pr` still enforce the quality gate automatically.
+For stateful sessions, `describe_artifact` is the generic inspection tool for persisted manifests and artifact metadata, `describe_latest_artifact` is the quickest way to resolve the newest `policy_report`, `quality_report`, or publication artifact for a run, `evaluate_run_policy` is the policy visibility checkpoint, and `evaluate_run_quality` is the remote-promotion quality checkpoint. Agent clients can call all four explicitly for inspection, while `publish_pr_export` and `open_github_pr` still enforce the quality gate automatically.
 
 ## Notes
 

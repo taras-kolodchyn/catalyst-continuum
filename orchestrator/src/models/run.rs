@@ -9,6 +9,17 @@ use crate::models::{
     task::TaskSummary,
 };
 
+const ARTIFACT_HIGHLIGHT_TYPES: &[&str] = &[
+    "backlog",
+    "policy_report",
+    "quality_report",
+    "workspace_snapshot",
+    "pr_candidate",
+    "pr_export",
+    "pr_publication",
+    "github_pull_request",
+];
+
 #[derive(Debug, Clone)]
 pub struct RunDraft {
     pub run_id: Uuid,
@@ -167,6 +178,7 @@ pub struct RunSummary {
 pub struct RunDetail {
     #[serde(flatten)]
     pub run: RunSummary,
+    pub artifact_highlights: Vec<ArtifactSummary>,
     pub artifacts: Vec<ArtifactSummary>,
     pub tasks: Vec<TaskSummary>,
 }
@@ -427,6 +439,19 @@ impl RunSummary {
 }
 
 impl RunDetail {
+    pub fn highlight_artifacts(artifacts: &[ArtifactSummary]) -> Vec<ArtifactSummary> {
+        ARTIFACT_HIGHLIGHT_TYPES
+            .iter()
+            .filter_map(|artifact_type| {
+                artifacts
+                    .iter()
+                    .rev()
+                    .find(|artifact| artifact.artifact_type == *artifact_type)
+                    .cloned()
+            })
+            .collect()
+    }
+
     pub fn render_text(&self) -> Result<String> {
         let mut output = self.run.render_text()?;
 
@@ -437,6 +462,18 @@ impl RunDetail {
         for task in &self.tasks {
             writeln!(&mut output, "task:").context("failed to render run detail")?;
             writeln!(&mut output, "{}", task.render_text()?)
+                .context("failed to render run detail")?;
+        }
+
+        writeln!(
+            &mut output,
+            "artifact_highlight_count: {}",
+            self.artifact_highlights.len()
+        )
+        .context("failed to render run detail")?;
+        for artifact in &self.artifact_highlights {
+            writeln!(&mut output, "artifact_highlight:").context("failed to render run detail")?;
+            writeln!(&mut output, "{}", artifact.render_text()?)
                 .context("failed to render run detail")?;
         }
 
@@ -469,8 +506,11 @@ fn parse_repository_visibility(value: &str) -> Option<RepositoryVisibility> {
 
 #[cfg(test)]
 mod tests {
-    use super::RunSummary;
+    use super::{RunDetail, RunSummary};
+    use crate::models::artifact::ArtifactSummary;
     use crate::models::brief::{RepositoryHost, RepositoryVisibility};
+    use serde_json::json;
+    use uuid::Uuid;
 
     #[test]
     fn reconstructs_repository_target_from_stored_columns() {
@@ -491,5 +531,41 @@ mod tests {
             repository.visibility,
             Some(RepositoryVisibility::Private)
         ));
+    }
+
+    #[test]
+    fn selects_latest_highlight_artifacts_in_stable_order() {
+        let backlog_id = Uuid::new_v4();
+        let stale_quality_id = Uuid::new_v4();
+        let latest_quality_id = Uuid::new_v4();
+        let pr_candidate_id = Uuid::new_v4();
+        let highlights = RunDetail::highlight_artifacts(&[
+            sample_artifact("quality_report", stale_quality_id),
+            sample_artifact("backlog", backlog_id),
+            sample_artifact("quality_report", latest_quality_id),
+            sample_artifact("pr_candidate", pr_candidate_id),
+        ]);
+
+        assert_eq!(highlights.len(), 3);
+        assert_eq!(highlights[0].artifact_type, "backlog");
+        assert_eq!(highlights[0].artifact_id, backlog_id);
+        assert_eq!(highlights[1].artifact_type, "quality_report");
+        assert_eq!(highlights[1].artifact_id, latest_quality_id);
+        assert_eq!(highlights[2].artifact_type, "pr_candidate");
+        assert_eq!(highlights[2].artifact_id, pr_candidate_id);
+    }
+
+    fn sample_artifact(artifact_type: &str, artifact_id: Uuid) -> ArtifactSummary {
+        ArtifactSummary {
+            artifact_id,
+            artifact_type: artifact_type.to_string(),
+            format: "json".to_string(),
+            location_kind: "path".to_string(),
+            location_value: format!("/tmp/{artifact_id}.json"),
+            content_digest: format!("sha256:{artifact_id}"),
+            metadata: json!({}),
+            created_at: Some("2026-04-18T00:00:00Z".to_string()),
+            persisted: true,
+        }
     }
 }

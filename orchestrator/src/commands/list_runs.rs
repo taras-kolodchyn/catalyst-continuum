@@ -1,12 +1,16 @@
 use anyhow::Context;
 
-use crate::{cli::ListRunsArgs, storage::postgres::PostgresRunStore};
+use crate::{
+    cli::ListRunsArgs,
+    storage::postgres::{PostgresRunStore, RunListFilters},
+};
 
 pub fn execute(args: ListRunsArgs) -> anyhow::Result<()> {
     let mut store = PostgresRunStore::connect(&args.database_url)?;
     store.ensure_schema()?;
+    let filters = RunListFilters::from_inputs(args.status.as_deref(), args.target_pack.as_deref())?;
 
-    let runs = store.list_runs(args.limit)?;
+    let runs = store.list_runs_filtered(args.limit, &filters)?;
 
     if args.json {
         println!("{}", serde_json::to_string_pretty(&runs)?);

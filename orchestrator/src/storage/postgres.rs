@@ -23,6 +23,21 @@ pub struct DatabaseReadiness {
     pub missing_tables: Vec<String>,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct RunListFilters {
+    pub status: Option<String>,
+    pub target_pack: Option<String>,
+}
+
+impl RunListFilters {
+    pub fn from_inputs(status: Option<&str>, target_pack: Option<&str>) -> Result<Self> {
+        Ok(Self {
+            status: normalize_run_status_filter(status)?,
+            target_pack: normalize_optional_filter(target_pack),
+        })
+    }
+}
+
 impl PostgresRunStore {
     pub fn connect(database_url: &str) -> Result<Self> {
         let client = Client::connect(database_url, NoTls)
@@ -746,12 +761,39 @@ impl PostgresRunStore {
         Ok(row.as_ref().map(row_to_artifact_summary))
     }
 
-    pub fn list_runs(&mut self, limit: usize) -> Result<Vec<RunSummary>> {
+    pub fn list_runs_filtered(
+        &mut self,
+        limit: usize,
+        filters: &RunListFilters,
+    ) -> Result<Vec<RunSummary>> {
         let limit = i64::try_from(limit).context("run list limit exceeds i64 range")?;
-        let rows = self
-            .client
-            .query(&run_summary_query("TRUE", Some("$1")), &[&limit])
-            .context("failed to list runs")?;
+        let rows = match (filters.status.as_deref(), filters.target_pack.as_deref()) {
+            (None, None) => self
+                .client
+                .query(&run_summary_query("TRUE", Some("$1")), &[&limit])
+                .context("failed to list runs")?,
+            (Some(status), None) => self
+                .client
+                .query(
+                    &run_summary_query("runs.status = $2", Some("$1")),
+                    &[&limit, &status],
+                )
+                .context("failed to list runs")?,
+            (None, Some(target_pack)) => self
+                .client
+                .query(
+                    &run_summary_query("runs.selected_pack = $2", Some("$1")),
+                    &[&limit, &target_pack],
+                )
+                .context("failed to list runs")?,
+            (Some(status), Some(target_pack)) => self
+                .client
+                .query(
+                    &run_summary_query("runs.status = $2 AND runs.selected_pack = $3", Some("$1")),
+                    &[&limit, &status, &target_pack],
+                )
+                .context("failed to list runs")?,
+        };
 
         Ok(rows.iter().map(row_to_run_summary).collect())
     }
@@ -812,9 +854,11 @@ impl PostgresRunStore {
         };
         let tasks = self.list_run_tasks(run_id)?;
         let artifacts = self.list_run_artifacts(run_id, &[])?;
+        let artifact_highlights = RunDetail::highlight_artifacts(&artifacts);
 
         Ok(Some(RunDetail {
             run,
+            artifact_highlights,
             artifacts,
             tasks,
         }))
@@ -1082,4 +1126,32 @@ fn run_summary_query(where_clause: &str, limit_placeholder: Option<&str>) -> Str
 
 fn positive_i64_to_usize(value: i64) -> usize {
     usize::try_from(value).unwrap_or_default()
+}
+
+fn normalize_optional_filter(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn normalize_run_status_filter(value: Option<&str>) -> Result<Option<String>> {
+    let Some(value) = normalize_optional_filter(value) else {
+        return Ok(None);
+    };
+
+    let normalized = match value.as_str() {
+        "queued" => "queued",
+        "executing" | "running" => "executing",
+        "succeeded" => "succeeded",
+        "failed" => "failed",
+        _ => {
+            anyhow::bail!(
+                "invalid run status filter `{}`; expected one of queued, executing, succeeded, failed",
+                value
+            )
+        }
+    };
+
+    Ok(Some(normalized.to_string()))
 }

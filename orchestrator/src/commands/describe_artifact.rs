@@ -45,24 +45,19 @@ pub(crate) fn describe_artifact(
     let Some(record) = store.fetch_artifact(artifact_id)? else {
         return Ok(None);
     };
-    let inspection = inspect_artifact_location(
-        &record.artifact.location_kind,
-        &record.artifact.location_value,
-    );
+    Ok(Some(build_artifact_detail(record.run_id, record.artifact)))
+}
 
-    Ok(Some(ArtifactDetailReport {
-        run_id: record.run_id,
-        artifact: record.artifact.clone(),
-        metadata: record.artifact.metadata,
-        location_exists: inspection.location_exists,
-        resolved_path: inspection.resolved_path,
-        manifest_path: inspection.manifest_path,
-        manifest: inspection.manifest,
-        directory_entries: inspection.directory_entries,
-        text_preview: inspection.text_preview,
-        text_preview_truncated: inspection.text_preview_truncated,
-        warnings: inspection.warnings,
-    }))
+pub(crate) fn describe_latest_run_artifact(
+    store: &mut PostgresRunStore,
+    run_id: uuid::Uuid,
+    artifact_type: &str,
+) -> anyhow::Result<Option<ArtifactDetailReport>> {
+    let Some(artifact) = store.find_latest_run_artifact(run_id, artifact_type)? else {
+        return Ok(None);
+    };
+
+    Ok(Some(build_artifact_detail(run_id, artifact)))
 }
 
 #[derive(Debug, Serialize)]
@@ -78,6 +73,24 @@ pub struct ArtifactDetailReport {
     text_preview: Option<String>,
     text_preview_truncated: bool,
     warnings: Vec<String>,
+}
+
+fn build_artifact_detail(run_id: uuid::Uuid, artifact: ArtifactSummary) -> ArtifactDetailReport {
+    let inspection = inspect_artifact_location(&artifact.location_kind, &artifact.location_value);
+
+    ArtifactDetailReport {
+        run_id,
+        metadata: artifact.metadata.clone(),
+        artifact,
+        location_exists: inspection.location_exists,
+        resolved_path: inspection.resolved_path,
+        manifest_path: inspection.manifest_path,
+        manifest: inspection.manifest,
+        directory_entries: inspection.directory_entries,
+        text_preview: inspection.text_preview,
+        text_preview_truncated: inspection.text_preview_truncated,
+        warnings: inspection.warnings,
+    }
 }
 
 impl ArtifactDetailReport {

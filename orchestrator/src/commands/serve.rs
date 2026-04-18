@@ -1,14 +1,14 @@
 use anyhow::Context;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use std::time::Instant;
+use std::{collections::HashMap, time::Instant};
 use tiny_http::{Header, Response, Server, StatusCode};
 use uuid::Uuid;
 
 use crate::{
     cli::ServeArgs,
     commands::{
-        create_draft_pr, describe_artifact, evaluate_run_policy, evaluate_run_quality,
-        export_pr_candidate, publish_pr_export, run_next_task,
+        create_draft_pr, describe_artifact, describe_latest_artifact, evaluate_run_policy,
+        evaluate_run_quality, export_pr_candidate, publish_pr_export, run_next_task,
         submit_brief::submit_validated_brief, worker,
     },
     planning::{
@@ -16,7 +16,7 @@ use crate::{
         packs::PackDefinition, pr_candidate,
     },
     runtime::RuntimeRegistry,
-    storage::postgres::{DatabaseReadiness, PostgresRunStore},
+    storage::postgres::{DatabaseReadiness, PostgresRunStore, RunListFilters},
     telemetry,
 };
 
@@ -41,7 +41,8 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
     );
 
     for mut request in server.incoming_requests() {
-        let path = request.url().split('?').next().unwrap_or("/");
+        let request_target = request.url().to_string();
+        let (path, query) = split_request_target(&request_target);
         let method = request.method().as_str().to_string();
         let route = route_label(method.as_str(), path);
         let request_started_at = Instant::now();
@@ -64,6 +65,7 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                         "/artifacts/{artifact_id}",
                         "/runs",
                         "/runs/{run_id}",
+                        "/runs/{run_id}/artifacts/latest/{artifact_type}",
                         "POST /runs/{run_id}/tasks/next",
                         "POST /runs/{run_id}/worker/once",
                         "POST /runs/{run_id}/evaluate-policy",
@@ -128,21 +130,82 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                     ),
                 }
             }
-            ("GET", "/runs") => match store.list_runs(DEFAULT_RUN_LIST_LIMIT) {
-                Ok(runs) => json_response(
-                    StatusCode(200),
-                    &RecentRunsResponse {
-                        count: runs.len(),
-                        runs,
-                    },
-                ),
+            ("GET", "/runs") => match parse_list_runs_request(query) {
+                Ok(list_request) => {
+                    match store.list_runs_filtered(list_request.limit, &list_request.filters) {
+                        Ok(runs) => json_response(
+                            StatusCode(200),
+                            &RecentRunsResponse {
+                                count: runs.len(),
+                                runs,
+                            },
+                        ),
+                        Err(error) => json_response(
+                            StatusCode(500),
+                            &ErrorResponse {
+                                error: format!("failed to list runs: {error}"),
+                            },
+                        ),
+                    }
+                }
                 Err(error) => json_response(
-                    StatusCode(500),
+                    StatusCode(400),
                     &ErrorResponse {
-                        error: format!("failed to list runs: {error}"),
+                        error: error.to_string(),
                     },
                 ),
             },
+            ("GET", _) if latest_artifact_path_parts(path).is_some() => {
+                match parse_latest_artifact_path(path) {
+                    Ok((run_id, artifact_type)) => match store.fetch_run_summary(run_id) {
+                        Ok(Some(_)) => {
+                            match describe_latest_artifact::describe_latest_artifact(
+                                &mut store,
+                                run_id,
+                                artifact_type,
+                            ) {
+                                Ok(Some(artifact)) => json_response(StatusCode(200), &artifact),
+                                Ok(None) => json_response(
+                                    StatusCode(404),
+                                    &ErrorResponse {
+                                        error: format!(
+                                            "run {} does not have a latest artifact of type {}",
+                                            run_id, artifact_type
+                                        ),
+                                    },
+                                ),
+                                Err(error) => json_response(
+                                    StatusCode(500),
+                                    &ErrorResponse {
+                                        error: format!(
+                                            "failed to fetch latest artifact {} for run {}: {error}",
+                                            artifact_type, run_id
+                                        ),
+                                    },
+                                ),
+                            }
+                        }
+                        Ok(None) => json_response(
+                            StatusCode(404),
+                            &ErrorResponse {
+                                error: format!("run not found: {run_id}"),
+                            },
+                        ),
+                        Err(error) => json_response(
+                            StatusCode(500),
+                            &ErrorResponse {
+                                error: format!("failed to load run {run_id}: {error}"),
+                            },
+                        ),
+                    },
+                    Err(error) => json_response(
+                        StatusCode(400),
+                        &ErrorResponse {
+                            error: error.to_string(),
+                        },
+                    ),
+                }
+            }
             ("GET", _) if single_path_segment(path, "/runs/").is_some() => {
                 let run_id = single_path_segment(path, "/runs/")
                     .expect("run path guard should provide a single path segment");
@@ -681,9 +744,33 @@ fn parse_run_action_path(path: &str, suffix: &str) -> anyhow::Result<Uuid> {
     parse_run_id(run_id)
 }
 
+fn latest_artifact_path_parts(path: &str) -> Option<(&str, &str)> {
+    let remainder = path.strip_prefix("/runs/")?;
+    let (run_id, artifact_type) = remainder.split_once("/artifacts/latest/")?;
+    if run_id.is_empty() || artifact_type.is_empty() || artifact_type.contains('/') {
+        return None;
+    }
+
+    Some((run_id, artifact_type))
+}
+
+fn parse_latest_artifact_path(path: &str) -> anyhow::Result<(Uuid, &str)> {
+    let (run_id, artifact_type) = latest_artifact_path_parts(path)
+        .ok_or_else(|| anyhow::anyhow!("invalid latest artifact path: {path}"))?;
+
+    Ok((parse_run_id(run_id)?, artifact_type))
+}
+
 fn single_path_segment<'a>(path: &'a str, prefix: &str) -> Option<&'a str> {
     path.strip_prefix(prefix)
         .filter(|value| !value.is_empty() && !value.contains('/'))
+}
+
+fn split_request_target(request_target: &str) -> (&str, Option<&str>) {
+    match request_target.split_once('?') {
+        Some((path, query)) => (path, Some(query)),
+        None => (request_target, None),
+    }
 }
 
 fn read_request_body(request: &mut tiny_http::Request) -> std::io::Result<String> {
@@ -706,6 +793,46 @@ where
 
 fn non_empty_option(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|value| !value.is_empty())
+}
+
+fn parse_list_runs_request(query: Option<&str>) -> anyhow::Result<ListRunsRequest> {
+    let query_pairs = parse_query_pairs(query);
+    let limit = match query_pairs.get("limit") {
+        Some(value) if !value.trim().is_empty() => value
+            .trim()
+            .parse::<usize>()
+            .map_err(|error| anyhow::anyhow!("invalid runs.limit `{}`: {error}", value.trim()))?,
+        _ => DEFAULT_RUN_LIST_LIMIT,
+    };
+    let filters = RunListFilters::from_inputs(
+        query_pairs.get("status").map(String::as_str),
+        query_pairs.get("target_pack").map(String::as_str),
+    )?;
+
+    Ok(ListRunsRequest { limit, filters })
+}
+
+fn parse_query_pairs(query: Option<&str>) -> HashMap<String, String> {
+    let mut pairs = HashMap::new();
+
+    let Some(query) = query else {
+        return pairs;
+    };
+
+    for pair in query.split('&') {
+        if pair.is_empty() {
+            continue;
+        }
+
+        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        if key.is_empty() {
+            continue;
+        }
+
+        pairs.insert(key.to_string(), value.to_string());
+    }
+
+    pairs
 }
 
 fn readiness_payload(probe: anyhow::Result<DatabaseReadiness>) -> (StatusCode, ReadinessResponse) {
@@ -760,6 +887,9 @@ fn route_label(method: &str, path: &str) -> &'static str {
             "/artifacts/{artifact_id}"
         }
         ("GET", "/runs") => "/runs",
+        ("GET", _) if latest_artifact_path_parts(path).is_some() => {
+            "/runs/{run_id}/artifacts/latest/{artifact_type}"
+        }
         ("POST", "/briefs/validate") => "/briefs/validate",
         ("POST", "/briefs/submit") => "/briefs/submit",
         ("GET", _) if single_path_segment(path, "/packs/").is_some() => "/packs/{pack_id}",
@@ -856,6 +986,12 @@ struct RecentRunsResponse {
     runs: Vec<crate::models::run::RunSummary>,
 }
 
+#[derive(Debug)]
+struct ListRunsRequest {
+    limit: usize,
+    filters: RunListFilters,
+}
+
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct CreateDraftPrRequest {
@@ -878,7 +1014,9 @@ struct PublishPrExportRequest {
 
 #[cfg(test)]
 mod tests {
-    use super::{readiness_payload, route_label};
+    use super::{
+        latest_artifact_path_parts, parse_list_runs_request, readiness_payload, route_label,
+    };
     use crate::storage::postgres::DatabaseReadiness;
     use anyhow::anyhow;
     use tiny_http::StatusCode;
@@ -935,5 +1073,27 @@ mod tests {
         assert_eq!(route_label("GET", "/livez"), "/livez");
         assert_eq!(route_label("GET", "/healthz"), "/healthz");
         assert_eq!(route_label("GET", "/readyz"), "/readyz");
+    }
+
+    #[test]
+    fn labels_latest_artifact_route() {
+        assert_eq!(
+            route_label(
+                "GET",
+                "/runs/11111111-1111-1111-1111-111111111111/artifacts/latest/quality_report"
+            ),
+            "/runs/{run_id}/artifacts/latest/{artifact_type}"
+        );
+        assert!(latest_artifact_path_parts("/runs/not-a-uuid").is_none());
+    }
+
+    #[test]
+    fn parses_list_runs_query_filters() {
+        let request = parse_list_runs_request(Some("limit=5&status=running&target_pack=cli-tool"))
+            .expect("query should parse");
+
+        assert_eq!(request.limit, 5);
+        assert_eq!(request.filters.status.as_deref(), Some("executing"));
+        assert_eq!(request.filters.target_pack.as_deref(), Some("cli-tool"));
     }
 }

@@ -19,6 +19,7 @@ pub enum Command {
     McpServer(McpServerArgs),
     DescribePack(DescribePackArgs),
     DescribeArtifact(DescribeArtifactArgs),
+    DescribeLatestArtifact(DescribeLatestArtifactArgs),
     DescribeRun(DescribeRunArgs),
     ListPacks(ListPacksArgs),
     ListRuns(ListRunsArgs),
@@ -41,6 +42,7 @@ impl Command {
             Self::McpServer(_) => "mcp-server",
             Self::DescribePack(_) => "describe-pack",
             Self::DescribeArtifact(_) => "describe-artifact",
+            Self::DescribeLatestArtifact(_) => "describe-latest-artifact",
             Self::DescribeRun(_) => "describe-run",
             Self::ListPacks(_) => "list-packs",
             Self::ListRuns(_) => "list-runs",
@@ -111,6 +113,12 @@ pub struct ListRunsArgs {
     pub limit: usize,
 
     #[arg(long)]
+    pub status: Option<String>,
+
+    #[arg(long)]
+    pub target_pack: Option<String>,
+
+    #[arg(long)]
     pub json: bool,
 }
 
@@ -121,6 +129,21 @@ pub struct DescribeArtifactArgs {
 
     #[arg(long)]
     pub artifact_id: Uuid,
+
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct DescribeLatestArtifactArgs {
+    #[arg(long, env = "CATALYST_DATABASE_URL")]
+    pub database_url: String,
+
+    #[arg(long)]
+    pub run_id: Uuid,
+
+    #[arg(long)]
+    pub artifact_type: String,
 
     #[arg(long)]
     pub json: bool,

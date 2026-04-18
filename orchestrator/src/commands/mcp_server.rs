@@ -7,15 +7,15 @@ use serde_json::{Map, Value, json};
 use crate::{
     cli::McpServerArgs,
     commands::{
-        describe_artifact, evaluate_run_policy, evaluate_run_quality, export_pr_candidate,
-        open_github_pr, publish_pr_export, run_next_task, worker,
+        describe_artifact, describe_latest_artifact, evaluate_run_policy, evaluate_run_quality,
+        export_pr_candidate, open_github_pr, publish_pr_export, run_next_task, worker,
     },
     planning::{
         brief_validation::validate_brief_document, pack_catalog::build_pack_catalog,
         packs::PackDefinition,
     },
     runtime::RuntimeRegistry,
-    storage::postgres::PostgresRunStore,
+    storage::postgres::{PostgresRunStore, RunListFilters},
 };
 
 const MCP_SERVER_NAME: &str = "catalyst-continuum-orchestrator";
@@ -102,6 +102,13 @@ struct DescribeArtifactToolArgs {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct DescribeLatestArtifactToolArgs {
+    run_id: uuid::Uuid,
+    artifact_type: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ValidateBriefToolArgs {
     brief_content: String,
     #[serde(default = "default_inline_brief_source_path")]
@@ -123,6 +130,10 @@ struct SubmitBriefToolArgs {
 struct ListRunsToolArgs {
     #[serde(default = "default_run_limit")]
     limit: usize,
+    #[serde(default)]
+    status: Option<String>,
+    #[serde(default)]
+    target_pack: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -394,6 +405,7 @@ impl StdioMcpServer {
             "list_packs" => self.call_list_packs(arguments),
             "describe_pack" => self.call_describe_pack(arguments),
             "describe_artifact" => self.call_describe_artifact(arguments),
+            "describe_latest_artifact" => self.call_describe_latest_artifact(arguments),
             "validate_brief" => self.call_validate_brief(arguments),
             "submit_brief" => self.call_submit_brief(arguments),
             "list_runs" => self.call_list_runs(arguments),
@@ -475,6 +487,34 @@ impl StdioMcpServer {
         })
     }
 
+    fn call_describe_latest_artifact(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: DescribeLatestArtifactToolArgs = parse_tool_arguments(arguments)?;
+            let mut store = self.open_store()?;
+            store
+                .fetch_run_summary(args.run_id)?
+                .with_context(|| format!("run not found: {}", args.run_id))?;
+            let artifact = describe_latest_artifact::describe_latest_artifact(
+                &mut store,
+                args.run_id,
+                &args.artifact_type,
+            )?
+            .with_context(|| {
+                format!(
+                    "run {} does not have a latest artifact of type {}",
+                    args.run_id, args.artifact_type
+                )
+            })?;
+            let structured =
+                serde_json::to_value(&artifact).context("failed to serialize artifact detail")?;
+            Ok(tool_success_with_text(
+                "artifact",
+                structured,
+                artifact.render_text()?,
+            ))
+        })
+    }
+
     fn call_validate_brief(&self, arguments: Value) -> Value {
         call_tool(|| {
             let args: ValidateBriefToolArgs = parse_tool_arguments(arguments)?;
@@ -514,7 +554,9 @@ impl StdioMcpServer {
         call_tool(|| {
             let args: ListRunsToolArgs = parse_tool_arguments(arguments)?;
             let mut store = self.open_store()?;
-            let runs = store.list_runs(args.limit)?;
+            let filters =
+                RunListFilters::from_inputs(args.status.as_deref(), args.target_pack.as_deref())?;
+            let runs = store.list_runs_filtered(args.limit, &filters)?;
             let structured = serde_json::to_value(&runs).context("failed to serialize run list")?;
             Ok(tool_success_object("runs", structured))
         })
@@ -818,6 +860,14 @@ fn tool_definitions() -> Vec<Value> {
             json_schema_object(&[required_string_property("artifact_id", "Artifact UUID.")]),
         ),
         tool_definition(
+            "describe_latest_artifact",
+            "Fetch the latest artifact of a given type for one run, with safe manifest and text inspection.",
+            json_schema_object(&[
+                required_string_property("run_id", "Run UUID."),
+                required_string_property("artifact_type", "Artifact type identifier."),
+            ]),
+        ),
+        tool_definition(
             "validate_brief",
             "Validate an inline YAML product brief and resolve its repository pack.",
             json_schema_object(&[
@@ -846,10 +896,14 @@ fn tool_definitions() -> Vec<Value> {
         tool_definition(
             "list_runs",
             "List recent orchestrator runs.",
-            json_schema_object(&[optional_integer_property(
-                "limit",
-                "Maximum number of runs to return.",
-            )]),
+            json_schema_object(&[
+                optional_integer_property("limit", "Maximum number of runs to return."),
+                optional_string_property(
+                    "status",
+                    "Optional run status filter: queued, executing, succeeded, or failed.",
+                ),
+                optional_string_property("target_pack", "Optional repository pack filter."),
+            ]),
         ),
         tool_definition(
             "describe_run",
@@ -1023,7 +1077,7 @@ mod tests {
 
         assert_eq!(
             output[1]["result"]["tools"].as_array().map(Vec::len),
-            Some(14)
+            Some(15)
         );
         assert_eq!(output[1]["result"]["tools"][0]["name"], "list_packs");
     }

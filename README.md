@@ -70,7 +70,8 @@ Available repository packs can be discovered through the CLI or HTTP API:
 catalyst-continuum-orchestrator list-packs --json
 catalyst-continuum-orchestrator describe-pack --pack-id container-service --json
 catalyst-continuum-orchestrator describe-artifact --database-url "$CATALYST_DATABASE_URL" --artifact-id "<ARTIFACT_ID>" --json
-catalyst-continuum-orchestrator list-runs --database-url "$CATALYST_DATABASE_URL" --json
+catalyst-continuum-orchestrator describe-latest-artifact --database-url "$CATALYST_DATABASE_URL" --run-id "<RUN_ID>" --artifact-type quality_report --json
+catalyst-continuum-orchestrator list-runs --database-url "$CATALYST_DATABASE_URL" --status succeeded --target-pack cli-tool --json
 catalyst-continuum-orchestrator describe-run --database-url "$CATALYST_DATABASE_URL" --run-id "<RUN_ID>" --json
 catalyst-continuum-orchestrator validate-brief --file examples/briefs/minimal-cli-tool.yaml --json
 curl http://127.0.0.1:8080/livez
@@ -88,8 +89,9 @@ curl -X POST http://127.0.0.1:8080/runs/<RUN_ID>/evaluate-quality
 curl -X POST http://127.0.0.1:8080/runs/<RUN_ID>/export-pr-candidate
 curl -X POST http://127.0.0.1:8080/runs/<RUN_ID>/publish-pr-export
 curl -X POST http://127.0.0.1:8080/runs/<RUN_ID>/draft-pr
-curl http://127.0.0.1:8080/runs
+curl http://127.0.0.1:8080/runs?status=succeeded&target_pack=cli-tool&limit=10
 curl http://127.0.0.1:8080/runs/<RUN_ID>
+curl http://127.0.0.1:8080/runs/<RUN_ID>/artifacts/latest/quality_report
 ```
 
 The current HTTP surface is intentionally narrow. Agent-oriented orchestration actions should move toward MCP rather than being duplicated indefinitely as new REST endpoints.
@@ -112,7 +114,7 @@ catalyst-continuum-orchestrator mcp-server \
   --artifact-root ".continuum/artifacts"
 ```
 
-It currently exposes the first agent-facing tool set over MCP: pack inspection, artifact inspection, brief validation and submission, run inspection, task execution, policy evaluation, automated quality evaluation, PR export/publication, and GitHub PR opening.
+It currently exposes the first agent-facing tool set over MCP: pack inspection, artifact inspection, latest-artifact lookup by type, brief validation and submission, run inspection, task execution, policy evaluation, automated quality evaluation, PR export/publication, and GitHub PR opening.
 Use [examples/mcp/stdio-server.example.json](examples/mcp/stdio-server.example.json) as a neutral client config starting point, `./scripts/mcp-smoke.sh` for the stateless handshake/tool-discovery path, and `./scripts/mcp-stateful-smoke.sh` for the safe stateful run path.
 If OpenHands is the target client, prefer [examples/mcp/openhands.mcp.json](examples/mcp/openhands.mcp.json) and the registration flow documented in [docs/mcp/openhands.md](docs/mcp/openhands.md).
 For local OpenHands CLI registration, use `./scripts/openhands-register-mcp.sh`.
