@@ -1158,6 +1158,58 @@ impl PostgresRunStore {
             .collect())
     }
 
+    pub fn list_reclaimable_running_github_webhook_action_requests(
+        &mut self,
+        action: Option<&str>,
+        default_timeout_seconds: u64,
+        reclaim_grace_seconds: u64,
+    ) -> Result<Vec<GitHubWebhookActionRequestSummary>> {
+        let default_timeout_seconds =
+            i64::try_from(default_timeout_seconds).context("default timeout exceeds i64 range")?;
+        let reclaim_grace_seconds =
+            i64::try_from(reclaim_grace_seconds).context("reclaim grace exceeds i64 range")?;
+
+        let rows = self
+            .client
+            .query(
+                &format!(
+                    "SELECT
+                        request_id,
+                        provider,
+                        delivery_id,
+                        action,
+                        status,
+                        repository_full_name,
+                        repository_default_branch,
+                        installation_id,
+                        ref_name,
+                        before_sha,
+                        after_sha,
+                        requested_reason,
+                        attempt_count,
+                        report_path,
+                        failure_message,
+                        to_char(started_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS started_at,
+                        to_char(completed_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS completed_at,
+                        to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
+                        to_char(updated_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS updated_at
+                     FROM webhook_action_requests
+                     WHERE status = 'running'
+                       AND started_at IS NOT NULL
+                       AND ($1::TEXT IS NULL OR action = $1)
+                       AND started_at <= NOW() - ((($2::bigint) + ($3::bigint)) * INTERVAL '1 second')
+                     ORDER BY started_at ASC, request_id ASC"
+                ),
+                &[&action, &default_timeout_seconds, &reclaim_grace_seconds],
+            )
+            .context("failed to list reclaimable github webhook action requests")?;
+
+        Ok(rows
+            .iter()
+            .map(row_to_github_webhook_action_request_summary)
+            .collect())
+    }
+
     pub fn claim_next_github_webhook_action_request(
         &mut self,
         action: Option<&str>,
@@ -1309,6 +1361,60 @@ impl PostgresRunStore {
             )
             .with_context(|| {
                 format!("failed to mark github webhook action request failed: {request_id}")
+            })?;
+
+        row.as_ref()
+            .map(row_to_github_webhook_action_request_summary)
+            .with_context(|| {
+                format!(
+                    "github webhook action request is not running or does not exist: {request_id}"
+                )
+            })
+    }
+
+    pub fn requeue_github_webhook_action_request(
+        &mut self,
+        request_id: &str,
+        failure_message: &str,
+    ) -> Result<GitHubWebhookActionRequestSummary> {
+        let row = self
+            .client
+            .query_opt(
+                &format!(
+                    "UPDATE webhook_action_requests
+                    SET status = 'pending',
+                        report_path = NULL,
+                        failure_message = $2,
+                        started_at = NULL,
+                        completed_at = NULL,
+                        updated_at = NOW()
+                    WHERE request_id = $1
+                      AND status = 'running'
+                    RETURNING
+                        request_id,
+                        provider,
+                        delivery_id,
+                        action,
+                        status,
+                        repository_full_name,
+                        repository_default_branch,
+                        installation_id,
+                        ref_name,
+                        before_sha,
+                        after_sha,
+                        requested_reason,
+                        attempt_count,
+                        report_path,
+                        failure_message,
+                        to_char(started_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS started_at,
+                        to_char(completed_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS completed_at,
+                        to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
+                        to_char(updated_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS updated_at"
+                ),
+                &[&request_id, &failure_message],
+            )
+            .with_context(|| {
+                format!("failed to requeue github webhook action request: {request_id}")
             })?;
 
         row.as_ref()

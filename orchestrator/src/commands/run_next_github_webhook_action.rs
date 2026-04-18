@@ -17,6 +17,8 @@ use crate::{
 
 const REPORT_VERSION: u32 = 1;
 const SYNC_STATE_VERSION: u32 = 1;
+const DEFAULT_WEBHOOK_ACTION_RECLAIM_TIMEOUT_SECONDS: u64 = 300;
+const WEBHOOK_ACTION_RECLAIM_GRACE_SECONDS: u64 = 30;
 
 pub fn execute(args: RunNextGithubWebhookActionArgs) -> anyhow::Result<()> {
     let mut store = PostgresRunStore::connect(&args.database_url)?;
@@ -125,6 +127,7 @@ pub fn execute_next_github_webhook_action(
     action_filter: Option<&str>,
 ) -> anyhow::Result<NextGitHubWebhookActionExecution> {
     let action_filter = normalize_action_filter(action_filter);
+    reclaim_stale_running_github_webhook_actions(store, action_filter)?;
     let started_at = Instant::now();
     let Some(request) = store.claim_next_github_webhook_action_request(action_filter)? else {
         return Ok(NextGitHubWebhookActionExecution::Idle(
@@ -186,6 +189,38 @@ pub fn execute_next_github_webhook_action(
             )))
         }
     }
+}
+
+fn reclaim_stale_running_github_webhook_actions(
+    store: &mut PostgresRunStore,
+    action_filter: Option<&str>,
+) -> Result<Vec<GitHubWebhookActionRequestSummary>> {
+    let reclaimable_requests = store.list_reclaimable_running_github_webhook_action_requests(
+        action_filter,
+        DEFAULT_WEBHOOK_ACTION_RECLAIM_TIMEOUT_SECONDS,
+        WEBHOOK_ACTION_RECLAIM_GRACE_SECONDS,
+    )?;
+    if reclaimable_requests.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut reclaimed_requests = Vec::with_capacity(reclaimable_requests.len());
+    for request in reclaimable_requests {
+        let reclaim_reason = stale_github_webhook_action_failure_reason(&request);
+        tracing::warn!(
+            request_id = %request.request_id,
+            delivery_id = %request.delivery_id,
+            action = %request.action,
+            reclaim_reason,
+            "reclaimed stale running github webhook action request and requeued it"
+        );
+        telemetry::record_webhook_action_reclaim(&request.provider, &request.action, "requeued");
+        reclaimed_requests.push(
+            store.requeue_github_webhook_action_request(&request.request_id, &reclaim_reason)?,
+        );
+    }
+
+    Ok(reclaimed_requests)
 }
 
 fn execute_claimed_github_webhook_action(
@@ -298,6 +333,21 @@ fn normalize_action_filter(action: Option<&str>) -> Option<&str> {
     action.map(str::trim).filter(|value| !value.is_empty())
 }
 
+fn stale_github_webhook_action_failure_reason(
+    request: &GitHubWebhookActionRequestSummary,
+) -> String {
+    format!(
+        "github webhook action `{}` exceeded reclaim lease after {}s",
+        request.action,
+        stale_github_webhook_action_reclaim_deadline_seconds()
+    )
+}
+
+fn stale_github_webhook_action_reclaim_deadline_seconds() -> u64 {
+    DEFAULT_WEBHOOK_ACTION_RECLAIM_TIMEOUT_SECONDS
+        .saturating_add(WEBHOOK_ACTION_RECLAIM_GRACE_SECONDS)
+}
+
 fn sync_default_branch_report_path(
     artifact_root: &Path,
     provider: &str,
@@ -367,4 +417,72 @@ fn current_epoch_millis() -> Result<u64> {
         .duration_since(UNIX_EPOCH)
         .context("system clock is before UNIX_EPOCH")?;
     u64::try_from(duration.as_millis()).context("epoch millisecond timestamp exceeds u64 range")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        normalize_action_filter, repository_state_path, stale_github_webhook_action_failure_reason,
+        stale_github_webhook_action_reclaim_deadline_seconds,
+    };
+    use crate::models::webhook::GitHubWebhookActionRequestSummary;
+    use std::path::Path;
+
+    #[test]
+    fn trims_action_filter_and_discards_blank_values() {
+        assert_eq!(
+            normalize_action_filter(Some(" sync_default_branch ")),
+            Some("sync_default_branch")
+        );
+        assert_eq!(normalize_action_filter(Some("   ")), None);
+        assert_eq!(normalize_action_filter(None), None);
+    }
+
+    #[test]
+    fn computes_repository_state_path_per_owner_and_repo() {
+        let path = repository_state_path(
+            Path::new("/tmp/artifacts"),
+            "github",
+            "smartit/catalyst-continuum",
+        );
+
+        assert_eq!(
+            path,
+            Path::new(
+                "/tmp/artifacts/github-repositories/github/smartit/catalyst-continuum/default-branch-state.json"
+            )
+        );
+    }
+
+    #[test]
+    fn stale_reclaim_reason_uses_the_shared_deadline() {
+        let request = GitHubWebhookActionRequestSummary {
+            request_id: "github:delivery-1:sync_default_branch".to_string(),
+            provider: "github".to_string(),
+            delivery_id: "delivery-1".to_string(),
+            action: "sync_default_branch".to_string(),
+            status: "running".to_string(),
+            repository_full_name: Some("smartit/catalyst-continuum".to_string()),
+            repository_default_branch: Some("main".to_string()),
+            installation_id: Some(42),
+            ref_name: Some("refs/heads/main".to_string()),
+            before_sha: Some("1111111111111111111111111111111111111111".to_string()),
+            after_sha: Some("2222222222222222222222222222222222222222".to_string()),
+            requested_reason: "sync default branch".to_string(),
+            attempt_count: 1,
+            report_path: None,
+            failure_message: None,
+            started_at: Some("2026-04-18T17:00:00.000Z".to_string()),
+            completed_at: None,
+            created_at: Some("2026-04-18T17:00:00.000Z".to_string()),
+            updated_at: Some("2026-04-18T17:00:00.000Z".to_string()),
+            persisted: true,
+        };
+
+        assert_eq!(stale_github_webhook_action_reclaim_deadline_seconds(), 330);
+        assert_eq!(
+            stale_github_webhook_action_failure_reason(&request),
+            "github webhook action `sync_default_branch` exceeded reclaim lease after 330s"
+        );
+    }
 }

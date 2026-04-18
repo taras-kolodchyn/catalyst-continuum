@@ -366,6 +366,23 @@ assert cli_action_detail["action"] == "sync_default_branch", cli_action_detail
 assert cli_action_detail["after_sha"] == after_sha, cli_action_detail
 PY
 
+EXPECTED_WEBHOOK_ACTION_ATTEMPT_COUNT=1
+RECLAIM_UPDATE_SQL="WITH updated AS (UPDATE webhook_action_requests SET status = 'running', attempt_count = 1, started_at = NOW() - INTERVAL '400 seconds', updated_at = NOW() - INTERVAL '400 seconds' WHERE request_id = '${PUSH_WEBHOOK_ACTION_REQUEST_ID}' RETURNING 1) SELECT count(*) FROM updated;"
+if [ "$STARTED_POSTGRES" -eq 1 ]; then
+  RECLAIM_UPDATE_COUNT="$(
+    docker exec "$POSTGRES_CONTAINER_NAME" \
+      psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tA -c "$RECLAIM_UPDATE_SQL" \
+      | tr -d '[:space:]'
+  )"
+  test "$RECLAIM_UPDATE_COUNT" = "1"
+  EXPECTED_WEBHOOK_ACTION_ATTEMPT_COUNT=2
+elif command -v psql >/dev/null 2>&1; then
+  RECLAIM_UPDATE_COUNT="$(psql "$DATABASE_URL" -tA -c "$RECLAIM_UPDATE_SQL" | tr -d '[:space:]' || true)"
+  if [ "$RECLAIM_UPDATE_COUNT" = "1" ]; then
+    EXPECTED_WEBHOOK_ACTION_ATTEMPT_COUNT=2
+  fi
+fi
+
 curl -fsS \
   -X POST \
   -H "Content-Type: application/json" \
@@ -384,7 +401,8 @@ python3 - \
   "$WEBHOOK_ACTION_EXECUTED_HTTP_FILE" \
   "$WEBHOOK_ACTION_EXECUTED_CLI_FILE" \
   "$PUSH_WEBHOOK_ACTION_REQUEST_ID" \
-  "$PUSH_WEBHOOK_AFTER_SHA" <<'PY'
+  "$PUSH_WEBHOOK_AFTER_SHA" \
+  "$EXPECTED_WEBHOOK_ACTION_ATTEMPT_COUNT" <<'PY'
 import json
 import pathlib
 import sys
@@ -394,13 +412,14 @@ http_detail = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
 cli_detail = json.loads(pathlib.Path(sys.argv[3]).read_text(encoding="utf-8"))
 request_id = sys.argv[4]
 after_sha = sys.argv[5]
+expected_attempt_count = int(sys.argv[6])
 
 assert run_response["outcome"] == "executed", run_response
 assert run_response["execution_status"] == "succeeded", run_response
 assert run_response["request"]["request_id"] == request_id, run_response
 assert http_detail["request_id"] == request_id, http_detail
 assert http_detail["status"] == "succeeded", http_detail
-assert http_detail["attempt_count"] == 1, http_detail
+assert http_detail["attempt_count"] == expected_attempt_count, http_detail
 assert http_detail["after_sha"] == after_sha, http_detail
 assert http_detail["report_path"], http_detail
 report_path = pathlib.Path(http_detail["report_path"])
@@ -414,7 +433,7 @@ state = json.loads(state_path.read_text(encoding="utf-8"))
 assert state["after_sha"] == after_sha, state
 assert state["synced_from"]["request_id"] == request_id, state
 assert cli_detail["status"] == "succeeded", cli_detail
-assert cli_detail["attempt_count"] == 1, cli_detail
+assert cli_detail["attempt_count"] == expected_attempt_count, cli_detail
 assert cli_detail["after_sha"] == after_sha, cli_detail
 PY
 

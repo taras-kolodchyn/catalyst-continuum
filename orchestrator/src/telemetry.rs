@@ -36,6 +36,7 @@ struct Instruments {
     webhook_delivery_duration_ms: Histogram<f64>,
     webhook_action_executions: Counter<u64>,
     webhook_action_execution_duration_ms: Histogram<f64>,
+    webhook_action_reclaims: Counter<u64>,
     brief_submissions: Counter<u64>,
     brief_submission_duration_ms: Histogram<f64>,
     task_executions: Counter<u64>,
@@ -168,6 +169,17 @@ pub fn record_webhook_action_execution(
     instruments
         .webhook_action_execution_duration_ms
         .record(duration_ms(duration), &attributes);
+}
+
+pub fn record_webhook_action_reclaim(provider: &str, action: &str, outcome: &str) {
+    let instruments = instruments();
+    let attributes = [
+        KeyValue::new("provider", provider.to_string()),
+        KeyValue::new("action", action.to_string()),
+        KeyValue::new("outcome", outcome.to_string()),
+    ];
+
+    instruments.webhook_action_reclaims.add(1, &attributes);
 }
 
 pub fn record_brief_submission(
@@ -303,6 +315,10 @@ fn instruments() -> &'static Instruments {
                 .with_description(
                     "Duration of GitHub webhook action request execution in milliseconds",
                 )
+                .build(),
+            webhook_action_reclaims: meter
+                .u64_counter("catalyst_webhook_action_reclaims")
+                .with_description("Count of stale GitHub webhook action reclaim events")
                 .build(),
             brief_submissions: meter
                 .u64_counter("catalyst_brief_submissions")
