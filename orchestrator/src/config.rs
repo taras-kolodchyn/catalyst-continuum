@@ -37,6 +37,11 @@ impl InstanceConfigReport {
     }
 }
 
+pub fn load_github_app_webhook_secret() -> Option<String> {
+    let env = GitHubAppEnv::capture();
+    first_present_non_empty(env.catalyst_webhook_secret, env.github_webhook_secret)
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct RuntimeProvidersConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -293,11 +298,11 @@ impl GitHubAppConfig {
             snapshot.github_private_key_path,
         );
         let private_key_exists = private_key_path.as_ref().is_some_and(|path| path.is_file());
-        let webhook_secret_configured = first_present(
+        let webhook_secret_configured = first_present_non_empty(
             snapshot.catalyst_webhook_secret,
             snapshot.github_webhook_secret,
         )
-        .is_some_and(|value| !value.trim().is_empty());
+        .is_some();
 
         let mut missing_fields = Vec::new();
         if app_id.is_none() {
@@ -416,6 +421,12 @@ fn default_runtime_provider() -> String {
 
 fn first_present<T>(primary: Option<T>, fallback: Option<T>) -> Option<T> {
     primary.or(fallback)
+}
+
+fn first_present_non_empty(primary: Option<String>, fallback: Option<String>) -> Option<String> {
+    first_present(primary, fallback)
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }
 
 fn first_present_path(primary: Option<PathBuf>, fallback: Option<PathBuf>) -> Option<PathBuf> {

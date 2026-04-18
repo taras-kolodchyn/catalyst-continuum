@@ -2,6 +2,7 @@ mod app;
 mod cli;
 mod commands;
 mod config;
+mod github_webhooks;
 mod models;
 mod planning;
 mod runtime;

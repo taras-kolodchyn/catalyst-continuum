@@ -15,6 +15,7 @@ POSTGRES_DB="${SMOKE_POSTGRES_DB:-continuum}"
 POSTGRES_USER="${SMOKE_POSTGRES_USER:-continuum}"
 POSTGRES_PASSWORD="${SMOKE_POSTGRES_PASSWORD:-continuum-dev}"
 POSTGRES_PORT="${SMOKE_POSTGRES_PORT:-55432}"
+GITHUB_WEBHOOK_SECRET="${SMOKE_GITHUB_WEBHOOK_SECRET:-continuum-smoke-webhook-secret}"
 POSTGRES_CONTAINER_NAME="continuum-smoke-postgres-$$"
 STARTED_POSTGRES=0
 ORCHESTRATOR_PID=""
@@ -87,7 +88,8 @@ READINESS_FILE="$ARTIFACT_ROOT/orchestrator-readyz.json"
 HEALTH_FILE="$ARTIFACT_ROOT/orchestrator-healthz.json"
 CONFIG_FILE="$ARTIFACT_ROOT/orchestrator-config.json"
 
-"$BIN" serve \
+CATALYST_GITHUB_APP_WEBHOOK_SECRET="$GITHUB_WEBHOOK_SECRET" \
+  "$BIN" serve \
   --bind-addr "127.0.0.1:${ORCHESTRATOR_HTTP_PORT}" \
   --database-url "$DATABASE_URL" \
   --artifact-root "$ARTIFACT_ROOT" >"$ORCHESTRATOR_LOG" 2>&1 &
@@ -136,6 +138,57 @@ statuses = {
 }
 assert statuses["docker"]["registered"] is True, config
 assert isinstance(config["github_app"]["missing_fields"], list), config
+PY
+
+WEBHOOK_PAYLOAD_FILE="$ARTIFACT_ROOT/github-webhook-ping.json"
+WEBHOOK_RESPONSE_FILE="$ARTIFACT_ROOT/github-webhook-response.json"
+cat >"$WEBHOOK_PAYLOAD_FILE" <<'EOF'
+{
+  "zen": "Keep it logically awesome.",
+  "hook_id": 42,
+  "repository": {
+    "full_name": "smartit/catalyst-continuum",
+    "default_branch": "main"
+  }
+}
+EOF
+
+WEBHOOK_SIGNATURE="$(python3 - "$GITHUB_WEBHOOK_SECRET" "$WEBHOOK_PAYLOAD_FILE" <<'PY'
+import hashlib
+import hmac
+import pathlib
+import sys
+
+secret = sys.argv[1].encode("utf-8")
+payload = pathlib.Path(sys.argv[2]).read_bytes()
+print("sha256=" + hmac.new(secret, payload, hashlib.sha256).hexdigest())
+PY
+)"
+
+curl -fsS \
+  -X POST \
+  -H "Content-Type: application/json" \
+  -H "X-GitHub-Event: ping" \
+  -H "X-GitHub-Delivery: 11111111-1111-1111-1111-111111111111" \
+  -H "X-Hub-Signature-256: $WEBHOOK_SIGNATURE" \
+  --data-binary "@$WEBHOOK_PAYLOAD_FILE" \
+  "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/github/webhooks" >"$WEBHOOK_RESPONSE_FILE"
+
+python3 - "$WEBHOOK_RESPONSE_FILE" <<'PY'
+import json
+import pathlib
+import sys
+
+response = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+assert response["status"] == "accepted", response
+assert response["outcome"] == "ping", response
+assert response["event"] == "ping", response
+assert response["signature_verified"] is True, response
+receipt_path = pathlib.Path(response["receipt_path"])
+assert receipt_path.is_file(), response
+receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+assert receipt["summary"]["event"] == "ping", receipt
+assert receipt["payload"]["repository"]["full_name"] == "smartit/catalyst-continuum", receipt
 PY
 
 SUBMISSION_OUTPUT="$("$BIN" submit-brief \

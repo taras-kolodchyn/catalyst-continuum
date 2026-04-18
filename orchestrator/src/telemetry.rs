@@ -32,6 +32,8 @@ struct Instruments {
     command_duration_ms: Histogram<f64>,
     http_requests: Counter<u64>,
     http_request_duration_ms: Histogram<f64>,
+    webhook_deliveries: Counter<u64>,
+    webhook_delivery_duration_ms: Histogram<f64>,
     brief_submissions: Counter<u64>,
     brief_submission_duration_ms: Histogram<f64>,
     task_executions: Counter<u64>,
@@ -130,6 +132,20 @@ pub fn record_http_request(method: &str, route: &str, status_code: u64, duration
     instruments.http_requests.add(1, &attributes);
     instruments
         .http_request_duration_ms
+        .record(duration_ms(duration), &attributes);
+}
+
+pub fn record_webhook_delivery(provider: &str, event: &str, outcome: &str, duration: Duration) {
+    let instruments = instruments();
+    let attributes = [
+        KeyValue::new("provider", provider.to_string()),
+        KeyValue::new("event", event.to_string()),
+        KeyValue::new("outcome", outcome.to_string()),
+    ];
+
+    instruments.webhook_deliveries.add(1, &attributes);
+    instruments
+        .webhook_delivery_duration_ms
         .record(duration_ms(duration), &attributes);
 }
 
@@ -248,6 +264,14 @@ fn instruments() -> &'static Instruments {
             http_request_duration_ms: meter
                 .f64_histogram("catalyst_http_request_duration_ms")
                 .with_description("Duration of orchestrator HTTP requests in milliseconds")
+                .build(),
+            webhook_deliveries: meter
+                .u64_counter("catalyst_webhook_deliveries")
+                .with_description("Count of accepted or rejected webhook deliveries")
+                .build(),
+            webhook_delivery_duration_ms: meter
+                .f64_histogram("catalyst_webhook_delivery_duration_ms")
+                .with_description("Duration of webhook delivery handling in milliseconds")
                 .build(),
             brief_submissions: meter
                 .u64_counter("catalyst_brief_submissions")

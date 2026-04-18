@@ -1,7 +1,7 @@
 use anyhow::Context;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{collections::HashMap, time::Instant};
-use tiny_http::{Header, Response, Server, StatusCode};
+use tiny_http::{Header, Request, Response, Server, StatusCode};
 use uuid::Uuid;
 
 use crate::{
@@ -11,7 +11,11 @@ use crate::{
         evaluate_run_quality, export_pr_candidate, publish_pr_export, run_next_task,
         submit_brief::submit_validated_brief, worker,
     },
-    config::InstanceConfigReport,
+    config::{InstanceConfigReport, load_github_app_webhook_secret},
+    github_webhooks::{
+        GitHubWebhookErrorKind, GitHubWebhookHeaders, GitHubWebhookReceiptSummary,
+        ingest_github_webhook,
+    },
     planning::{
         brief_validation::validate_brief_document, pack_catalog::build_pack_catalog,
         packs::PackDefinition, pr_candidate,
@@ -29,6 +33,7 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
     let instance_config = InstanceConfigReport::load(args.runtime_providers_file.as_deref())?;
     let runtime_registry =
         RuntimeRegistry::from_runtime_providers_config(&instance_config.runtime_providers);
+    let github_webhook_secret = load_github_app_webhook_secret();
 
     let server = Server::http(&args.bind_addr).map_err(|error| {
         anyhow::anyhow!(
@@ -64,6 +69,7 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                         "/healthz",
                         "/readyz",
                         "/config",
+                        "POST /github/webhooks",
                         "/packs",
                         "/packs/{pack_id}",
                         "/artifacts/{artifact_id}",
@@ -104,6 +110,58 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                 ),
             },
             ("GET", "/config") => json_response(StatusCode(200), &instance_config),
+            ("POST", "/github/webhooks") => {
+                let webhook_started_at = Instant::now();
+                let event = header_value(request.headers(), "X-GitHub-Event")
+                    .unwrap_or("unknown")
+                    .to_string();
+                let response = match parse_github_webhook_headers(request.headers()) {
+                    Ok(headers) => match read_request_body_bytes(&mut request) {
+                        Ok(body) => match ingest_github_webhook(
+                            &headers,
+                            &body,
+                            &args.artifact_root,
+                            github_webhook_secret.as_deref(),
+                        ) {
+                            Ok(summary) => github_webhook_response(&summary),
+                            Err(error) => json_response(
+                                webhook_error_status(error.kind()),
+                                &ErrorResponse {
+                                    error: error.message().to_string(),
+                                },
+                            ),
+                        },
+                        Err(error) => json_response(
+                            StatusCode(400),
+                            &ErrorResponse {
+                                error: format!("failed to read request body: {error}"),
+                            },
+                        ),
+                    },
+                    Err(error) => json_response(
+                        StatusCode(400),
+                        &ErrorResponse {
+                            error: error.to_string(),
+                        },
+                    ),
+                };
+                let outcome = if response.status_code().0 < 400 {
+                    "accepted"
+                } else if response.status_code().0 == 401 {
+                    "rejected"
+                } else if response.status_code().0 == 503 {
+                    "unavailable"
+                } else {
+                    "invalid"
+                };
+                telemetry::record_webhook_delivery(
+                    "github",
+                    event.as_str(),
+                    outcome,
+                    webhook_started_at.elapsed(),
+                );
+                response
+            }
             ("GET", _) if single_path_segment(path, "/artifacts/").is_some() => {
                 let artifact_id = single_path_segment(path, "/artifacts/")
                     .expect("artifact path guard should provide a single path segment");
@@ -778,10 +836,56 @@ fn split_request_target(request_target: &str) -> (&str, Option<&str>) {
     }
 }
 
-fn read_request_body(request: &mut tiny_http::Request) -> std::io::Result<String> {
-    let mut body = String::new();
-    request.as_reader().read_to_string(&mut body)?;
+fn read_request_body_bytes(request: &mut Request) -> std::io::Result<Vec<u8>> {
+    let mut body = Vec::new();
+    request.as_reader().read_to_end(&mut body)?;
     Ok(body)
+}
+
+fn read_request_body(request: &mut Request) -> anyhow::Result<String> {
+    let body = read_request_body_bytes(request).context("failed to read request body")?;
+    String::from_utf8(body).context("request body is not valid UTF-8")
+}
+
+fn parse_github_webhook_headers(headers: &[Header]) -> anyhow::Result<GitHubWebhookHeaders> {
+    Ok(GitHubWebhookHeaders {
+        event: required_header_value(headers, "X-GitHub-Event")?.to_string(),
+        delivery_id: required_header_value(headers, "X-GitHub-Delivery")?.to_string(),
+        signature_sha256: required_header_value(headers, "X-Hub-Signature-256")?.to_string(),
+    })
+}
+
+fn required_header_value<'a>(headers: &'a [Header], name: &'static str) -> anyhow::Result<&'a str> {
+    header_value(headers, name)
+        .ok_or_else(|| anyhow::anyhow!("missing required HTTP header: {name}"))
+}
+
+fn header_value<'a>(headers: &'a [Header], name: &'static str) -> Option<&'a str> {
+    headers
+        .iter()
+        .find(|header| header.field.equiv(name))
+        .map(|header| header.value.as_str())
+}
+
+fn github_webhook_response(
+    summary: &GitHubWebhookReceiptSummary,
+) -> Response<std::io::Cursor<Vec<u8>>> {
+    let status = if summary.outcome == "ping" {
+        StatusCode(200)
+    } else {
+        StatusCode(202)
+    };
+
+    json_response(status, summary)
+}
+
+fn webhook_error_status(kind: GitHubWebhookErrorKind) -> StatusCode {
+    match kind {
+        GitHubWebhookErrorKind::BadRequest => StatusCode(400),
+        GitHubWebhookErrorKind::Unauthorized => StatusCode(401),
+        GitHubWebhookErrorKind::ServiceUnavailable => StatusCode(503),
+        GitHubWebhookErrorKind::Internal => StatusCode(500),
+    }
 }
 
 fn read_optional_json_body<T>(request: &mut tiny_http::Request) -> anyhow::Result<T>
@@ -888,6 +992,7 @@ fn route_label(method: &str, path: &str) -> &'static str {
         ("GET", "/healthz") => "/healthz",
         ("GET", "/readyz") => "/readyz",
         ("GET", "/config") => "/config",
+        ("POST", "/github/webhooks") => "/github/webhooks",
         ("GET", "/packs") => "/packs",
         ("GET", _) if single_path_segment(path, "/artifacts/").is_some() => {
             "/artifacts/{artifact_id}"
@@ -1080,6 +1185,7 @@ mod tests {
         assert_eq!(route_label("GET", "/healthz"), "/healthz");
         assert_eq!(route_label("GET", "/readyz"), "/readyz");
         assert_eq!(route_label("GET", "/config"), "/config");
+        assert_eq!(route_label("POST", "/github/webhooks"), "/github/webhooks");
     }
 
     #[test]

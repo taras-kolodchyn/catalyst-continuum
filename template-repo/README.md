@@ -26,5 +26,7 @@ choices into the open-source root.
 
 - These files are scaffolds, not an active integration.
 - The GitHub App assets define the minimum permissions and events expected by the
-  current draft-PR flow, but the webhook handler itself is still a later control-plane step.
+  current draft-PR flow. The upstream orchestrator now exposes a signed webhook
+  intake path, but automatic event-to-run automation is still a later
+  control-plane step.
 - Keep secrets and private keys out of git history even in the private template repo.
