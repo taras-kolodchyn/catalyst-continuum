@@ -99,6 +99,7 @@ curl http://127.0.0.1:8080/runs/<RUN_ID>/artifacts/latest/quality_report
 The current HTTP surface is intentionally narrow. Agent-oriented orchestration actions should move toward MCP rather than being duplicated indefinitely as new REST endpoints.
 `describe-instance-config`, `GET /config`, and the MCP `describe_instance_config` tool give operators and agents a shared introspection path for the active runtime-provider selection and GitHub App readiness without exposing secret values.
 The same instance-aware entrypoints also accept `--runtime-providers-file <path>` when you need `serve`, `mcp-server`, `worker`, or `run-next-task` to use an explicit config file instead of relying only on environment discovery.
+The repository now ships a baseline [config/runtime-providers.yaml](config/runtime-providers.yaml) for local development, while [template-repo/config/runtime-providers.yaml](template-repo/config/runtime-providers.yaml) stays as the private-instance copy point.
 
 `list-packs` and `describe-pack` now expose pack-level `policy_profile` and
 `quality_profile` contracts so open-source agents can inspect timeout/retry

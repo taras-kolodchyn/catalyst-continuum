@@ -1,0 +1,23 @@
+default_provider: docker
+
+providers:
+  docker:
+    enabled: true
+    network_mode: bridge
+    rootless: true
+
+  proxmox:
+    enabled: false
+    api_url: https://proxmox.example.com:8006/api2/json
+    node: pve-a
+    template_vmid: 9000
+    storage: local-lvm
+    cloud_init_user: continuum
+    linked_clones: true
+
+  kubernetes:
+    enabled: false
+    namespace: catalyst-continuum
+    service_account: continuum-runner
+    job_ttl_seconds_after_finished: 600
+    image_pull_policy: IfNotPresent
