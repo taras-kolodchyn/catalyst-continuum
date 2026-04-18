@@ -110,6 +110,10 @@ The local `v0.1` compose stack now includes an observability baseline:
 
 The telemetry surface now also emits dedicated metrics for promotion steps, runtime-enforced task timeouts, and stale task reclaim events, so these control-plane paths can be broken out cleanly in Grafana instead of being inferred from generic command/task counters.
 
+The repository now also carries a `template-repo/` skeleton for the future
+private deployment repository, including runtime-provider config placeholders and
+an initial GitHub App manifest/webhook scaffold.
+
 An initial MCP stdio adapter is now available through:
 
 ```bash

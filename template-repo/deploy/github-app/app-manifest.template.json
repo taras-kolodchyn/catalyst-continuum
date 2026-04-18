@@ -1,0 +1,20 @@
+{
+  "name": "Catalyst Continuum Private Instance",
+  "url": "https://continuum.example.com",
+  "hook_attributes": {
+    "url": "https://continuum.example.com/github/webhooks"
+  },
+  "redirect_url": "https://continuum.example.com/github/callback",
+  "public": false,
+  "default_permissions": {
+    "contents": "write",
+    "metadata": "read",
+    "pull_requests": "write"
+  },
+  "default_events": [
+    "pull_request",
+    "pull_request_review",
+    "push",
+    "repository"
+  ]
+}
