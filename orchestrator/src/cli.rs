@@ -76,6 +76,9 @@ pub struct ServeArgs {
         default_value = ".continuum/artifacts"
     )]
     pub artifact_root: PathBuf,
+
+    #[arg(long, env = "CATALYST_RUNTIME_PROVIDERS_FILE")]
+    pub runtime_providers_file: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -89,6 +92,9 @@ pub struct McpServerArgs {
         default_value = ".continuum/artifacts"
     )]
     pub artifact_root: PathBuf,
+
+    #[arg(long, env = "CATALYST_RUNTIME_PROVIDERS_FILE")]
+    pub runtime_providers_file: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -215,6 +221,9 @@ pub struct RunNextTaskArgs {
     )]
     pub artifact_root: PathBuf,
 
+    #[arg(long, env = "CATALYST_RUNTIME_PROVIDERS_FILE")]
+    pub runtime_providers_file: Option<PathBuf>,
+
     #[arg(long)]
     pub run_id: Option<Uuid>,
 
@@ -233,6 +242,9 @@ pub struct WorkerArgs {
         default_value = ".continuum/artifacts"
     )]
     pub artifact_root: PathBuf,
+
+    #[arg(long, env = "CATALYST_RUNTIME_PROVIDERS_FILE")]
+    pub runtime_providers_file: Option<PathBuf>,
 
     #[arg(long)]
     pub run_id: Option<Uuid>,

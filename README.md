@@ -98,6 +98,7 @@ curl http://127.0.0.1:8080/runs/<RUN_ID>/artifacts/latest/quality_report
 
 The current HTTP surface is intentionally narrow. Agent-oriented orchestration actions should move toward MCP rather than being duplicated indefinitely as new REST endpoints.
 `describe-instance-config`, `GET /config`, and the MCP `describe_instance_config` tool give operators and agents a shared introspection path for the active runtime-provider selection and GitHub App readiness without exposing secret values.
+The same instance-aware entrypoints also accept `--runtime-providers-file <path>` when you need `serve`, `mcp-server`, `worker`, or `run-next-task` to use an explicit config file instead of relying only on environment discovery.
 
 `list-packs` and `describe-pack` now expose pack-level `policy_profile` and
 `quality_profile` contracts so open-source agents can inspect timeout/retry
@@ -122,7 +123,8 @@ An initial MCP stdio adapter is now available through:
 ```bash
 catalyst-continuum-orchestrator mcp-server \
   --database-url "$CATALYST_DATABASE_URL" \
-  --artifact-root ".continuum/artifacts"
+  --artifact-root ".continuum/artifacts" \
+  --runtime-providers-file "config/runtime-providers.yaml"
 ```
 
 It currently exposes the first agent-facing tool set over MCP: pack inspection, artifact inspection, latest-artifact lookup by type, brief validation and submission, run inspection, task execution, policy evaluation, automated quality evaluation, PR export/publication, and GitHub PR opening.

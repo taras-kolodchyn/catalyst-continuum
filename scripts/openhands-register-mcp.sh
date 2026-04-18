@@ -28,6 +28,13 @@ if [ -n "${CATALYST_DATABASE_URL:-}" ]; then
   )
 fi
 
+if [ -n "${CATALYST_RUNTIME_PROVIDERS_FILE:-}" ]; then
+  command_args+=(
+    --env
+    "CATALYST_RUNTIME_PROVIDERS_FILE=${CATALYST_RUNTIME_PROVIDERS_FILE}"
+  )
+fi
+
 command_args+=(
   cargo
   --
@@ -40,6 +47,13 @@ command_args+=(
   --artifact-root
   "$ARTIFACT_ROOT"
 )
+
+if [ -n "${CATALYST_RUNTIME_PROVIDERS_FILE:-}" ]; then
+  command_args+=(
+    --runtime-providers-file
+    "$CATALYST_RUNTIME_PROVIDERS_FILE"
+  )
+fi
 
 echo "registering MCP server '$SERVER_NAME' in OpenHands"
 "${command_args[@]}"

@@ -12,7 +12,8 @@ The server process is:
 
 ```bash
 catalyst-continuum-orchestrator mcp-server \
-  --artifact-root ".continuum/artifacts"
+  --artifact-root ".continuum/artifacts" \
+  --runtime-providers-file "config/runtime-providers.yaml"
 ```
 
 You can also launch it from source during development:
@@ -20,7 +21,8 @@ You can also launch it from source during development:
 ```bash
 cargo run -q -p catalyst-continuum-orchestrator -- \
   mcp-server \
-  --artifact-root ".continuum/artifacts"
+  --artifact-root ".continuum/artifacts" \
+  --runtime-providers-file "config/runtime-providers.yaml"
 ```
 
 ## Stateless vs Stateful Tools
@@ -57,7 +59,9 @@ Many open-source agents use slightly different configuration formats, but the tr
 
 - command: `cargo` or the built orchestrator binary
 - args: `run -q -p catalyst-continuum-orchestrator -- mcp-server ...`
-- env: optional `CATALYST_DATABASE_URL`
+- env: optional `CATALYST_DATABASE_URL` and `CATALYST_RUNTIME_PROVIDERS_FILE`
+
+Use `--runtime-providers-file` when the agent should target a non-default instance config path. That keeps MCP, HTTP, and local worker execution aligned to the same runtime-provider contract during validation.
 
 A neutral example config is available at [examples/mcp/stdio-server.example.json](../../examples/mcp/stdio-server.example.json).
 

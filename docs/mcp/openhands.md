@@ -11,7 +11,8 @@ Use the orchestrator MCP server through direct `stdio` first:
 ```bash
 cargo run -q -p catalyst-continuum-orchestrator -- \
   mcp-server \
-  --artifact-root ".continuum/artifacts"
+  --artifact-root ".continuum/artifacts" \
+  --runtime-providers-file "config/runtime-providers.yaml"
 ```
 
 This is the fastest way to validate the integration locally with OpenHands.
@@ -52,7 +53,8 @@ OpenHands can register MCP servers from the CLI:
 openhands mcp add catalyst-continuum \
   --transport stdio \
   --env "CATALYST_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/catalyst_continuum" \
-  cargo -- run -q -p catalyst-continuum-orchestrator -- mcp-server --artifact-root .continuum/artifacts
+  --env "CATALYST_RUNTIME_PROVIDERS_FILE=config/runtime-providers.yaml" \
+  cargo -- run -q -p catalyst-continuum-orchestrator -- mcp-server --artifact-root .continuum/artifacts --runtime-providers-file config/runtime-providers.yaml
 ```
 
 Then verify the registration:
@@ -69,6 +71,7 @@ The helper script:
 
 - uses the official `openhands mcp add` CLI flow
 - reads `CATALYST_DATABASE_URL` when you want stateful tools
+- reads `CATALYST_RUNTIME_PROVIDERS_FILE` when you want OpenHands pinned to a specific instance config path
 - defaults the server name to `catalyst-continuum`
 - can be renamed with `OPENHANDS_MCP_SERVER_NAME`
 
@@ -93,10 +96,13 @@ The config matches the OpenHands MCP file format:
         "--",
         "mcp-server",
         "--artifact-root",
-        ".continuum/artifacts"
+        ".continuum/artifacts",
+        "--runtime-providers-file",
+        "config/runtime-providers.yaml"
       ],
       "env": {
-        "CATALYST_DATABASE_URL": "postgres://postgres:postgres@127.0.0.1:5432/catalyst_continuum"
+        "CATALYST_DATABASE_URL": "postgres://postgres:postgres@127.0.0.1:5432/catalyst_continuum",
+        "CATALYST_RUNTIME_PROVIDERS_FILE": "config/runtime-providers.yaml"
       }
     }
   }
