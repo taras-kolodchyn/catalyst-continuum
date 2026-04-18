@@ -41,6 +41,15 @@ messages = [
         "id": 3,
         "method": "tools/call",
         "params": {
+            "name": "describe_instance_config",
+            "arguments": {},
+        },
+    },
+    {
+        "jsonrpc": "2.0",
+        "id": 4,
+        "method": "tools/call",
+        "params": {
             "name": "validate_brief",
             "arguments": {
                 "brief_content": brief_path.read_text(encoding="utf-8"),
@@ -79,12 +88,17 @@ if proc.returncode != 0:
     )
 
 responses = [json.loads(line) for line in stdout.splitlines() if line.strip()]
-if len(responses) != 3:
+if len(responses) != 4:
     raise SystemExit(
-        f"mcp smoke failed: expected 3 responses, received {len(responses)}\n{stdout}"
+        f"mcp smoke failed: expected 4 responses, received {len(responses)}\n{stdout}"
     )
 
-initialize_response, tools_list_response, validate_brief_response = responses
+(
+    initialize_response,
+    tools_list_response,
+    instance_config_response,
+    validate_brief_response,
+) = responses
 
 protocol_version = initialize_response["result"]["protocolVersion"]
 if protocol_version != "2025-11-25":
@@ -99,6 +113,7 @@ tool_names = {
 expected_tools = {
     "list_packs",
     "describe_pack",
+    "describe_instance_config",
     "describe_artifact",
     "describe_latest_artifact",
     "validate_brief",
@@ -117,6 +132,14 @@ missing_tools = expected_tools - tool_names
 if missing_tools:
     raise SystemExit(
         f"mcp smoke failed: missing tools {sorted(missing_tools)}"
+    )
+
+instance_config = instance_config_response["result"]["structuredContent"]["instance_config"]
+if instance_config["runtime_providers"]["default_provider"] != "docker":
+    raise SystemExit(
+        "mcp smoke failed: expected describe_instance_config to report docker "
+        f"as the default runtime provider, got "
+        f"{instance_config['runtime_providers']['default_provider']}"
     )
 
 validation = validate_brief_response["result"]["structuredContent"]["validation"]

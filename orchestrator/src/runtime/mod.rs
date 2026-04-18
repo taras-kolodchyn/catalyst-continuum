@@ -3,10 +3,11 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use uuid::Uuid;
 
 use crate::{
+    config::RuntimeProvidersConfig,
     models::{artifact::ArtifactDraft, task::TaskSummary},
     runtime::docker::DockerRuntimeProvider,
 };
@@ -78,18 +79,37 @@ pub trait RuntimeProvider: Send + Sync {
 
 pub struct RuntimeRegistry {
     providers: HashMap<&'static str, Box<dyn RuntimeProvider>>,
+    provider_errors: HashMap<String, String>,
 }
 
 impl RuntimeRegistry {
     pub fn new() -> Self {
         Self {
             providers: HashMap::new(),
+            provider_errors: HashMap::new(),
         }
     }
 
-    pub fn with_default_providers() -> Self {
+    pub fn from_runtime_providers_config(config: &RuntimeProvidersConfig) -> Self {
         let mut registry = Self::new();
-        registry.register(DockerRuntimeProvider);
+
+        if config.providers.docker.enabled {
+            registry.register(DockerRuntimeProvider);
+        } else {
+            registry.provider_errors.insert(
+                "docker".to_string(),
+                config
+                    .provider_issue("docker")
+                    .unwrap_or_else(|| "execution provider `docker` is unavailable".to_string()),
+            );
+        }
+
+        for provider in ["proxmox", "kubernetes"] {
+            if let Some(issue) = config.provider_issue(provider) {
+                registry.provider_errors.insert(provider.to_string(), issue);
+            }
+        }
+
         registry
     }
 
@@ -106,23 +126,24 @@ impl RuntimeRegistry {
         execution_context: &TaskExecutionContext,
         artifact_root: &Path,
     ) -> Result<TaskExecutionResult> {
-        let provider = self
-            .providers
-            .get(task.execution.provider.as_str())
-            .with_context(|| {
-                format!(
-                    "unsupported execution provider: {}",
-                    task.execution.provider
-                )
-            })?;
+        if let Some(provider) = self.providers.get(task.execution.provider.as_str()) {
+            return provider.execute_task(task, execution_context, artifact_root);
+        }
 
-        provider.execute_task(task, execution_context, artifact_root)
+        if let Some(reason) = self.provider_errors.get(task.execution.provider.as_str()) {
+            anyhow::bail!(reason.clone());
+        }
+
+        Err(anyhow::anyhow!(format!(
+            "unsupported execution provider: {}",
+            task.execution.provider
+        )))
     }
 }
 
 impl Default for RuntimeRegistry {
     fn default() -> Self {
-        Self::with_default_providers()
+        Self::new()
     }
 }
 
@@ -196,6 +217,36 @@ mod tests {
             .expect_err("unknown provider should fail");
 
         assert!(error.to_string().contains("unsupported execution provider"));
+    }
+
+    #[test]
+    fn registry_reports_disabled_provider_from_instance_config() {
+        let registry = RuntimeRegistry::from_runtime_providers_config(&RuntimeProvidersConfig {
+            source_path: None,
+            default_provider: "docker".to_string(),
+            providers: crate::config::RuntimeProviderSet {
+                docker: crate::config::DockerRuntimeProviderConfig {
+                    enabled: false,
+                    network_mode: None,
+                    rootless: None,
+                },
+                proxmox: crate::config::ProxmoxRuntimeProviderConfig::default(),
+                kubernetes: crate::config::KubernetesRuntimeProviderConfig::default(),
+            },
+        });
+        let error = registry
+            .execute_task(
+                &sample_task("docker"),
+                &TaskExecutionContext::default(),
+                Path::new("."),
+            )
+            .expect_err("disabled provider should fail");
+
+        assert!(
+            error
+                .to_string()
+                .contains("disabled by instance runtime-providers config")
+        );
     }
 
     fn sample_task(provider: &str) -> TaskSummary {

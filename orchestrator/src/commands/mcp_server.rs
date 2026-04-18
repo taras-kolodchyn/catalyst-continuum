@@ -10,6 +10,7 @@ use crate::{
         describe_artifact, describe_latest_artifact, evaluate_run_policy, evaluate_run_quality,
         export_pr_candidate, open_github_pr, publish_pr_export, run_next_task, worker,
     },
+    config::InstanceConfigReport,
     planning::{
         brief_validation::validate_brief_document, pack_catalog::build_pack_catalog,
         packs::PackDefinition,
@@ -33,19 +34,21 @@ pub fn execute(args: McpServerArgs) -> anyhow::Result<()> {
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
 
-    let mut server = StdioMcpServer::new(args);
+    let mut server = StdioMcpServer::new(args)?;
     server.serve(stdin.lock(), stdout.lock())
 }
 
 struct StdioMcpServer {
     config: McpServerConfig,
     state: SessionState,
+    runtime_registry: RuntimeRegistry,
 }
 
 #[derive(Clone)]
 struct McpServerConfig {
     database_url: Option<String>,
     artifact_root: std::path::PathBuf,
+    instance_config: InstanceConfigReport,
 }
 
 #[derive(Default)]
@@ -185,14 +188,20 @@ struct EvaluateRunPolicyToolArgs {
 }
 
 impl StdioMcpServer {
-    fn new(args: McpServerArgs) -> Self {
-        Self {
+    fn new(args: McpServerArgs) -> anyhow::Result<Self> {
+        let instance_config = InstanceConfigReport::load(None)?;
+
+        Ok(Self {
             config: McpServerConfig {
                 database_url: args.database_url,
                 artifact_root: args.artifact_root,
+                instance_config: instance_config.clone(),
             },
             state: SessionState::default(),
-        }
+            runtime_registry: RuntimeRegistry::from_runtime_providers_config(
+                &instance_config.runtime_providers,
+            ),
+        })
     }
 
     fn serve<R: BufRead, W: Write>(&mut self, mut reader: R, mut writer: W) -> anyhow::Result<()> {
@@ -404,6 +413,7 @@ impl StdioMcpServer {
         let result = match params.name.as_str() {
             "list_packs" => self.call_list_packs(arguments),
             "describe_pack" => self.call_describe_pack(arguments),
+            "describe_instance_config" => self.call_describe_instance_config(arguments),
             "describe_artifact" => self.call_describe_artifact(arguments),
             "describe_latest_artifact" => self.call_describe_latest_artifact(arguments),
             "validate_brief" => self.call_validate_brief(arguments),
@@ -468,6 +478,15 @@ impl StdioMcpServer {
             let content =
                 serde_json::to_value(&pack).context("failed to serialize pack definition")?;
             Ok(tool_success_object("pack", content))
+        })
+    }
+
+    fn call_describe_instance_config(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let _args: EmptyToolArgs = parse_tool_arguments(arguments)?;
+            let content = serde_json::to_value(&self.config.instance_config)
+                .context("failed to serialize instance config")?;
+            Ok(tool_success_object("instance_config", content))
         })
     }
 
@@ -583,10 +602,9 @@ impl StdioMcpServer {
         call_tool(|| {
             let args: RunScopedToolArgs = parse_tool_arguments(arguments)?;
             let mut store = self.open_store()?;
-            let runtime_registry = RuntimeRegistry::default();
             let execution = run_next_task::execute_next_task(
                 &mut store,
-                &runtime_registry,
+                &self.runtime_registry,
                 args.run_id,
                 &self.config.artifact_root,
             )?;
@@ -604,10 +622,9 @@ impl StdioMcpServer {
         call_tool(|| {
             let args: RunScopedToolArgs = parse_tool_arguments(arguments)?;
             let mut store = self.open_store()?;
-            let runtime_registry = RuntimeRegistry::default();
             let report = worker::run_worker(
                 &mut store,
-                &runtime_registry,
+                &self.runtime_registry,
                 args.run_id,
                 &self.config.artifact_root,
                 true,
@@ -855,6 +872,11 @@ fn tool_definitions() -> Vec<Value> {
             )]),
         ),
         tool_definition(
+            "describe_instance_config",
+            "Inspect runtime provider and GitHub App instance configuration without exposing secret values.",
+            json_schema_object(&[]),
+        ),
+        tool_definition(
             "describe_artifact",
             "Fetch one orchestrator artifact with metadata and a safe manifest/text inspection when available.",
             json_schema_object(&[required_string_property("artifact_id", "Artifact UUID.")]),
@@ -1047,7 +1069,8 @@ mod tests {
         let mut server = StdioMcpServer::new(McpServerArgs {
             database_url: None,
             artifact_root: std::path::PathBuf::from(".continuum/artifacts"),
-        });
+        })
+        .expect("server should initialize");
         let input = concat!(
             "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{},\"clientInfo\":{\"name\":\"test-client\",\"version\":\"0.1.0\"}}}\n",
             "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n",
@@ -1066,7 +1089,8 @@ mod tests {
         let mut server = StdioMcpServer::new(McpServerArgs {
             database_url: None,
             artifact_root: std::path::PathBuf::from(".continuum/artifacts"),
-        });
+        })
+        .expect("server should initialize");
         let input = concat!(
             "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{},\"clientInfo\":{\"name\":\"test-client\",\"version\":\"0.1.0\"}}}\n",
             "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n",
@@ -1077,9 +1101,16 @@ mod tests {
 
         assert_eq!(
             output[1]["result"]["tools"].as_array().map(Vec::len),
-            Some(15)
+            Some(16)
         );
         assert_eq!(output[1]["result"]["tools"][0]["name"], "list_packs");
+        assert!(
+            output[1]["result"]["tools"]
+                .as_array()
+                .is_some_and(|tools| tools
+                    .iter()
+                    .any(|tool| tool["name"] == "describe_instance_config"))
+        );
     }
 
     #[test]
@@ -1087,7 +1118,8 @@ mod tests {
         let mut server = StdioMcpServer::new(McpServerArgs {
             database_url: None,
             artifact_root: std::path::PathBuf::from(".continuum/artifacts"),
-        });
+        })
+        .expect("server should initialize");
         let input = concat!(
             "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{},\"clientInfo\":{\"name\":\"test-client\",\"version\":\"0.1.0\"}}}\n",
             "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\",\"params\":{}}\n"
@@ -1110,7 +1142,8 @@ mod tests {
         let mut server = StdioMcpServer::new(McpServerArgs {
             database_url: None,
             artifact_root: std::path::PathBuf::from(".continuum/artifacts"),
-        });
+        })
+        .expect("server should initialize");
         let brief = sample_brief().replace('\n', "\\n");
         let input = format!(
             concat!(

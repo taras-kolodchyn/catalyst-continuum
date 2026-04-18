@@ -85,6 +85,7 @@ ORCHESTRATOR_LOG="$ARTIFACT_ROOT/orchestrator-http.log"
 LIVENESS_FILE="$ARTIFACT_ROOT/orchestrator-livez.json"
 READINESS_FILE="$ARTIFACT_ROOT/orchestrator-readyz.json"
 HEALTH_FILE="$ARTIFACT_ROOT/orchestrator-healthz.json"
+CONFIG_FILE="$ARTIFACT_ROOT/orchestrator-config.json"
 
 "$BIN" serve \
   --bind-addr "127.0.0.1:${ORCHESTRATOR_HTTP_PORT}" \
@@ -108,8 +109,9 @@ for _ in $(seq 1 30); do
 done
 
 curl -fsS "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/healthz" >"$HEALTH_FILE"
+curl -fsS "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/config" >"$CONFIG_FILE"
 
-python3 - "$LIVENESS_FILE" "$READINESS_FILE" "$HEALTH_FILE" <<'PY'
+python3 - "$LIVENESS_FILE" "$READINESS_FILE" "$HEALTH_FILE" "$CONFIG_FILE" <<'PY'
 import json
 import pathlib
 import sys
@@ -117,6 +119,7 @@ import sys
 livez = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
 readyz = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
 healthz = json.loads(pathlib.Path(sys.argv[3]).read_text(encoding="utf-8"))
+config = json.loads(pathlib.Path(sys.argv[4]).read_text(encoding="utf-8"))
 
 assert livez["status"] == "ok", livez
 assert livez["database"] == "not_checked", livez
@@ -126,6 +129,13 @@ assert readyz["schema"] == "ready", readyz
 assert healthz["status"] == "ok", healthz
 assert healthz["database"] == "ready", healthz
 assert healthz["schema"] == "ready", healthz
+assert config["runtime_providers"]["default_provider"] == "docker", config
+statuses = {
+    status["provider"]: status
+    for status in config["runtime_provider_statuses"]
+}
+assert statuses["docker"]["registered"] is True, config
+assert isinstance(config["github_app"]["missing_fields"], list), config
 PY
 
 SUBMISSION_OUTPUT="$("$BIN" submit-brief \

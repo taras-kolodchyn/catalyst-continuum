@@ -221,6 +221,7 @@ try:
     expected_tools = {
         "list_packs",
         "describe_pack",
+        "describe_instance_config",
         "describe_artifact",
         "describe_latest_artifact",
         "validate_brief",
@@ -240,6 +241,14 @@ try:
         fail(
             "stateful MCP smoke failed: missing tools "
             f"{sorted(missing_tools)}"
+        )
+
+    instance_config = call_tool("describe_instance_config", {}, "instance_config")
+    if instance_config["runtime_providers"]["default_provider"] != "docker":
+        fail(
+            "stateful MCP smoke failed: expected describe_instance_config to report "
+            f"docker as the default runtime provider, got "
+            f"{instance_config['runtime_providers']['default_provider']}"
         )
 
     catalog = call_tool("list_packs", {}, "catalog")

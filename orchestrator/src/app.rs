@@ -1,10 +1,10 @@
 use crate::{
     cli::{Cli, Command},
     commands::{
-        create_draft_pr, describe_artifact, describe_latest_artifact, describe_pack, describe_run,
-        evaluate_run_policy, evaluate_run_quality, export_pr_candidate, list_packs, list_runs,
-        mcp_server, open_github_pr, publish_pr_export, run_next_task, serve, submit_brief,
-        validate_brief, worker,
+        create_draft_pr, describe_artifact, describe_instance_config, describe_latest_artifact,
+        describe_pack, describe_run, evaluate_run_policy, evaluate_run_quality,
+        export_pr_candidate, list_packs, list_runs, mcp_server, open_github_pr, publish_pr_export,
+        run_next_task, serve, submit_brief, validate_brief, worker,
     },
     telemetry,
 };
@@ -18,6 +18,7 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
     let result = match cli.command {
         Command::Serve(args) => serve::execute(args),
         Command::McpServer(args) => mcp_server::execute(args),
+        Command::DescribeInstanceConfig(args) => describe_instance_config::execute(args),
         Command::DescribePack(args) => describe_pack::execute(args),
         Command::DescribeArtifact(args) => describe_artifact::execute(args),
         Command::DescribeLatestArtifact(args) => describe_latest_artifact::execute(args),

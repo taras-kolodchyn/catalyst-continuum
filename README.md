@@ -67,6 +67,7 @@ catalyst-continuum-orchestrator create-draft-pr \
 Available repository packs can be discovered through the CLI or HTTP API:
 
 ```bash
+catalyst-continuum-orchestrator describe-instance-config --json
 catalyst-continuum-orchestrator list-packs --json
 catalyst-continuum-orchestrator describe-pack --pack-id container-service --json
 catalyst-continuum-orchestrator describe-artifact --database-url "$CATALYST_DATABASE_URL" --artifact-id "<ARTIFACT_ID>" --json
@@ -77,6 +78,7 @@ catalyst-continuum-orchestrator validate-brief --file examples/briefs/minimal-cl
 curl http://127.0.0.1:8080/livez
 curl http://127.0.0.1:8080/healthz
 curl http://127.0.0.1:8080/readyz
+curl http://127.0.0.1:8080/config
 curl http://127.0.0.1:8080/packs
 curl http://127.0.0.1:8080/packs/container-service
 curl http://127.0.0.1:8080/artifacts/<ARTIFACT_ID>
@@ -95,6 +97,7 @@ curl http://127.0.0.1:8080/runs/<RUN_ID>/artifacts/latest/quality_report
 ```
 
 The current HTTP surface is intentionally narrow. Agent-oriented orchestration actions should move toward MCP rather than being duplicated indefinitely as new REST endpoints.
+`describe-instance-config`, `GET /config`, and the MCP `describe_instance_config` tool give operators and agents a shared introspection path for the active runtime-provider selection and GitHub App readiness without exposing secret values.
 
 `list-packs` and `describe-pack` now expose pack-level `policy_profile` and
 `quality_profile` contracts so open-source agents can inspect timeout/retry
@@ -123,6 +126,7 @@ catalyst-continuum-orchestrator mcp-server \
 ```
 
 It currently exposes the first agent-facing tool set over MCP: pack inspection, artifact inspection, latest-artifact lookup by type, brief validation and submission, run inspection, task execution, policy evaluation, automated quality evaluation, PR export/publication, and GitHub PR opening.
+That MCP surface now also includes `describe_instance_config` so an agent can inspect runtime-provider enablement and GitHub App readiness before it decides whether remote publication is even possible in the current instance.
 Use [examples/mcp/stdio-server.example.json](examples/mcp/stdio-server.example.json) as a neutral client config starting point, `./scripts/mcp-smoke.sh` for the stateless handshake/tool-discovery path, and `./scripts/mcp-stateful-smoke.sh` for the safe stateful run path.
 If OpenHands is the target client, prefer [examples/mcp/openhands.mcp.json](examples/mcp/openhands.mcp.json) and the registration flow documented in [docs/mcp/openhands.md](docs/mcp/openhands.md).
 For local OpenHands CLI registration, use `./scripts/openhands-register-mcp.sh`.
@@ -137,7 +141,7 @@ GitHub Actions runs one workflow, [`.github/workflows/ci.yml`](.github/workflows
 - `sbom`: builds the orchestrator image, generates an SPDX SBOM, uploads the SBOM artifact, and creates a GitHub/Sigstore provenance attestation for that uploaded artifact
 - `rust`: runs `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo build --workspace --locked`, and `cargo test --workspace --locked`
 - `compose`: validates `deploy/compose/compose.yaml` with the pinned `.env.example`
-- `smoke`: exercises the bootstrap flow end to end for both the `container-service` and `cli-tool` packs, then validates the safe stateful MCP path: `serve -> livez/readyz -> submit-brief -> GET /runs/{run_id} -> evaluate-run-policy -> GET /artifacts/{policy_artifact_id} -> worker -> evaluate-run-quality -> describe-artifact(quality_report) -> export-pr-candidate -> publish-pr-export`, followed by `MCP initialize -> submit_brief -> list_runs -> describe_run -> run_worker_once -> evaluate_run_policy -> evaluate_run_quality -> describe_artifact`
+- `smoke`: exercises the bootstrap flow end to end for both the `container-service` and `cli-tool` packs, including `GET /config` on the HTTP scaffold, then validates the safe stateful MCP path with `describe_instance_config`, `submit_brief`, `list_runs`, `describe_run`, `run_worker_once`, `evaluate_run_policy`, `evaluate_run_quality`, and `describe_artifact`
 
 Local runs through `act` use the runner image and container architecture pinned in [`.actrc`](.actrc), with the canonical values tracked in [`versions.env`](versions.env). GitHub-only publication steps such as artifact upload and attestation are skipped under `act`, because local runs do not expose GitHub runtime tokens, OIDC tokens, or the attestations API. The underlying build and SBOM generation steps still run locally.
 Pinned version policy and update automation are documented in [VERSIONS.md](VERSIONS.md).
@@ -156,7 +160,7 @@ The core checks can be run directly without GitHub Actions:
 ./scripts/mcp-stateful-smoke.sh
 ```
 
-`./scripts/smoke-mvp.sh` still runs a single end-to-end smoke pass, now including orchestrator HTTP liveness/readiness probes plus policy/quality artifact inspection and the automated run quality gate, and accepts `SMOKE_BRIEF_FILE` to target a specific brief, for example `examples/briefs/minimal-container-service.yaml` or `examples/briefs/minimal-cli-tool.yaml`. `./scripts/mcp-stateful-smoke.sh` complements it by validating the agent-facing MCP stateful path without publishing or opening a GitHub PR.
+`./scripts/smoke-mvp.sh` still runs a single end-to-end smoke pass, now including orchestrator HTTP liveness/readiness probes, `GET /config`, policy/quality artifact inspection, and the automated run quality gate, and accepts `SMOKE_BRIEF_FILE` to target a specific brief, for example `examples/briefs/minimal-container-service.yaml` or `examples/briefs/minimal-cli-tool.yaml`. `./scripts/mcp-stateful-smoke.sh` complements it by validating the agent-facing MCP stateful path, including `describe_instance_config`, without publishing or opening a GitHub PR.
 
 To reproduce the workflow structure locally through `act`:
 

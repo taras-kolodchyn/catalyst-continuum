@@ -25,3 +25,5 @@ deploy/compose/.env
 
 # Local Catalyst Continuum generated artifacts
 .continuum/
+orchestrator/.tmp/
+orchestrator/.tmp-artifacts/

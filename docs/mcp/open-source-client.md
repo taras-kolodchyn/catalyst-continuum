@@ -29,6 +29,7 @@ The MCP server supports two tool classes.
 
 Stateless tools do not require Postgres:
 
+- `describe_instance_config`
 - `list_packs`
 - `describe_pack`
 - `validate_brief`
@@ -108,7 +109,8 @@ The stateful companion script verifies:
 - `evaluate_run_quality`
 - `describe_artifact` for the persisted policy and quality reports
 
-For stateful sessions, `describe_artifact` is the generic inspection tool for persisted manifests and artifact metadata, `describe_latest_artifact` is the quickest way to resolve the newest `policy_report`, `quality_report`, or publication artifact for a run, `evaluate_run_policy` is the policy visibility checkpoint, and `evaluate_run_quality` is the remote-promotion quality checkpoint. Agent clients can call all four explicitly for inspection, while `publish_pr_export` and `open_github_pr` still enforce the quality gate automatically.
+For stateless sessions, `describe_instance_config` is the first introspection tool an agent should call when it needs to confirm which runtime providers are enabled and whether the local instance is actually ready for GitHub App based publication.
+For stateful sessions, `describe_artifact` is the generic inspection tool for persisted manifests and artifact metadata, `describe_latest_artifact` is the quickest way to resolve the newest `policy_report`, `quality_report`, or publication artifact for a run, `evaluate_run_policy` is the policy visibility checkpoint, and `evaluate_run_quality` is the remote-promotion quality checkpoint. Agent clients can call all of them explicitly for inspection, while `publish_pr_export` and `open_github_pr` still enforce the quality gate automatically.
 
 ## Notes
 

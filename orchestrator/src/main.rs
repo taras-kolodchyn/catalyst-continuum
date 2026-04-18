@@ -1,6 +1,7 @@
 mod app;
 mod cli;
 mod commands;
+mod config;
 mod models;
 mod planning;
 mod runtime;

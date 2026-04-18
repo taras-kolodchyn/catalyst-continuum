@@ -11,6 +11,7 @@ use crate::{
         evaluate_run_quality, export_pr_candidate, publish_pr_export, run_next_task,
         submit_brief::submit_validated_brief, worker,
     },
+    config::InstanceConfigReport,
     planning::{
         brief_validation::validate_brief_document, pack_catalog::build_pack_catalog,
         packs::PackDefinition, pr_candidate,
@@ -25,7 +26,9 @@ const DEFAULT_RUN_LIST_LIMIT: usize = 20;
 pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
     let mut store = PostgresRunStore::connect(&args.database_url)?;
     store.ensure_schema()?;
-    let runtime_registry = RuntimeRegistry::default();
+    let instance_config = InstanceConfigReport::load(None)?;
+    let runtime_registry =
+        RuntimeRegistry::from_runtime_providers_config(&instance_config.runtime_providers);
 
     let server = Server::http(&args.bind_addr).map_err(|error| {
         anyhow::anyhow!(
@@ -60,6 +63,7 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                         "/livez",
                         "/healthz",
                         "/readyz",
+                        "/config",
                         "/packs",
                         "/packs/{pack_id}",
                         "/artifacts/{artifact_id}",
@@ -99,6 +103,7 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                     },
                 ),
             },
+            ("GET", "/config") => json_response(StatusCode(200), &instance_config),
             ("GET", _) if single_path_segment(path, "/artifacts/").is_some() => {
                 let artifact_id = single_path_segment(path, "/artifacts/")
                     .expect("artifact path guard should provide a single path segment");
@@ -882,6 +887,7 @@ fn route_label(method: &str, path: &str) -> &'static str {
         ("GET", "/livez") => "/livez",
         ("GET", "/healthz") => "/healthz",
         ("GET", "/readyz") => "/readyz",
+        ("GET", "/config") => "/config",
         ("GET", "/packs") => "/packs",
         ("GET", _) if single_path_segment(path, "/artifacts/").is_some() => {
             "/artifacts/{artifact_id}"
@@ -1073,6 +1079,7 @@ mod tests {
         assert_eq!(route_label("GET", "/livez"), "/livez");
         assert_eq!(route_label("GET", "/healthz"), "/healthz");
         assert_eq!(route_label("GET", "/readyz"), "/readyz");
+        assert_eq!(route_label("GET", "/config"), "/config");
     }
 
     #[test]

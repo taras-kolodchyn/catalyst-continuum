@@ -6,6 +6,7 @@ use std::{collections::HashMap, path::Path};
 
 use crate::{
     cli::RunNextTaskArgs,
+    config::InstanceConfigReport,
     models::{
         artifact::ArtifactSummary,
         run::RunContext,
@@ -23,7 +24,9 @@ const TASK_RECLAIM_GRACE_SECONDS: u64 = 30;
 pub fn execute(args: RunNextTaskArgs) -> anyhow::Result<()> {
     let mut store = PostgresRunStore::connect(&args.database_url)?;
     store.ensure_schema()?;
-    let runtime_registry = RuntimeRegistry::default();
+    let instance_config = InstanceConfigReport::load(None)?;
+    let runtime_registry =
+        RuntimeRegistry::from_runtime_providers_config(&instance_config.runtime_providers);
 
     let outcome = execute_next_task(
         &mut store,

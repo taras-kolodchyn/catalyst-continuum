@@ -17,6 +17,7 @@ pub struct Cli {
 pub enum Command {
     Serve(ServeArgs),
     McpServer(McpServerArgs),
+    DescribeInstanceConfig(DescribeInstanceConfigArgs),
     DescribePack(DescribePackArgs),
     DescribeArtifact(DescribeArtifactArgs),
     DescribeLatestArtifact(DescribeLatestArtifactArgs),
@@ -40,6 +41,7 @@ impl Command {
         match self {
             Self::Serve(_) => "serve",
             Self::McpServer(_) => "mcp-server",
+            Self::DescribeInstanceConfig(_) => "describe-instance-config",
             Self::DescribePack(_) => "describe-pack",
             Self::DescribeArtifact(_) => "describe-artifact",
             Self::DescribeLatestArtifact(_) => "describe-latest-artifact",
@@ -87,6 +89,15 @@ pub struct McpServerArgs {
         default_value = ".continuum/artifacts"
     )]
     pub artifact_root: PathBuf,
+}
+
+#[derive(Debug, Args)]
+pub struct DescribeInstanceConfigArgs {
+    #[arg(long, env = "CATALYST_RUNTIME_PROVIDERS_FILE")]
+    pub runtime_providers_file: Option<PathBuf>,
+
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Debug, Args)]

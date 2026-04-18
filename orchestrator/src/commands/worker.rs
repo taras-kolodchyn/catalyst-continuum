@@ -6,6 +6,7 @@ use serde::Serialize;
 use crate::{
     cli::WorkerArgs,
     commands::run_next_task::{self, NextTaskExecution},
+    config::InstanceConfigReport,
     runtime::RuntimeRegistry,
     storage::postgres::PostgresRunStore,
     telemetry,
@@ -14,7 +15,9 @@ use crate::{
 pub fn execute(args: WorkerArgs) -> anyhow::Result<()> {
     let mut store = PostgresRunStore::connect(&args.database_url)?;
     store.ensure_schema()?;
-    let runtime_registry = RuntimeRegistry::default();
+    let instance_config = InstanceConfigReport::load(None)?;
+    let runtime_registry =
+        RuntimeRegistry::from_runtime_providers_config(&instance_config.runtime_providers);
     let report = run_worker(
         &mut store,
         &runtime_registry,
