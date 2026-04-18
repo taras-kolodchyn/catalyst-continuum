@@ -5,7 +5,7 @@ use std::path::Path;
 use crate::commands::evaluate_run_quality;
 use crate::{
     cli::PublishPrExportArgs,
-    models::artifact::ArtifactSummary,
+    models::{artifact::ArtifactSummary, run_event::RunEventDraft},
     planning::{pr_export, pr_publication, quality_gate},
     storage::postgres::PostgresRunStore,
     telemetry,
@@ -172,6 +172,22 @@ pub(crate) fn publish_pr_export(
                 artifact.artifact_id
             )
         })?;
+    let _ = store.insert_run_event(&RunEventDraft::for_run(
+        run_id,
+        "pr_export_published",
+        Some(push_status.clone()),
+        format!("PR export {push_status} for branch {head_branch}"),
+        serde_json::json!({
+            "source_quality_report_artifact_id": source_quality_report_artifact_id,
+            "source_pr_candidate_artifact_id": expected_pr_candidate_id,
+            "source_pr_export_artifact_id": pr_export.artifact_id,
+            "head_branch": head_branch.clone(),
+            "base_branch": base_branch.clone(),
+            "remote_url": remote_url.clone(),
+            "push_status": push_status.clone(),
+            "artifact_id": artifact.artifact_id,
+        }),
+    ))?;
 
     Ok(PublishPrExportReport {
         run_id,

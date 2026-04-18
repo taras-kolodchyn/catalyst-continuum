@@ -766,6 +766,23 @@ printf '%s\n' "$PUBLICATION_OUTPUT" | grep -q '^push_status: pushed$'
 
 BRANCH_NAME="$(printf '%s\n' "$PUBLICATION_OUTPUT" | awk '/^head_branch:/ {print $2; exit}')"
 test -n "$BRANCH_NAME"
+RUN_EVENTS_PROMOTION_HTTP_FILE="$ARTIFACT_ROOT/http-run-events-promotion.json"
+curl -fsS "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/runs/${RUN_ID}/events?limit=80" \
+  >"$RUN_EVENTS_PROMOTION_HTTP_FILE"
+python3 - "$RUN_EVENTS_PROMOTION_HTTP_FILE" <<'PY'
+import json
+import pathlib
+import sys
+
+events = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+event_types = {event["event_type"] for event in events["events"]}
+
+required_event_types = {
+    "pr_candidate_exported",
+    "pr_export_published",
+}
+assert required_event_types.issubset(event_types), (required_event_types, event_types)
+PY
 
 GENERATED_REPO="$EXPORT_ROOT/repository"
 SERVICE_TARGET_DIR="$REMOTE_ROOT/generated-target"

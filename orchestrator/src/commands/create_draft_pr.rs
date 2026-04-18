@@ -5,7 +5,7 @@ use std::path::Path;
 use crate::{
     cli::CreateDraftPrArgs,
     commands::evaluate_run_quality,
-    models::artifact::ArtifactSummary,
+    models::{artifact::ArtifactSummary, run_event::RunEventDraft},
     planning::{github_pr, pr_candidate, pr_export, pr_publication},
     storage::postgres::PostgresRunStore,
     telemetry,
@@ -133,6 +133,30 @@ pub(crate) fn create_draft_pr(
                 exported_artifact.artifact_id
             )
         })?;
+    let _ = store.insert_run_event(&RunEventDraft::for_run(
+        run_id,
+        "pr_candidate_exported",
+        Some("exported".to_string()),
+        format!("PR candidate exported to branch {branch_name}"),
+        serde_json::json!({
+            "source_quality_report_artifact_id": source_quality_report_artifact_id,
+            "source_pr_candidate_artifact_id": pr_candidate.artifact_id,
+            "branch_name": branch_name.clone(),
+            "commit_sha": commit_sha.clone(),
+            "artifact_id": exported_artifact.artifact_id,
+        }),
+    ))?;
+    let base_branch = published_artifact
+        .metadata
+        .get("base_branch")
+        .and_then(|value| value.as_str())
+        .map(str::to_string)
+        .with_context(|| {
+            format!(
+                "published artifact {} is missing metadata.base_branch",
+                published_artifact.artifact_id
+            )
+        })?;
     let remote_url = published_artifact
         .metadata
         .get("remote_url")
@@ -144,6 +168,33 @@ pub(crate) fn create_draft_pr(
                 published_artifact.artifact_id
             )
         })?;
+    let push_status = published_artifact
+        .metadata
+        .get("push_status")
+        .and_then(|value| value.as_str())
+        .map(str::to_string)
+        .with_context(|| {
+            format!(
+                "published artifact {} is missing metadata.push_status",
+                published_artifact.artifact_id
+            )
+        })?;
+    let _ = store.insert_run_event(&RunEventDraft::for_run(
+        run_id,
+        "pr_export_published",
+        Some(push_status.clone()),
+        format!("PR export {push_status} for branch {branch_name}"),
+        serde_json::json!({
+            "source_quality_report_artifact_id": source_quality_report_artifact_id,
+            "source_pr_candidate_artifact_id": pr_candidate.artifact_id,
+            "source_pr_export_artifact_id": exported_artifact.artifact_id,
+            "head_branch": branch_name.clone(),
+            "base_branch": base_branch.clone(),
+            "remote_url": remote_url.clone(),
+            "push_status": push_status.clone(),
+            "artifact_id": published_artifact.artifact_id,
+        }),
+    ))?;
     let pr_url = github_pr_artifact
         .metadata
         .get("pr_url")
@@ -176,6 +227,21 @@ pub(crate) fn create_draft_pr(
                 github_pr_artifact.artifact_id
             )
         })?;
+    let _ = store.insert_run_event(&RunEventDraft::for_run(
+        run_id,
+        "github_pr_opened",
+        Some(resolution.clone()),
+        format!("GitHub pull request {resolution}: #{pr_number}"),
+        serde_json::json!({
+            "source_quality_report_artifact_id": source_quality_report_artifact_id,
+            "source_pr_publication_artifact_id": published_artifact.artifact_id,
+            "source_pr_candidate_artifact_id": pr_candidate.artifact_id,
+            "resolution": resolution.clone(),
+            "pr_number": pr_number,
+            "pr_url": pr_url.clone(),
+            "artifact_id": github_pr_artifact.artifact_id,
+        }),
+    ))?;
 
     let report = CreateDraftPrReport {
         run_id,

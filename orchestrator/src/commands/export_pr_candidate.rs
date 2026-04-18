@@ -5,7 +5,7 @@ use std::path::Path;
 use crate::{
     cli::ExportPrCandidateArgs,
     commands::evaluate_run_quality,
-    models::artifact::ArtifactSummary,
+    models::{artifact::ArtifactSummary, run_event::RunEventDraft},
     planning::{pr_candidate, pr_export},
     storage::postgres::PostgresRunStore,
     telemetry,
@@ -135,6 +135,19 @@ pub(crate) fn export_pr_candidate(
                 artifact.artifact_id
             )
         })?;
+    let _ = store.insert_run_event(&RunEventDraft::for_run(
+        run_id,
+        "pr_candidate_exported",
+        Some("exported".to_string()),
+        format!("PR candidate exported to branch {branch_name}"),
+        serde_json::json!({
+            "source_quality_report_artifact_id": source_quality_report_artifact_id,
+            "source_pr_candidate_artifact_id": pr_candidate.artifact_id,
+            "branch_name": branch_name.clone(),
+            "commit_sha": commit_sha.clone(),
+            "artifact_id": artifact.artifact_id,
+        }),
+    ))?;
 
     Ok(ExportPrCandidateReport {
         run_id,

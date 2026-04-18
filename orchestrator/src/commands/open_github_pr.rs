@@ -4,7 +4,7 @@ use serde::Serialize;
 use crate::commands::evaluate_run_quality;
 use crate::{
     cli::OpenGithubPrArgs,
-    models::artifact::ArtifactSummary,
+    models::{artifact::ArtifactSummary, run_event::RunEventDraft},
     planning::{github_pr, pr_publication, quality_gate},
     storage::postgres::PostgresRunStore,
     telemetry,
@@ -105,6 +105,21 @@ pub(crate) fn open_github_pr(
                 artifact.artifact_id
             )
         })?;
+    let _ = store.insert_run_event(&RunEventDraft::for_run(
+        run_id,
+        "github_pr_opened",
+        Some(resolution.clone()),
+        format!("GitHub pull request {resolution}: #{pr_number}"),
+        serde_json::json!({
+            "source_quality_report_artifact_id": source_quality_report_artifact_id,
+            "source_pr_publication_artifact_id": pr_publication.artifact_id,
+            "source_pr_candidate_artifact_id": expected_pr_candidate_id,
+            "resolution": resolution.clone(),
+            "pr_number": pr_number,
+            "pr_url": pr_url.clone(),
+            "artifact_id": artifact.artifact_id,
+        }),
+    ))?;
 
     Ok(OpenGithubPrReport {
         run_id,
