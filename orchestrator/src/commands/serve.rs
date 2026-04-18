@@ -15,6 +15,7 @@ use crate::{
     config::{InstanceConfigReport, load_github_app_webhook_secret},
     github_webhook_routing::evaluate_github_webhook_route,
     github_webhooks::{GitHubWebhookErrorKind, GitHubWebhookHeaders, ingest_github_webhook},
+    models::repository_signal::{RepositorySignalListFilters, RepositorySignalSummary},
     models::webhook::{
         GitHubWebhookActionRequestDraft, GitHubWebhookActionRequestListFilters,
         GitHubWebhookActionRequestSummary, GitHubWebhookDeliveryDraft,
@@ -32,6 +33,7 @@ use crate::{
 const DEFAULT_RUN_LIST_LIMIT: usize = 20;
 const DEFAULT_WEBHOOK_LIST_LIMIT: usize = 20;
 const DEFAULT_WEBHOOK_ACTION_REQUEST_LIST_LIMIT: usize = 20;
+const DEFAULT_REPOSITORY_SIGNAL_LIST_LIMIT: usize = 20;
 
 pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
     let mut store = PostgresRunStore::connect(&args.database_url)?;
@@ -79,6 +81,8 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                         "/github/webhooks/{delivery_id}",
                         "/github/webhook-actions",
                         "/github/webhook-actions/{request_id}",
+                        "/repository-signals",
+                        "/repository-signals/{signal_id}",
                         "POST /github/webhooks",
                         "POST /github/webhook-actions/next",
                         "/packs",
@@ -176,6 +180,31 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                     ),
                 }
             }
+            ("GET", "/repository-signals") => match parse_list_repository_signals_request(query) {
+                Ok(list_request) => {
+                    match store.list_repository_signals(list_request.limit, &list_request.filters) {
+                        Ok(signals) => json_response(
+                            StatusCode(200),
+                            &RecentRepositorySignalsResponse {
+                                count: signals.len(),
+                                signals,
+                            },
+                        ),
+                        Err(error) => json_response(
+                            StatusCode(500),
+                            &ErrorResponse {
+                                error: format!("failed to list repository signals: {error}"),
+                            },
+                        ),
+                    }
+                }
+                Err(error) => json_response(
+                    StatusCode(400),
+                    &ErrorResponse {
+                        error: error.to_string(),
+                    },
+                ),
+            },
             ("POST", "/github/webhook-actions/next") => {
                 match read_optional_json_body::<RunNextGithubWebhookActionRequest>(&mut request) {
                     Ok(run_request) => {
@@ -360,6 +389,27 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                         &ErrorResponse {
                             error: format!(
                                 "failed to fetch github webhook action request {request_id}: {error}"
+                            ),
+                        },
+                    ),
+                }
+            }
+            ("GET", _) if single_path_segment(path, "/repository-signals/").is_some() => {
+                let signal_id = single_path_segment(path, "/repository-signals/")
+                    .expect("repository signal path guard should provide a single path segment");
+                match store.fetch_repository_signal(signal_id) {
+                    Ok(Some(signal)) => json_response(StatusCode(200), &signal),
+                    Ok(None) => json_response(
+                        StatusCode(404),
+                        &ErrorResponse {
+                            error: format!("repository signal not found: {signal_id}"),
+                        },
+                    ),
+                    Err(error) => json_response(
+                        StatusCode(500),
+                        &ErrorResponse {
+                            error: format!(
+                                "failed to fetch repository signal {signal_id}: {error}"
                             ),
                         },
                     ),
@@ -1172,6 +1222,30 @@ fn parse_list_github_webhook_action_requests_request(
     Ok(ListGithubWebhookActionRequestsRequest { limit, filters })
 }
 
+fn parse_list_repository_signals_request(
+    query: Option<&str>,
+) -> anyhow::Result<ListRepositorySignalsRequest> {
+    let query_pairs = parse_query_pairs(query);
+    let limit = match query_pairs.get("limit") {
+        Some(value) if !value.trim().is_empty() => {
+            value.trim().parse::<usize>().map_err(|error| {
+                anyhow::anyhow!(
+                    "invalid repository_signals.limit `{}`: {error}",
+                    value.trim()
+                )
+            })?
+        }
+        _ => DEFAULT_REPOSITORY_SIGNAL_LIST_LIMIT,
+    };
+    let filters = RepositorySignalListFilters::from_inputs(
+        query_pairs.get("status").map(String::as_str),
+        query_pairs.get("signal_kind").map(String::as_str),
+        query_pairs.get("repository_full_name").map(String::as_str),
+    );
+
+    Ok(ListRepositorySignalsRequest { limit, filters })
+}
+
 fn parse_query_pairs(query: Option<&str>) -> HashMap<String, String> {
     let mut pairs = HashMap::new();
 
@@ -1245,6 +1319,7 @@ fn route_label(method: &str, path: &str) -> &'static str {
         ("GET", "/config") => "/config",
         ("GET", "/github/webhooks") => "/github/webhooks",
         ("GET", "/github/webhook-actions") => "/github/webhook-actions",
+        ("GET", "/repository-signals") => "/repository-signals",
         ("POST", "/github/webhooks") => "/github/webhooks",
         ("POST", "/github/webhook-actions/next") => "/github/webhook-actions/next",
         ("GET", _) if single_path_segment(path, "/github/webhooks/").is_some() => {
@@ -1252,6 +1327,9 @@ fn route_label(method: &str, path: &str) -> &'static str {
         }
         ("GET", _) if single_path_segment(path, "/github/webhook-actions/").is_some() => {
             "/github/webhook-actions/{request_id}"
+        }
+        ("GET", _) if single_path_segment(path, "/repository-signals/").is_some() => {
+            "/repository-signals/{signal_id}"
         }
         ("GET", "/packs") => "/packs",
         ("GET", _) if single_path_segment(path, "/artifacts/").is_some() => {
@@ -1369,6 +1447,12 @@ struct ListGithubWebhookActionRequestsRequest {
     filters: GitHubWebhookActionRequestListFilters,
 }
 
+#[derive(Debug)]
+struct ListRepositorySignalsRequest {
+    limit: usize,
+    filters: RepositorySignalListFilters,
+}
+
 #[derive(Debug, Serialize)]
 struct RecentGithubWebhookDeliveriesResponse {
     count: usize,
@@ -1379,6 +1463,12 @@ struct RecentGithubWebhookDeliveriesResponse {
 struct RecentGithubWebhookActionRequestsResponse {
     count: usize,
     requests: Vec<GitHubWebhookActionRequestSummary>,
+}
+
+#[derive(Debug, Serialize)]
+struct RecentRepositorySignalsResponse {
+    count: usize,
+    signals: Vec<RepositorySignalSummary>,
 }
 
 #[derive(Debug)]
@@ -1417,8 +1507,8 @@ struct PublishPrExportRequest {
 mod tests {
     use super::{
         latest_artifact_path_parts, parse_list_github_webhook_action_requests_request,
-        parse_list_github_webhooks_request, parse_list_runs_request, readiness_payload,
-        route_label,
+        parse_list_github_webhooks_request, parse_list_repository_signals_request,
+        parse_list_runs_request, readiness_payload, route_label,
     };
     use crate::storage::postgres::DatabaseReadiness;
     use anyhow::anyhow;
@@ -1482,6 +1572,10 @@ mod tests {
             route_label("GET", "/github/webhook-actions"),
             "/github/webhook-actions"
         );
+        assert_eq!(
+            route_label("GET", "/repository-signals"),
+            "/repository-signals"
+        );
         assert_eq!(route_label("POST", "/github/webhooks"), "/github/webhooks");
         assert_eq!(
             route_label("POST", "/github/webhook-actions/next"),
@@ -1494,6 +1588,10 @@ mod tests {
         assert_eq!(
             route_label("GET", "/github/webhook-actions/request-1"),
             "/github/webhook-actions/{request_id}"
+        );
+        assert_eq!(
+            route_label("GET", "/repository-signals/signal-1"),
+            "/repository-signals/{signal_id}"
         );
     }
 
@@ -1540,6 +1638,25 @@ mod tests {
         assert_eq!(
             request.filters.action.as_deref(),
             Some("sync_default_branch")
+        );
+    }
+
+    #[test]
+    fn parses_list_repository_signals_query_filters() {
+        let request = parse_list_repository_signals_request(Some(
+            "limit=5&status=pending&signal_kind=default_branch_updated&repository_full_name=smartit/catalyst-continuum",
+        ))
+        .expect("query should parse");
+
+        assert_eq!(request.limit, 5);
+        assert_eq!(request.filters.status.as_deref(), Some("pending"));
+        assert_eq!(
+            request.filters.signal_kind.as_deref(),
+            Some("default_branch_updated")
+        );
+        assert_eq!(
+            request.filters.repository_full_name.as_deref(),
+            Some("smartit/catalyst-continuum")
         );
     }
 }

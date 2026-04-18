@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, ensure};
 use postgres::{Client, NoTls};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -6,6 +6,9 @@ use uuid::Uuid;
 
 use crate::models::{
     artifact::{ArtifactDraft, ArtifactRecord, ArtifactSummary},
+    repository_signal::{
+        RepositorySignalDraft, RepositorySignalListFilters, RepositorySignalSummary,
+    },
     run::{RunContext, RunDetail, RunDraft, RunSummary, RunTaskCounts, SubmissionRecord},
     task::{TaskDraft, TaskExecutionSpec, TaskSummary},
     webhook::{
@@ -69,7 +72,8 @@ impl PostgresRunStore {
                     to_regclass('public.artifacts') IS NOT NULL AS has_artifacts,
                     to_regclass('public.tasks') IS NOT NULL AS has_tasks,
                     to_regclass('public.webhook_deliveries') IS NOT NULL AS has_webhook_deliveries,
-                    to_regclass('public.webhook_action_requests') IS NOT NULL AS has_webhook_action_requests",
+                    to_regclass('public.webhook_action_requests') IS NOT NULL AS has_webhook_action_requests,
+                    to_regclass('public.repository_signals') IS NOT NULL AS has_repository_signals",
                 &[],
             )
             .context("failed to probe postgres readiness")?;
@@ -95,6 +99,10 @@ impl PostgresRunStore {
 
         if !row.get::<_, bool>("has_webhook_action_requests") {
             missing_tables.push("webhook_action_requests".to_string());
+        }
+
+        if !row.get::<_, bool>("has_repository_signals") {
+            missing_tables.push("repository_signals".to_string());
         }
 
         Ok(DatabaseReadiness {
@@ -1267,59 +1275,6 @@ impl PostgresRunStore {
             .map(row_to_github_webhook_action_request_summary))
     }
 
-    pub fn mark_github_webhook_action_request_succeeded(
-        &mut self,
-        request_id: &str,
-        report_path: &str,
-    ) -> Result<GitHubWebhookActionRequestSummary> {
-        let row = self
-            .client
-            .query_opt(
-                &format!(
-                    "UPDATE webhook_action_requests
-                    SET status = 'succeeded',
-                        report_path = $2,
-                        failure_message = NULL,
-                        completed_at = NOW(),
-                        updated_at = NOW()
-                    WHERE request_id = $1
-                      AND status = 'running'
-                    RETURNING
-                        request_id,
-                        provider,
-                        delivery_id,
-                        action,
-                        status,
-                        repository_full_name,
-                        repository_default_branch,
-                        installation_id,
-                        ref_name,
-                        before_sha,
-                        after_sha,
-                        requested_reason,
-                        attempt_count,
-                        report_path,
-                        failure_message,
-                        to_char(started_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS started_at,
-                        to_char(completed_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS completed_at,
-                        to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
-                        to_char(updated_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS updated_at"
-                ),
-                &[&request_id, &report_path],
-            )
-            .with_context(|| {
-                format!("failed to mark github webhook action request succeeded: {request_id}")
-            })?;
-
-        row.as_ref()
-            .map(row_to_github_webhook_action_request_summary)
-            .with_context(|| {
-                format!(
-                    "github webhook action request is not running or does not exist: {request_id}"
-                )
-            })
-    }
-
     pub fn mark_github_webhook_action_request_failed(
         &mut self,
         request_id: &str,
@@ -1424,6 +1379,471 @@ impl PostgresRunStore {
                     "github webhook action request is not running or does not exist: {request_id}"
                 )
             })
+    }
+
+    pub fn complete_github_webhook_action_request_with_signal(
+        &mut self,
+        request_id: &str,
+        report_path: &str,
+        signal: &RepositorySignalDraft,
+    ) -> Result<(GitHubWebhookActionRequestSummary, RepositorySignalSummary)> {
+        ensure!(
+            signal.source_request_id == request_id,
+            "repository signal source_request_id does not match completed request"
+        );
+
+        let mut transaction = self
+            .client
+            .transaction()
+            .context("failed to start postgres transaction")?;
+
+        let request_row = transaction
+            .query_opt(
+                &format!(
+                    "UPDATE webhook_action_requests
+                    SET status = 'succeeded',
+                        report_path = $2,
+                        failure_message = NULL,
+                        completed_at = NOW(),
+                        updated_at = NOW()
+                    WHERE request_id = $1
+                      AND status = 'running'
+                    RETURNING
+                        request_id,
+                        provider,
+                        delivery_id,
+                        action,
+                        status,
+                        repository_full_name,
+                        repository_default_branch,
+                        installation_id,
+                        ref_name,
+                        before_sha,
+                        after_sha,
+                        requested_reason,
+                        attempt_count,
+                        report_path,
+                        failure_message,
+                        to_char(started_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS started_at,
+                        to_char(completed_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS completed_at,
+                        to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
+                        to_char(updated_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS updated_at"
+                ),
+                &[&request_id, &report_path],
+            )
+            .with_context(|| {
+                format!("failed to mark github webhook action request succeeded: {request_id}")
+            })?;
+
+        let request = request_row
+            .as_ref()
+            .map(row_to_github_webhook_action_request_summary)
+            .with_context(|| {
+                format!(
+                    "github webhook action request is not running or does not exist: {request_id}"
+                )
+            })?;
+
+        let signal_row = transaction
+            .query_one(
+                &format!(
+                    "INSERT INTO repository_signals (
+                        signal_id,
+                        provider,
+                        repository_full_name,
+                        signal_kind,
+                        status,
+                        proposed_run_trigger,
+                        source_action,
+                        source_delivery_id,
+                        source_request_id,
+                        repository_default_branch,
+                        installation_id,
+                        ref_name,
+                        before_sha,
+                        after_sha,
+                        payload_path,
+                        payload_digest,
+                        message
+                    ) VALUES (
+                        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+                        $11, $12, $13, $14, $15, $16, $17
+                    )
+                    ON CONFLICT (signal_id) DO UPDATE SET
+                        status = EXCLUDED.status,
+                        proposed_run_trigger = EXCLUDED.proposed_run_trigger,
+                        repository_default_branch = EXCLUDED.repository_default_branch,
+                        installation_id = EXCLUDED.installation_id,
+                        ref_name = EXCLUDED.ref_name,
+                        before_sha = EXCLUDED.before_sha,
+                        after_sha = EXCLUDED.after_sha,
+                        payload_path = EXCLUDED.payload_path,
+                        payload_digest = EXCLUDED.payload_digest,
+                        message = EXCLUDED.message,
+                        updated_at = NOW()
+                    RETURNING
+                        signal_id,
+                        provider,
+                        repository_full_name,
+                        signal_kind,
+                        status,
+                        proposed_run_trigger,
+                        source_action,
+                        source_delivery_id,
+                        source_request_id,
+                        repository_default_branch,
+                        installation_id,
+                        ref_name,
+                        before_sha,
+                        after_sha,
+                        payload_path,
+                        payload_digest,
+                        message,
+                        to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
+                        to_char(updated_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS updated_at"
+                ),
+                &[
+                    &signal.signal_id,
+                    &signal.provider,
+                    &signal.repository_full_name,
+                    &signal.signal_kind,
+                    &signal.status,
+                    &signal.proposed_run_trigger,
+                    &signal.source_action,
+                    &signal.source_delivery_id,
+                    &signal.source_request_id,
+                    &signal.repository_default_branch,
+                    &signal.installation_id,
+                    &signal.ref_name,
+                    &signal.before_sha,
+                    &signal.after_sha,
+                    &signal.payload_path,
+                    &signal.payload_digest,
+                    &signal.message,
+                ],
+            )
+            .context("failed to upsert repository signal")?;
+
+        transaction
+            .commit()
+            .context("failed to commit github webhook action completion transaction")?;
+
+        Ok((request, row_to_repository_signal_summary(&signal_row)))
+    }
+
+    pub fn fetch_repository_signal(
+        &mut self,
+        signal_id: &str,
+    ) -> Result<Option<RepositorySignalSummary>> {
+        let row = self
+            .client
+            .query_opt(
+                &format!(
+                    "SELECT
+                        signal_id,
+                        provider,
+                        repository_full_name,
+                        signal_kind,
+                        status,
+                        proposed_run_trigger,
+                        source_action,
+                        source_delivery_id,
+                        source_request_id,
+                        repository_default_branch,
+                        installation_id,
+                        ref_name,
+                        before_sha,
+                        after_sha,
+                        payload_path,
+                        payload_digest,
+                        message,
+                        to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
+                        to_char(updated_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS updated_at
+                     FROM repository_signals
+                     WHERE signal_id = $1"
+                ),
+                &[&signal_id],
+            )
+            .with_context(|| format!("failed to fetch repository signal: {signal_id}"))?;
+
+        Ok(row.as_ref().map(row_to_repository_signal_summary))
+    }
+
+    pub fn list_repository_signals(
+        &mut self,
+        limit: usize,
+        filters: &RepositorySignalListFilters,
+    ) -> Result<Vec<RepositorySignalSummary>> {
+        let limit =
+            i64::try_from(limit).context("repository signal list limit exceeds i64 range")?;
+        let rows = match (
+            filters.status.as_deref(),
+            filters.signal_kind.as_deref(),
+            filters.repository_full_name.as_deref(),
+        ) {
+            (None, None, None) => self
+                .client
+                .query(
+                    &format!(
+                        "SELECT
+                            signal_id,
+                            provider,
+                            repository_full_name,
+                            signal_kind,
+                            status,
+                            proposed_run_trigger,
+                            source_action,
+                            source_delivery_id,
+                            source_request_id,
+                            repository_default_branch,
+                            installation_id,
+                            ref_name,
+                            before_sha,
+                            after_sha,
+                            payload_path,
+                            payload_digest,
+                            message,
+                            to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
+                            to_char(updated_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS updated_at
+                         FROM repository_signals
+                         ORDER BY created_at DESC, signal_id DESC
+                         LIMIT $1"
+                    ),
+                    &[&limit],
+                )
+                .context("failed to list repository signals")?,
+            (Some(status), None, None) => self
+                .client
+                .query(
+                    &format!(
+                        "SELECT
+                            signal_id,
+                            provider,
+                            repository_full_name,
+                            signal_kind,
+                            status,
+                            proposed_run_trigger,
+                            source_action,
+                            source_delivery_id,
+                            source_request_id,
+                            repository_default_branch,
+                            installation_id,
+                            ref_name,
+                            before_sha,
+                            after_sha,
+                            payload_path,
+                            payload_digest,
+                            message,
+                            to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
+                            to_char(updated_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS updated_at
+                         FROM repository_signals
+                         WHERE status = $2
+                         ORDER BY created_at DESC, signal_id DESC
+                         LIMIT $1"
+                    ),
+                    &[&limit, &status],
+                )
+                .context("failed to list repository signals")?,
+            (None, Some(signal_kind), None) => self
+                .client
+                .query(
+                    &format!(
+                        "SELECT
+                            signal_id,
+                            provider,
+                            repository_full_name,
+                            signal_kind,
+                            status,
+                            proposed_run_trigger,
+                            source_action,
+                            source_delivery_id,
+                            source_request_id,
+                            repository_default_branch,
+                            installation_id,
+                            ref_name,
+                            before_sha,
+                            after_sha,
+                            payload_path,
+                            payload_digest,
+                            message,
+                            to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
+                            to_char(updated_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS updated_at
+                         FROM repository_signals
+                         WHERE signal_kind = $2
+                         ORDER BY created_at DESC, signal_id DESC
+                         LIMIT $1"
+                    ),
+                    &[&limit, &signal_kind],
+                )
+                .context("failed to list repository signals")?,
+            (None, None, Some(repository_full_name)) => self
+                .client
+                .query(
+                    &format!(
+                        "SELECT
+                            signal_id,
+                            provider,
+                            repository_full_name,
+                            signal_kind,
+                            status,
+                            proposed_run_trigger,
+                            source_action,
+                            source_delivery_id,
+                            source_request_id,
+                            repository_default_branch,
+                            installation_id,
+                            ref_name,
+                            before_sha,
+                            after_sha,
+                            payload_path,
+                            payload_digest,
+                            message,
+                            to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
+                            to_char(updated_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS updated_at
+                         FROM repository_signals
+                         WHERE repository_full_name = $2
+                         ORDER BY created_at DESC, signal_id DESC
+                         LIMIT $1"
+                    ),
+                    &[&limit, &repository_full_name],
+                )
+                .context("failed to list repository signals")?,
+            (Some(status), Some(signal_kind), None) => self
+                .client
+                .query(
+                    &format!(
+                        "SELECT
+                            signal_id,
+                            provider,
+                            repository_full_name,
+                            signal_kind,
+                            status,
+                            proposed_run_trigger,
+                            source_action,
+                            source_delivery_id,
+                            source_request_id,
+                            repository_default_branch,
+                            installation_id,
+                            ref_name,
+                            before_sha,
+                            after_sha,
+                            payload_path,
+                            payload_digest,
+                            message,
+                            to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
+                            to_char(updated_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS updated_at
+                         FROM repository_signals
+                         WHERE status = $2
+                           AND signal_kind = $3
+                         ORDER BY created_at DESC, signal_id DESC
+                         LIMIT $1"
+                    ),
+                    &[&limit, &status, &signal_kind],
+                )
+                .context("failed to list repository signals")?,
+            (Some(status), None, Some(repository_full_name)) => self
+                .client
+                .query(
+                    &format!(
+                        "SELECT
+                            signal_id,
+                            provider,
+                            repository_full_name,
+                            signal_kind,
+                            status,
+                            proposed_run_trigger,
+                            source_action,
+                            source_delivery_id,
+                            source_request_id,
+                            repository_default_branch,
+                            installation_id,
+                            ref_name,
+                            before_sha,
+                            after_sha,
+                            payload_path,
+                            payload_digest,
+                            message,
+                            to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
+                            to_char(updated_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS updated_at
+                         FROM repository_signals
+                         WHERE status = $2
+                           AND repository_full_name = $3
+                         ORDER BY created_at DESC, signal_id DESC
+                         LIMIT $1"
+                    ),
+                    &[&limit, &status, &repository_full_name],
+                )
+                .context("failed to list repository signals")?,
+            (None, Some(signal_kind), Some(repository_full_name)) => self
+                .client
+                .query(
+                    &format!(
+                        "SELECT
+                            signal_id,
+                            provider,
+                            repository_full_name,
+                            signal_kind,
+                            status,
+                            proposed_run_trigger,
+                            source_action,
+                            source_delivery_id,
+                            source_request_id,
+                            repository_default_branch,
+                            installation_id,
+                            ref_name,
+                            before_sha,
+                            after_sha,
+                            payload_path,
+                            payload_digest,
+                            message,
+                            to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
+                            to_char(updated_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS updated_at
+                         FROM repository_signals
+                         WHERE signal_kind = $2
+                           AND repository_full_name = $3
+                         ORDER BY created_at DESC, signal_id DESC
+                         LIMIT $1"
+                    ),
+                    &[&limit, &signal_kind, &repository_full_name],
+                )
+                .context("failed to list repository signals")?,
+            (Some(status), Some(signal_kind), Some(repository_full_name)) => self
+                .client
+                .query(
+                    &format!(
+                        "SELECT
+                            signal_id,
+                            provider,
+                            repository_full_name,
+                            signal_kind,
+                            status,
+                            proposed_run_trigger,
+                            source_action,
+                            source_delivery_id,
+                            source_request_id,
+                            repository_default_branch,
+                            installation_id,
+                            ref_name,
+                            before_sha,
+                            after_sha,
+                            payload_path,
+                            payload_digest,
+                            message,
+                            to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
+                            to_char(updated_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS updated_at
+                         FROM repository_signals
+                         WHERE status = $2
+                           AND signal_kind = $3
+                           AND repository_full_name = $4
+                         ORDER BY created_at DESC, signal_id DESC
+                         LIMIT $1"
+                    ),
+                    &[&limit, &status, &signal_kind, &repository_full_name],
+                )
+                .context("failed to list repository signals")?,
+        };
+
+        Ok(rows.iter().map(row_to_repository_signal_summary).collect())
     }
 
     pub fn list_run_artifacts(
@@ -1834,6 +2254,31 @@ fn row_to_github_webhook_action_request_summary(
         failure_message: row.get("failure_message"),
         started_at: row.get("started_at"),
         completed_at: row.get("completed_at"),
+        created_at: row.get("created_at"),
+        updated_at: row.get("updated_at"),
+        persisted: true,
+    }
+}
+
+fn row_to_repository_signal_summary(row: &postgres::Row) -> RepositorySignalSummary {
+    RepositorySignalSummary {
+        signal_id: row.get("signal_id"),
+        provider: row.get("provider"),
+        repository_full_name: row.get("repository_full_name"),
+        signal_kind: row.get("signal_kind"),
+        status: row.get("status"),
+        proposed_run_trigger: row.get("proposed_run_trigger"),
+        source_action: row.get("source_action"),
+        source_delivery_id: row.get("source_delivery_id"),
+        source_request_id: row.get("source_request_id"),
+        repository_default_branch: row.get("repository_default_branch"),
+        installation_id: row.get("installation_id"),
+        ref_name: row.get("ref_name"),
+        before_sha: row.get("before_sha"),
+        after_sha: row.get("after_sha"),
+        payload_path: row.get("payload_path"),
+        payload_digest: row.get("payload_digest"),
+        message: row.get("message"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
         persisted: true,

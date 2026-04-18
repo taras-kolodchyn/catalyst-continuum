@@ -18,6 +18,7 @@ POSTGRES_PORT="${SMOKE_POSTGRES_PORT:-55432}"
 GITHUB_WEBHOOK_SECRET="${SMOKE_GITHUB_WEBHOOK_SECRET:-continuum-smoke-webhook-secret}"
 GITHUB_APP_INSTALLATION_ID="${SMOKE_GITHUB_APP_INSTALLATION_ID:-42}"
 PUSH_WEBHOOK_ACTION_REQUEST_ID="${SMOKE_PUSH_WEBHOOK_ACTION_REQUEST_ID:-github:22222222-2222-2222-2222-222222222222:sync_default_branch}"
+PUSH_WEBHOOK_SIGNAL_ID="${SMOKE_PUSH_WEBHOOK_SIGNAL_ID:-${PUSH_WEBHOOK_ACTION_REQUEST_ID}:default_branch_updated}"
 PUSH_WEBHOOK_BEFORE_SHA="${SMOKE_PUSH_WEBHOOK_BEFORE_SHA:-1111111111111111111111111111111111111111}"
 PUSH_WEBHOOK_AFTER_SHA="${SMOKE_PUSH_WEBHOOK_AFTER_SHA:-2222222222222222222222222222222222222222}"
 POSTGRES_CONTAINER_NAME="continuum-smoke-postgres-$$"
@@ -156,12 +157,16 @@ WEBHOOK_ACTION_LIST_HTTP_FILE="$ARTIFACT_ROOT/http-webhook-action-requests.json"
 WEBHOOK_ACTION_DETAIL_HTTP_FILE="$ARTIFACT_ROOT/http-webhook-action-request.json"
 WEBHOOK_ACTION_RUN_HTTP_FILE="$ARTIFACT_ROOT/http-webhook-action-run.json"
 WEBHOOK_ACTION_EXECUTED_HTTP_FILE="$ARTIFACT_ROOT/http-webhook-action-request-executed.json"
+REPOSITORY_SIGNAL_LIST_HTTP_FILE="$ARTIFACT_ROOT/http-repository-signals.json"
+REPOSITORY_SIGNAL_DETAIL_HTTP_FILE="$ARTIFACT_ROOT/http-repository-signal.json"
 WEBHOOK_LIST_CLI_FILE="$ARTIFACT_ROOT/cli-webhook-deliveries.json"
 WEBHOOK_PING_DETAIL_CLI_FILE="$ARTIFACT_ROOT/cli-webhook-ping-delivery.json"
 WEBHOOK_PUSH_DETAIL_CLI_FILE="$ARTIFACT_ROOT/cli-webhook-push-delivery.json"
 WEBHOOK_ACTION_LIST_CLI_FILE="$ARTIFACT_ROOT/cli-webhook-action-requests.json"
 WEBHOOK_ACTION_DETAIL_CLI_FILE="$ARTIFACT_ROOT/cli-webhook-action-request.json"
 WEBHOOK_ACTION_EXECUTED_CLI_FILE="$ARTIFACT_ROOT/cli-webhook-action-request-executed.json"
+REPOSITORY_SIGNAL_LIST_CLI_FILE="$ARTIFACT_ROOT/cli-repository-signals.json"
+REPOSITORY_SIGNAL_DETAIL_CLI_FILE="$ARTIFACT_ROOT/cli-repository-signal.json"
 cat >"$WEBHOOK_PAYLOAD_FILE" <<'EOF'
 {
   "zen": "Keep it logically awesome.",
@@ -392,15 +397,33 @@ curl -fsS \
 curl -fsS \
   "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/github/webhook-actions/${PUSH_WEBHOOK_ACTION_REQUEST_ID}" \
   >"$WEBHOOK_ACTION_EXECUTED_HTTP_FILE"
+curl -fsS \
+  "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/repository-signals" \
+  >"$REPOSITORY_SIGNAL_LIST_HTTP_FILE"
+curl -fsS \
+  "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/repository-signals/${PUSH_WEBHOOK_SIGNAL_ID}" \
+  >"$REPOSITORY_SIGNAL_DETAIL_HTTP_FILE"
 "$BIN" describe-github-webhook-action-request \
   --database-url "$DATABASE_URL" \
   --request-id "$PUSH_WEBHOOK_ACTION_REQUEST_ID" \
   --json >"$WEBHOOK_ACTION_EXECUTED_CLI_FILE"
+"$BIN" list-repository-signals \
+  --database-url "$DATABASE_URL" \
+  --json >"$REPOSITORY_SIGNAL_LIST_CLI_FILE"
+"$BIN" describe-repository-signal \
+  --database-url "$DATABASE_URL" \
+  --signal-id "$PUSH_WEBHOOK_SIGNAL_ID" \
+  --json >"$REPOSITORY_SIGNAL_DETAIL_CLI_FILE"
 python3 - \
   "$WEBHOOK_ACTION_RUN_HTTP_FILE" \
   "$WEBHOOK_ACTION_EXECUTED_HTTP_FILE" \
   "$WEBHOOK_ACTION_EXECUTED_CLI_FILE" \
+  "$REPOSITORY_SIGNAL_LIST_HTTP_FILE" \
+  "$REPOSITORY_SIGNAL_DETAIL_HTTP_FILE" \
+  "$REPOSITORY_SIGNAL_LIST_CLI_FILE" \
+  "$REPOSITORY_SIGNAL_DETAIL_CLI_FILE" \
   "$PUSH_WEBHOOK_ACTION_REQUEST_ID" \
+  "$PUSH_WEBHOOK_SIGNAL_ID" \
   "$PUSH_WEBHOOK_AFTER_SHA" \
   "$EXPECTED_WEBHOOK_ACTION_ATTEMPT_COUNT" <<'PY'
 import json
@@ -410,13 +433,23 @@ import sys
 run_response = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
 http_detail = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
 cli_detail = json.loads(pathlib.Path(sys.argv[3]).read_text(encoding="utf-8"))
-request_id = sys.argv[4]
-after_sha = sys.argv[5]
-expected_attempt_count = int(sys.argv[6])
+http_signal_list = json.loads(pathlib.Path(sys.argv[4]).read_text(encoding="utf-8"))
+http_signal_detail = json.loads(pathlib.Path(sys.argv[5]).read_text(encoding="utf-8"))
+cli_signal_list = json.loads(pathlib.Path(sys.argv[6]).read_text(encoding="utf-8"))
+cli_signal_detail = json.loads(pathlib.Path(sys.argv[7]).read_text(encoding="utf-8"))
+request_id = sys.argv[8]
+signal_id = sys.argv[9]
+after_sha = sys.argv[10]
+expected_attempt_count = int(sys.argv[11])
 
 assert run_response["outcome"] == "executed", run_response
 assert run_response["execution_status"] == "succeeded", run_response
 assert run_response["request"]["request_id"] == request_id, run_response
+assert run_response["signal"]["signal_id"] == signal_id, run_response
+assert run_response["signal"]["signal_kind"] == "default_branch_updated", run_response
+assert run_response["signal"]["status"] == "pending", run_response
+assert run_response["signal"]["proposed_run_trigger"] == "repository_signal", run_response
+assert run_response["signal"]["after_sha"] == after_sha, run_response
 assert http_detail["request_id"] == request_id, http_detail
 assert http_detail["status"] == "succeeded", http_detail
 assert http_detail["attempt_count"] == expected_attempt_count, http_detail
@@ -435,6 +468,33 @@ assert state["synced_from"]["request_id"] == request_id, state
 assert cli_detail["status"] == "succeeded", cli_detail
 assert cli_detail["attempt_count"] == expected_attempt_count, cli_detail
 assert cli_detail["after_sha"] == after_sha, cli_detail
+assert http_signal_list["count"] >= 1, http_signal_list
+assert any(signal["signal_id"] == signal_id for signal in http_signal_list["signals"]), http_signal_list
+assert http_signal_detail["signal_id"] == signal_id, http_signal_detail
+assert http_signal_detail["persisted"] is True, http_signal_detail
+assert http_signal_detail["signal_kind"] == "default_branch_updated", http_signal_detail
+assert http_signal_detail["status"] == "pending", http_signal_detail
+assert http_signal_detail["proposed_run_trigger"] == "repository_signal", http_signal_detail
+assert http_signal_detail["source_request_id"] == request_id, http_signal_detail
+assert http_signal_detail["after_sha"] == after_sha, http_signal_detail
+signal_payload_path = pathlib.Path(http_signal_detail["payload_path"])
+assert signal_payload_path.is_file(), http_signal_detail
+signal_payload = json.loads(signal_payload_path.read_text(encoding="utf-8"))
+assert signal_payload["signal"]["signal_id"] == signal_id, signal_payload
+assert signal_payload["signal"]["signal_kind"] == "default_branch_updated", signal_payload
+assert signal_payload["signal"]["proposed_run_trigger"] == "repository_signal", signal_payload
+assert signal_payload["automation"]["run_trigger"] == "repository_signal", signal_payload
+assert signal_payload["automation"]["trigger_metadata"]["signal_id"] == signal_id, signal_payload
+assert signal_payload["automation"]["trigger_metadata"]["source_request_id"] == request_id, signal_payload
+assert signal_payload["repository"]["after_sha"] == after_sha, signal_payload
+assert any(signal["signal_id"] == signal_id for signal in cli_signal_list), cli_signal_list
+assert cli_signal_detail["signal_id"] == signal_id, cli_signal_detail
+assert cli_signal_detail["persisted"] is True, cli_signal_detail
+assert cli_signal_detail["signal_kind"] == "default_branch_updated", cli_signal_detail
+assert cli_signal_detail["status"] == "pending", cli_signal_detail
+assert cli_signal_detail["proposed_run_trigger"] == "repository_signal", cli_signal_detail
+assert cli_signal_detail["source_request_id"] == request_id, cli_signal_detail
+assert cli_signal_detail["after_sha"] == after_sha, cli_signal_detail
 PY
 
 SUBMISSION_OUTPUT="$("$BIN" submit-brief \

@@ -7,16 +7,23 @@ use std::{
 use anyhow::{Context, Result, ensure};
 use serde::Serialize;
 use serde_json::json;
+use sha2::{Digest, Sha256};
 
 use crate::{
     cli::RunNextGithubWebhookActionArgs,
-    models::webhook::{GitHubWebhookActionRequestSummary, GitHubWebhookDeliverySummary},
+    models::{
+        repository_signal::{RepositorySignalDraft, RepositorySignalSummary},
+        webhook::{GitHubWebhookActionRequestSummary, GitHubWebhookDeliverySummary},
+    },
     storage::postgres::PostgresRunStore,
     telemetry,
 };
 
 const REPORT_VERSION: u32 = 1;
 const SYNC_STATE_VERSION: u32 = 1;
+const SIGNAL_VERSION: u32 = 1;
+const DEFAULT_BRANCH_UPDATED_SIGNAL_KIND: &str = "default_branch_updated";
+const PROPOSED_RUN_TRIGGER_REPOSITORY_SIGNAL: &str = "repository_signal";
 const DEFAULT_WEBHOOK_ACTION_RECLAIM_TIMEOUT_SECONDS: u64 = 300;
 const WEBHOOK_ACTION_RECLAIM_GRACE_SECONDS: u64 = 30;
 
@@ -50,6 +57,7 @@ pub struct GitHubWebhookActionExecutionReport {
     execution_status: String,
     request: GitHubWebhookActionRequestSummary,
     delivery: Option<GitHubWebhookDeliverySummary>,
+    signal: Option<RepositorySignalSummary>,
 }
 
 #[derive(Debug, Serialize)]
@@ -61,6 +69,7 @@ pub enum NextGitHubWebhookActionExecution {
 
 struct SyncDefaultBranchExecutionArtifacts {
     report_path: String,
+    signal_draft: RepositorySignalDraft,
 }
 
 impl GitHubWebhookActionExecutionReport {
@@ -80,6 +89,13 @@ impl GitHubWebhookActionExecutionReport {
             writeln!(&mut output, "delivery:")
                 .context("failed to render github webhook action execution")?;
             writeln!(&mut output, "{}", delivery.render_text()?)
+                .context("failed to render github webhook action execution")?;
+        }
+
+        if let Some(signal) = &self.signal {
+            writeln!(&mut output, "signal:")
+                .context("failed to render github webhook action execution")?;
+            writeln!(&mut output, "{}", signal.render_text()?)
                 .context("failed to render github webhook action execution")?;
         }
 
@@ -150,12 +166,19 @@ pub fn execute_next_github_webhook_action(
     let provider = request.provider.clone();
     let action = request.action.clone();
 
-    match execute_claimed_github_webhook_action(&request, delivery.as_ref(), artifact_root) {
-        Ok(artifacts) => {
-            let updated_request = store.mark_github_webhook_action_request_succeeded(
-                &request.request_id,
-                &artifacts.report_path,
-            )?;
+    let execution_result =
+        execute_claimed_github_webhook_action(&request, delivery.as_ref(), artifact_root).and_then(
+            |artifacts| {
+                store.complete_github_webhook_action_request_with_signal(
+                    &request.request_id,
+                    &artifacts.report_path,
+                    &artifacts.signal_draft,
+                )
+            },
+        );
+
+    match execution_result {
+        Ok((updated_request, signal)) => {
             telemetry::record_webhook_action_execution(
                 &provider,
                 &action,
@@ -167,6 +190,7 @@ pub fn execute_next_github_webhook_action(
                     execution_status: "succeeded".to_string(),
                     request: updated_request,
                     delivery,
+                    signal: Some(signal),
                 },
             )))
         }
@@ -185,6 +209,7 @@ pub fn execute_next_github_webhook_action(
                     execution_status: "failed".to_string(),
                     request: updated_request,
                     delivery,
+                    signal: None,
                 },
             )))
         }
@@ -324,8 +349,83 @@ fn execute_sync_default_branch(
     });
     write_json_file(&report_path, &report)?;
 
+    let signal_id = repository_signal_id(request, DEFAULT_BRANCH_UPDATED_SIGNAL_KIND);
+    let signal_path = repository_signal_payload_path(
+        artifact_root,
+        &request.provider,
+        repository_full_name,
+        DEFAULT_BRANCH_UPDATED_SIGNAL_KIND,
+        &signal_id,
+    );
+    let signal_payload = json!({
+        "signal_version": SIGNAL_VERSION,
+        "signal": {
+            "signal_id": signal_id.clone(),
+            "provider": request.provider,
+            "repository_full_name": repository_full_name,
+            "signal_kind": DEFAULT_BRANCH_UPDATED_SIGNAL_KIND,
+            "status": "pending",
+            "proposed_run_trigger": PROPOSED_RUN_TRIGGER_REPOSITORY_SIGNAL,
+        },
+        "repository": {
+            "full_name": repository_full_name,
+            "default_branch": repository_default_branch,
+            "ref_name": ref_name,
+            "before_sha": request.before_sha,
+            "after_sha": request.after_sha,
+        },
+        "source": {
+            "delivery_id": request.delivery_id,
+            "request_id": request.request_id,
+            "action": request.action,
+            "report_path": report_path.display().to_string(),
+            "state_path": state_path.display().to_string(),
+            "delivery": {
+                "event": delivery.map(|value| value.event.clone()),
+                "outcome": delivery.map(|value| value.outcome.clone()),
+                "receipt_path": delivery.map(|value| value.receipt_path.clone()),
+                "payload_digest": delivery.map(|value| value.payload_digest.clone()),
+            },
+        },
+        "automation": {
+            "run_trigger": PROPOSED_RUN_TRIGGER_REPOSITORY_SIGNAL,
+            "trigger_metadata": {
+                "signal_id": signal_id.clone(),
+                "signal_kind": DEFAULT_BRANCH_UPDATED_SIGNAL_KIND,
+                "provider": request.provider,
+                "repository_full_name": repository_full_name,
+                "after_sha": request.after_sha,
+                "source_request_id": request.request_id,
+            },
+        },
+        "emitted_at_epoch_ms": executed_at_epoch_ms,
+    });
+    write_json_file(&signal_path, &signal_payload)?;
+    let signal_bytes = serde_json::to_vec_pretty(&signal_payload)
+        .context("failed to serialize repository signal")?;
+    let signal_draft = RepositorySignalDraft {
+        signal_id: signal_id.clone(),
+        provider: request.provider.clone(),
+        repository_full_name: repository_full_name.to_string(),
+        signal_kind: DEFAULT_BRANCH_UPDATED_SIGNAL_KIND.to_string(),
+        status: "pending".to_string(),
+        proposed_run_trigger: PROPOSED_RUN_TRIGGER_REPOSITORY_SIGNAL.to_string(),
+        source_action: request.action.clone(),
+        source_delivery_id: request.delivery_id.clone(),
+        source_request_id: request.request_id.clone(),
+        repository_default_branch: request.repository_default_branch.clone(),
+        installation_id: request.installation_id,
+        ref_name: request.ref_name.clone(),
+        before_sha: request.before_sha.clone(),
+        after_sha: request.after_sha.clone(),
+        payload_path: signal_path.display().to_string(),
+        payload_digest: format!("sha256:{:x}", Sha256::digest(&signal_bytes)),
+        message: "repository default branch update is ready for automation".to_string(),
+    };
+
     Ok(SyncDefaultBranchExecutionArtifacts {
         report_path: report_path.display().to_string(),
+        signal_draft,
     })
 }
 
@@ -360,6 +460,36 @@ fn sync_default_branch_report_path(
         .join(sanitize_path_component(delivery_id))
         .join(sanitize_path_component(action))
         .join("report.json")
+}
+
+fn repository_signal_id(request: &GitHubWebhookActionRequestSummary, signal_kind: &str) -> String {
+    format!("{}:{}", request.request_id, signal_kind)
+}
+
+fn repository_signal_payload_path(
+    artifact_root: &Path,
+    provider: &str,
+    repository_full_name: &str,
+    signal_kind: &str,
+    signal_id: &str,
+) -> PathBuf {
+    let base = artifact_root
+        .join("repository-signals")
+        .join(sanitize_path_component(provider));
+
+    match repository_full_name.split_once('/') {
+        Some((owner, name)) => base
+            .join(sanitize_path_component(owner))
+            .join(sanitize_path_component(name))
+            .join(sanitize_path_component(signal_kind))
+            .join(sanitize_path_component(signal_id))
+            .join("signal.json"),
+        None => base
+            .join(sanitize_path_component(repository_full_name))
+            .join(sanitize_path_component(signal_kind))
+            .join(sanitize_path_component(signal_id))
+            .join("signal.json"),
+    }
 }
 
 fn repository_state_path(
@@ -422,7 +552,8 @@ fn current_epoch_millis() -> Result<u64> {
 #[cfg(test)]
 mod tests {
     use super::{
-        normalize_action_filter, repository_state_path, stale_github_webhook_action_failure_reason,
+        normalize_action_filter, repository_signal_id, repository_signal_payload_path,
+        repository_state_path, stale_github_webhook_action_failure_reason,
         stale_github_webhook_action_reclaim_deadline_seconds,
     };
     use crate::models::webhook::GitHubWebhookActionRequestSummary;
@@ -450,6 +581,50 @@ mod tests {
             path,
             Path::new(
                 "/tmp/artifacts/github-repositories/github/smartit/catalyst-continuum/default-branch-state.json"
+            )
+        );
+    }
+
+    #[test]
+    fn computes_repository_signal_identifier_and_path() {
+        let request = GitHubWebhookActionRequestSummary {
+            request_id: "github:delivery-1:sync_default_branch".to_string(),
+            provider: "github".to_string(),
+            delivery_id: "delivery-1".to_string(),
+            action: "sync_default_branch".to_string(),
+            status: "pending".to_string(),
+            repository_full_name: Some("smartit/catalyst-continuum".to_string()),
+            repository_default_branch: Some("main".to_string()),
+            installation_id: Some(42),
+            ref_name: Some("refs/heads/main".to_string()),
+            before_sha: None,
+            after_sha: Some("2222222222222222222222222222222222222222".to_string()),
+            requested_reason: "sync".to_string(),
+            attempt_count: 0,
+            report_path: None,
+            failure_message: None,
+            started_at: None,
+            completed_at: None,
+            created_at: None,
+            updated_at: None,
+            persisted: false,
+        };
+        let signal_id = repository_signal_id(&request, "default_branch_updated");
+
+        assert_eq!(
+            signal_id,
+            "github:delivery-1:sync_default_branch:default_branch_updated"
+        );
+        assert_eq!(
+            repository_signal_payload_path(
+                Path::new("/tmp/artifacts"),
+                "github",
+                "smartit/catalyst-continuum",
+                "default_branch_updated",
+                &signal_id,
+            ),
+            Path::new(
+                "/tmp/artifacts/repository-signals/github/smartit/catalyst-continuum/default_branch_updated/github_delivery-1_sync_default_branch_default_branch_updated/signal.json"
             )
         );
     }

@@ -21,6 +21,7 @@ GITHUB_APP_INSTALLATION_ID="${MCP_SMOKE_GITHUB_APP_INSTALLATION_ID:-42}"
 WEBHOOK_DELIVERY_ID="${MCP_SMOKE_WEBHOOK_DELIVERY_ID:-11111111-1111-1111-1111-111111111111}"
 PUSH_WEBHOOK_DELIVERY_ID="${MCP_SMOKE_PUSH_WEBHOOK_DELIVERY_ID:-22222222-2222-2222-2222-222222222222}"
 PUSH_WEBHOOK_ACTION_REQUEST_ID="${MCP_SMOKE_PUSH_WEBHOOK_ACTION_REQUEST_ID:-github:${PUSH_WEBHOOK_DELIVERY_ID}:sync_default_branch}"
+PUSH_WEBHOOK_SIGNAL_ID="${MCP_SMOKE_PUSH_WEBHOOK_SIGNAL_ID:-${PUSH_WEBHOOK_ACTION_REQUEST_ID}:default_branch_updated}"
 PUSH_WEBHOOK_BEFORE_SHA="${MCP_SMOKE_PUSH_WEBHOOK_BEFORE_SHA:-1111111111111111111111111111111111111111}"
 PUSH_WEBHOOK_AFTER_SHA="${MCP_SMOKE_PUSH_WEBHOOK_AFTER_SHA:-2222222222222222222222222222222222222222}"
 ORCHESTRATOR_PID=0
@@ -204,7 +205,7 @@ assert response["routing_action"] == "sync_default_branch", response
 assert response["persisted"] is True, response
 PY
 
-python3 - "$DATABASE_URL" "$ARTIFACT_ROOT" "$BRIEF_FILE" "$WEBHOOK_DELIVERY_ID" "$PUSH_WEBHOOK_DELIVERY_ID" "$PUSH_WEBHOOK_ACTION_REQUEST_ID" "$PUSH_WEBHOOK_AFTER_SHA" <<'PY'
+python3 - "$DATABASE_URL" "$ARTIFACT_ROOT" "$BRIEF_FILE" "$WEBHOOK_DELIVERY_ID" "$PUSH_WEBHOOK_DELIVERY_ID" "$PUSH_WEBHOOK_ACTION_REQUEST_ID" "$PUSH_WEBHOOK_SIGNAL_ID" "$PUSH_WEBHOOK_AFTER_SHA" <<'PY'
 import json
 import os
 import pathlib
@@ -217,7 +218,8 @@ brief_path = pathlib.Path(sys.argv[3])
 webhook_delivery_id = sys.argv[4]
 push_webhook_delivery_id = sys.argv[5]
 push_webhook_action_request_id = sys.argv[6]
-push_webhook_after_sha = sys.argv[7]
+push_webhook_signal_id = sys.argv[7]
+push_webhook_after_sha = sys.argv[8]
 root = pathlib.Path.cwd()
 try:
     brief_source_path = str(brief_path.relative_to(root))
@@ -374,6 +376,8 @@ try:
         "list_github_webhook_action_requests",
         "describe_github_webhook_action_request",
         "run_next_github_webhook_action",
+        "list_repository_signals",
+        "describe_repository_signal",
         "list_runs",
         "describe_run",
         "run_next_task",
@@ -515,6 +519,34 @@ try:
             "stateful MCP smoke failed: run_next_github_webhook_action should succeed, got "
             f"{webhook_action_execution['execution_status']}"
         )
+    signal = webhook_action_execution.get("signal")
+    if signal is None:
+        fail("stateful MCP smoke failed: run_next_github_webhook_action should return a repository signal")
+    if signal["signal_id"] != push_webhook_signal_id:
+        fail(
+            "stateful MCP smoke failed: execution signal id mismatch, got "
+            f"{signal['signal_id']}"
+        )
+    if signal["signal_kind"] != "default_branch_updated":
+        fail(
+            "stateful MCP smoke failed: execution signal_kind mismatch, got "
+            f"{signal['signal_kind']}"
+        )
+    if signal["status"] != "pending":
+        fail(
+            "stateful MCP smoke failed: execution signal status mismatch, got "
+            f"{signal['status']}"
+        )
+    if signal["proposed_run_trigger"] != "repository_signal":
+        fail(
+            "stateful MCP smoke failed: execution signal trigger mismatch, got "
+            f"{signal['proposed_run_trigger']}"
+        )
+    if signal["after_sha"] != push_webhook_after_sha:
+        fail(
+            "stateful MCP smoke failed: execution signal should expose after_sha, got "
+            f"{signal['after_sha']}"
+        )
 
     executed_webhook_action_request = call_tool(
         "describe_github_webhook_action_request",
@@ -554,6 +586,65 @@ try:
         fail(
             "stateful MCP smoke failed: webhook action state file should capture after_sha, got "
             f"{state['after_sha']}"
+        )
+
+    signals = call_tool(
+        "list_repository_signals",
+        {
+            "limit": 10,
+            "status": "pending",
+            "signal_kind": "default_branch_updated",
+            "repository_full_name": "smartit/catalyst-continuum",
+        },
+        "signals",
+    )
+    if not any(signal["signal_id"] == push_webhook_signal_id for signal in signals):
+        fail(
+            "stateful MCP smoke failed: expected repository signal in list_repository_signals, got "
+            f"{signals}"
+        )
+
+    described_signal = call_tool(
+        "describe_repository_signal",
+        {"signal_id": push_webhook_signal_id},
+        "signal",
+    )
+    if described_signal["signal_id"] != push_webhook_signal_id:
+        fail(
+            "stateful MCP smoke failed: describe_repository_signal returned unexpected signal id "
+            f"{described_signal['signal_id']}"
+        )
+    if described_signal["source_request_id"] != push_webhook_action_request_id:
+        fail(
+            "stateful MCP smoke failed: repository signal should point at webhook action request, got "
+            f"{described_signal['source_request_id']}"
+        )
+    if described_signal["proposed_run_trigger"] != "repository_signal":
+        fail(
+            "stateful MCP smoke failed: repository signal should propose repository_signal trigger, got "
+            f"{described_signal['proposed_run_trigger']}"
+        )
+    signal_payload_path = pathlib.Path(described_signal["payload_path"])
+    if not signal_payload_path.is_file():
+        fail(
+            "stateful MCP smoke failed: repository signal payload_path should point at a file, got "
+            f"{described_signal['payload_path']}"
+        )
+    signal_payload = json.loads(signal_payload_path.read_text(encoding="utf-8"))
+    if signal_payload["signal"]["signal_id"] != push_webhook_signal_id:
+        fail(
+            "stateful MCP smoke failed: repository signal payload should capture signal_id, got "
+            f"{signal_payload['signal']['signal_id']}"
+        )
+    if signal_payload["automation"]["run_trigger"] != "repository_signal":
+        fail(
+            "stateful MCP smoke failed: repository signal payload should propose repository_signal trigger, got "
+            f"{signal_payload['automation']['run_trigger']}"
+        )
+    if signal_payload["repository"]["after_sha"] != push_webhook_after_sha:
+        fail(
+            "stateful MCP smoke failed: repository signal payload should capture after_sha, got "
+            f"{signal_payload['repository']['after_sha']}"
         )
 
     catalog = call_tool("list_packs", {}, "catalog")

@@ -123,6 +123,37 @@ CREATE INDEX IF NOT EXISTS idx_webhook_action_requests_status
 CREATE INDEX IF NOT EXISTS idx_webhook_action_requests_delivery
     ON webhook_action_requests (delivery_id);
 
+CREATE TABLE IF NOT EXISTS repository_signals (
+    signal_id TEXT PRIMARY KEY,
+    provider TEXT NOT NULL,
+    repository_full_name TEXT NOT NULL,
+    signal_kind TEXT NOT NULL,
+    status TEXT NOT NULL,
+    proposed_run_trigger TEXT NOT NULL,
+    source_action TEXT NOT NULL,
+    source_delivery_id TEXT NOT NULL REFERENCES webhook_deliveries (delivery_id) ON DELETE CASCADE,
+    source_request_id TEXT NOT NULL REFERENCES webhook_action_requests (request_id) ON DELETE CASCADE,
+    repository_default_branch TEXT,
+    installation_id BIGINT,
+    ref_name TEXT,
+    before_sha TEXT,
+    after_sha TEXT,
+    payload_path TEXT NOT NULL,
+    payload_digest TEXT NOT NULL,
+    message TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_repository_signals_request_kind
+    ON repository_signals (source_request_id, signal_kind);
+CREATE INDEX IF NOT EXISTS idx_repository_signals_created_at
+    ON repository_signals (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_repository_signals_status
+    ON repository_signals (status);
+CREATE INDEX IF NOT EXISTS idx_repository_signals_repository
+    ON repository_signals (repository_full_name);
+
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS failure_reason TEXT;
@@ -161,3 +192,20 @@ ALTER TABLE webhook_action_requests ADD COLUMN IF NOT EXISTS failure_message TEX
 ALTER TABLE webhook_action_requests ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ;
 ALTER TABLE webhook_action_requests ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
 ALTER TABLE webhook_action_requests ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+ALTER TABLE repository_signals ADD COLUMN IF NOT EXISTS provider TEXT NOT NULL DEFAULT 'github';
+ALTER TABLE repository_signals ADD COLUMN IF NOT EXISTS repository_full_name TEXT NOT NULL DEFAULT '';
+ALTER TABLE repository_signals ADD COLUMN IF NOT EXISTS signal_kind TEXT NOT NULL DEFAULT '';
+ALTER TABLE repository_signals ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'pending';
+ALTER TABLE repository_signals ADD COLUMN IF NOT EXISTS proposed_run_trigger TEXT NOT NULL DEFAULT 'repository_signal';
+ALTER TABLE repository_signals ADD COLUMN IF NOT EXISTS source_action TEXT NOT NULL DEFAULT '';
+ALTER TABLE repository_signals ADD COLUMN IF NOT EXISTS source_delivery_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE repository_signals ADD COLUMN IF NOT EXISTS source_request_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE repository_signals ADD COLUMN IF NOT EXISTS repository_default_branch TEXT;
+ALTER TABLE repository_signals ADD COLUMN IF NOT EXISTS installation_id BIGINT;
+ALTER TABLE repository_signals ADD COLUMN IF NOT EXISTS ref_name TEXT;
+ALTER TABLE repository_signals ADD COLUMN IF NOT EXISTS before_sha TEXT;
+ALTER TABLE repository_signals ADD COLUMN IF NOT EXISTS after_sha TEXT;
+ALTER TABLE repository_signals ADD COLUMN IF NOT EXISTS payload_path TEXT NOT NULL DEFAULT '';
+ALTER TABLE repository_signals ADD COLUMN IF NOT EXISTS payload_digest TEXT NOT NULL DEFAULT '';
+ALTER TABLE repository_signals ADD COLUMN IF NOT EXISTS message TEXT NOT NULL DEFAULT '';
+ALTER TABLE repository_signals ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();

@@ -12,7 +12,10 @@ use crate::{
         run_next_task, worker,
     },
     config::InstanceConfigReport,
-    models::webhook::{GitHubWebhookActionRequestListFilters, GitHubWebhookListFilters},
+    models::{
+        repository_signal::RepositorySignalListFilters,
+        webhook::{GitHubWebhookActionRequestListFilters, GitHubWebhookListFilters},
+    },
     planning::{
         brief_validation::validate_brief_document, pack_catalog::build_pack_catalog,
         packs::PackDefinition,
@@ -177,6 +180,25 @@ struct ListGithubWebhookActionRequestsToolArgs {
 #[serde(deny_unknown_fields)]
 struct DescribeGithubWebhookActionRequestToolArgs {
     request_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ListRepositorySignalsToolArgs {
+    #[serde(default = "default_repository_signal_limit")]
+    limit: usize,
+    #[serde(default)]
+    status: Option<String>,
+    #[serde(default)]
+    signal_kind: Option<String>,
+    #[serde(default)]
+    repository_full_name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DescribeRepositorySignalToolArgs {
+    signal_id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -467,6 +489,8 @@ impl StdioMcpServer {
             "describe_github_webhook_action_request" => {
                 self.call_describe_github_webhook_action_request(arguments)
             }
+            "list_repository_signals" => self.call_list_repository_signals(arguments),
+            "describe_repository_signal" => self.call_describe_repository_signal(arguments),
             "list_runs" => self.call_list_runs(arguments),
             "describe_run" => self.call_describe_run(arguments),
             "run_next_github_webhook_action" => self.call_run_next_github_webhook_action(arguments),
@@ -683,6 +707,39 @@ impl StdioMcpServer {
                 "request",
                 structured,
                 request.render_text()?,
+            ))
+        })
+    }
+
+    fn call_list_repository_signals(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: ListRepositorySignalsToolArgs = parse_tool_arguments(arguments)?;
+            let mut store = self.open_store()?;
+            let filters = RepositorySignalListFilters::from_inputs(
+                args.status.as_deref(),
+                args.signal_kind.as_deref(),
+                args.repository_full_name.as_deref(),
+            );
+            let signals = store.list_repository_signals(args.limit, &filters)?;
+            let structured = serde_json::to_value(&signals)
+                .context("failed to serialize repository signal list")?;
+            Ok(tool_success_object("signals", structured))
+        })
+    }
+
+    fn call_describe_repository_signal(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: DescribeRepositorySignalToolArgs = parse_tool_arguments(arguments)?;
+            let mut store = self.open_store()?;
+            let signal = store
+                .fetch_repository_signal(&args.signal_id)?
+                .with_context(|| format!("repository signal not found: {}", args.signal_id))?;
+            let structured =
+                serde_json::to_value(&signal).context("failed to serialize repository signal")?;
+            Ok(tool_success_with_text(
+                "signal",
+                structured,
+                signal.render_text()?,
             ))
         })
     }
@@ -993,6 +1050,10 @@ fn default_webhook_limit() -> usize {
     20
 }
 
+fn default_repository_signal_limit() -> usize {
+    20
+}
+
 fn pretty_json(value: &Value) -> String {
     serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string())
 }
@@ -1096,6 +1157,36 @@ fn tool_definitions() -> Vec<Value> {
             json_schema_object(&[required_string_property(
                 "request_id",
                 "GitHub webhook action request identifier.",
+            )]),
+        ),
+        tool_definition(
+            "list_repository_signals",
+            "List durable repository automation signals emitted by the control plane.",
+            json_schema_object(&[
+                optional_integer_property(
+                    "limit",
+                    "Maximum number of repository signals to return.",
+                ),
+                optional_string_property(
+                    "status",
+                    "Optional signal status filter, for example pending.",
+                ),
+                optional_string_property(
+                    "signal_kind",
+                    "Optional signal kind filter, for example default_branch_updated.",
+                ),
+                optional_string_property(
+                    "repository_full_name",
+                    "Optional repository full name filter, for example smartit/catalyst-continuum.",
+                ),
+            ]),
+        ),
+        tool_definition(
+            "describe_repository_signal",
+            "Fetch one durable repository automation signal with source and trigger metadata.",
+            json_schema_object(&[required_string_property(
+                "signal_id",
+                "Repository signal identifier.",
             )]),
         ),
         tool_definition(
@@ -1294,7 +1385,7 @@ mod tests {
 
         assert_eq!(
             output[1]["result"]["tools"].as_array().map(Vec::len),
-            Some(21)
+            Some(23)
         );
         assert_eq!(output[1]["result"]["tools"][0]["name"], "list_packs");
         assert!(
@@ -1317,6 +1408,20 @@ mod tests {
                 .is_some_and(|tools| tools
                     .iter()
                     .any(|tool| tool["name"] == "list_github_webhook_action_requests"))
+        );
+        assert!(
+            output[1]["result"]["tools"]
+                .as_array()
+                .is_some_and(|tools| tools
+                    .iter()
+                    .any(|tool| tool["name"] == "list_repository_signals"))
+        );
+        assert!(
+            output[1]["result"]["tools"]
+                .as_array()
+                .is_some_and(|tools| tools
+                    .iter()
+                    .any(|tool| tool["name"] == "describe_repository_signal"))
         );
         assert!(
             output[1]["result"]["tools"]

@@ -127,6 +127,8 @@ Stateful tools need `CATALYST_DATABASE_URL`:
 - `list_github_webhook_action_requests`
 - `describe_github_webhook_action_request`
 - `run_next_github_webhook_action`
+- `list_repository_signals`
+- `describe_repository_signal`
 - `submit_brief`
 - `list_runs`
 - `describe_run`
@@ -141,7 +143,8 @@ Stateful tools need `CATALYST_DATABASE_URL`:
 `describe_instance_config` is the first inspection tool for OpenHands when it needs to understand whether the current instance is still Docker-only, whether future Proxmox or Kubernetes placeholders are enabled but unimplemented, and whether GitHub App credentials are complete enough for remote PR publication.
 `list_github_webhooks` and `describe_github_webhook` give OpenHands direct MCP visibility into accepted GitHub App deliveries, including whether the control plane currently ignores that delivery or classifies it as a safe automation candidate such as `sync_default_branch`.
 `list_github_webhook_action_requests` and `describe_github_webhook_action_request` let OpenHands inspect the durable control-plane requests materialized from those candidate deliveries.
-`run_next_github_webhook_action` is the safe executor path for those requests and currently advances `sync_default_branch` by claiming the next pending request, writing a request-scoped report plus repository-scoped default-branch state, and returning the terminal request summary.
+`run_next_github_webhook_action` is the safe executor path for those requests and currently advances `sync_default_branch` by claiming the next pending request, writing a request-scoped report plus repository-scoped default-branch state, emitting a durable `default_branch_updated` repository signal, and returning the terminal request summary.
+`list_repository_signals` and `describe_repository_signal` let OpenHands inspect that repository-scoped automation handoff directly, including the proposed `repository_signal` trigger metadata for later orchestration.
 `describe_artifact` is the general inspection tool for OpenHands when it needs the persisted manifest or metadata behind a `backlog`, `policy_report`, `quality_report`, `pr_export`, or publication artifact referenced by `describe_run`.
 `describe_latest_artifact` is the shortest path when OpenHands already knows the run and only needs the newest `policy_report`, `quality_report`, `pr_candidate`, or promotion artifact by type.
 `evaluate_run_policy` is the visibility tool for OpenHands when it needs to inspect whether the current run still satisfies control-plane policy constraints such as runtime provider, sandbox profile, and planned timeout budget.
@@ -170,6 +173,6 @@ Before wiring OpenHands, validate the server locally:
 ```
 
 `./scripts/mcp-smoke.sh` validates the stateless handshake and tool discovery path.
-`./scripts/mcp-stateful-smoke.sh` validates the safe stateful path: GitHub webhook inspection and execution, brief submission, run listing, run progression through `run_worker_once`, policy/quality evaluation, and persisted artifact inspection.
+`./scripts/mcp-stateful-smoke.sh` validates the safe stateful path: GitHub webhook inspection and execution, repository-signal inspection, brief submission, run listing, run progression through `run_worker_once`, policy/quality evaluation, and persisted artifact inspection.
 
 Then register the server in OpenHands and start a conversation with [examples/openhands/first-task.md](../../examples/openhands/first-task.md). That is the shortest path to confirming the integration end to end without publishing or opening a GitHub PR.
