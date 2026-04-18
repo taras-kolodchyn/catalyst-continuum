@@ -1,7 +1,10 @@
 use anyhow::{Context, Result};
 use serde::Serialize;
 
-use crate::github_webhooks::GitHubWebhookReceiptSummary;
+use crate::{
+    github_webhook_routing::GitHubWebhookRoutingDecision,
+    github_webhooks::GitHubWebhookReceiptSummary,
+};
 
 #[derive(Debug, Clone)]
 pub struct GitHubWebhookDeliveryDraft {
@@ -12,6 +15,10 @@ pub struct GitHubWebhookDeliveryDraft {
     pub repository_full_name: Option<String>,
     pub repository_default_branch: Option<String>,
     pub installation_id: Option<i64>,
+    pub ref_name: Option<String>,
+    pub routing_status: String,
+    pub routing_action: Option<String>,
+    pub routing_reason: String,
     pub payload_digest: String,
     pub payload_bytes: i64,
     pub signature_verified: bool,
@@ -34,6 +41,12 @@ pub struct GitHubWebhookDeliverySummary {
     pub repository_default_branch: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub installation_id: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ref_name: Option<String>,
+    pub routing_status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub routing_action: Option<String>,
+    pub routing_reason: String,
     pub payload_digest: String,
     pub payload_bytes: i64,
     pub signature_verified: bool,
@@ -63,7 +76,10 @@ impl GitHubWebhookListFilters {
 }
 
 impl GitHubWebhookDeliveryDraft {
-    pub fn from_receipt_summary(summary: &GitHubWebhookReceiptSummary) -> Result<Self> {
+    pub fn from_receipt_summary(
+        summary: &GitHubWebhookReceiptSummary,
+        routing: &GitHubWebhookRoutingDecision,
+    ) -> Result<Self> {
         Ok(Self {
             provider: summary.provider.to_string(),
             delivery_id: summary.delivery_id.clone(),
@@ -76,6 +92,10 @@ impl GitHubWebhookDeliveryDraft {
                 .map(i64::try_from)
                 .transpose()
                 .context("installation id exceeds i64 range")?,
+            ref_name: summary.ref_name.clone(),
+            routing_status: routing.routing_status.clone(),
+            routing_action: routing.routing_action.clone(),
+            routing_reason: routing.routing_reason.clone(),
             payload_digest: summary.payload_digest.clone(),
             payload_bytes: i64::try_from(summary.payload_bytes)
                 .context("payload_bytes exceeds i64 range")?,
@@ -123,6 +143,18 @@ impl GitHubWebhookDeliverySummary {
             writeln!(&mut output, "installation_id: {}", installation_id)
                 .context("failed to render webhook delivery")?;
         }
+        if let Some(ref_name) = &self.ref_name {
+            writeln!(&mut output, "ref_name: {}", ref_name)
+                .context("failed to render webhook delivery")?;
+        }
+        writeln!(&mut output, "routing_status: {}", self.routing_status)
+            .context("failed to render webhook delivery")?;
+        if let Some(routing_action) = &self.routing_action {
+            writeln!(&mut output, "routing_action: {}", routing_action)
+                .context("failed to render webhook delivery")?;
+        }
+        writeln!(&mut output, "routing_reason: {}", self.routing_reason)
+            .context("failed to render webhook delivery")?;
         writeln!(&mut output, "status: {}", self.status)
             .context("failed to render webhook delivery")?;
         writeln!(&mut output, "outcome: {}", self.outcome)
@@ -171,6 +203,10 @@ impl GitHubWebhookDeliverySummary {
             repository_full_name: draft.repository_full_name.clone(),
             repository_default_branch: draft.repository_default_branch.clone(),
             installation_id: draft.installation_id,
+            ref_name: draft.ref_name.clone(),
+            routing_status: draft.routing_status.clone(),
+            routing_action: draft.routing_action.clone(),
+            routing_reason: draft.routing_reason.clone(),
             payload_digest: draft.payload_digest.clone(),
             payload_bytes: draft.payload_bytes,
             signature_verified: draft.signature_verified,
@@ -195,29 +231,40 @@ impl GitHubWebhookDeliverySummary {
 #[cfg(test)]
 mod tests {
     use super::{GitHubWebhookDeliveryDraft, GitHubWebhookDeliverySummary};
-    use crate::github_webhooks::GitHubWebhookReceiptSummary;
+    use crate::{
+        github_webhook_routing::GitHubWebhookRoutingDecision,
+        github_webhooks::GitHubWebhookReceiptSummary,
+    };
 
     #[test]
     fn renders_webhook_delivery_summary() {
-        let draft =
-            GitHubWebhookDeliveryDraft::from_receipt_summary(&GitHubWebhookReceiptSummary {
+        let draft = GitHubWebhookDeliveryDraft::from_receipt_summary(
+            &GitHubWebhookReceiptSummary {
                 status: "accepted",
-                outcome: "ping",
+                outcome: "accepted",
                 provider: "github",
                 delivery_id: "delivery-1".to_string(),
-                event: "ping".to_string(),
+                event: "push".to_string(),
                 action: None,
                 repository_full_name: Some("smartit/catalyst-continuum".to_string()),
                 repository_default_branch: Some("main".to_string()),
                 installation_id: Some(42),
+                ref_name: Some("refs/heads/main".to_string()),
                 payload_digest: "sha256:abc".to_string(),
                 payload_bytes: 128,
                 signature_verified: true,
                 received_at_epoch_ms: 1,
                 receipt_path: "/tmp/receipt.json".to_string(),
-                message: "validated GitHub App ping delivery".to_string(),
-            })
-            .expect("draft should build");
+                message: "accepted GitHub webhook delivery `push`".to_string(),
+            },
+            &GitHubWebhookRoutingDecision {
+                routing_status: "candidate".to_string(),
+                routing_action: Some("sync_default_branch".to_string()),
+                routing_reason: "push delivery targets the repository default branch `main`"
+                    .to_string(),
+            },
+        )
+        .expect("draft should build");
 
         let rendered = GitHubWebhookDeliverySummary::from_draft(&draft)
             .with_timestamps(
@@ -228,8 +275,11 @@ mod tests {
             .expect("summary should render");
 
         assert!(rendered.contains("delivery_id: delivery-1"));
-        assert!(rendered.contains("event: ping"));
+        assert!(rendered.contains("event: push"));
         assert!(rendered.contains("repository_full_name: smartit/catalyst-continuum"));
+        assert!(rendered.contains("ref_name: refs/heads/main"));
+        assert!(rendered.contains("routing_status: candidate"));
+        assert!(rendered.contains("routing_action: sync_default_branch"));
         assert!(rendered.contains("signature_verified: yes"));
         assert!(rendered.contains("persisted: yes"));
     }

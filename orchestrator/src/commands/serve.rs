@@ -12,6 +12,7 @@ use crate::{
         submit_brief::submit_validated_brief, worker,
     },
     config::{InstanceConfigReport, load_github_app_webhook_secret},
+    github_webhook_routing::evaluate_github_webhook_route,
     github_webhooks::{GitHubWebhookErrorKind, GitHubWebhookHeaders, ingest_github_webhook},
     models::webhook::{
         GitHubWebhookDeliveryDraft, GitHubWebhookDeliverySummary, GitHubWebhookListFilters,
@@ -152,7 +153,13 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                             github_webhook_secret.as_deref(),
                         ) {
                             Ok(summary) => {
-                                match GitHubWebhookDeliveryDraft::from_receipt_summary(&summary) {
+                                let routing = evaluate_github_webhook_route(
+                                    &summary,
+                                    &instance_config.github_app,
+                                );
+                                match GitHubWebhookDeliveryDraft::from_receipt_summary(
+                                    &summary, &routing,
+                                ) {
                                     Ok(delivery_draft) => {
                                         match store.upsert_github_webhook_delivery(&delivery_draft)
                                         {

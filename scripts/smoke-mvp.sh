@@ -16,6 +16,7 @@ POSTGRES_USER="${SMOKE_POSTGRES_USER:-continuum}"
 POSTGRES_PASSWORD="${SMOKE_POSTGRES_PASSWORD:-continuum-dev}"
 POSTGRES_PORT="${SMOKE_POSTGRES_PORT:-55432}"
 GITHUB_WEBHOOK_SECRET="${SMOKE_GITHUB_WEBHOOK_SECRET:-continuum-smoke-webhook-secret}"
+GITHUB_APP_INSTALLATION_ID="${SMOKE_GITHUB_APP_INSTALLATION_ID:-42}"
 POSTGRES_CONTAINER_NAME="continuum-smoke-postgres-$$"
 STARTED_POSTGRES=0
 ORCHESTRATOR_PID=""
@@ -89,6 +90,7 @@ HEALTH_FILE="$ARTIFACT_ROOT/orchestrator-healthz.json"
 CONFIG_FILE="$ARTIFACT_ROOT/orchestrator-config.json"
 
 CATALYST_GITHUB_APP_WEBHOOK_SECRET="$GITHUB_WEBHOOK_SECRET" \
+CATALYST_GITHUB_APP_INSTALLATION_ID="$GITHUB_APP_INSTALLATION_ID" \
   "$BIN" serve \
   --bind-addr "127.0.0.1:${ORCHESTRATOR_HTTP_PORT}" \
   --database-url "$DATABASE_URL" \
@@ -142,10 +144,14 @@ PY
 
 WEBHOOK_PAYLOAD_FILE="$ARTIFACT_ROOT/github-webhook-ping.json"
 WEBHOOK_RESPONSE_FILE="$ARTIFACT_ROOT/github-webhook-response.json"
+PUSH_WEBHOOK_PAYLOAD_FILE="$ARTIFACT_ROOT/github-webhook-push.json"
+PUSH_WEBHOOK_RESPONSE_FILE="$ARTIFACT_ROOT/github-webhook-push-response.json"
 WEBHOOK_LIST_HTTP_FILE="$ARTIFACT_ROOT/http-webhook-deliveries.json"
-WEBHOOK_DETAIL_HTTP_FILE="$ARTIFACT_ROOT/http-webhook-delivery.json"
+WEBHOOK_PING_DETAIL_HTTP_FILE="$ARTIFACT_ROOT/http-webhook-ping-delivery.json"
+WEBHOOK_PUSH_DETAIL_HTTP_FILE="$ARTIFACT_ROOT/http-webhook-push-delivery.json"
 WEBHOOK_LIST_CLI_FILE="$ARTIFACT_ROOT/cli-webhook-deliveries.json"
-WEBHOOK_DETAIL_CLI_FILE="$ARTIFACT_ROOT/cli-webhook-delivery.json"
+WEBHOOK_PING_DETAIL_CLI_FILE="$ARTIFACT_ROOT/cli-webhook-ping-delivery.json"
+WEBHOOK_PUSH_DETAIL_CLI_FILE="$ARTIFACT_ROOT/cli-webhook-push-delivery.json"
 cat >"$WEBHOOK_PAYLOAD_FILE" <<'EOF'
 {
   "zen": "Keep it logically awesome.",
@@ -153,6 +159,19 @@ cat >"$WEBHOOK_PAYLOAD_FILE" <<'EOF'
   "repository": {
     "full_name": "smartit/catalyst-continuum",
     "default_branch": "main"
+  }
+}
+EOF
+
+cat >"$PUSH_WEBHOOK_PAYLOAD_FILE" <<EOF
+{
+  "ref": "refs/heads/main",
+  "repository": {
+    "full_name": "smartit/catalyst-continuum",
+    "default_branch": "main"
+  },
+  "installation": {
+    "id": ${GITHUB_APP_INSTALLATION_ID}
   }
 }
 EOF
@@ -195,39 +214,99 @@ assert receipt["summary"]["event"] == "ping", receipt
 assert receipt["payload"]["repository"]["full_name"] == "smartit/catalyst-continuum", receipt
 PY
 
+PUSH_WEBHOOK_SIGNATURE="$(python3 - "$GITHUB_WEBHOOK_SECRET" "$PUSH_WEBHOOK_PAYLOAD_FILE" <<'PY'
+import hashlib
+import hmac
+import pathlib
+import sys
+
+secret = sys.argv[1].encode("utf-8")
+payload = pathlib.Path(sys.argv[2]).read_bytes()
+print("sha256=" + hmac.new(secret, payload, hashlib.sha256).hexdigest())
+PY
+)"
+
+curl -fsS \
+  -X POST \
+  -H "Content-Type: application/json" \
+  -H "X-GitHub-Event: push" \
+  -H "X-GitHub-Delivery: 22222222-2222-2222-2222-222222222222" \
+  -H "X-Hub-Signature-256: $PUSH_WEBHOOK_SIGNATURE" \
+  --data-binary "@$PUSH_WEBHOOK_PAYLOAD_FILE" \
+  "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/github/webhooks" >"$PUSH_WEBHOOK_RESPONSE_FILE"
+
+python3 - "$PUSH_WEBHOOK_RESPONSE_FILE" <<'PY'
+import json
+import pathlib
+import sys
+
+response = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+assert response["status"] == "accepted", response
+assert response["outcome"] == "accepted", response
+assert response["event"] == "push", response
+assert response["ref_name"] == "refs/heads/main", response
+assert response["routing_status"] == "candidate", response
+assert response["routing_action"] == "sync_default_branch", response
+assert response["installation_id"] == 42, response
+PY
+
 curl -fsS "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/github/webhooks" >"$WEBHOOK_LIST_HTTP_FILE"
 curl -fsS \
   "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/github/webhooks/11111111-1111-1111-1111-111111111111" \
-  >"$WEBHOOK_DETAIL_HTTP_FILE"
+  >"$WEBHOOK_PING_DETAIL_HTTP_FILE"
+curl -fsS \
+  "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/github/webhooks/22222222-2222-2222-2222-222222222222" \
+  >"$WEBHOOK_PUSH_DETAIL_HTTP_FILE"
 "$BIN" list-github-webhooks \
   --database-url "$DATABASE_URL" \
   --json >"$WEBHOOK_LIST_CLI_FILE"
 "$BIN" describe-github-webhook \
   --database-url "$DATABASE_URL" \
   --delivery-id "11111111-1111-1111-1111-111111111111" \
-  --json >"$WEBHOOK_DETAIL_CLI_FILE"
+  --json >"$WEBHOOK_PING_DETAIL_CLI_FILE"
+"$BIN" describe-github-webhook \
+  --database-url "$DATABASE_URL" \
+  --delivery-id "22222222-2222-2222-2222-222222222222" \
+  --json >"$WEBHOOK_PUSH_DETAIL_CLI_FILE"
 python3 - \
   "$WEBHOOK_LIST_HTTP_FILE" \
-  "$WEBHOOK_DETAIL_HTTP_FILE" \
+  "$WEBHOOK_PING_DETAIL_HTTP_FILE" \
+  "$WEBHOOK_PUSH_DETAIL_HTTP_FILE" \
   "$WEBHOOK_LIST_CLI_FILE" \
-  "$WEBHOOK_DETAIL_CLI_FILE" <<'PY'
+  "$WEBHOOK_PING_DETAIL_CLI_FILE" \
+  "$WEBHOOK_PUSH_DETAIL_CLI_FILE" <<'PY'
 import json
 import pathlib
 import sys
 
 http_list = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
-http_detail = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
-cli_list = json.loads(pathlib.Path(sys.argv[3]).read_text(encoding="utf-8"))
-cli_detail = json.loads(pathlib.Path(sys.argv[4]).read_text(encoding="utf-8"))
-delivery_id = "11111111-1111-1111-1111-111111111111"
+http_ping_detail = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
+http_push_detail = json.loads(pathlib.Path(sys.argv[3]).read_text(encoding="utf-8"))
+cli_list = json.loads(pathlib.Path(sys.argv[4]).read_text(encoding="utf-8"))
+cli_ping_detail = json.loads(pathlib.Path(sys.argv[5]).read_text(encoding="utf-8"))
+cli_push_detail = json.loads(pathlib.Path(sys.argv[6]).read_text(encoding="utf-8"))
+ping_delivery_id = "11111111-1111-1111-1111-111111111111"
+push_delivery_id = "22222222-2222-2222-2222-222222222222"
 
-assert http_list["count"] >= 1, http_list
-assert any(delivery["delivery_id"] == delivery_id for delivery in http_list["deliveries"]), http_list
-assert http_detail["delivery_id"] == delivery_id, http_detail
-assert http_detail["persisted"] is True, http_detail
-assert cli_detail["delivery_id"] == delivery_id, cli_detail
-assert cli_detail["persisted"] is True, cli_detail
-assert any(delivery["delivery_id"] == delivery_id for delivery in cli_list), cli_list
+assert http_list["count"] >= 2, http_list
+assert any(delivery["delivery_id"] == ping_delivery_id for delivery in http_list["deliveries"]), http_list
+assert any(delivery["delivery_id"] == push_delivery_id for delivery in http_list["deliveries"]), http_list
+assert http_ping_detail["delivery_id"] == ping_delivery_id, http_ping_detail
+assert http_ping_detail["persisted"] is True, http_ping_detail
+assert http_ping_detail["routing_status"] == "ignored", http_ping_detail
+assert http_push_detail["delivery_id"] == push_delivery_id, http_push_detail
+assert http_push_detail["persisted"] is True, http_push_detail
+assert http_push_detail["routing_status"] == "candidate", http_push_detail
+assert http_push_detail["routing_action"] == "sync_default_branch", http_push_detail
+assert cli_ping_detail["delivery_id"] == ping_delivery_id, cli_ping_detail
+assert cli_ping_detail["persisted"] is True, cli_ping_detail
+assert cli_ping_detail["routing_status"] == "ignored", cli_ping_detail
+assert cli_push_detail["delivery_id"] == push_delivery_id, cli_push_detail
+assert cli_push_detail["persisted"] is True, cli_push_detail
+assert cli_push_detail["routing_status"] == "candidate", cli_push_detail
+assert cli_push_detail["routing_action"] == "sync_default_branch", cli_push_detail
+assert any(delivery["delivery_id"] == ping_delivery_id for delivery in cli_list), cli_list
+assert any(delivery["delivery_id"] == push_delivery_id for delivery in cli_list), cli_list
 PY
 
 SUBMISSION_OUTPUT="$("$BIN" submit-brief \

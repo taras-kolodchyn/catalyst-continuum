@@ -89,6 +89,8 @@ pub struct GitHubWebhookReceiptSummary {
     pub repository_default_branch: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub installation_id: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ref_name: Option<String>,
     pub payload_digest: String,
     pub payload_bytes: usize,
     pub signature_verified: bool,
@@ -153,6 +155,10 @@ pub fn ingest_github_webhook(
         .get("installation")
         .and_then(|installation| installation.get("id"))
         .and_then(Value::as_u64);
+    let ref_name = payload
+        .get("ref")
+        .and_then(Value::as_str)
+        .map(str::to_string);
     let received_at_epoch_ms = current_epoch_millis().map_err(|error| {
         GitHubWebhookError::internal(format!("failed to compute receipt timestamp: {error}"))
     })?;
@@ -175,6 +181,7 @@ pub fn ingest_github_webhook(
         repository_full_name,
         repository_default_branch,
         installation_id,
+        ref_name,
         payload_digest,
         payload_bytes: body.len(),
         signature_verified: true,
@@ -388,6 +395,7 @@ mod tests {
                 .contains("validated GitHub App ping delivery")
         );
         assert!(summary.signature_verified);
+        assert_eq!(summary.ref_name, None);
 
         let receipt_path = std::path::PathBuf::from(&summary.receipt_path);
         assert!(receipt_path.is_file());
@@ -400,6 +408,33 @@ mod tests {
             receipt["payload"]["repository"]["full_name"],
             "smartit/catalyst-continuum"
         );
+
+        let _ = fs::remove_dir_all(artifact_root);
+    }
+
+    #[test]
+    fn captures_push_ref_name_when_present() {
+        let body = br#"{"ref":"refs/heads/main","repository":{"full_name":"smartit/catalyst-continuum","default_branch":"main"},"installation":{"id":42}}"#;
+        let secret = "continuum-webhook-secret";
+        let signature = signature_for(secret, body);
+        let artifact_root =
+            std::env::temp_dir().join(format!("continuum-webhook-{}", uuid::Uuid::new_v4()));
+
+        let summary = ingest_github_webhook(
+            &GitHubWebhookHeaders {
+                event: "push".to_string(),
+                delivery_id: "22222222-2222-2222-2222-222222222222".to_string(),
+                signature_sha256: signature,
+            },
+            body,
+            &artifact_root,
+            Some(secret),
+        )
+        .expect("push delivery should be accepted");
+
+        assert_eq!(summary.event, "push");
+        assert_eq!(summary.ref_name.as_deref(), Some("refs/heads/main"));
+        assert_eq!(summary.installation_id, Some(42));
 
         let _ = fs::remove_dir_all(artifact_root);
     }

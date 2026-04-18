@@ -71,6 +71,10 @@ CREATE TABLE IF NOT EXISTS webhook_deliveries (
     repository_full_name TEXT,
     repository_default_branch TEXT,
     installation_id BIGINT,
+    ref_name TEXT,
+    routing_status TEXT NOT NULL,
+    routing_action TEXT,
+    routing_reason TEXT NOT NULL,
     payload_digest TEXT NOT NULL,
     payload_bytes BIGINT NOT NULL,
     signature_verified BOOLEAN NOT NULL DEFAULT FALSE,
@@ -95,6 +99,10 @@ ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS action TEXT;
 ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS repository_full_name TEXT;
 ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS repository_default_branch TEXT;
 ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS installation_id BIGINT;
+ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS ref_name TEXT;
+ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS routing_status TEXT NOT NULL DEFAULT 'not_evaluated';
+ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS routing_action TEXT;
+ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS routing_reason TEXT NOT NULL DEFAULT '';
 ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS payload_digest TEXT NOT NULL DEFAULT '';
 ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS payload_bytes BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS signature_verified BOOLEAN NOT NULL DEFAULT FALSE;
