@@ -12,9 +12,9 @@ use crate::{
         submit_brief::submit_validated_brief, worker,
     },
     config::{InstanceConfigReport, load_github_app_webhook_secret},
-    github_webhooks::{
-        GitHubWebhookErrorKind, GitHubWebhookHeaders, GitHubWebhookReceiptSummary,
-        ingest_github_webhook,
+    github_webhooks::{GitHubWebhookErrorKind, GitHubWebhookHeaders, ingest_github_webhook},
+    models::webhook::{
+        GitHubWebhookDeliveryDraft, GitHubWebhookDeliverySummary, GitHubWebhookListFilters,
     },
     planning::{
         brief_validation::validate_brief_document, pack_catalog::build_pack_catalog,
@@ -26,6 +26,7 @@ use crate::{
 };
 
 const DEFAULT_RUN_LIST_LIMIT: usize = 20;
+const DEFAULT_WEBHOOK_LIST_LIMIT: usize = 20;
 
 pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
     let mut store = PostgresRunStore::connect(&args.database_url)?;
@@ -69,6 +70,8 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                         "/healthz",
                         "/readyz",
                         "/config",
+                        "/github/webhooks",
+                        "/github/webhooks/{delivery_id}",
                         "POST /github/webhooks",
                         "/packs",
                         "/packs/{pack_id}",
@@ -110,6 +113,31 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                 ),
             },
             ("GET", "/config") => json_response(StatusCode(200), &instance_config),
+            ("GET", "/github/webhooks") => match parse_list_github_webhooks_request(query) {
+                Ok(list_request) => match store
+                    .list_github_webhook_deliveries(list_request.limit, &list_request.filters)
+                {
+                    Ok(deliveries) => json_response(
+                        StatusCode(200),
+                        &RecentGithubWebhookDeliveriesResponse {
+                            count: deliveries.len(),
+                            deliveries,
+                        },
+                    ),
+                    Err(error) => json_response(
+                        StatusCode(500),
+                        &ErrorResponse {
+                            error: format!("failed to list github webhook deliveries: {error}"),
+                        },
+                    ),
+                },
+                Err(error) => json_response(
+                    StatusCode(400),
+                    &ErrorResponse {
+                        error: error.to_string(),
+                    },
+                ),
+            },
             ("POST", "/github/webhooks") => {
                 let webhook_started_at = Instant::now();
                 let event = header_value(request.headers(), "X-GitHub-Event")
@@ -123,7 +151,32 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                             &args.artifact_root,
                             github_webhook_secret.as_deref(),
                         ) {
-                            Ok(summary) => github_webhook_response(&summary),
+                            Ok(summary) => {
+                                match GitHubWebhookDeliveryDraft::from_receipt_summary(&summary) {
+                                    Ok(delivery_draft) => {
+                                        match store.upsert_github_webhook_delivery(&delivery_draft)
+                                        {
+                                            Ok(delivery) => github_webhook_response(&delivery),
+                                            Err(error) => json_response(
+                                                StatusCode(500),
+                                                &ErrorResponse {
+                                                    error: format!(
+                                                        "failed to persist github webhook delivery: {error}"
+                                                    ),
+                                                },
+                                            ),
+                                        }
+                                    }
+                                    Err(error) => json_response(
+                                        StatusCode(500),
+                                        &ErrorResponse {
+                                            error: format!(
+                                                "failed to build github webhook delivery record: {error}"
+                                            ),
+                                        },
+                                    ),
+                                }
+                            }
                             Err(error) => json_response(
                                 webhook_error_status(error.kind()),
                                 &ErrorResponse {
@@ -161,6 +214,27 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                     webhook_started_at.elapsed(),
                 );
                 response
+            }
+            ("GET", _) if single_path_segment(path, "/github/webhooks/").is_some() => {
+                let delivery_id = single_path_segment(path, "/github/webhooks/")
+                    .expect("github webhook path guard should provide a single path segment");
+                match store.fetch_github_webhook_delivery(delivery_id) {
+                    Ok(Some(delivery)) => json_response(StatusCode(200), &delivery),
+                    Ok(None) => json_response(
+                        StatusCode(404),
+                        &ErrorResponse {
+                            error: format!("github webhook delivery not found: {delivery_id}"),
+                        },
+                    ),
+                    Err(error) => json_response(
+                        StatusCode(500),
+                        &ErrorResponse {
+                            error: format!(
+                                "failed to fetch github webhook delivery {delivery_id}: {error}"
+                            ),
+                        },
+                    ),
+                }
             }
             ("GET", _) if single_path_segment(path, "/artifacts/").is_some() => {
                 let artifact_id = single_path_segment(path, "/artifacts/")
@@ -868,7 +942,7 @@ fn header_value<'a>(headers: &'a [Header], name: &'static str) -> Option<&'a str
 }
 
 fn github_webhook_response(
-    summary: &GitHubWebhookReceiptSummary,
+    summary: &GitHubWebhookDeliverySummary,
 ) -> Response<std::io::Cursor<Vec<u8>>> {
     let status = if summary.outcome == "ping" {
         StatusCode(200)
@@ -876,7 +950,14 @@ fn github_webhook_response(
         StatusCode(202)
     };
 
-    json_response(status, summary)
+    json_response_with_headers(
+        status,
+        summary,
+        &[header(
+            "Location",
+            format!("/github/webhooks/{}", summary.delivery_id),
+        )],
+    )
 }
 
 fn webhook_error_status(kind: GitHubWebhookErrorKind) -> StatusCode {
@@ -919,6 +1000,24 @@ fn parse_list_runs_request(query: Option<&str>) -> anyhow::Result<ListRunsReques
     )?;
 
     Ok(ListRunsRequest { limit, filters })
+}
+
+fn parse_list_github_webhooks_request(
+    query: Option<&str>,
+) -> anyhow::Result<ListGithubWebhooksRequest> {
+    let query_pairs = parse_query_pairs(query);
+    let limit = match query_pairs.get("limit") {
+        Some(value) if !value.trim().is_empty() => {
+            value.trim().parse::<usize>().map_err(|error| {
+                anyhow::anyhow!("invalid github_webhooks.limit `{}`: {error}", value.trim())
+            })?
+        }
+        _ => DEFAULT_WEBHOOK_LIST_LIMIT,
+    };
+    let filters =
+        GitHubWebhookListFilters::from_inputs(query_pairs.get("event").map(String::as_str));
+
+    Ok(ListGithubWebhooksRequest { limit, filters })
 }
 
 fn parse_query_pairs(query: Option<&str>) -> HashMap<String, String> {
@@ -992,7 +1091,11 @@ fn route_label(method: &str, path: &str) -> &'static str {
         ("GET", "/healthz") => "/healthz",
         ("GET", "/readyz") => "/readyz",
         ("GET", "/config") => "/config",
+        ("GET", "/github/webhooks") => "/github/webhooks",
         ("POST", "/github/webhooks") => "/github/webhooks",
+        ("GET", _) if single_path_segment(path, "/github/webhooks/").is_some() => {
+            "/github/webhooks/{delivery_id}"
+        }
         ("GET", "/packs") => "/packs",
         ("GET", _) if single_path_segment(path, "/artifacts/").is_some() => {
             "/artifacts/{artifact_id}"
@@ -1098,6 +1201,18 @@ struct RecentRunsResponse {
 }
 
 #[derive(Debug)]
+struct ListGithubWebhooksRequest {
+    limit: usize,
+    filters: GitHubWebhookListFilters,
+}
+
+#[derive(Debug, Serialize)]
+struct RecentGithubWebhookDeliveriesResponse {
+    count: usize,
+    deliveries: Vec<GitHubWebhookDeliverySummary>,
+}
+
+#[derive(Debug)]
 struct ListRunsRequest {
     limit: usize,
     filters: RunListFilters,
@@ -1126,7 +1241,8 @@ struct PublishPrExportRequest {
 #[cfg(test)]
 mod tests {
     use super::{
-        latest_artifact_path_parts, parse_list_runs_request, readiness_payload, route_label,
+        latest_artifact_path_parts, parse_list_github_webhooks_request, parse_list_runs_request,
+        readiness_payload, route_label,
     };
     use crate::storage::postgres::DatabaseReadiness;
     use anyhow::anyhow;
@@ -1185,7 +1301,12 @@ mod tests {
         assert_eq!(route_label("GET", "/healthz"), "/healthz");
         assert_eq!(route_label("GET", "/readyz"), "/readyz");
         assert_eq!(route_label("GET", "/config"), "/config");
+        assert_eq!(route_label("GET", "/github/webhooks"), "/github/webhooks");
         assert_eq!(route_label("POST", "/github/webhooks"), "/github/webhooks");
+        assert_eq!(
+            route_label("GET", "/github/webhooks/delivery-1"),
+            "/github/webhooks/{delivery_id}"
+        );
     }
 
     #[test]
@@ -1208,5 +1329,14 @@ mod tests {
         assert_eq!(request.limit, 5);
         assert_eq!(request.filters.status.as_deref(), Some("executing"));
         assert_eq!(request.filters.target_pack.as_deref(), Some("cli-tool"));
+    }
+
+    #[test]
+    fn parses_list_github_webhooks_query_filters() {
+        let request = parse_list_github_webhooks_request(Some("limit=5&event=ping"))
+            .expect("query should parse");
+
+        assert_eq!(request.limit, 5);
+        assert_eq!(request.filters.event.as_deref(), Some("ping"));
     }
 }

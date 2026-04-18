@@ -72,6 +72,8 @@ catalyst-continuum-orchestrator list-packs --json
 catalyst-continuum-orchestrator describe-pack --pack-id container-service --json
 catalyst-continuum-orchestrator describe-artifact --database-url "$CATALYST_DATABASE_URL" --artifact-id "<ARTIFACT_ID>" --json
 catalyst-continuum-orchestrator describe-latest-artifact --database-url "$CATALYST_DATABASE_URL" --run-id "<RUN_ID>" --artifact-type quality_report --json
+catalyst-continuum-orchestrator list-github-webhooks --database-url "$CATALYST_DATABASE_URL" --event ping --json
+catalyst-continuum-orchestrator describe-github-webhook --database-url "$CATALYST_DATABASE_URL" --delivery-id "<DELIVERY_ID>" --json
 catalyst-continuum-orchestrator list-runs --database-url "$CATALYST_DATABASE_URL" --status succeeded --target-pack cli-tool --json
 catalyst-continuum-orchestrator describe-run --database-url "$CATALYST_DATABASE_URL" --run-id "<RUN_ID>" --json
 catalyst-continuum-orchestrator validate-brief --file examples/briefs/minimal-cli-tool.yaml --json
@@ -79,6 +81,8 @@ curl http://127.0.0.1:8080/livez
 curl http://127.0.0.1:8080/healthz
 curl http://127.0.0.1:8080/readyz
 curl http://127.0.0.1:8080/config
+curl http://127.0.0.1:8080/github/webhooks
+curl http://127.0.0.1:8080/github/webhooks/<DELIVERY_ID>
 curl http://127.0.0.1:8080/packs
 curl http://127.0.0.1:8080/packs/container-service
 curl http://127.0.0.1:8080/artifacts/<ARTIFACT_ID>
@@ -100,7 +104,7 @@ The current HTTP surface is intentionally narrow. Agent-oriented orchestration a
 `describe-instance-config`, `GET /config`, and the MCP `describe_instance_config` tool give operators and agents a shared introspection path for the active runtime-provider selection and GitHub App readiness without exposing secret values.
 The same instance-aware entrypoints also accept `--runtime-providers-file <path>` when you need `serve`, `mcp-server`, `worker`, or `run-next-task` to use an explicit config file instead of relying only on environment discovery.
 The repository now ships a baseline [config/runtime-providers.yaml](config/runtime-providers.yaml) for local development, while [template-repo/config/runtime-providers.yaml](template-repo/config/runtime-providers.yaml) stays as the private-instance copy point.
-HTTP now also exposes a signed GitHub App webhook intake at `/github/webhooks`. It validates `X-Hub-Signature-256` against the configured webhook secret and persists a structured delivery receipt under the artifact root for audit and local debugging. This is an ingress scaffold, not yet full event-to-run automation.
+HTTP now also exposes a signed GitHub App webhook intake at `/github/webhooks`. It validates `X-Hub-Signature-256` against the configured webhook secret, persists a structured delivery receipt under the artifact root, and upserts a durable `webhook_deliveries` record in Postgres that can be inspected through `list-github-webhooks`, `describe-github-webhook`, `GET /github/webhooks`, and `GET /github/webhooks/{delivery_id}`. This is still an ingress scaffold, not yet full event-to-run automation.
 
 `list-packs` and `describe-pack` now expose pack-level `policy_profile` and
 `quality_profile` contracts so open-source agents can inspect timeout/retry
@@ -145,7 +149,7 @@ GitHub Actions runs one workflow, [`.github/workflows/ci.yml`](.github/workflows
 - `sbom`: builds the orchestrator image, generates an SPDX SBOM, uploads the SBOM artifact, and creates a GitHub/Sigstore provenance attestation for that uploaded artifact
 - `rust`: runs `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo build --workspace --locked`, and `cargo test --workspace --locked`
 - `compose`: validates `deploy/compose/compose.yaml` with the pinned `.env.example`
-- `smoke`: exercises the bootstrap flow end to end for the `container-service`, `cli-tool`, and `worker-service` packs, including `GET /config` plus a signed GitHub webhook `ping` on the HTTP scaffold, then validates the safe stateful MCP path with `describe_instance_config`, `submit_brief`, `list_runs`, `describe_run`, `run_worker_once`, `evaluate_run_policy`, `evaluate_run_quality`, and `describe_artifact`
+- `smoke`: exercises the bootstrap flow end to end for the `container-service`, `cli-tool`, and `worker-service` packs, including `GET /config`, a signed GitHub webhook `ping`, HTTP webhook inspection, CLI webhook inspection, and then the safe stateful MCP path with `describe_instance_config`, `submit_brief`, `list_runs`, `describe_run`, `run_worker_once`, `evaluate_run_policy`, `evaluate_run_quality`, and `describe_artifact`
 
 Local runs through `act` use the runner image and container architecture pinned in [`.actrc`](.actrc), with the canonical values tracked in [`versions.env`](versions.env). GitHub-only publication steps such as artifact upload and attestation are skipped under `act`, because local runs do not expose GitHub runtime tokens, OIDC tokens, or the attestations API. The underlying build and SBOM generation steps still run locally.
 Pinned version policy and update automation are documented in [VERSIONS.md](VERSIONS.md).
@@ -164,7 +168,7 @@ The core checks can be run directly without GitHub Actions:
 ./scripts/mcp-stateful-smoke.sh
 ```
 
-`./scripts/smoke-mvp.sh` still runs a single end-to-end smoke pass, now including orchestrator HTTP liveness/readiness probes, `GET /config`, a signed GitHub webhook `ping`, policy/quality artifact inspection, and the automated run quality gate, and accepts `SMOKE_BRIEF_FILE` to target a specific brief, for example `examples/briefs/minimal-container-service.yaml` or `examples/briefs/minimal-cli-tool.yaml`. `./scripts/mcp-stateful-smoke.sh` complements it by validating the agent-facing MCP stateful path, including `describe_instance_config`, without publishing or opening a GitHub PR.
+`./scripts/smoke-mvp.sh` still runs a single end-to-end smoke pass, now including orchestrator HTTP liveness/readiness probes, `GET /config`, a signed GitHub webhook `ping`, HTTP/CLI webhook inspection, policy/quality artifact inspection, and the automated run quality gate, and accepts `SMOKE_BRIEF_FILE` to target a specific brief, for example `examples/briefs/minimal-container-service.yaml` or `examples/briefs/minimal-cli-tool.yaml`. `./scripts/mcp-stateful-smoke.sh` complements it by validating the agent-facing MCP stateful path, including `describe_instance_config`, without publishing or opening a GitHub PR.
 
 To reproduce the workflow structure locally through `act`:
 

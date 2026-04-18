@@ -8,6 +8,7 @@ use crate::models::{
     artifact::{ArtifactDraft, ArtifactRecord, ArtifactSummary},
     run::{RunContext, RunDetail, RunDraft, RunSummary, RunTaskCounts, SubmissionRecord},
     task::{TaskDraft, TaskExecutionSpec, TaskSummary},
+    webhook::{GitHubWebhookDeliveryDraft, GitHubWebhookDeliverySummary, GitHubWebhookListFilters},
 };
 
 const INIT_SQL: &str = include_str!("../../sql/001_init.sql");
@@ -62,7 +63,8 @@ impl PostgresRunStore {
                     current_database() AS database_name,
                     to_regclass('public.runs') IS NOT NULL AS has_runs,
                     to_regclass('public.artifacts') IS NOT NULL AS has_artifacts,
-                    to_regclass('public.tasks') IS NOT NULL AS has_tasks",
+                    to_regclass('public.tasks') IS NOT NULL AS has_tasks,
+                    to_regclass('public.webhook_deliveries') IS NOT NULL AS has_webhook_deliveries",
                 &[],
             )
             .context("failed to probe postgres readiness")?;
@@ -80,6 +82,10 @@ impl PostgresRunStore {
 
         if !row.get::<_, bool>("has_tasks") {
             missing_tables.push("tasks".to_string());
+        }
+
+        if !row.get::<_, bool>("has_webhook_deliveries") {
+            missing_tables.push("webhook_deliveries".to_string());
         }
 
         Ok(DatabaseReadiness {
@@ -650,6 +656,195 @@ impl PostgresRunStore {
         Ok(row_to_artifact_summary(&row))
     }
 
+    pub fn upsert_github_webhook_delivery(
+        &mut self,
+        delivery: &GitHubWebhookDeliveryDraft,
+    ) -> Result<GitHubWebhookDeliverySummary> {
+        let row = self
+            .client
+            .query_one(
+                &format!(
+                    "INSERT INTO webhook_deliveries (
+                        provider,
+                        delivery_id,
+                        event,
+                        action,
+                        repository_full_name,
+                        repository_default_branch,
+                        installation_id,
+                        payload_digest,
+                        payload_bytes,
+                        signature_verified,
+                        status,
+                        outcome,
+                        receipt_path,
+                        message
+                    ) VALUES (
+                        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
+                    )
+                    ON CONFLICT (delivery_id) DO UPDATE
+                    SET provider = EXCLUDED.provider,
+                        event = EXCLUDED.event,
+                        action = EXCLUDED.action,
+                        repository_full_name = EXCLUDED.repository_full_name,
+                        repository_default_branch = EXCLUDED.repository_default_branch,
+                        installation_id = EXCLUDED.installation_id,
+                        payload_digest = EXCLUDED.payload_digest,
+                        payload_bytes = EXCLUDED.payload_bytes,
+                        signature_verified = EXCLUDED.signature_verified,
+                        status = EXCLUDED.status,
+                        outcome = EXCLUDED.outcome,
+                        receipt_path = EXCLUDED.receipt_path,
+                        message = EXCLUDED.message,
+                        updated_at = NOW()
+                    RETURNING
+                        provider,
+                        delivery_id,
+                        event,
+                        action,
+                        repository_full_name,
+                        repository_default_branch,
+                        installation_id,
+                        payload_digest,
+                        payload_bytes,
+                        signature_verified,
+                        status,
+                        outcome,
+                        receipt_path,
+                        message,
+                        to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
+                        to_char(updated_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS updated_at"
+                ),
+                &[
+                    &delivery.provider,
+                    &delivery.delivery_id,
+                    &delivery.event,
+                    &delivery.action,
+                    &delivery.repository_full_name,
+                    &delivery.repository_default_branch,
+                    &delivery.installation_id,
+                    &delivery.payload_digest,
+                    &delivery.payload_bytes,
+                    &delivery.signature_verified,
+                    &delivery.status,
+                    &delivery.outcome,
+                    &delivery.receipt_path,
+                    &delivery.message,
+                ],
+            )
+            .context("failed to upsert github webhook delivery")?;
+
+        Ok(row_to_github_webhook_delivery_summary(&row))
+    }
+
+    pub fn fetch_github_webhook_delivery(
+        &mut self,
+        delivery_id: &str,
+    ) -> Result<Option<GitHubWebhookDeliverySummary>> {
+        let row = self
+            .client
+            .query_opt(
+                &format!(
+                    "SELECT
+                        provider,
+                        delivery_id,
+                        event,
+                        action,
+                        repository_full_name,
+                        repository_default_branch,
+                        installation_id,
+                        payload_digest,
+                        payload_bytes,
+                        signature_verified,
+                        status,
+                        outcome,
+                        receipt_path,
+                        message,
+                        to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
+                        to_char(updated_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS updated_at
+                     FROM webhook_deliveries
+                     WHERE delivery_id = $1"
+                ),
+                &[&delivery_id],
+            )
+            .with_context(|| format!("failed to fetch github webhook delivery: {delivery_id}"))?;
+
+        Ok(row.as_ref().map(row_to_github_webhook_delivery_summary))
+    }
+
+    pub fn list_github_webhook_deliveries(
+        &mut self,
+        limit: usize,
+        filters: &GitHubWebhookListFilters,
+    ) -> Result<Vec<GitHubWebhookDeliverySummary>> {
+        let limit =
+            i64::try_from(limit).context("webhook delivery list limit exceeds i64 range")?;
+        let rows = match filters.event.as_deref() {
+            None => self
+                .client
+                .query(
+                    &format!(
+                        "SELECT
+                            provider,
+                            delivery_id,
+                            event,
+                            action,
+                            repository_full_name,
+                            repository_default_branch,
+                            installation_id,
+                            payload_digest,
+                            payload_bytes,
+                            signature_verified,
+                            status,
+                            outcome,
+                            receipt_path,
+                            message,
+                            to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
+                            to_char(updated_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS updated_at
+                         FROM webhook_deliveries
+                         ORDER BY created_at DESC, delivery_id DESC
+                         LIMIT $1"
+                    ),
+                    &[&limit],
+                )
+                .context("failed to list github webhook deliveries")?,
+            Some(event) => self
+                .client
+                .query(
+                    &format!(
+                        "SELECT
+                            provider,
+                            delivery_id,
+                            event,
+                            action,
+                            repository_full_name,
+                            repository_default_branch,
+                            installation_id,
+                            payload_digest,
+                            payload_bytes,
+                            signature_verified,
+                            status,
+                            outcome,
+                            receipt_path,
+                            message,
+                            to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
+                            to_char(updated_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS updated_at
+                         FROM webhook_deliveries
+                         WHERE event = $2
+                         ORDER BY created_at DESC, delivery_id DESC
+                         LIMIT $1"
+                    ),
+                    &[&limit, &event],
+                )
+                .context("failed to list github webhook deliveries")?,
+        };
+
+        Ok(rows
+            .iter()
+            .map(row_to_github_webhook_delivery_summary)
+            .collect())
+    }
+
     pub fn list_run_artifacts(
         &mut self,
         run_id: Uuid,
@@ -1006,6 +1201,28 @@ fn row_to_artifact_record(row: &postgres::Row) -> ArtifactRecord {
     ArtifactRecord {
         run_id: row.get("run_id"),
         artifact: row_to_artifact_summary(row),
+    }
+}
+
+fn row_to_github_webhook_delivery_summary(row: &postgres::Row) -> GitHubWebhookDeliverySummary {
+    GitHubWebhookDeliverySummary {
+        provider: row.get("provider"),
+        delivery_id: row.get("delivery_id"),
+        event: row.get("event"),
+        action: row.get("action"),
+        repository_full_name: row.get("repository_full_name"),
+        repository_default_branch: row.get("repository_default_branch"),
+        installation_id: row.get("installation_id"),
+        payload_digest: row.get("payload_digest"),
+        payload_bytes: row.get("payload_bytes"),
+        signature_verified: row.get("signature_verified"),
+        status: row.get("status"),
+        outcome: row.get("outcome"),
+        receipt_path: row.get("receipt_path"),
+        message: row.get("message"),
+        created_at: row.get("created_at"),
+        updated_at: row.get("updated_at"),
+        persisted: true,
     }
 }
 

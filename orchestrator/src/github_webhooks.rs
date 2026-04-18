@@ -74,13 +74,6 @@ impl GitHubWebhookError {
     }
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-pub struct GitHubWebhookRepository {
-    pub full_name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub default_branch: Option<String>,
-}
-
 #[derive(Debug, Clone, Serialize)]
 pub struct GitHubWebhookReceiptSummary {
     pub status: &'static str,
@@ -91,7 +84,9 @@ pub struct GitHubWebhookReceiptSummary {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub action: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub repository: Option<GitHubWebhookRepository>,
+    pub repository_full_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub repository_default_branch: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub installation_id: Option<u64>,
     pub payload_digest: String,
@@ -153,7 +148,7 @@ pub fn ingest_github_webhook(
         .get("action")
         .and_then(Value::as_str)
         .map(str::to_string);
-    let repository = extract_repository(&payload);
+    let (repository_full_name, repository_default_branch) = extract_repository(&payload);
     let installation_id = payload
         .get("installation")
         .and_then(|installation| installation.get("id"))
@@ -177,7 +172,8 @@ pub fn ingest_github_webhook(
         delivery_id: delivery_id.to_string(),
         event: event.to_string(),
         action,
-        repository,
+        repository_full_name,
+        repository_default_branch,
         installation_id,
         payload_digest,
         payload_bytes: body.len(),
@@ -248,18 +244,21 @@ fn verify_signature(
     })
 }
 
-fn extract_repository(payload: &Value) -> Option<GitHubWebhookRepository> {
-    let repository = payload.get("repository")?.as_object()?;
-    let full_name = repository.get("full_name")?.as_str()?.to_string();
-    let default_branch = repository
-        .get("default_branch")
-        .and_then(Value::as_str)
-        .map(str::to_string);
+fn extract_repository(payload: &Value) -> (Option<String>, Option<String>) {
+    let Some(repository) = payload.get("repository").and_then(Value::as_object) else {
+        return (None, None);
+    };
 
-    Some(GitHubWebhookRepository {
-        full_name,
-        default_branch,
-    })
+    (
+        repository
+            .get("full_name")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        repository
+            .get("default_branch")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+    )
 }
 
 fn ping_message(payload: &Value) -> Option<String> {

@@ -63,7 +63,43 @@ CREATE TABLE IF NOT EXISTS tasks (
 CREATE INDEX IF NOT EXISTS idx_tasks_run_id ON tasks (run_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_kind ON tasks (kind);
 
+CREATE TABLE IF NOT EXISTS webhook_deliveries (
+    provider TEXT NOT NULL,
+    delivery_id TEXT PRIMARY KEY,
+    event TEXT NOT NULL,
+    action TEXT,
+    repository_full_name TEXT,
+    repository_default_branch TEXT,
+    installation_id BIGINT,
+    payload_digest TEXT NOT NULL,
+    payload_bytes BIGINT NOT NULL,
+    signature_verified BOOLEAN NOT NULL DEFAULT FALSE,
+    status TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    receipt_path TEXT NOT NULL,
+    message TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_created_at ON webhook_deliveries (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_event ON webhook_deliveries (event);
+CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_repository ON webhook_deliveries (repository_full_name);
+
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS failure_reason TEXT;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS execution JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS provider TEXT NOT NULL DEFAULT 'github';
+ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS action TEXT;
+ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS repository_full_name TEXT;
+ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS repository_default_branch TEXT;
+ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS installation_id BIGINT;
+ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS payload_digest TEXT NOT NULL DEFAULT '';
+ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS payload_bytes BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS signature_verified BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'accepted';
+ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS outcome TEXT NOT NULL DEFAULT 'accepted';
+ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS receipt_path TEXT NOT NULL DEFAULT '';
+ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS message TEXT NOT NULL DEFAULT '';
+ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();

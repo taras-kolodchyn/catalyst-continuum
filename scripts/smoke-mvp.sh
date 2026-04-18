@@ -142,6 +142,10 @@ PY
 
 WEBHOOK_PAYLOAD_FILE="$ARTIFACT_ROOT/github-webhook-ping.json"
 WEBHOOK_RESPONSE_FILE="$ARTIFACT_ROOT/github-webhook-response.json"
+WEBHOOK_LIST_HTTP_FILE="$ARTIFACT_ROOT/http-webhook-deliveries.json"
+WEBHOOK_DETAIL_HTTP_FILE="$ARTIFACT_ROOT/http-webhook-delivery.json"
+WEBHOOK_LIST_CLI_FILE="$ARTIFACT_ROOT/cli-webhook-deliveries.json"
+WEBHOOK_DETAIL_CLI_FILE="$ARTIFACT_ROOT/cli-webhook-delivery.json"
 cat >"$WEBHOOK_PAYLOAD_FILE" <<'EOF'
 {
   "zen": "Keep it logically awesome.",
@@ -189,6 +193,41 @@ assert receipt_path.is_file(), response
 receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
 assert receipt["summary"]["event"] == "ping", receipt
 assert receipt["payload"]["repository"]["full_name"] == "smartit/catalyst-continuum", receipt
+PY
+
+curl -fsS "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/github/webhooks" >"$WEBHOOK_LIST_HTTP_FILE"
+curl -fsS \
+  "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/github/webhooks/11111111-1111-1111-1111-111111111111" \
+  >"$WEBHOOK_DETAIL_HTTP_FILE"
+"$BIN" list-github-webhooks \
+  --database-url "$DATABASE_URL" \
+  --json >"$WEBHOOK_LIST_CLI_FILE"
+"$BIN" describe-github-webhook \
+  --database-url "$DATABASE_URL" \
+  --delivery-id "11111111-1111-1111-1111-111111111111" \
+  --json >"$WEBHOOK_DETAIL_CLI_FILE"
+python3 - \
+  "$WEBHOOK_LIST_HTTP_FILE" \
+  "$WEBHOOK_DETAIL_HTTP_FILE" \
+  "$WEBHOOK_LIST_CLI_FILE" \
+  "$WEBHOOK_DETAIL_CLI_FILE" <<'PY'
+import json
+import pathlib
+import sys
+
+http_list = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+http_detail = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
+cli_list = json.loads(pathlib.Path(sys.argv[3]).read_text(encoding="utf-8"))
+cli_detail = json.loads(pathlib.Path(sys.argv[4]).read_text(encoding="utf-8"))
+delivery_id = "11111111-1111-1111-1111-111111111111"
+
+assert http_list["count"] >= 1, http_list
+assert any(delivery["delivery_id"] == delivery_id for delivery in http_list["deliveries"]), http_list
+assert http_detail["delivery_id"] == delivery_id, http_detail
+assert http_detail["persisted"] is True, http_detail
+assert cli_detail["delivery_id"] == delivery_id, cli_detail
+assert cli_detail["persisted"] is True, cli_detail
+assert any(delivery["delivery_id"] == delivery_id for delivery in cli_list), cli_list
 PY
 
 SUBMISSION_OUTPUT="$("$BIN" submit-brief \

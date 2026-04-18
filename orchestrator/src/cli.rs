@@ -21,8 +21,10 @@ pub enum Command {
     DescribePack(DescribePackArgs),
     DescribeArtifact(DescribeArtifactArgs),
     DescribeLatestArtifact(DescribeLatestArtifactArgs),
+    DescribeGithubWebhook(DescribeGithubWebhookArgs),
     DescribeRun(DescribeRunArgs),
     ListPacks(ListPacksArgs),
+    ListGithubWebhooks(ListGithubWebhooksArgs),
     ListRuns(ListRunsArgs),
     ValidateBrief(ValidateBriefArgs),
     SubmitBrief(SubmitBriefArgs),
@@ -45,8 +47,10 @@ impl Command {
             Self::DescribePack(_) => "describe-pack",
             Self::DescribeArtifact(_) => "describe-artifact",
             Self::DescribeLatestArtifact(_) => "describe-latest-artifact",
+            Self::DescribeGithubWebhook(_) => "describe-github-webhook",
             Self::DescribeRun(_) => "describe-run",
             Self::ListPacks(_) => "list-packs",
+            Self::ListGithubWebhooks(_) => "list-github-webhooks",
             Self::ListRuns(_) => "list-runs",
             Self::ValidateBrief(_) => "validate-brief",
             Self::SubmitBrief(_) => "submit-brief",
@@ -140,6 +144,21 @@ pub struct ListRunsArgs {
 }
 
 #[derive(Debug, Args)]
+pub struct ListGithubWebhooksArgs {
+    #[arg(long, env = "CATALYST_DATABASE_URL")]
+    pub database_url: String,
+
+    #[arg(long, default_value_t = 20)]
+    pub limit: usize,
+
+    #[arg(long)]
+    pub event: Option<String>,
+
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Debug, Args)]
 pub struct DescribeArtifactArgs {
     #[arg(long, env = "CATALYST_DATABASE_URL")]
     pub database_url: String,
@@ -204,6 +223,18 @@ pub struct DescribeRunArgs {
 
     #[arg(long)]
     pub run_id: Uuid,
+
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct DescribeGithubWebhookArgs {
+    #[arg(long, env = "CATALYST_DATABASE_URL")]
+    pub database_url: String,
+
+    #[arg(long)]
+    pub delivery_id: String,
 
     #[arg(long)]
     pub json: bool,
