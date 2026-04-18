@@ -687,6 +687,55 @@ mod tests {
     }
 
     #[test]
+    fn loads_worker_service_pack() {
+        let pack =
+            PackDefinition::load(Some("worker-service")).expect("worker-service pack should load");
+
+        assert_eq!(pack.pack_id, "worker-service");
+        assert_eq!(pack.policy_profile.max_task_timeout_seconds, Some(60));
+        assert_eq!(pack.policy_profile.max_task_retry_count, Some(2));
+        assert_eq!(
+            pack.quality_profile.required_artifact_types,
+            vec!["backlog".to_string(), "policy_report".to_string()]
+        );
+        assert_eq!(pack.quality_profile.minimum_test_task_count, Some(1));
+        assert_eq!(pack.backlog_templates.len(), 5);
+        match &pack
+            .generated_repository
+            .as_ref()
+            .expect("generated repository contract should be present")
+            .runtime
+        {
+            PackGeneratedRuntimeContract::CargoBinary {
+                port_env,
+                default_port,
+            } => {
+                assert_eq!(port_env.as_deref(), None);
+                assert_eq!(*default_port, None);
+            }
+        }
+        match pack
+            .generated_repository
+            .as_ref()
+            .expect("generated repository contract should be present")
+            .smoke
+            .as_ref()
+            .expect("smoke contract should be present")
+        {
+            PackGeneratedSmokeContract::CliJson {
+                summary_command,
+                requirements_command,
+            } => {
+                assert_eq!(summary_command, "summary");
+                assert_eq!(requirements_command.as_deref(), Some("requirements"));
+            }
+            PackGeneratedSmokeContract::HttpJson { .. } => {
+                panic!("worker-service should use cli_json smoke")
+            }
+        }
+    }
+
+    #[test]
     fn renders_string_templates_with_known_tokens() {
         let rendered = render_template(
             "Implement {{requirement.title}} in {{brief.title}}",

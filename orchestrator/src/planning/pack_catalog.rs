@@ -122,9 +122,10 @@ mod tests {
         assert_eq!(catalog.schema_version, "v0.1");
         assert_eq!(catalog.catalog_type, "pack_catalog");
         assert_eq!(catalog.default_pack_id, DEFAULT_PACK_ID);
-        assert!(catalog.pack_count >= 2);
+        assert!(catalog.pack_count >= 3);
         assert_eq!(catalog.items[0].pack_id, "cli-tool");
         assert_eq!(catalog.items[1].pack_id, "container-service");
+        assert_eq!(catalog.items[2].pack_id, "worker-service");
     }
 
     #[test]
@@ -149,6 +150,12 @@ mod tests {
         assert_eq!(cli_tool.policy_profile.max_task_timeout_seconds, Some(60));
         assert_eq!(cli_tool.quality_profile.minimum_test_task_count, Some(1));
         assert!(cli_tool.generated_repository.is_some());
+        assert!(
+            catalog
+                .items
+                .iter()
+                .any(|item| item.pack_id == "worker-service")
+        );
     }
 
     #[test]
@@ -164,6 +171,11 @@ mod tests {
                 .available_pack_ids
                 .contains(&"cli-tool".to_string())
         );
+        assert!(
+            selection
+                .available_pack_ids
+                .contains(&"worker-service".to_string())
+        );
     }
 
     #[test]
@@ -175,6 +187,7 @@ mod tests {
         assert!(message.contains("unknown repo_pack `does-not-exist`"));
         assert!(message.contains("container-service"));
         assert!(message.contains("cli-tool"));
+        assert!(message.contains("worker-service"));
         assert!(message.contains("list-packs --json"));
     }
 }

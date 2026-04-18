@@ -53,6 +53,7 @@ docker compose --env-file deploy/compose/.env.example -f deploy/compose/compose.
 - The orchestrator exports OpenTelemetry traces, metrics, and logs over OTLP HTTP when the collector endpoint env vars are configured.
 - The local collector forwards traces to Tempo, logs to Loki through the native OTLP endpoint, and exposes Prometheus-scrapable metrics.
 - Grafana is provisioned with Prometheus, Loki, and Tempo datasources plus a starter `Catalyst Continuum Overview` dashboard.
+- The overview dashboard now includes dedicated panels for promotion throughput/latency, runtime timeout events, and stale task reclaim outcomes.
 - Postgres and Redis are pinned to explicit image tags for reproducible local runs.
 - Postgres `18.x` expects the persistent volume to be mounted at `/var/lib/postgresql`, not `/var/lib/postgresql/data`.
 - The compose stack uses a dedicated `postgres18-data` named volume so a previous pre-18 local volume layout does not block startup.

@@ -1,0 +1,13 @@
+# {{task.title}}
+
+Generated from `{{source_ref.primary}}`.
+
+## Description
+
+{{task.description}}
+
+## Suggested Integration
+
+- Keep `src/jobs/{{source_ref.ident}}.rs` aligned with `requirements/{{source_ref.slug}}.json`.
+- Reflect worker processing semantics in `run-once` or the next queue adapter.
+- Review acceptance criteria for `{{source_ref.value}}` before promoting the change.

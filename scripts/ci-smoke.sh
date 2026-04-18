@@ -6,4 +6,5 @@ cd "$ROOT_DIR"
 
 ./scripts/smoke-mvp.sh
 SMOKE_BRIEF_FILE="$ROOT_DIR/examples/briefs/minimal-cli-tool.yaml" ./scripts/smoke-mvp.sh
+SMOKE_BRIEF_FILE="$ROOT_DIR/examples/briefs/minimal-worker-service.yaml" ./scripts/smoke-mvp.sh
 ./scripts/mcp-stateful-smoke.sh
