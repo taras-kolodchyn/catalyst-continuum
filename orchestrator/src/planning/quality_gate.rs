@@ -89,7 +89,7 @@ pub fn evaluate_run_quality(
     artifacts: &[ArtifactSummary],
     artifact_root: &Path,
 ) -> Result<QualityGateEvaluation> {
-    let artifact_id = Uuid::new_v4();
+    let artifact_id = quality_report_artifact_id(run.run_id);
     let report_root = artifact_root
         .join("runs")
         .join(run.run_id.to_string())
@@ -195,6 +195,15 @@ pub fn evaluate_run_quality(
     })
 }
 
+fn quality_report_artifact_id(run_id: Uuid) -> Uuid {
+    let digest = Sha256::digest(format!("quality-report:{run_id}").as_bytes());
+    let mut bytes = [0_u8; 16];
+    bytes.copy_from_slice(&digest[..16]);
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    Uuid::from_bytes(bytes)
+}
+
 pub fn artifact_metadata_uuid(artifact: &ArtifactSummary, key: &str) -> Result<Uuid> {
     let value = artifact
         .metadata
@@ -231,6 +240,24 @@ pub fn ensure_artifact_matches_pr_candidate(
         artifact.artifact_id,
         source_pr_candidate_artifact_id,
         expected_pr_candidate_id
+    );
+
+    Ok(())
+}
+
+pub fn ensure_artifact_matches_quality_report(
+    artifact: &ArtifactSummary,
+    metadata_key: &str,
+    expected_quality_report_id: Uuid,
+    artifact_label: &str,
+) -> Result<()> {
+    let source_quality_report_artifact_id = artifact_metadata_uuid(artifact, metadata_key)?;
+    ensure!(
+        source_quality_report_artifact_id == expected_quality_report_id,
+        "{artifact_label} artifact {} is stale: it references quality_report {}, but the current promotion path covers {}",
+        artifact.artifact_id,
+        source_quality_report_artifact_id,
+        expected_quality_report_id
     );
 
     Ok(())
@@ -1264,6 +1291,40 @@ mod tests {
 
         assert_eq!(check.status, "failed");
         assert_eq!(check.check_id, "pr_candidate_fresh");
+    }
+
+    #[test]
+    fn derives_stable_quality_report_artifact_id_for_run() {
+        let run_id = Uuid::new_v4();
+
+        let first = quality_report_artifact_id(run_id);
+        let second = quality_report_artifact_id(run_id);
+
+        assert_eq!(first, second);
+        assert_ne!(first, quality_report_artifact_id(Uuid::new_v4()));
+    }
+
+    #[test]
+    fn fails_when_quality_report_lineage_is_stale() {
+        let expected_quality_report_id = Uuid::new_v4();
+        let stale_quality_report_id = Uuid::new_v4();
+        let artifact = sample_artifact(
+            "pr_export",
+            Uuid::new_v4(),
+            json!({
+                "source_quality_report_artifact_id": stale_quality_report_id.to_string(),
+            }),
+        );
+
+        let error = ensure_artifact_matches_quality_report(
+            &artifact,
+            "source_quality_report_artifact_id",
+            expected_quality_report_id,
+            "pr_export",
+        )
+        .expect_err("stale lineage should fail");
+
+        assert!(error.to_string().contains("current promotion path covers"));
     }
 
     fn sample_artifact(artifact_type: &str, artifact_id: Uuid, metadata: Value) -> ArtifactSummary {

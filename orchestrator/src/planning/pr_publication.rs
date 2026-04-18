@@ -22,6 +22,7 @@ pub const PR_PUBLICATION_ARTIFACT_TYPE: &str = "pr_publication";
 pub fn publish_pr_export(
     run: &RunContext,
     pr_export: &ArtifactSummary,
+    source_quality_report_artifact_id: Uuid,
     artifact_root: &Path,
     requested_remote_url: Option<&str>,
     push_requested: bool,
@@ -102,6 +103,13 @@ pub fn publish_pr_export(
     let head_branch = export_manifest.branch_name.clone();
     let title = build_pull_request_title(run);
     let body = build_pull_request_body(run, &candidate_manifest, &head_branch, &base_branch);
+
+    ensure!(
+        export_manifest.source_quality_report_artifact_id == source_quality_report_artifact_id,
+        "PR export manifest is stale: it references quality_report {}, but this publication path covers {}",
+        export_manifest.source_quality_report_artifact_id,
+        source_quality_report_artifact_id
+    );
 
     if push_requested {
         push_export_branch(&export_repository_root, &remote_url, &head_branch)?;
@@ -188,6 +196,7 @@ pub fn publish_pr_export(
         export_repository_path: export_repository_root.display().to_string(),
         source_pr_export_artifact_id: pr_export.artifact_id,
         source_pr_candidate_artifact_id: export_manifest.source_pr_candidate_artifact_id,
+        source_quality_report_artifact_id,
         patch_count: candidate_manifest.patch_count,
         patches: candidate_manifest
             .patches
@@ -239,6 +248,7 @@ pub fn publish_pr_export(
             "commit_sha": export_manifest.commit_sha,
             "source_pr_export_artifact_id": pr_export.artifact_id,
             "source_pr_candidate_artifact_id": export_manifest.source_pr_candidate_artifact_id,
+            "source_quality_report_artifact_id": source_quality_report_artifact_id,
             "patch_count": manifest.patch_count,
             "push_status": manifest.push_status,
             "published_ref": manifest.published_ref,
@@ -397,6 +407,7 @@ struct PrExportSourceManifest {
     branch_name: String,
     commit_sha: String,
     source_pr_candidate_artifact_id: Uuid,
+    source_quality_report_artifact_id: Uuid,
 }
 
 #[derive(Debug, Deserialize)]
@@ -454,6 +465,7 @@ struct PrPublicationManifest {
     export_repository_path: String,
     source_pr_export_artifact_id: Uuid,
     source_pr_candidate_artifact_id: Uuid,
+    source_quality_report_artifact_id: Uuid,
     patch_count: usize,
     patches: Vec<PublicationPatch>,
     push_requested: bool,
@@ -492,11 +504,18 @@ mod tests {
 
     #[test]
     fn prepares_publication_payload_from_exported_repository() {
-        let (run_context, pr_export_summary, temp_root) = build_exported_repository();
+        let (run_context, pr_export_summary, quality_report_id, temp_root) =
+            build_exported_repository();
 
-        let publication =
-            publish_pr_export(&run_context, &pr_export_summary, &temp_root, None, false)
-                .expect("PR publication should compose");
+        let publication = publish_pr_export(
+            &run_context,
+            &pr_export_summary,
+            quality_report_id,
+            &temp_root,
+            None,
+            false,
+        )
+        .expect("PR publication should compose");
         let publication_root = PathBuf::from(&publication.location_value);
 
         assert_eq!(publication.artifact_type, PR_PUBLICATION_ARTIFACT_TYPE);
@@ -505,6 +524,10 @@ mod tests {
         assert!(publication_root.join("request.json").exists());
         assert!(publication_root.join("manifest.json").exists());
         assert_eq!(publication.metadata["push_status"], "prepared");
+        assert_eq!(
+            publication.metadata["source_quality_report_artifact_id"],
+            quality_report_id.to_string()
+        );
 
         let request: serde_json::Value = serde_json::from_slice(
             &fs::read(publication_root.join("request.json"))
@@ -538,7 +561,8 @@ mod tests {
 
     #[test]
     fn pushes_exported_branch_to_remote_when_requested() {
-        let (run_context, pr_export_summary, temp_root) = build_exported_repository();
+        let (run_context, pr_export_summary, quality_report_id, temp_root) =
+            build_exported_repository();
         let remote_root = temp_root.join("remote.git");
         run_git(
             &temp_root,
@@ -550,6 +574,7 @@ mod tests {
         let publication = publish_pr_export(
             &run_context,
             &pr_export_summary,
+            quality_report_id,
             &temp_root,
             Some(remote_root.display().to_string().as_str()),
             true,
@@ -599,7 +624,7 @@ mod tests {
         let _ = fs::remove_dir_all(&temp_root);
     }
 
-    fn build_exported_repository() -> (RunContext, ArtifactSummary, PathBuf) {
+    fn build_exported_repository() -> (RunContext, ArtifactSummary, Uuid, PathBuf) {
         let brief = sample_brief();
         let run = RunDraft::from_brief(&brief, "examples/brief.yaml".to_string());
         let pack = PackDefinition::load(Some("container-service")).expect("pack should load");
@@ -683,13 +708,19 @@ mod tests {
         .expect("PR candidate should compose");
         let pr_candidate_summary = ArtifactSummary::from_draft(&pr_candidate)
             .with_created_at("2026-04-17T10:20:00.000Z".to_string());
-        let pr_export =
-            pr_export::export_pr_candidate(&run_context, &pr_candidate_summary, &temp_root, None)
-                .expect("PR export should compose");
+        let quality_report_id = Uuid::new_v4();
+        let pr_export = pr_export::export_pr_candidate(
+            &run_context,
+            &pr_candidate_summary,
+            quality_report_id,
+            &temp_root,
+            None,
+        )
+        .expect("PR export should compose");
         let pr_export_summary = ArtifactSummary::from_draft(&pr_export)
             .with_created_at("2026-04-17T10:25:00.000Z".to_string());
 
-        (run_context, pr_export_summary, temp_root)
+        (run_context, pr_export_summary, quality_report_id, temp_root)
     }
 
     fn sample_brief() -> Brief {

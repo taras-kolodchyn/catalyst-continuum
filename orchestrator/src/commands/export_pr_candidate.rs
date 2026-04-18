@@ -4,9 +4,11 @@ use std::path::Path;
 
 use crate::{
     cli::ExportPrCandidateArgs,
+    commands::evaluate_run_quality,
     models::artifact::ArtifactSummary,
     planning::{pr_candidate, pr_export},
     storage::postgres::PostgresRunStore,
+    telemetry,
 };
 
 pub fn execute(args: ExportPrCandidateArgs) -> anyhow::Result<()> {
@@ -31,6 +33,7 @@ pub fn execute(args: ExportPrCandidateArgs) -> anyhow::Result<()> {
 #[derive(Debug, Serialize)]
 pub(crate) struct ExportPrCandidateReport {
     run_id: uuid::Uuid,
+    source_quality_report_artifact_id: uuid::Uuid,
     source_pr_candidate_artifact_id: uuid::Uuid,
     branch_name: String,
     commit_sha: String,
@@ -45,6 +48,12 @@ impl ExportPrCandidateReport {
 
         writeln!(&mut output, "run_id: {}", self.run_id)
             .context("failed to render PR export report")?;
+        writeln!(
+            &mut output,
+            "source_quality_report_artifact_id: {}",
+            self.source_quality_report_artifact_id
+        )
+        .context("failed to render PR export report")?;
         writeln!(
             &mut output,
             "source_pr_candidate_artifact_id: {}",
@@ -75,13 +84,34 @@ pub(crate) fn export_pr_candidate(
         "PR export requires a succeeded run, current status is {}",
         run_status
     );
+    let quality_report = evaluate_run_quality::evaluate_run_quality(store, run_id, artifact_root)?;
+    let source_quality_report_artifact_id = quality_report.quality_report_artifact_id();
+    let expected_pr_candidate_id = quality_report.require_passed_for_remote_promotion()?;
     let run_context = store.fetch_run_context(run_id)?;
     let pr_candidate = store
         .find_latest_run_artifact(run_id, pr_candidate::PR_CANDIDATE_ARTIFACT_TYPE)?
         .with_context(|| format!("run {} does not have a pr_candidate artifact", run_id))?;
+    ensure!(
+        pr_candidate.artifact_id == expected_pr_candidate_id,
+        "pr_candidate artifact {} is stale: current quality gate covers {}",
+        pr_candidate.artifact_id,
+        expected_pr_candidate_id
+    );
 
-    let export =
-        pr_export::export_pr_candidate(&run_context, &pr_candidate, artifact_root, branch_name)?;
+    let export_started_at = std::time::Instant::now();
+    let export = pr_export::export_pr_candidate(
+        &run_context,
+        &pr_candidate,
+        source_quality_report_artifact_id,
+        artifact_root,
+        branch_name,
+    );
+    telemetry::record_promotion_step(
+        "pr_export",
+        if export.is_ok() { "ok" } else { "error" },
+        export_started_at.elapsed(),
+    );
+    let export = export?;
     let artifact = store.upsert_artifact(&export)?;
     let branch_name = artifact
         .metadata
@@ -108,6 +138,7 @@ pub(crate) fn export_pr_candidate(
 
     Ok(ExportPrCandidateReport {
         run_id,
+        source_quality_report_artifact_id,
         source_pr_candidate_artifact_id: pr_candidate.artifact_id,
         branch_name,
         commit_sha,

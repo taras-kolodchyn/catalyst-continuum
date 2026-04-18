@@ -8,6 +8,7 @@ use crate::{
     models::artifact::ArtifactSummary,
     planning::{github_pr, pr_candidate, pr_export, pr_publication},
     storage::postgres::PostgresRunStore,
+    telemetry,
 };
 
 pub fn execute(args: CreateDraftPrArgs) -> anyhow::Result<()> {
@@ -44,6 +45,7 @@ pub(crate) fn create_draft_pr(
         run_status
     );
     let quality_report = evaluate_run_quality::evaluate_run_quality(store, run_id, artifact_root)?;
+    let source_quality_report_artifact_id = quality_report.quality_report_artifact_id();
     let expected_pr_candidate_id = quality_report.require_passed_for_remote_promotion()?;
 
     let run_context = store.fetch_run_context(run_id)?;
@@ -57,21 +59,56 @@ pub(crate) fn create_draft_pr(
         expected_pr_candidate_id
     );
 
-    let export =
-        pr_export::export_pr_candidate(&run_context, &pr_candidate, artifact_root, branch_name)?;
+    let export_started_at = std::time::Instant::now();
+    let export = pr_export::export_pr_candidate(
+        &run_context,
+        &pr_candidate,
+        source_quality_report_artifact_id,
+        artifact_root,
+        branch_name,
+    );
+    telemetry::record_promotion_step(
+        "pr_export",
+        if export.is_ok() { "ok" } else { "error" },
+        export_started_at.elapsed(),
+    );
+    let export = export?;
     let exported_artifact = store.upsert_artifact(&export)?;
 
+    let publication_started_at = std::time::Instant::now();
     let publication = pr_publication::publish_pr_export(
         &run_context,
         &exported_artifact,
+        source_quality_report_artifact_id,
         artifact_root,
         remote_url,
         true,
-    )?;
+    );
+    telemetry::record_promotion_step(
+        "pr_publication",
+        if publication.is_ok() { "ok" } else { "error" },
+        publication_started_at.elapsed(),
+    );
+    let publication = publication?;
     let published_artifact = store.upsert_artifact(&publication)?;
 
-    let github_pull_request =
-        github_pr::open_github_pull_request(&run_context, &published_artifact, artifact_root)?;
+    let github_pr_started_at = std::time::Instant::now();
+    let github_pull_request = github_pr::open_github_pull_request(
+        &run_context,
+        &published_artifact,
+        source_quality_report_artifact_id,
+        artifact_root,
+    );
+    telemetry::record_promotion_step(
+        "github_pull_request",
+        if github_pull_request.is_ok() {
+            "ok"
+        } else {
+            "error"
+        },
+        github_pr_started_at.elapsed(),
+    );
+    let github_pull_request = github_pull_request?;
     let github_pr_artifact = store.upsert_artifact(&github_pull_request)?;
 
     let branch_name = exported_artifact
@@ -143,6 +180,7 @@ pub(crate) fn create_draft_pr(
     let report = CreateDraftPrReport {
         run_id,
         run_status,
+        source_quality_report_artifact_id,
         branch_name,
         commit_sha,
         remote_url,
@@ -162,6 +200,7 @@ pub(crate) fn create_draft_pr(
 pub(crate) struct CreateDraftPrReport {
     run_id: uuid::Uuid,
     run_status: String,
+    source_quality_report_artifact_id: uuid::Uuid,
     branch_name: String,
     commit_sha: String,
     remote_url: String,
@@ -184,6 +223,12 @@ impl CreateDraftPrReport {
             .context("failed to render create-draft-pr report")?;
         writeln!(&mut output, "run_status: {}", self.run_status)
             .context("failed to render create-draft-pr report")?;
+        writeln!(
+            &mut output,
+            "source_quality_report_artifact_id: {}",
+            self.source_quality_report_artifact_id
+        )
+        .context("failed to render create-draft-pr report")?;
         writeln!(&mut output, "branch_name: {}", self.branch_name)
             .context("failed to render create-draft-pr report")?;
         writeln!(&mut output, "commit_sha: {}", self.commit_sha)

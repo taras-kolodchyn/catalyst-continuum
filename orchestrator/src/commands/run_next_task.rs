@@ -373,6 +373,7 @@ fn reclaim_stale_running_tasks(
                     .or_else(|| max_task_retry_count(&run_context)),
                 "reclaimed stale running task and requeued it for retry"
             );
+            telemetry::record_task_reclaim(&task.execution.provider, &task.kind, "requeued");
             store.requeue_task(
                 task.task_id,
                 completion_plan.failure_reason.as_deref(),
@@ -385,6 +386,7 @@ fn reclaim_stale_running_tasks(
                 reclaim_reason,
                 "reclaimed stale running task and marked it failed"
             );
+            telemetry::record_task_reclaim(&task.execution.provider, &task.kind, "failed");
             store.mark_task_finished(
                 task.task_id,
                 &completion_plan.status,

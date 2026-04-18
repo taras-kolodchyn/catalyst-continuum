@@ -8,6 +8,7 @@ use crate::{
     models::artifact::ArtifactSummary,
     planning::{pr_export, pr_publication, quality_gate},
     storage::postgres::PostgresRunStore,
+    telemetry,
 };
 
 pub fn execute(args: PublishPrExportArgs) -> anyhow::Result<()> {
@@ -33,6 +34,7 @@ pub fn execute(args: PublishPrExportArgs) -> anyhow::Result<()> {
 #[derive(Debug, Serialize)]
 pub(crate) struct PublishPrExportReport {
     run_id: uuid::Uuid,
+    source_quality_report_artifact_id: uuid::Uuid,
     source_pr_export_artifact_id: uuid::Uuid,
     head_branch: String,
     base_branch: String,
@@ -49,6 +51,12 @@ impl PublishPrExportReport {
 
         writeln!(&mut output, "run_id: {}", self.run_id)
             .context("failed to render PR publication report")?;
+        writeln!(
+            &mut output,
+            "source_quality_report_artifact_id: {}",
+            self.source_quality_report_artifact_id
+        )
+        .context("failed to render PR publication report")?;
         writeln!(
             &mut output,
             "source_pr_export_artifact_id: {}",
@@ -85,6 +93,7 @@ pub(crate) fn publish_pr_export(
         run_status
     );
     let quality_report = evaluate_run_quality::evaluate_run_quality(store, run_id, artifact_root)?;
+    let source_quality_report_artifact_id = quality_report.quality_report_artifact_id();
     let expected_pr_candidate_id = quality_report.require_passed_for_remote_promotion()?;
     let run_context = store.fetch_run_context(run_id)?;
     let pr_export = store
@@ -96,14 +105,28 @@ pub(crate) fn publish_pr_export(
         expected_pr_candidate_id,
         "pr_export",
     )?;
+    quality_gate::ensure_artifact_matches_quality_report(
+        &pr_export,
+        "source_quality_report_artifact_id",
+        source_quality_report_artifact_id,
+        "pr_export",
+    )?;
 
+    let publication_started_at = std::time::Instant::now();
     let publication = pr_publication::publish_pr_export(
         &run_context,
         &pr_export,
+        source_quality_report_artifact_id,
         artifact_root,
         remote_url,
         push,
-    )?;
+    );
+    telemetry::record_promotion_step(
+        "pr_publication",
+        if publication.is_ok() { "ok" } else { "error" },
+        publication_started_at.elapsed(),
+    );
+    let publication = publication?;
     let artifact = store.upsert_artifact(&publication)?;
     let head_branch = artifact
         .metadata
@@ -152,6 +175,7 @@ pub(crate) fn publish_pr_export(
 
     Ok(PublishPrExportReport {
         run_id,
+        source_quality_report_artifact_id,
         source_pr_export_artifact_id: pr_export.artifact_id,
         head_branch,
         base_branch,

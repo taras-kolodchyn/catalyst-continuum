@@ -43,7 +43,7 @@ pub(crate) fn evaluate_run_quality(
         &run_detail.artifacts,
         artifact_root,
     )?;
-    let artifact = store.insert_artifact(&evaluation.artifact)?;
+    let artifact = store.upsert_artifact(&evaluation.artifact)?;
 
     Ok(EvaluateRunQualityReport {
         run_id,
@@ -134,5 +134,9 @@ impl EvaluateRunQualityReport {
                 self.run_id
             )
         })
+    }
+
+    pub(crate) fn quality_report_artifact_id(&self) -> Uuid {
+        self.artifact.artifact_id
     }
 }

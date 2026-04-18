@@ -7,6 +7,7 @@ use crate::{
     models::artifact::ArtifactSummary,
     planning::{github_pr, pr_publication, quality_gate},
     storage::postgres::PostgresRunStore,
+    telemetry,
 };
 
 pub fn execute(args: OpenGithubPrArgs) -> anyhow::Result<()> {
@@ -35,6 +36,7 @@ pub(crate) fn open_github_pr(
         run_status
     );
     let quality_report = evaluate_run_quality::evaluate_run_quality(store, run_id, artifact_root)?;
+    let source_quality_report_artifact_id = quality_report.quality_report_artifact_id();
     let expected_pr_candidate_id = quality_report.require_passed_for_remote_promotion()?;
     let run_context = store.fetch_run_context(run_id)?;
     let pr_publication = store
@@ -46,9 +48,30 @@ pub(crate) fn open_github_pr(
         expected_pr_candidate_id,
         "pr_publication",
     )?;
+    quality_gate::ensure_artifact_matches_quality_report(
+        &pr_publication,
+        "source_quality_report_artifact_id",
+        source_quality_report_artifact_id,
+        "pr_publication",
+    )?;
 
-    let github_pull_request =
-        github_pr::open_github_pull_request(&run_context, &pr_publication, artifact_root)?;
+    let github_pr_started_at = std::time::Instant::now();
+    let github_pull_request = github_pr::open_github_pull_request(
+        &run_context,
+        &pr_publication,
+        source_quality_report_artifact_id,
+        artifact_root,
+    );
+    telemetry::record_promotion_step(
+        "github_pull_request",
+        if github_pull_request.is_ok() {
+            "ok"
+        } else {
+            "error"
+        },
+        github_pr_started_at.elapsed(),
+    );
+    let github_pull_request = github_pull_request?;
     let artifact = store.upsert_artifact(&github_pull_request)?;
     let resolution = artifact
         .metadata
@@ -85,6 +108,7 @@ pub(crate) fn open_github_pr(
 
     Ok(OpenGithubPrReport {
         run_id,
+        source_quality_report_artifact_id,
         source_pr_publication_artifact_id: pr_publication.artifact_id,
         resolution,
         pr_number,
@@ -96,6 +120,7 @@ pub(crate) fn open_github_pr(
 #[derive(Debug, Serialize)]
 pub(crate) struct OpenGithubPrReport {
     run_id: uuid::Uuid,
+    source_quality_report_artifact_id: uuid::Uuid,
     source_pr_publication_artifact_id: uuid::Uuid,
     resolution: String,
     pr_number: u64,
@@ -111,6 +136,12 @@ impl OpenGithubPrReport {
 
         writeln!(&mut output, "run_id: {}", self.run_id)
             .context("failed to render GitHub PR report")?;
+        writeln!(
+            &mut output,
+            "source_quality_report_artifact_id: {}",
+            self.source_quality_report_artifact_id
+        )
+        .context("failed to render GitHub PR report")?;
         writeln!(
             &mut output,
             "source_pr_publication_artifact_id: {}",

@@ -22,6 +22,7 @@ pub const PR_EXPORT_ARTIFACT_TYPE: &str = "pr_export";
 pub fn export_pr_candidate(
     run: &RunContext,
     pr_candidate: &ArtifactSummary,
+    source_quality_report_artifact_id: Uuid,
     artifact_root: &Path,
     requested_branch_name: Option<&str>,
 ) -> Result<ArtifactDraft> {
@@ -134,6 +135,7 @@ pub fn export_pr_candidate(
         patches_path: export_patches_root.display().to_string(),
         combined_patch_path: export_root.join("combined.patch").display().to_string(),
         source_pr_candidate_artifact_id: pr_candidate.artifact_id,
+        source_quality_report_artifact_id,
         patch_count: patch_files.len(),
         patch_files,
     };
@@ -168,6 +170,7 @@ pub fn export_pr_candidate(
             "branch_name": branch_name,
             "commit_sha": commit_sha,
             "source_pr_candidate_artifact_id": pr_candidate.artifact_id,
+            "source_quality_report_artifact_id": source_quality_report_artifact_id,
             "patch_count": manifest.patch_count,
         }),
     })
@@ -399,6 +402,7 @@ struct PrExportManifest {
     patches_path: String,
     combined_patch_path: String,
     source_pr_candidate_artifact_id: Uuid,
+    source_quality_report_artifact_id: Uuid,
     patch_count: usize,
     patch_files: Vec<String>,
 }
@@ -511,8 +515,15 @@ mod tests {
         let pr_candidate_summary = ArtifactSummary::from_draft(&pr_candidate)
             .with_created_at("2026-04-17T10:20:00.000Z".to_string());
 
-        let pr_export = export_pr_candidate(&run_context, &pr_candidate_summary, &temp_root, None)
-            .expect("PR export should compose");
+        let quality_report_id = Uuid::new_v4();
+        let pr_export = export_pr_candidate(
+            &run_context,
+            &pr_candidate_summary,
+            quality_report_id,
+            &temp_root,
+            None,
+        )
+        .expect("PR export should compose");
         let export_root = PathBuf::from(&pr_export.location_value);
 
         assert_eq!(pr_export.artifact_type, PR_EXPORT_ARTIFACT_TYPE);
@@ -535,6 +546,10 @@ mod tests {
         assert_eq!(
             pr_export.metadata["branch_name"],
             default_branch_name(run.run_id)
+        );
+        assert_eq!(
+            pr_export.metadata["source_quality_report_artifact_id"],
+            quality_report_id.to_string()
         );
 
         let branch = run_git_output(

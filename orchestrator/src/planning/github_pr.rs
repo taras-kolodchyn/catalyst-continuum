@@ -24,14 +24,22 @@ pub const GITHUB_PULL_REQUEST_ARTIFACT_TYPE: &str = "github_pull_request";
 pub fn open_github_pull_request(
     run: &RunContext,
     pr_publication: &ArtifactSummary,
+    source_quality_report_artifact_id: Uuid,
     artifact_root: &Path,
 ) -> Result<ArtifactDraft> {
-    open_github_pull_request_with_cli(run, pr_publication, artifact_root, Path::new("gh"))
+    open_github_pull_request_with_cli(
+        run,
+        pr_publication,
+        source_quality_report_artifact_id,
+        artifact_root,
+        Path::new("gh"),
+    )
 }
 
 fn open_github_pull_request_with_cli(
     run: &RunContext,
     pr_publication: &ArtifactSummary,
+    source_quality_report_artifact_id: Uuid,
     artifact_root: &Path,
     gh_cli: &Path,
 ) -> Result<ArtifactDraft> {
@@ -95,6 +103,12 @@ fn open_github_pull_request_with_cli(
     ensure!(
         request.pull_request.draft,
         "GitHub PR creation currently supports draft pull requests only"
+    );
+    ensure!(
+        publication_manifest.source_quality_report_artifact_id == source_quality_report_artifact_id,
+        "PR publication manifest is stale: it references quality_report {}, but this GitHub PR path covers {}",
+        publication_manifest.source_quality_report_artifact_id,
+        source_quality_report_artifact_id
     );
 
     let repository_slug = format!("{}/{}", request.repository.owner, request.repository.name);
@@ -178,6 +192,7 @@ fn open_github_pull_request_with_cli(
         resolution: resolution.clone(),
         source_pr_publication_artifact_id: pr_publication.artifact_id,
         source_pr_export_artifact_id: publication_manifest.source_pr_export_artifact_id,
+        source_quality_report_artifact_id,
     };
     let manifest_path = github_pr_root.join("manifest.json");
     let serialized_manifest =
@@ -218,6 +233,7 @@ fn open_github_pull_request_with_cli(
             "base_branch": manifest.base_branch,
             "source_pr_publication_artifact_id": pr_publication.artifact_id,
             "source_pr_export_artifact_id": manifest.source_pr_export_artifact_id,
+            "source_quality_report_artifact_id": source_quality_report_artifact_id,
         }),
     })
 }
@@ -415,6 +431,7 @@ struct PrPublicationSourceManifest {
     push_status: String,
     export_repository_path: String,
     source_pr_export_artifact_id: Uuid,
+    source_quality_report_artifact_id: Uuid,
 }
 
 #[derive(Debug, Deserialize)]
@@ -470,6 +487,7 @@ struct GitHubPullRequestManifest {
     resolution: String,
     source_pr_publication_artifact_id: Uuid,
     source_pr_export_artifact_id: Uuid,
+    source_quality_report_artifact_id: Uuid,
 }
 
 #[cfg(test)]
@@ -497,7 +515,8 @@ mod tests {
 
     #[test]
     fn creates_github_pull_request_when_missing() {
-        let (run_context, publication_summary, temp_root) = build_pushed_publication();
+        let (run_context, publication_summary, quality_report_id, temp_root) =
+            build_pushed_publication();
         let gh_log = temp_root.join("gh-create.log");
         let gh_cli = write_fake_gh_cli(
             &temp_root,
@@ -531,6 +550,7 @@ esac
         let github_pr = open_github_pull_request_with_cli(
             &run_context,
             &publication_summary,
+            quality_report_id,
             &temp_root,
             &gh_cli,
         )
@@ -544,6 +564,10 @@ esac
             github_pr.metadata["pr_url"],
             "https://github.com/smartit/catalyst-continuum-demo/pull/42"
         );
+        assert_eq!(
+            github_pr.metadata["source_quality_report_artifact_id"],
+            quality_report_id.to_string()
+        );
         assert!(artifact_root.join("manifest.json").exists());
         assert!(artifact_root.join("response.json").exists());
 
@@ -556,7 +580,8 @@ esac
 
     #[test]
     fn reuses_existing_github_pull_request_for_head_branch() {
-        let (run_context, publication_summary, temp_root) = build_pushed_publication();
+        let (run_context, publication_summary, quality_report_id, temp_root) =
+            build_pushed_publication();
         let gh_log = temp_root.join("gh-existing.log");
         let gh_cli = write_fake_gh_cli(
             &temp_root,
@@ -584,6 +609,7 @@ esac
         let github_pr = open_github_pull_request_with_cli(
             &run_context,
             &publication_summary,
+            quality_report_id,
             &temp_root,
             &gh_cli,
         )
@@ -599,7 +625,7 @@ esac
         let _ = fs::remove_dir_all(&temp_root);
     }
 
-    fn build_pushed_publication() -> (RunContext, ArtifactSummary, PathBuf) {
+    fn build_pushed_publication() -> (RunContext, ArtifactSummary, Uuid, PathBuf) {
         let brief = sample_brief();
         let run = RunDraft::from_brief(&brief, "examples/brief.yaml".to_string());
         let pack = PackDefinition::load(Some("container-service")).expect("pack should load");
@@ -683,9 +709,15 @@ esac
         .expect("PR candidate should compose");
         let pr_candidate_summary = ArtifactSummary::from_draft(&pr_candidate)
             .with_created_at("2026-04-17T10:20:00.000Z".to_string());
-        let pr_export =
-            pr_export::export_pr_candidate(&run_context, &pr_candidate_summary, &temp_root, None)
-                .expect("PR export should compose");
+        let quality_report_id = Uuid::new_v4();
+        let pr_export = pr_export::export_pr_candidate(
+            &run_context,
+            &pr_candidate_summary,
+            quality_report_id,
+            &temp_root,
+            None,
+        )
+        .expect("PR export should compose");
         let pr_export_summary = ArtifactSummary::from_draft(&pr_export)
             .with_created_at("2026-04-17T10:25:00.000Z".to_string());
 
@@ -702,6 +734,7 @@ esac
         let publication = pr_publication::publish_pr_export(
             &run_context,
             &pr_export_summary,
+            quality_report_id,
             &temp_root,
             Some(remote_root.display().to_string().as_str()),
             true,
@@ -710,7 +743,12 @@ esac
         let publication_summary = ArtifactSummary::from_draft(&publication)
             .with_created_at("2026-04-17T10:30:00.000Z".to_string());
 
-        (run_context, publication_summary, temp_root)
+        (
+            run_context,
+            publication_summary,
+            quality_report_id,
+            temp_root,
+        )
     }
 
     fn write_fake_gh_cli(temp_root: &Path, log_path: &Path, script: &str) -> PathBuf {

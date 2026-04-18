@@ -36,8 +36,12 @@ struct Instruments {
     brief_submission_duration_ms: Histogram<f64>,
     task_executions: Counter<u64>,
     task_execution_duration_ms: Histogram<f64>,
+    task_reclaims: Counter<u64>,
+    runtime_timeouts: Counter<u64>,
     worker_cycles: Counter<u64>,
     worker_cycle_duration_ms: Histogram<f64>,
+    promotion_steps: Counter<u64>,
+    promotion_step_duration_ms: Histogram<f64>,
 }
 
 static INSTRUMENTS: OnceLock<Instruments> = OnceLock::new();
@@ -173,6 +177,31 @@ pub fn record_task_execution(provider: &str, status: &str, duration: Duration) {
         .record(duration_ms(duration), &attributes);
 }
 
+pub fn record_task_reclaim(provider: &str, task_kind: &str, outcome: &str) {
+    let instruments = instruments();
+    let attributes = [
+        KeyValue::new("provider", provider.to_string()),
+        KeyValue::new("task_kind", task_kind.to_string()),
+        KeyValue::new("outcome", outcome.to_string()),
+    ];
+
+    instruments.task_reclaims.add(1, &attributes);
+}
+
+pub fn record_runtime_timeout(provider: &str, task_kind: &str, timeout_seconds: Option<u64>) {
+    let instruments = instruments();
+    let attributes = [
+        KeyValue::new("provider", provider.to_string()),
+        KeyValue::new("task_kind", task_kind.to_string()),
+        KeyValue::new(
+            "timeout_seconds",
+            i64::try_from(timeout_seconds.unwrap_or(0)).unwrap_or(0),
+        ),
+    ];
+
+    instruments.runtime_timeouts.add(1, &attributes);
+}
+
 pub fn record_worker_cycle(outcome: &str, once: bool, duration: Duration) {
     let instruments = instruments();
     let attributes = [
@@ -183,6 +212,19 @@ pub fn record_worker_cycle(outcome: &str, once: bool, duration: Duration) {
     instruments.worker_cycles.add(1, &attributes);
     instruments
         .worker_cycle_duration_ms
+        .record(duration_ms(duration), &attributes);
+}
+
+pub fn record_promotion_step(step: &str, outcome: &str, duration: Duration) {
+    let instruments = instruments();
+    let attributes = [
+        KeyValue::new("step", step.to_string()),
+        KeyValue::new("outcome", outcome.to_string()),
+    ];
+
+    instruments.promotion_steps.add(1, &attributes);
+    instruments
+        .promotion_step_duration_ms
         .record(duration_ms(duration), &attributes);
 }
 
@@ -223,6 +265,14 @@ fn instruments() -> &'static Instruments {
                 .f64_histogram("catalyst_task_execution_duration_ms")
                 .with_description("Duration of task execution cycles in milliseconds")
                 .build(),
+            task_reclaims: meter
+                .u64_counter("catalyst_task_reclaims")
+                .with_description("Count of stale task reclaim events")
+                .build(),
+            runtime_timeouts: meter
+                .u64_counter("catalyst_runtime_timeouts")
+                .with_description("Count of runtime-enforced task timeout events")
+                .build(),
             worker_cycles: meter
                 .u64_counter("catalyst_worker_cycles")
                 .with_description("Count of worker loop cycles")
@@ -230,6 +280,14 @@ fn instruments() -> &'static Instruments {
             worker_cycle_duration_ms: meter
                 .f64_histogram("catalyst_worker_cycle_duration_ms")
                 .with_description("Duration of worker loop cycles in milliseconds")
+                .build(),
+            promotion_steps: meter
+                .u64_counter("catalyst_promotion_steps")
+                .with_description("Count of publication and promotion pipeline steps")
+                .build(),
+            promotion_step_duration_ms: meter
+                .f64_histogram("catalyst_promotion_step_duration_ms")
+                .with_description("Duration of publication and promotion steps in milliseconds")
                 .build(),
         }
     })

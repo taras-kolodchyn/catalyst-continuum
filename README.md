@@ -53,7 +53,7 @@ catalyst-continuum-orchestrator evaluate-run-quality \
 ```
 
 The quality gate now checks both presence and freshness of derived artifacts, including whether the latest `workspace_snapshot` still references the newest source bundles and whether the latest `pr_candidate` still points at the newest snapshot and patch set.
-`publish-pr-export`, `open-github-pr`, and `create-draft-pr` re-run this gate automatically and reject stale or unverified `pr_candidate` artifacts.
+`export-pr-candidate`, `publish-pr-export`, `open-github-pr`, and `create-draft-pr` now anchor their artifact lineage to the current passed `quality_report` and reject stale or unverified promotion inputs.
 
 After that, the run can be promoted into a draft GitHub pull request:
 
@@ -101,6 +101,8 @@ The local `v0.1` compose stack now includes an observability baseline:
 - Loki for logs
 - Tempo for traces
 - Grafana with pinned datasource and dashboard provisioning
+
+The telemetry surface now also emits dedicated metrics for promotion steps, runtime-enforced task timeouts, and stale task reclaim events, so these control-plane paths can be broken out cleanly in Grafana instead of being inferred from generic command/task counters.
 
 An initial MCP stdio adapter is now available through:
 

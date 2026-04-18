@@ -16,6 +16,7 @@ use uuid::Uuid;
 use crate::{
     models::{artifact::ArtifactDraft, task::TaskSummary},
     runtime::{RuntimeProvider, TaskExecutionContext, TaskExecutionResult},
+    telemetry,
 };
 
 #[derive(Debug, Default)]
@@ -119,6 +120,10 @@ impl RuntimeProvider for DockerRuntimeProvider {
         } else {
             "failed".to_string()
         };
+
+        if output.timed_out {
+            telemetry::record_runtime_timeout("docker", &task.kind, task.execution.timeout_seconds);
+        }
 
         let failure_reason = if output.timed_out {
             Some(format!(
