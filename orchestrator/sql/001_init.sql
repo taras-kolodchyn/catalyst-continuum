@@ -138,6 +138,7 @@ CREATE TABLE IF NOT EXISTS repository_signals (
     ref_name TEXT,
     before_sha TEXT,
     after_sha TEXT,
+    materialized_run_id UUID REFERENCES runs (run_id) ON DELETE SET NULL,
     payload_path TEXT NOT NULL,
     payload_digest TEXT NOT NULL,
     message TEXT NOT NULL,
@@ -153,6 +154,8 @@ CREATE INDEX IF NOT EXISTS idx_repository_signals_status
     ON repository_signals (status);
 CREATE INDEX IF NOT EXISTS idx_repository_signals_repository
     ON repository_signals (repository_full_name);
+CREATE INDEX IF NOT EXISTS idx_repository_signals_materialized_run
+    ON repository_signals (materialized_run_id);
 
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
@@ -205,6 +208,7 @@ ALTER TABLE repository_signals ADD COLUMN IF NOT EXISTS installation_id BIGINT;
 ALTER TABLE repository_signals ADD COLUMN IF NOT EXISTS ref_name TEXT;
 ALTER TABLE repository_signals ADD COLUMN IF NOT EXISTS before_sha TEXT;
 ALTER TABLE repository_signals ADD COLUMN IF NOT EXISTS after_sha TEXT;
+ALTER TABLE repository_signals ADD COLUMN IF NOT EXISTS materialized_run_id UUID REFERENCES runs (run_id) ON DELETE SET NULL;
 ALTER TABLE repository_signals ADD COLUMN IF NOT EXISTS payload_path TEXT NOT NULL DEFAULT '';
 ALTER TABLE repository_signals ADD COLUMN IF NOT EXISTS payload_digest TEXT NOT NULL DEFAULT '';
 ALTER TABLE repository_signals ADD COLUMN IF NOT EXISTS message TEXT NOT NULL DEFAULT '';

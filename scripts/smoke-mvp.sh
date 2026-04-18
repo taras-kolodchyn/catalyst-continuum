@@ -167,6 +167,9 @@ WEBHOOK_ACTION_DETAIL_CLI_FILE="$ARTIFACT_ROOT/cli-webhook-action-request.json"
 WEBHOOK_ACTION_EXECUTED_CLI_FILE="$ARTIFACT_ROOT/cli-webhook-action-request-executed.json"
 REPOSITORY_SIGNAL_LIST_CLI_FILE="$ARTIFACT_ROOT/cli-repository-signals.json"
 REPOSITORY_SIGNAL_DETAIL_CLI_FILE="$ARTIFACT_ROOT/cli-repository-signal.json"
+REPOSITORY_SIGNAL_BRIEF_FILE="$ARTIFACT_ROOT/repository-signal-brief.yaml"
+REPOSITORY_SIGNAL_SUBMISSION_CLI_FILE="$ARTIFACT_ROOT/cli-repository-signal-submission.json"
+REPOSITORY_SIGNAL_SUBMITTED_CLI_FILE="$ARTIFACT_ROOT/cli-repository-signal-submitted.json"
 cat >"$WEBHOOK_PAYLOAD_FILE" <<'EOF'
 {
   "zen": "Keep it logically awesome.",
@@ -495,6 +498,83 @@ assert cli_signal_detail["status"] == "pending", cli_signal_detail
 assert cli_signal_detail["proposed_run_trigger"] == "repository_signal", cli_signal_detail
 assert cli_signal_detail["source_request_id"] == request_id, cli_signal_detail
 assert cli_signal_detail["after_sha"] == after_sha, cli_signal_detail
+PY
+
+cat >"$REPOSITORY_SIGNAL_BRIEF_FILE" <<'EOF'
+schema_version: v0.1
+brief_id: 55555555-5555-5555-5555-555555555555
+title: Repository Signal Materialization
+summary: >
+  Build a repository-signal initiated proof of concept so the orchestrator can
+  validate signal-to-run handoff end to end.
+requested_by: product@example.com
+target_users:
+  - internal platform engineers
+goals:
+  - Materialize a run from a repository signal.
+functional_requirements:
+  - id: APP-1
+    title: Generate backlog
+    description: Produce a deterministic backlog from the signal-driven brief.
+constraints:
+  - Keep the first implementation deterministic.
+deliverables:
+  - backlog artifact
+repository:
+  host: github
+  owner: smartit
+  name: catalyst-continuum
+  default_branch: main
+  visibility: private
+execution_preferences:
+  repo_pack: cli-tool
+  default_runtime_provider: docker
+  sandbox_profile: restricted
+policy:
+  max_task_count: 8
+  max_total_timeout_seconds: 180
+  max_task_retry_count: 1
+  allowed_task_kinds:
+    - plan
+    - scaffold
+    - code
+    - test
+  allowed_runtime_providers:
+    - docker
+  allowed_sandbox_profiles:
+    - restricted
+EOF
+
+"$BIN" submit-repository-signal \
+  --database-url "$DATABASE_URL" \
+  --artifact-root "$ARTIFACT_ROOT" \
+  --signal-id "$PUSH_WEBHOOK_SIGNAL_ID" \
+  --file "$REPOSITORY_SIGNAL_BRIEF_FILE" \
+  --json >"$REPOSITORY_SIGNAL_SUBMISSION_CLI_FILE"
+"$BIN" describe-repository-signal \
+  --database-url "$DATABASE_URL" \
+  --signal-id "$PUSH_WEBHOOK_SIGNAL_ID" \
+  --json >"$REPOSITORY_SIGNAL_SUBMITTED_CLI_FILE"
+python3 - \
+  "$REPOSITORY_SIGNAL_SUBMISSION_CLI_FILE" \
+  "$REPOSITORY_SIGNAL_SUBMITTED_CLI_FILE" \
+  "$PUSH_WEBHOOK_SIGNAL_ID" <<'PY'
+import json
+import pathlib
+import sys
+
+submission = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+signal = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
+signal_id = sys.argv[3]
+
+run_id = submission["submission"]["run_id"]
+assert submission["submission"]["trigger"] == "repository_signal", submission
+assert submission["signal"]["signal_id"] == signal_id, submission
+assert submission["signal"]["status"] == "submitted", submission
+assert submission["signal"]["materialized_run_id"] == run_id, submission
+assert signal["signal_id"] == signal_id, signal
+assert signal["status"] == "submitted", signal
+assert signal["materialized_run_id"] == run_id, signal
 PY
 
 SUBMISSION_OUTPUT="$("$BIN" submit-brief \

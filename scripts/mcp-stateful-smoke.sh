@@ -378,6 +378,7 @@ try:
         "run_next_github_webhook_action",
         "list_repository_signals",
         "describe_repository_signal",
+        "submit_repository_signal",
         "list_runs",
         "describe_run",
         "run_next_task",
@@ -645,6 +646,91 @@ try:
         fail(
             "stateful MCP smoke failed: repository signal payload should capture after_sha, got "
             f"{signal_payload['repository']['after_sha']}"
+        )
+
+    signal_brief_content = """\
+schema_version: v0.1
+brief_id: 55555555-5555-5555-5555-555555555555
+title: Repository Signal Materialization
+summary: Build a repository-signal initiated proof of concept so the orchestrator can validate signal-to-run handoff end to end.
+requested_by: product@example.com
+target_users:
+  - internal platform engineers
+goals:
+  - Materialize a run from a repository signal.
+functional_requirements:
+  - id: APP-1
+    title: Generate backlog
+    description: Produce a deterministic backlog from the signal-driven brief.
+constraints:
+  - Keep the first implementation deterministic.
+deliverables:
+  - backlog artifact
+repository:
+  host: github
+  owner: smartit
+  name: catalyst-continuum
+  default_branch: main
+  visibility: private
+execution_preferences:
+  repo_pack: cli-tool
+  default_runtime_provider: docker
+  sandbox_profile: restricted
+policy:
+  max_task_count: 8
+  max_total_timeout_seconds: 180
+  max_task_retry_count: 1
+  allowed_task_kinds:
+    - plan
+    - scaffold
+    - code
+    - test
+  allowed_runtime_providers:
+    - docker
+  allowed_sandbox_profiles:
+    - restricted
+"""
+
+    signal_submission = call_tool(
+        "submit_repository_signal",
+        {
+            "signal_id": push_webhook_signal_id,
+            "brief_content": signal_brief_content,
+            "brief_source_path": "mcp:inline-repository-signal-brief.yaml",
+        },
+        "submission",
+    )
+    signal_run_id = signal_submission["submission"]["run_id"]
+    if signal_submission["submission"]["trigger"] != "repository_signal":
+        fail(
+            "stateful MCP smoke failed: repository signal submission should create a repository_signal run, got "
+            f"{signal_submission['submission']['trigger']}"
+        )
+    if signal_submission["signal"]["status"] != "submitted":
+        fail(
+            "stateful MCP smoke failed: submitted repository signal should transition to submitted, got "
+            f"{signal_submission['signal']['status']}"
+        )
+    if signal_submission["signal"]["materialized_run_id"] != signal_run_id:
+        fail(
+            "stateful MCP smoke failed: submitted repository signal should point at the materialized run, got "
+            f"{signal_submission['signal']['materialized_run_id']}"
+        )
+
+    described_submitted_signal = call_tool(
+        "describe_repository_signal",
+        {"signal_id": push_webhook_signal_id},
+        "signal",
+    )
+    if described_submitted_signal["status"] != "submitted":
+        fail(
+            "stateful MCP smoke failed: describe_repository_signal should report submitted after materialization, got "
+            f"{described_submitted_signal['status']}"
+        )
+    if described_submitted_signal["materialized_run_id"] != signal_run_id:
+        fail(
+            "stateful MCP smoke failed: describe_repository_signal should expose materialized_run_id after submission, got "
+            f"{described_submitted_signal['materialized_run_id']}"
         )
 
     catalog = call_tool("list_packs", {}, "catalog")

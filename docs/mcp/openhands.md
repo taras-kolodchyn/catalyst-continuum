@@ -129,6 +129,7 @@ Stateful tools need `CATALYST_DATABASE_URL`:
 - `run_next_github_webhook_action`
 - `list_repository_signals`
 - `describe_repository_signal`
+- `submit_repository_signal`
 - `submit_brief`
 - `list_runs`
 - `describe_run`
@@ -145,6 +146,7 @@ Stateful tools need `CATALYST_DATABASE_URL`:
 `list_github_webhook_action_requests` and `describe_github_webhook_action_request` let OpenHands inspect the durable control-plane requests materialized from those candidate deliveries.
 `run_next_github_webhook_action` is the safe executor path for those requests and currently advances `sync_default_branch` by claiming the next pending request, writing a request-scoped report plus repository-scoped default-branch state, emitting a durable `default_branch_updated` repository signal, and returning the terminal request summary.
 `list_repository_signals` and `describe_repository_signal` let OpenHands inspect that repository-scoped automation handoff directly, including the proposed `repository_signal` trigger metadata for later orchestration.
+`submit_repository_signal` is the explicit bridge from that pending repository signal into a real run: OpenHands supplies the brief content, the orchestrator enforces repository/default-branch alignment, persists a linked run with trigger `repository_signal`, and updates the signal with `materialized_run_id`.
 `describe_artifact` is the general inspection tool for OpenHands when it needs the persisted manifest or metadata behind a `backlog`, `policy_report`, `quality_report`, `pr_export`, or publication artifact referenced by `describe_run`.
 `describe_latest_artifact` is the shortest path when OpenHands already knows the run and only needs the newest `policy_report`, `quality_report`, `pr_candidate`, or promotion artifact by type.
 `evaluate_run_policy` is the visibility tool for OpenHands when it needs to inspect whether the current run still satisfies control-plane policy constraints such as runtime provider, sandbox profile, and planned timeout budget.

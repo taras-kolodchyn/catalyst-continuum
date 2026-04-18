@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use serde::Serialize;
+use uuid::Uuid;
 
 #[derive(Debug, Clone)]
 pub struct RepositorySignalDraft {
@@ -17,6 +18,7 @@ pub struct RepositorySignalDraft {
     pub ref_name: Option<String>,
     pub before_sha: Option<String>,
     pub after_sha: Option<String>,
+    pub materialized_run_id: Option<Uuid>,
     pub payload_path: String,
     pub payload_digest: String,
     pub message: String,
@@ -43,6 +45,8 @@ pub struct RepositorySignalSummary {
     pub before_sha: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub after_sha: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub materialized_run_id: Option<Uuid>,
     pub payload_path: String,
     pub payload_digest: String,
     pub message: String,
@@ -76,6 +80,7 @@ impl RepositorySignalSummary {
             ref_name: draft.ref_name.clone(),
             before_sha: draft.before_sha.clone(),
             after_sha: draft.after_sha.clone(),
+            materialized_run_id: draft.materialized_run_id,
             payload_path: draft.payload_path.clone(),
             payload_digest: draft.payload_digest.clone(),
             message: draft.message.clone(),
@@ -143,6 +148,10 @@ impl RepositorySignalSummary {
             writeln!(&mut output, "after_sha: {}", after_sha)
                 .context("failed to render repository signal")?;
         }
+        if let Some(materialized_run_id) = self.materialized_run_id {
+            writeln!(&mut output, "materialized_run_id: {}", materialized_run_id)
+                .context("failed to render repository signal")?;
+        }
         writeln!(&mut output, "payload_path: {}", self.payload_path)
             .context("failed to render repository signal")?;
         writeln!(&mut output, "payload_digest: {}", self.payload_digest)
@@ -194,6 +203,7 @@ impl RepositorySignalListFilters {
 #[cfg(test)]
 mod tests {
     use super::{RepositorySignalDraft, RepositorySignalListFilters, RepositorySignalSummary};
+    use uuid::Uuid;
 
     #[test]
     fn renders_repository_signal_summary() {
@@ -212,6 +222,9 @@ mod tests {
             ref_name: Some("refs/heads/main".to_string()),
             before_sha: Some("1111111111111111111111111111111111111111".to_string()),
             after_sha: Some("2222222222222222222222222222222222222222".to_string()),
+            materialized_run_id: Some(
+                Uuid::parse_str("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa").unwrap(),
+            ),
             payload_path: "/tmp/repository-signals/signal.json".to_string(),
             payload_digest: "sha256:test".to_string(),
             message: "repository default branch update is ready for automation".to_string(),
@@ -225,6 +238,7 @@ mod tests {
         assert!(rendered.contains("signal_kind: default_branch_updated"));
         assert!(rendered.contains("proposed_run_trigger: repository_signal"));
         assert!(rendered.contains("payload_digest: sha256:test"));
+        assert!(rendered.contains("materialized_run_id: aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"));
         assert!(rendered.contains("persisted: yes"));
     }
 
@@ -264,6 +278,7 @@ mod tests {
             ref_name: Some("refs/heads/main".to_string()),
             before_sha: None,
             after_sha: Some("2222222222222222222222222222222222222222".to_string()),
+            materialized_run_id: None,
             payload_path: "/tmp/signal.json".to_string(),
             payload_digest: "sha256:test".to_string(),
             message: "ready".to_string(),
@@ -273,6 +288,7 @@ mod tests {
 
         assert_eq!(summary.signal_id, "signal-1");
         assert_eq!(summary.proposed_run_trigger, "repository_signal");
+        assert_eq!(summary.materialized_run_id, None);
         assert!(!summary.persisted);
     }
 }

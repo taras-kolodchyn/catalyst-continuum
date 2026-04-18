@@ -5,9 +5,9 @@ use std::time::Instant;
 use crate::{
     cli::SubmitBriefArgs,
     models::{
-        artifact::ArtifactSummary,
+        artifact::{ArtifactDraft, ArtifactSummary},
         run::{RunDraft, SubmissionRecord},
-        task::TaskSummary,
+        task::{TaskDraft, TaskSummary},
     },
     planning::{
         backlog::generate_initial_backlog,
@@ -18,6 +18,13 @@ use crate::{
     storage::postgres::PostgresRunStore,
     telemetry,
 };
+
+pub(crate) struct PreparedBriefSubmission {
+    pub pack_id: String,
+    pub draft: RunDraft,
+    pub artifacts: Vec<ArtifactDraft>,
+    pub tasks: Vec<TaskDraft>,
+}
 
 pub fn execute(args: SubmitBriefArgs) -> anyhow::Result<()> {
     let raw_brief = std::fs::read_to_string(&args.file)
@@ -68,6 +75,49 @@ pub fn submit_validated_brief(
     trigger: &str,
 ) -> anyhow::Result<SubmissionRecord> {
     let started_at = Instant::now();
+    let planned = prepare_validated_submission(
+        validated,
+        brief_source_path,
+        artifact_root,
+        trigger,
+        dry_run,
+    )?;
+
+    let submission = if dry_run {
+        planned.tasks.iter().fold(
+            SubmissionRecord::from_draft(&planned.draft)
+                .with_artifact(ArtifactSummary::from_draft(&planned.artifacts[0]))
+                .with_artifact(ArtifactSummary::from_draft(&planned.artifacts[1])),
+            |submission, task| submission.with_task(TaskSummary::from_draft(task)),
+        )
+    } else {
+        let database_url = database_url.context(
+            "submit-brief requires --database-url or CATALYST_DATABASE_URL unless --dry-run is set",
+        )?;
+        let mut store = PostgresRunStore::connect(database_url)?;
+        store.ensure_schema()?;
+        store.insert_run_with_artifacts(&planned.draft, &planned.artifacts, &planned.tasks)?
+    };
+
+    telemetry::record_brief_submission(
+        trigger,
+        &planned.pack_id,
+        dry_run,
+        submission.tasks.len() as u64,
+        submission.artifacts.len() as u64,
+        started_at.elapsed(),
+    );
+
+    Ok(submission)
+}
+
+pub(crate) fn prepare_validated_submission(
+    validated: ValidatedBriefSubmission,
+    brief_source_path: &str,
+    artifact_root: &Path,
+    trigger: &str,
+    dry_run: bool,
+) -> anyhow::Result<PreparedBriefSubmission> {
     let brief = validated.brief;
     let report = validated.report;
     let pack = validated.pack;
@@ -97,6 +147,7 @@ pub fn submit_validated_brief(
         );
     }
     draft.selected_pack = Some(pack.pack_id.clone());
+
     let generated_backlog =
         generate_initial_backlog(&brief, &draft, &pack, artifact_root, !dry_run)?;
     let task_drafts = materialize_tasks(&draft, &pack, &generated_backlog.document.items)?;
@@ -106,36 +157,12 @@ pub fn submit_validated_brief(
         return Err(policy::policy_failure_error(&policy_evaluation));
     }
 
-    let submission = if dry_run {
-        task_drafts.iter().fold(
-            SubmissionRecord::from_draft(&draft)
-                .with_artifact(ArtifactSummary::from_draft(&generated_backlog.artifact))
-                .with_artifact(ArtifactSummary::from_draft(&policy_evaluation.artifact)),
-            |submission, task| submission.with_task(TaskSummary::from_draft(task)),
-        )
-    } else {
-        let database_url = database_url.context(
-            "submit-brief requires --database-url or CATALYST_DATABASE_URL unless --dry-run is set",
-        )?;
-        let mut store = PostgresRunStore::connect(database_url)?;
-        store.ensure_schema()?;
-        store.insert_run_with_artifacts(
-            &draft,
-            &[generated_backlog.artifact, policy_evaluation.artifact],
-            &task_drafts,
-        )?
-    };
-
-    telemetry::record_brief_submission(
-        trigger,
-        &pack.pack_id,
-        dry_run,
-        submission.tasks.len() as u64,
-        submission.artifacts.len() as u64,
-        started_at.elapsed(),
-    );
-
-    Ok(submission)
+    Ok(PreparedBriefSubmission {
+        pack_id: pack.pack_id,
+        draft,
+        artifacts: vec![generated_backlog.artifact, policy_evaluation.artifact],
+        tasks: task_drafts,
+    })
 }
 
 #[cfg(test)]

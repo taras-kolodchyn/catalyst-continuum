@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, ensure};
-use postgres::{Client, NoTls};
+use postgres::{Client, GenericClient, NoTls};
 use serde_json::Value;
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -118,190 +118,84 @@ impl PostgresRunStore {
         artifacts: &[ArtifactDraft],
         tasks: &[TaskDraft],
     ) -> Result<SubmissionRecord> {
-        let goal_count = i32::try_from(draft.goal_count).context("goal count exceeds i32 range")?;
-        let functional_requirement_count = i32::try_from(draft.functional_requirement_count)
-            .context("functional requirement count exceeds i32 range")?;
-        let constraint_count =
-            i32::try_from(draft.constraint_count).context("constraint count exceeds i32 range")?;
-
-        let repository_host = draft
-            .repository
-            .as_ref()
-            .and_then(|repository| repository.host.as_ref())
-            .map(|value| format!("{value:?}").to_lowercase());
-        let repository_owner = draft
-            .repository
-            .as_ref()
-            .and_then(|repository| repository.owner.clone());
-        let repository_name = draft
-            .repository
-            .as_ref()
-            .and_then(|repository| repository.name.clone());
-        let repository_default_branch = draft
-            .repository
-            .as_ref()
-            .and_then(|repository| repository.default_branch.clone());
-        let repository_visibility = draft
-            .repository
-            .as_ref()
-            .and_then(|repository| repository.visibility.as_ref())
-            .map(|value| format!("{value:?}").to_lowercase());
-
         let mut transaction = self
             .client
             .transaction()
             .context("failed to start postgres transaction")?;
-
-        let row = transaction
-            .query_one(
-                "INSERT INTO runs (
-                run_id,
-                schema_version,
-                brief_id,
-                status,
-                trigger,
-                title,
-                requested_by,
-                selected_pack,
-                repository_host,
-                repository_owner,
-                repository_name,
-                repository_default_branch,
-                repository_visibility,
-                goal_count,
-                functional_requirement_count,
-                constraint_count,
-                brief_source_path,
-                metadata
-            ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-                $11, $12, $13, $14, $15, $16, $17, $18
-            )
-            RETURNING to_char(
-                created_at AT TIME ZONE 'UTC',
-                'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'
-            ) AS created_at",
-                &[
-                    &draft.run_id,
-                    &draft.schema_version,
-                    &draft.brief_id,
-                    &draft.status,
-                    &draft.trigger,
-                    &draft.title,
-                    &draft.requested_by,
-                    &draft.selected_pack,
-                    &repository_host,
-                    &repository_owner,
-                    &repository_name,
-                    &repository_default_branch,
-                    &repository_visibility,
-                    &goal_count,
-                    &functional_requirement_count,
-                    &constraint_count,
-                    &draft.brief_source_path,
-                    &draft.metadata,
-                ],
-            )
-            .context("failed to insert run")?;
-
-        let created_at: String = row.get("created_at");
-        let mut submission = SubmissionRecord::from_draft(draft).with_created_at(created_at);
-
-        for artifact in artifacts {
-            let artifact_row = transaction
-                .query_one(
-                    "INSERT INTO artifacts (
-                        artifact_id,
-                        run_id,
-                        type,
-                        format,
-                        location_kind,
-                        location_value,
-                        content_digest,
-                        labels,
-                        metadata
-                    ) VALUES (
-                        $1, $2, $3, $4, $5, $6, $7, $8, $9
-                    )
-                    RETURNING to_char(
-                        created_at AT TIME ZONE 'UTC',
-                        'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'
-                    ) AS created_at",
-                    &[
-                        &artifact.artifact_id,
-                        &artifact.run_id,
-                        &artifact.artifact_type,
-                        &artifact.format,
-                        &artifact.location_kind,
-                        &artifact.location_value,
-                        &artifact.content_digest,
-                        &artifact.labels,
-                        &artifact.metadata,
-                    ],
-                )
-                .context("failed to insert artifact")?;
-
-            let artifact_created_at: String = artifact_row.get("created_at");
-            let artifact_summary =
-                ArtifactSummary::from_draft(artifact).with_created_at(artifact_created_at);
-            submission = submission.with_artifact(artifact_summary);
-        }
-
-        for task in tasks {
-            let task_row = transaction
-                .query_one(
-                    "INSERT INTO tasks (
-                        task_id,
-                        run_id,
-                        backlog_item_id,
-                        kind,
-                        priority,
-                        title,
-                        description,
-                        status,
-                        execution,
-                        dependency_task_ids,
-                        source_refs,
-                        assigned_pack,
-                        approval_required,
-                        metadata
-                    ) VALUES (
-                        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
-                    )
-                    RETURNING to_char(
-                        created_at AT TIME ZONE 'UTC',
-                        'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'
-                    ) AS created_at",
-                    &[
-                        &task.task_id,
-                        &task.run_id,
-                        &task.backlog_item_id,
-                        &task.kind,
-                        &task.priority,
-                        &task.title,
-                        &task.description,
-                        &task.status,
-                        &serde_json::to_value(&task.execution)
-                            .context("failed to serialize task execution spec")?,
-                        &task.dependency_task_ids,
-                        &task.source_refs,
-                        &task.assigned_pack,
-                        &task.approval_required,
-                        &task.metadata,
-                    ],
-                )
-                .context("failed to insert task")?;
-
-            let task_created_at: String = task_row.get("created_at");
-            let task_summary = TaskSummary::from_draft(task).with_created_at(task_created_at);
-            submission = submission.with_task(task_summary);
-        }
+        let submission = insert_submission_records(&mut transaction, draft, artifacts, tasks)?;
 
         transaction
             .commit()
             .context("failed to commit postgres transaction")?;
 
         Ok(submission)
+    }
+
+    pub fn materialize_repository_signal_submission(
+        &mut self,
+        signal_id: &str,
+        draft: &RunDraft,
+        artifacts: &[ArtifactDraft],
+        tasks: &[TaskDraft],
+        message: &str,
+    ) -> Result<(SubmissionRecord, RepositorySignalSummary)> {
+        let mut transaction = self
+            .client
+            .transaction()
+            .context("failed to start postgres transaction")?;
+
+        let submission = insert_submission_records(&mut transaction, draft, artifacts, tasks)?;
+
+        let signal_row = transaction
+            .query_opt(
+                &format!(
+                    "UPDATE repository_signals
+                    SET status = 'submitted',
+                        materialized_run_id = $2,
+                        message = $3,
+                        updated_at = NOW()
+                    WHERE signal_id = $1
+                      AND status = 'pending'
+                    RETURNING
+                        signal_id,
+                        provider,
+                        repository_full_name,
+                        signal_kind,
+                        status,
+                        proposed_run_trigger,
+                        source_action,
+                        source_delivery_id,
+                        source_request_id,
+                        repository_default_branch,
+                        installation_id,
+                        ref_name,
+                        before_sha,
+                        after_sha,
+                        materialized_run_id,
+                        payload_path,
+                        payload_digest,
+                        message,
+                        to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
+                        to_char(updated_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS updated_at"
+                ),
+                &[&signal_id, &draft.run_id, &message],
+            )
+            .with_context(|| {
+                format!("failed to materialize repository signal submission: {signal_id}")
+            })?;
+
+        let signal = signal_row
+            .as_ref()
+            .map(row_to_repository_signal_summary)
+            .with_context(|| {
+                format!("repository signal is not pending or does not exist: {signal_id}")
+            })?;
+
+        transaction
+            .commit()
+            .context("failed to commit repository signal materialization transaction")?;
+
+        Ok((submission, signal))
     }
 
     pub fn fetch_next_runnable_task(
@@ -1462,12 +1356,13 @@ impl PostgresRunStore {
                         ref_name,
                         before_sha,
                         after_sha,
+                        materialized_run_id,
                         payload_path,
                         payload_digest,
                         message
                     ) VALUES (
                         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-                        $11, $12, $13, $14, $15, $16, $17
+                        $11, $12, $13, $14, $15, $16, $17, $18
                     )
                     ON CONFLICT (signal_id) DO UPDATE SET
                         status = EXCLUDED.status,
@@ -1477,6 +1372,7 @@ impl PostgresRunStore {
                         ref_name = EXCLUDED.ref_name,
                         before_sha = EXCLUDED.before_sha,
                         after_sha = EXCLUDED.after_sha,
+                        materialized_run_id = EXCLUDED.materialized_run_id,
                         payload_path = EXCLUDED.payload_path,
                         payload_digest = EXCLUDED.payload_digest,
                         message = EXCLUDED.message,
@@ -1496,6 +1392,7 @@ impl PostgresRunStore {
                         ref_name,
                         before_sha,
                         after_sha,
+                        materialized_run_id,
                         payload_path,
                         payload_digest,
                         message,
@@ -1517,6 +1414,7 @@ impl PostgresRunStore {
                     &signal.ref_name,
                     &signal.before_sha,
                     &signal.after_sha,
+                    &signal.materialized_run_id,
                     &signal.payload_path,
                     &signal.payload_digest,
                     &signal.message,
@@ -1554,6 +1452,7 @@ impl PostgresRunStore {
                         ref_name,
                         before_sha,
                         after_sha,
+                        materialized_run_id,
                         payload_path,
                         payload_digest,
                         message,
@@ -1600,6 +1499,7 @@ impl PostgresRunStore {
                             ref_name,
                             before_sha,
                             after_sha,
+                            materialized_run_id,
                             payload_path,
                             payload_digest,
                             message,
@@ -1631,6 +1531,7 @@ impl PostgresRunStore {
                             ref_name,
                             before_sha,
                             after_sha,
+                            materialized_run_id,
                             payload_path,
                             payload_digest,
                             message,
@@ -1663,6 +1564,7 @@ impl PostgresRunStore {
                             ref_name,
                             before_sha,
                             after_sha,
+                            materialized_run_id,
                             payload_path,
                             payload_digest,
                             message,
@@ -1695,6 +1597,7 @@ impl PostgresRunStore {
                             ref_name,
                             before_sha,
                             after_sha,
+                            materialized_run_id,
                             payload_path,
                             payload_digest,
                             message,
@@ -1727,6 +1630,7 @@ impl PostgresRunStore {
                             ref_name,
                             before_sha,
                             after_sha,
+                            materialized_run_id,
                             payload_path,
                             payload_digest,
                             message,
@@ -1760,6 +1664,7 @@ impl PostgresRunStore {
                             ref_name,
                             before_sha,
                             after_sha,
+                            materialized_run_id,
                             payload_path,
                             payload_digest,
                             message,
@@ -1793,6 +1698,7 @@ impl PostgresRunStore {
                             ref_name,
                             before_sha,
                             after_sha,
+                            materialized_run_id,
                             payload_path,
                             payload_digest,
                             message,
@@ -1826,6 +1732,7 @@ impl PostgresRunStore {
                             ref_name,
                             before_sha,
                             after_sha,
+                            materialized_run_id,
                             payload_path,
                             payload_digest,
                             message,
@@ -2233,6 +2140,189 @@ fn row_to_github_webhook_delivery_summary(row: &postgres::Row) -> GitHubWebhookD
     }
 }
 
+fn insert_submission_records(
+    client: &mut impl GenericClient,
+    draft: &RunDraft,
+    artifacts: &[ArtifactDraft],
+    tasks: &[TaskDraft],
+) -> Result<SubmissionRecord> {
+    let goal_count = i32::try_from(draft.goal_count).context("goal count exceeds i32 range")?;
+    let functional_requirement_count = i32::try_from(draft.functional_requirement_count)
+        .context("functional requirement count exceeds i32 range")?;
+    let constraint_count =
+        i32::try_from(draft.constraint_count).context("constraint count exceeds i32 range")?;
+
+    let repository_host = draft
+        .repository
+        .as_ref()
+        .and_then(|repository| repository.host.as_ref())
+        .map(|value| format!("{value:?}").to_lowercase());
+    let repository_owner = draft
+        .repository
+        .as_ref()
+        .and_then(|repository| repository.owner.clone());
+    let repository_name = draft
+        .repository
+        .as_ref()
+        .and_then(|repository| repository.name.clone());
+    let repository_default_branch = draft
+        .repository
+        .as_ref()
+        .and_then(|repository| repository.default_branch.clone());
+    let repository_visibility = draft
+        .repository
+        .as_ref()
+        .and_then(|repository| repository.visibility.as_ref())
+        .map(|value| format!("{value:?}").to_lowercase());
+
+    let row = client
+        .query_one(
+            "INSERT INTO runs (
+                run_id,
+                schema_version,
+                brief_id,
+                status,
+                trigger,
+                title,
+                requested_by,
+                selected_pack,
+                repository_host,
+                repository_owner,
+                repository_name,
+                repository_default_branch,
+                repository_visibility,
+                goal_count,
+                functional_requirement_count,
+                constraint_count,
+                brief_source_path,
+                metadata
+            ) VALUES (
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+                $11, $12, $13, $14, $15, $16, $17, $18
+            )
+            RETURNING to_char(
+                created_at AT TIME ZONE 'UTC',
+                'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'
+            ) AS created_at",
+            &[
+                &draft.run_id,
+                &draft.schema_version,
+                &draft.brief_id,
+                &draft.status,
+                &draft.trigger,
+                &draft.title,
+                &draft.requested_by,
+                &draft.selected_pack,
+                &repository_host,
+                &repository_owner,
+                &repository_name,
+                &repository_default_branch,
+                &repository_visibility,
+                &goal_count,
+                &functional_requirement_count,
+                &constraint_count,
+                &draft.brief_source_path,
+                &draft.metadata,
+            ],
+        )
+        .context("failed to insert run")?;
+
+    let created_at: String = row.get("created_at");
+    let mut submission = SubmissionRecord::from_draft(draft).with_created_at(created_at);
+
+    for artifact in artifacts {
+        let artifact_row = client
+            .query_one(
+                "INSERT INTO artifacts (
+                    artifact_id,
+                    run_id,
+                    type,
+                    format,
+                    location_kind,
+                    location_value,
+                    content_digest,
+                    labels,
+                    metadata
+                ) VALUES (
+                    $1, $2, $3, $4, $5, $6, $7, $8, $9
+                )
+                RETURNING to_char(
+                    created_at AT TIME ZONE 'UTC',
+                    'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'
+                ) AS created_at",
+                &[
+                    &artifact.artifact_id,
+                    &artifact.run_id,
+                    &artifact.artifact_type,
+                    &artifact.format,
+                    &artifact.location_kind,
+                    &artifact.location_value,
+                    &artifact.content_digest,
+                    &artifact.labels,
+                    &artifact.metadata,
+                ],
+            )
+            .context("failed to insert artifact")?;
+
+        let artifact_created_at: String = artifact_row.get("created_at");
+        let artifact_summary =
+            ArtifactSummary::from_draft(artifact).with_created_at(artifact_created_at);
+        submission = submission.with_artifact(artifact_summary);
+    }
+
+    for task in tasks {
+        let task_row = client
+            .query_one(
+                "INSERT INTO tasks (
+                    task_id,
+                    run_id,
+                    backlog_item_id,
+                    kind,
+                    priority,
+                    title,
+                    description,
+                    status,
+                    execution,
+                    dependency_task_ids,
+                    source_refs,
+                    assigned_pack,
+                    approval_required,
+                    metadata
+                ) VALUES (
+                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
+                )
+                RETURNING to_char(
+                    created_at AT TIME ZONE 'UTC',
+                    'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'
+                ) AS created_at",
+                &[
+                    &task.task_id,
+                    &task.run_id,
+                    &task.backlog_item_id,
+                    &task.kind,
+                    &task.priority,
+                    &task.title,
+                    &task.description,
+                    &task.status,
+                    &serde_json::to_value(&task.execution)
+                        .context("failed to serialize task execution spec")?,
+                    &task.dependency_task_ids,
+                    &task.source_refs,
+                    &task.assigned_pack,
+                    &task.approval_required,
+                    &task.metadata,
+                ],
+            )
+            .context("failed to insert task")?;
+
+        let task_created_at: String = task_row.get("created_at");
+        let task_summary = TaskSummary::from_draft(task).with_created_at(task_created_at);
+        submission = submission.with_task(task_summary);
+    }
+
+    Ok(submission)
+}
+
 fn row_to_github_webhook_action_request_summary(
     row: &postgres::Row,
 ) -> GitHubWebhookActionRequestSummary {
@@ -2276,6 +2366,7 @@ fn row_to_repository_signal_summary(row: &postgres::Row) -> RepositorySignalSumm
         ref_name: row.get("ref_name"),
         before_sha: row.get("before_sha"),
         after_sha: row.get("after_sha"),
+        materialized_run_id: row.get("materialized_run_id"),
         payload_path: row.get("payload_path"),
         payload_digest: row.get("payload_digest"),
         message: row.get("message"),

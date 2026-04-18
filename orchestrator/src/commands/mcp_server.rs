@@ -135,6 +135,15 @@ struct SubmitBriefToolArgs {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct SubmitRepositorySignalToolArgs {
+    signal_id: String,
+    brief_content: String,
+    #[serde(default = "default_inline_brief_source_path")]
+    brief_source_path: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ListRunsToolArgs {
     #[serde(default = "default_run_limit")]
     limit: usize,
@@ -481,6 +490,7 @@ impl StdioMcpServer {
             "describe_latest_artifact" => self.call_describe_latest_artifact(arguments),
             "validate_brief" => self.call_validate_brief(arguments),
             "submit_brief" => self.call_submit_brief(arguments),
+            "submit_repository_signal" => self.call_submit_repository_signal(arguments),
             "list_github_webhooks" => self.call_list_github_webhooks(arguments),
             "describe_github_webhook" => self.call_describe_github_webhook(arguments),
             "list_github_webhook_action_requests" => {
@@ -635,6 +645,33 @@ impl StdioMcpServer {
             )?;
             let structured = serde_json::to_value(&submission)
                 .context("failed to serialize brief submission")?;
+            Ok(tool_success_with_text(
+                "submission",
+                structured,
+                submission.render_text()?,
+            ))
+        })
+    }
+
+    fn call_submit_repository_signal(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: SubmitRepositorySignalToolArgs = parse_tool_arguments(arguments)?;
+            let database_url = self
+                .config
+                .database_url
+                .as_deref()
+                .context("submit_repository_signal requires a configured database URL")?;
+            let submission =
+                crate::commands::submit_repository_signal::submit_repository_signal_document(
+                    &args.brief_content,
+                    &args.brief_source_path,
+                    database_url,
+                    &self.config.artifact_root,
+                    &args.signal_id,
+                    "mcp",
+                )?;
+            let structured = serde_json::to_value(&submission)
+                .context("failed to serialize repository signal submission")?;
             Ok(tool_success_with_text(
                 "submission",
                 structured,
@@ -1118,6 +1155,18 @@ fn tool_definitions() -> Vec<Value> {
             ]),
         ),
         tool_definition(
+            "submit_repository_signal",
+            "Submit an inline YAML product brief against one pending repository signal and materialize a run linked to that signal.",
+            json_schema_object(&[
+                required_string_property("signal_id", "Repository signal identifier."),
+                required_string_property("brief_content", "Structured brief YAML content."),
+                optional_string_property(
+                    "brief_source_path",
+                    "Logical source path reported in submission output.",
+                ),
+            ]),
+        ),
+        tool_definition(
             "list_github_webhooks",
             "List recent GitHub webhook deliveries accepted by the control plane.",
             json_schema_object(&[
@@ -1385,7 +1434,7 @@ mod tests {
 
         assert_eq!(
             output[1]["result"]["tools"].as_array().map(Vec::len),
-            Some(23)
+            Some(24)
         );
         assert_eq!(output[1]["result"]["tools"][0]["name"], "list_packs");
         assert!(
@@ -1394,6 +1443,13 @@ mod tests {
                 .is_some_and(|tools| tools
                     .iter()
                     .any(|tool| tool["name"] == "describe_instance_config"))
+        );
+        assert!(
+            output[1]["result"]["tools"]
+                .as_array()
+                .is_some_and(|tools| tools
+                    .iter()
+                    .any(|tool| tool["name"] == "submit_repository_signal"))
         );
         assert!(
             output[1]["result"]["tools"]

@@ -22,5 +22,6 @@ pub mod run_next_github_webhook_action;
 pub mod run_next_task;
 pub mod serve;
 pub mod submit_brief;
+pub mod submit_repository_signal;
 pub mod validate_brief;
 pub mod worker;

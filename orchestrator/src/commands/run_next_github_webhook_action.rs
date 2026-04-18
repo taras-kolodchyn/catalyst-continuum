@@ -418,6 +418,7 @@ fn execute_sync_default_branch(
         ref_name: request.ref_name.clone(),
         before_sha: request.before_sha.clone(),
         after_sha: request.after_sha.clone(),
+        materialized_run_id: None,
         payload_path: signal_path.display().to_string(),
         payload_digest: format!("sha256:{:x}", Sha256::digest(&signal_bytes)),
         message: "repository default branch update is ready for automation".to_string(),

@@ -48,6 +48,7 @@ Stateful tools require `CATALYST_DATABASE_URL` or `--database-url` when launchin
 - `list_repository_signals`
 - `describe_repository_signal`
 - `submit_brief`
+- `submit_repository_signal`
 - `list_runs`
 - `describe_run`
 - `run_next_task`
@@ -119,6 +120,7 @@ The stateful companion script verifies:
 - `run_next_github_webhook_action`
 - `list_repository_signals`
 - `describe_repository_signal`
+- `submit_repository_signal`
 - `submit_brief`
 - `list_runs`
 - `describe_run`
@@ -128,7 +130,7 @@ The stateful companion script verifies:
 - `describe_artifact` for the persisted policy and quality reports
 
 For stateless sessions, `describe_instance_config` is the first introspection tool an agent should call when it needs to confirm which runtime providers are enabled and whether the local instance is actually ready for GitHub App based publication.
-For stateful sessions, `list_github_webhooks` and `describe_github_webhook` expose auditable GitHub App ingress state plus the current routing decision for each delivery, while `list_github_webhook_action_requests` and `describe_github_webhook_action_request` expose the durable control-plane requests materialized from candidate deliveries. `run_next_github_webhook_action` is the safe executor path for those requests and currently advances `sync_default_branch` by writing a per-request report, a repository default-branch state artifact, and a durable repository-scoped `default_branch_updated` signal. `list_repository_signals` and `describe_repository_signal` let the client inspect that durable automation handoff without scraping artifact directories. `describe_artifact` is the generic inspection tool for persisted manifests and artifact metadata, `describe_latest_artifact` is the quickest way to resolve the newest `policy_report`, `quality_report`, or publication artifact for a run, `evaluate_run_policy` is the policy visibility checkpoint, and `evaluate_run_quality` is the remote-promotion quality checkpoint. Agent clients can call all of them explicitly for inspection, while `publish_pr_export` and `open_github_pr` still enforce the quality gate automatically.
+For stateful sessions, `list_github_webhooks` and `describe_github_webhook` expose auditable GitHub App ingress state plus the current routing decision for each delivery, while `list_github_webhook_action_requests` and `describe_github_webhook_action_request` expose the durable control-plane requests materialized from candidate deliveries. `run_next_github_webhook_action` is the safe executor path for those requests and currently advances `sync_default_branch` by writing a per-request report, a repository default-branch state artifact, and a durable repository-scoped `default_branch_updated` signal. `list_repository_signals` and `describe_repository_signal` let the client inspect that durable automation handoff without scraping artifact directories, while `submit_repository_signal` is the explicit bridge that validates a brief against that same repository context and materializes a linked `repository_signal` run. `describe_artifact` is the generic inspection tool for persisted manifests and artifact metadata, `describe_latest_artifact` is the quickest way to resolve the newest `policy_report`, `quality_report`, or publication artifact for a run, `evaluate_run_policy` is the policy visibility checkpoint, and `evaluate_run_quality` is the remote-promotion quality checkpoint. Agent clients can call all of them explicitly for inspection, while `publish_pr_export` and `open_github_pr` still enforce the quality gate automatically.
 
 ## Notes
 
