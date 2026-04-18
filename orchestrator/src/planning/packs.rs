@@ -18,6 +18,10 @@ pub struct PackDefinition {
     pub default_runtime_provider: String,
     #[serde(default)]
     pub default_sandbox_profile: Option<String>,
+    #[serde(default, skip_serializing_if = "PackPolicyProfile::is_empty")]
+    pub policy_profile: PackPolicyProfile,
+    #[serde(default, skip_serializing_if = "PackQualityProfile::is_empty")]
+    pub quality_profile: PackQualityProfile,
     #[serde(default)]
     pub generated_repository: Option<PackGeneratedRepositoryContract>,
     pub backlog_templates: Vec<PackBacklogTemplate>,
@@ -103,6 +107,8 @@ impl PackDefinition {
             !self.default_runtime_provider.trim().is_empty(),
             "pack default_runtime_provider must not be empty"
         );
+        self.policy_profile.validate()?;
+        self.quality_profile.validate()?;
         if let Some(generated_repository) = &self.generated_repository {
             generated_repository.validate()?;
         }
@@ -116,6 +122,75 @@ impl PackDefinition {
         }
 
         Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PackPolicyProfile {
+    #[serde(default)]
+    pub require_explicit_policy: bool,
+    #[serde(default)]
+    pub max_task_timeout_seconds: Option<u64>,
+    #[serde(default)]
+    pub max_task_retry_count: Option<u32>,
+}
+
+impl PackPolicyProfile {
+    fn validate(&self) -> Result<()> {
+        if let Some(max_task_timeout_seconds) = self.max_task_timeout_seconds {
+            ensure!(
+                max_task_timeout_seconds > 0,
+                "policy_profile.max_task_timeout_seconds must be greater than zero"
+            );
+        }
+        if let Some(max_task_retry_count) = self.max_task_retry_count {
+            ensure!(
+                max_task_retry_count > 0,
+                "policy_profile.max_task_retry_count must be greater than zero"
+            );
+        }
+
+        Ok(())
+    }
+
+    pub fn is_empty(&self) -> bool {
+        !self.require_explicit_policy
+            && self.max_task_timeout_seconds.is_none()
+            && self.max_task_retry_count.is_none()
+    }
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PackQualityProfile {
+    #[serde(default)]
+    pub required_artifact_types: Vec<String>,
+    #[serde(default)]
+    pub minimum_test_task_count: Option<usize>,
+}
+
+impl PackQualityProfile {
+    fn validate(&self) -> Result<()> {
+        for artifact_type in &self.required_artifact_types {
+            ensure!(
+                !artifact_type.trim().is_empty(),
+                "quality_profile.required_artifact_types must not contain empty strings"
+            );
+        }
+
+        if let Some(minimum_test_task_count) = self.minimum_test_task_count {
+            ensure!(
+                minimum_test_task_count > 0,
+                "quality_profile.minimum_test_task_count must be greater than zero"
+            );
+        }
+
+        Ok(())
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.required_artifact_types.is_empty() && self.minimum_test_task_count.is_none()
     }
 }
 
@@ -504,6 +579,14 @@ mod tests {
         let pack = PackDefinition::load(None).expect("default pack should load");
 
         assert_eq!(pack.pack_id, "container-service");
+        assert!(!pack.policy_profile.require_explicit_policy);
+        assert_eq!(pack.policy_profile.max_task_timeout_seconds, Some(60));
+        assert_eq!(pack.policy_profile.max_task_retry_count, Some(2));
+        assert_eq!(
+            pack.quality_profile.required_artifact_types,
+            vec!["backlog".to_string(), "policy_report".to_string()]
+        );
+        assert_eq!(pack.quality_profile.minimum_test_task_count, Some(1));
         assert!(
             pack.generated_repository.is_some(),
             "default pack should declare a generated repository contract"
@@ -559,6 +642,14 @@ mod tests {
         let pack = PackDefinition::load(Some("cli-tool")).expect("cli-tool pack should load");
 
         assert_eq!(pack.pack_id, "cli-tool");
+        assert!(!pack.policy_profile.require_explicit_policy);
+        assert_eq!(pack.policy_profile.max_task_timeout_seconds, Some(60));
+        assert_eq!(pack.policy_profile.max_task_retry_count, Some(2));
+        assert_eq!(
+            pack.quality_profile.required_artifact_types,
+            vec!["backlog".to_string(), "policy_report".to_string()]
+        );
+        assert_eq!(pack.quality_profile.minimum_test_task_count, Some(1));
         assert_eq!(pack.backlog_templates.len(), 5);
         match &pack
             .generated_repository

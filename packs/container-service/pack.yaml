@@ -3,6 +3,15 @@ pack_id: container-service
 display_name: Container Service
 default_runtime_provider: docker
 default_sandbox_profile: restricted
+policy_profile:
+  require_explicit_policy: false
+  max_task_timeout_seconds: 60
+  max_task_retry_count: 2
+quality_profile:
+  required_artifact_types:
+    - backlog
+    - policy_report
+  minimum_test_task_count: 1
 generated_repository:
   runtime:
     kind: cargo_binary

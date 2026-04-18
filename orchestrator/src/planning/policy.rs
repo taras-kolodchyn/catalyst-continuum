@@ -11,7 +11,7 @@ use crate::{
         artifact::ArtifactDraft,
         brief::{Brief, BriefPolicy},
         run::{RunContext, RunDraft},
-        task::{TaskDraft, TaskSummary},
+        task::{TaskDraft, TaskSummary, retry_state_from_metadata},
     },
     planning::packs::PackDefinition,
 };
@@ -82,7 +82,7 @@ pub fn evaluate_submission_policy(
         .collect::<Vec<_>>();
     evaluate_policy(
         run.run_id,
-        &pack.pack_id,
+        pack,
         brief.policy.clone(),
         &task_views,
         artifact_root,
@@ -100,18 +100,12 @@ pub fn evaluate_run_policy(
         .iter()
         .map(task_policy_view_from_summary)
         .collect::<Vec<_>>();
-    evaluate_policy(
-        run.run_id,
-        &pack.pack_id,
-        policy,
-        &task_views,
-        artifact_root,
-    )
+    evaluate_policy(run.run_id, pack, policy, &task_views, artifact_root)
 }
 
 fn evaluate_policy(
     run_id: Uuid,
-    pack_id: &str,
+    pack: &PackDefinition,
     policy: Option<BriefPolicy>,
     tasks: &[TaskPolicyView],
     artifact_root: &Path,
@@ -130,7 +124,10 @@ fn evaluate_policy(
         )
     })?;
 
-    let mut checks = vec![evaluate_policy_declared_check(policy.as_ref())];
+    let mut checks = vec![
+        evaluate_pack_policy_declared_check(pack, policy.as_ref()),
+        evaluate_policy_declared_check(policy.as_ref()),
+    ];
     checks.push(evaluate_max_task_count_check(policy.as_ref(), tasks));
     checks.push(evaluate_max_total_timeout_check(policy.as_ref(), tasks));
     checks.push(evaluate_allowed_task_kinds_check(policy.as_ref(), tasks));
@@ -142,6 +139,8 @@ fn evaluate_policy(
         policy.as_ref(),
         tasks,
     ));
+    checks.push(evaluate_pack_task_timeout_check(pack, tasks));
+    checks.push(evaluate_pack_task_retry_check(pack, policy.as_ref(), tasks));
 
     let failed_check_count = checks.iter().filter(|check| check.is_failed()).count();
     let passed = failed_check_count == 0;
@@ -149,7 +148,7 @@ fn evaluate_policy(
         schema_version: "v0.1".to_string(),
         artifact_type: POLICY_REPORT_ARTIFACT_TYPE.to_string(),
         run_id,
-        pack_id: pack_id.to_string(),
+        pack_id: pack.pack_id.clone(),
         passed,
         failed_check_count,
         policy: policy.clone(),
@@ -176,16 +175,16 @@ fn evaluate_policy(
             labels: json!([
                 "policy",
                 if passed { "passed" } else { "failed" },
-                pack_id.to_string()
+                pack.pack_id.clone()
             ]),
             metadata: json!({
-                "pack_id": pack_id,
+                "pack_id": pack.pack_id.clone(),
                 "passed": passed,
                 "failed_check_count": failed_check_count,
                 "policy_present": policy.is_some(),
             }),
         },
-        pack_id: pack_id.to_string(),
+        pack_id: pack.pack_id.clone(),
         policy_present: policy.is_some(),
         passed,
         failed_check_count,
@@ -209,7 +208,58 @@ pub fn policy_failure_error(evaluation: &PolicyEvaluation) -> anyhow::Error {
 }
 
 pub fn enforce_task_execution_policy(run: &RunContext, task: &TaskSummary) -> Result<()> {
-    let Some(policy) = policy_from_run_context(run)? else {
+    let policy = policy_from_run_context(run)?;
+    let pack = PackDefinition::load(run.selected_pack.as_deref())?;
+    let pack_policy = &pack.policy_profile;
+
+    if pack_policy.require_explicit_policy {
+        ensure!(
+            policy.is_some(),
+            "task {} cannot run because pack `{}` requires an explicit brief policy",
+            task.task_id,
+            pack.pack_id
+        );
+    }
+
+    if let Some(max_task_timeout_seconds) = pack_policy.max_task_timeout_seconds {
+        let timeout_seconds = task.execution.timeout_seconds.ok_or_else(|| {
+            anyhow!(
+                "task {} does not declare execution.timeout_seconds required by pack `{}`",
+                task.task_id,
+                pack.pack_id
+            )
+        })?;
+        ensure!(
+            timeout_seconds <= max_task_timeout_seconds,
+            "task {} declares timeout {}s which exceeds the pack `{}` ceiling of {}s",
+            task.task_id,
+            timeout_seconds,
+            pack.pack_id,
+            max_task_timeout_seconds
+        );
+    }
+
+    if let Some(max_task_retry_count) = pack_policy.max_task_retry_count {
+        let effective_retry_count = task
+            .retry_state
+            .as_ref()
+            .map(|state| state.max_retry_count)
+            .or_else(|| {
+                retry_state_from_metadata(&task.metadata).map(|state| state.max_retry_count)
+            })
+            .or_else(|| policy.as_ref().and_then(|value| value.max_task_retry_count))
+            .unwrap_or(0);
+        ensure!(
+            effective_retry_count <= max_task_retry_count,
+            "task {} declares retry ceiling {} which exceeds the pack `{}` ceiling of {}",
+            task.task_id,
+            effective_retry_count,
+            pack.pack_id,
+            max_task_retry_count
+        );
+    }
+
+    let Some(policy) = policy else {
         return Ok(());
     };
 
@@ -291,6 +341,38 @@ fn evaluate_policy_declared_check(policy: Option<&BriefPolicy>) -> PolicyCheck {
             "policy_declared",
             "brief does not declare an explicit control-plane policy",
             json!({}),
+        ),
+    }
+}
+
+fn evaluate_pack_policy_declared_check(
+    pack: &PackDefinition,
+    policy: Option<&BriefPolicy>,
+) -> PolicyCheck {
+    if !pack.policy_profile.require_explicit_policy {
+        return PolicyCheck::skipped(
+            "pack_requires_explicit_policy",
+            "pack does not require an explicit brief policy",
+            json!({
+                "pack_id": pack.pack_id,
+            }),
+        );
+    }
+
+    match policy {
+        Some(_) => PolicyCheck::passed(
+            "pack_requires_explicit_policy",
+            "pack-required brief policy is present",
+            json!({
+                "pack_id": pack.pack_id,
+            }),
+        ),
+        None => PolicyCheck::failed(
+            "pack_requires_explicit_policy",
+            "pack requires an explicit brief policy, but the brief does not declare one",
+            json!({
+                "pack_id": pack.pack_id,
+            }),
         ),
     }
 }
@@ -564,6 +646,136 @@ fn evaluate_allowed_sandbox_profiles_check(
     }
 }
 
+fn evaluate_pack_task_timeout_check(
+    pack: &PackDefinition,
+    tasks: &[TaskPolicyView],
+) -> PolicyCheck {
+    let Some(limit) = pack.policy_profile.max_task_timeout_seconds else {
+        return PolicyCheck::skipped(
+            "pack_max_task_timeout_seconds",
+            "pack policy profile does not declare a max_task_timeout_seconds ceiling",
+            json!({
+                "pack_id": pack.pack_id,
+                "task_count": tasks.len(),
+            }),
+        );
+    };
+
+    let missing_timeout_tasks = tasks
+        .iter()
+        .filter(|task| task.timeout_seconds.is_none())
+        .map(|task| {
+            json!({
+                "backlog_item_id": task.backlog_item_id,
+                "kind": task.kind,
+            })
+        })
+        .collect::<Vec<_>>();
+    let exceeded_timeout_tasks = tasks
+        .iter()
+        .filter_map(|task| {
+            task.timeout_seconds
+                .filter(|timeout_seconds| *timeout_seconds > limit)
+                .map(|timeout_seconds| {
+                    json!({
+                        "backlog_item_id": task.backlog_item_id,
+                        "kind": task.kind,
+                        "timeout_seconds": timeout_seconds,
+                    })
+                })
+        })
+        .collect::<Vec<_>>();
+
+    if missing_timeout_tasks.is_empty() && exceeded_timeout_tasks.is_empty() {
+        return PolicyCheck::passed(
+            "pack_max_task_timeout_seconds",
+            format!("all planned tasks declare timeouts within the pack ceiling of {limit}s"),
+            json!({
+                "pack_id": pack.pack_id,
+                "limit": limit,
+                "task_count": tasks.len(),
+                "max_declared_timeout_seconds": tasks.iter().filter_map(|task| task.timeout_seconds).max(),
+            }),
+        );
+    }
+
+    PolicyCheck::failed(
+        "pack_max_task_timeout_seconds",
+        format!(
+            "{} task(s) violate the pack timeout ceiling of {}s",
+            missing_timeout_tasks.len() + exceeded_timeout_tasks.len(),
+            limit
+        ),
+        json!({
+            "pack_id": pack.pack_id,
+            "limit": limit,
+            "missing_timeout_tasks": missing_timeout_tasks,
+            "exceeded_timeout_tasks": exceeded_timeout_tasks,
+        }),
+    )
+}
+
+fn evaluate_pack_task_retry_check(
+    pack: &PackDefinition,
+    policy: Option<&BriefPolicy>,
+    tasks: &[TaskPolicyView],
+) -> PolicyCheck {
+    let Some(limit) = pack.policy_profile.max_task_retry_count else {
+        return PolicyCheck::skipped(
+            "pack_max_task_retry_count",
+            "pack policy profile does not declare a max_task_retry_count ceiling",
+            json!({
+                "pack_id": pack.pack_id,
+                "task_count": tasks.len(),
+            }),
+        );
+    };
+
+    let violating_tasks = tasks
+        .iter()
+        .filter_map(|task| {
+            let effective_retry_count = effective_task_retry_count(task, policy);
+            (effective_retry_count > limit).then(|| {
+                json!({
+                    "backlog_item_id": task.backlog_item_id,
+                    "kind": task.kind,
+                    "effective_max_retry_count": effective_retry_count,
+                })
+            })
+        })
+        .collect::<Vec<_>>();
+
+    if violating_tasks.is_empty() {
+        return PolicyCheck::passed(
+            "pack_max_task_retry_count",
+            format!("all planned task retry ceilings are within the pack ceiling of {limit}"),
+            json!({
+                "pack_id": pack.pack_id,
+                "limit": limit,
+                "max_effective_task_retry_count": tasks
+                    .iter()
+                    .map(|task| effective_task_retry_count(task, policy))
+                    .max()
+                    .unwrap_or(0),
+            }),
+        );
+    }
+
+    PolicyCheck::failed(
+        "pack_max_task_retry_count",
+        format!(
+            "{} task(s) exceed the pack retry ceiling of {}",
+            violating_tasks.len(),
+            limit
+        ),
+        json!({
+            "pack_id": pack.pack_id,
+            "limit": limit,
+            "violating_tasks": violating_tasks,
+        }),
+    )
+}
+
 fn unique_sorted<'a>(values: impl Iterator<Item = &'a str>) -> Vec<String> {
     let mut unique = values
         .map(str::to_string)
@@ -576,28 +788,47 @@ fn unique_sorted<'a>(values: impl Iterator<Item = &'a str>) -> Vec<String> {
 
 #[derive(Debug, Clone)]
 struct TaskPolicyView {
+    backlog_item_id: String,
     kind: String,
     provider: String,
     sandbox_profile: Option<String>,
     timeout_seconds: Option<u64>,
+    max_retry_count: Option<u32>,
 }
 
 fn task_policy_view_from_draft(task: &TaskDraft) -> TaskPolicyView {
     TaskPolicyView {
+        backlog_item_id: task.backlog_item_id.clone(),
         kind: task.kind.clone(),
         provider: task.execution.provider.clone(),
         sandbox_profile: task.execution.sandbox_profile.clone(),
         timeout_seconds: task.execution.timeout_seconds,
+        max_retry_count: retry_state_from_metadata(&task.metadata)
+            .map(|state| state.max_retry_count),
     }
 }
 
 fn task_policy_view_from_summary(task: &TaskSummary) -> TaskPolicyView {
     TaskPolicyView {
+        backlog_item_id: task.backlog_item_id.clone(),
         kind: task.kind.clone(),
         provider: task.execution.provider.clone(),
         sandbox_profile: task.execution.sandbox_profile.clone(),
         timeout_seconds: task.execution.timeout_seconds,
+        max_retry_count: task
+            .retry_state
+            .as_ref()
+            .map(|state| state.max_retry_count)
+            .or_else(|| {
+                retry_state_from_metadata(&task.metadata).map(|state| state.max_retry_count)
+            }),
     }
+}
+
+fn effective_task_retry_count(task: &TaskPolicyView, policy: Option<&BriefPolicy>) -> u32 {
+    task.max_retry_count
+        .or_else(|| policy.and_then(|value| value.max_task_retry_count))
+        .unwrap_or(0)
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -621,8 +852,8 @@ mod tests {
             Brief, BriefPolicy, ExecutionPreferences, RepositoryHost, RepositoryTarget,
             RepositoryVisibility, Requirement, RequirementPriority, RuntimeProvider,
         },
-        run::RunDraft,
-        task::TaskExecutionSpec,
+        run::{RunContext, RunDraft},
+        task::{TaskExecutionSpec, TaskRetryState, TaskSummary, metadata_with_retry_state},
     };
     use std::{collections::BTreeMap, path::Path};
 
@@ -651,6 +882,7 @@ mod tests {
                 "docker",
                 Some("restricted"),
                 Some(30),
+                Some(1),
             ),
             sample_task(
                 &run,
@@ -659,6 +891,7 @@ mod tests {
                 "docker",
                 Some("restricted"),
                 Some(30),
+                Some(1),
             ),
         ];
 
@@ -692,6 +925,7 @@ mod tests {
             "proxmox",
             Some("restricted"),
             Some(30),
+            Some(1),
         )];
 
         let evaluation = evaluate_submission_policy(&run, &brief, &pack, &tasks, Path::new(".tmp"))
@@ -704,6 +938,132 @@ mod tests {
                 .to_string()
                 .contains("allowed_runtime_providers")
         );
+    }
+
+    #[test]
+    fn rejects_when_pack_requires_explicit_policy() {
+        let brief = sample_brief(None);
+        let run = RunDraft::from_brief(&brief, "examples/briefs/policy-required.yaml".to_string());
+        let mut pack = PackDefinition::load(Some("cli-tool")).expect("cli-tool pack should load");
+        pack.policy_profile.require_explicit_policy = true;
+        let tasks = vec![sample_task(
+            &run,
+            "PLAN-001",
+            "plan",
+            "docker",
+            Some("restricted"),
+            Some(30),
+            None,
+        )];
+
+        let evaluation = evaluate_submission_policy(&run, &brief, &pack, &tasks, Path::new(".tmp"))
+            .expect("policy evaluation should succeed");
+
+        assert!(!evaluation.passed);
+        assert!(
+            evaluation
+                .checks
+                .iter()
+                .any(|check| check.check_id == "pack_requires_explicit_policy"
+                    && check.status == "failed")
+        );
+    }
+
+    #[test]
+    fn rejects_when_pack_timeout_ceiling_is_exceeded() {
+        let brief = sample_brief(Some(BriefPolicy {
+            max_task_count: Some(4),
+            max_total_timeout_seconds: Some(180),
+            max_task_retry_count: Some(1),
+            allowed_task_kinds: vec!["plan".to_string(), "test".to_string()],
+            allowed_runtime_providers: vec!["docker".to_string()],
+            allowed_sandbox_profiles: vec!["restricted".to_string()],
+        }));
+        let run = RunDraft::from_brief(&brief, "examples/briefs/policy-timeout.yaml".to_string());
+        let pack = PackDefinition::load(Some("cli-tool")).expect("cli-tool pack should load");
+        let tasks = vec![sample_task(
+            &run,
+            "PLAN-001",
+            "plan",
+            "docker",
+            Some("restricted"),
+            Some(61),
+            Some(1),
+        )];
+
+        let evaluation = evaluate_submission_policy(&run, &brief, &pack, &tasks, Path::new(".tmp"))
+            .expect("policy evaluation should succeed");
+
+        assert!(!evaluation.passed);
+        assert!(
+            evaluation
+                .checks
+                .iter()
+                .any(|check| check.check_id == "pack_max_task_timeout_seconds"
+                    && check.status == "failed")
+        );
+    }
+
+    #[test]
+    fn rejects_when_pack_retry_ceiling_is_exceeded() {
+        let brief = sample_brief(Some(BriefPolicy {
+            max_task_count: Some(4),
+            max_total_timeout_seconds: Some(120),
+            max_task_retry_count: Some(3),
+            allowed_task_kinds: vec!["plan".to_string()],
+            allowed_runtime_providers: vec!["docker".to_string()],
+            allowed_sandbox_profiles: vec!["restricted".to_string()],
+        }));
+        let run = RunDraft::from_brief(&brief, "examples/briefs/policy-retry.yaml".to_string());
+        let pack = PackDefinition::load(Some("cli-tool")).expect("cli-tool pack should load");
+        let tasks = vec![sample_task(
+            &run,
+            "PLAN-001",
+            "plan",
+            "docker",
+            Some("restricted"),
+            Some(30),
+            Some(3),
+        )];
+
+        let evaluation = evaluate_submission_policy(&run, &brief, &pack, &tasks, Path::new(".tmp"))
+            .expect("policy evaluation should succeed");
+
+        assert!(!evaluation.passed);
+        assert!(
+            evaluation
+                .checks
+                .iter()
+                .any(|check| check.check_id == "pack_max_task_retry_count"
+                    && check.status == "failed")
+        );
+    }
+
+    #[test]
+    fn enforces_pack_timeout_ceiling_at_execution_time() {
+        let brief = sample_brief(Some(BriefPolicy {
+            max_task_count: Some(4),
+            max_total_timeout_seconds: Some(180),
+            max_task_retry_count: Some(1),
+            allowed_task_kinds: vec!["plan".to_string()],
+            allowed_runtime_providers: vec!["docker".to_string()],
+            allowed_sandbox_profiles: vec!["restricted".to_string()],
+        }));
+        let run = RunDraft::from_brief(&brief, "examples/briefs/runtime-policy.yaml".to_string());
+        let task = TaskSummary::from_draft(&sample_task(
+            &run,
+            "PLAN-001",
+            "plan",
+            "docker",
+            Some("restricted"),
+            Some(61),
+            Some(1),
+        ));
+
+        let error = enforce_task_execution_policy(&RunContext::from_draft(&run), &task)
+            .expect_err("pack timeout ceiling should be enforced");
+
+        assert!(error.to_string().contains("ceiling of 60s"));
     }
 
     fn sample_brief(policy: Option<BriefPolicy>) -> Brief {
@@ -754,7 +1114,13 @@ mod tests {
         provider: &str,
         sandbox_profile: Option<&str>,
         timeout_seconds: Option<u64>,
+        max_retry_count: Option<u32>,
     ) -> TaskDraft {
+        let metadata = max_retry_count
+            .map(TaskRetryState::new)
+            .map(|state| metadata_with_retry_state(&json!({}), &state))
+            .unwrap_or_else(|| json!({}));
+
         TaskDraft {
             task_id: Uuid::new_v4(),
             run_id: run.run_id,
@@ -776,7 +1142,7 @@ mod tests {
             source_refs: json!(["test"]),
             assigned_pack: Some("cli-tool".to_string()),
             approval_required: false,
-            metadata: json!({}),
+            metadata,
         }
     }
 }

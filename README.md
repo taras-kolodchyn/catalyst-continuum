@@ -96,6 +96,10 @@ curl http://127.0.0.1:8080/runs/<RUN_ID>/artifacts/latest/quality_report
 
 The current HTTP surface is intentionally narrow. Agent-oriented orchestration actions should move toward MCP rather than being duplicated indefinitely as new REST endpoints.
 
+`list-packs` and `describe-pack` now expose pack-level `policy_profile` and
+`quality_profile` contracts so open-source agents can inspect timeout/retry
+ceilings and publication prerequisites before they start a run.
+
 The local `v0.1` compose stack now includes an observability baseline:
 
 - OpenTelemetry Collector for OTLP ingress

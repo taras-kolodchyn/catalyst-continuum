@@ -3,7 +3,10 @@ use std::collections::BTreeSet;
 use anyhow::{Result, anyhow};
 use serde::Serialize;
 
-use crate::planning::packs::{DEFAULT_PACK_ID, PackDefinition, PackGeneratedRepositoryContract};
+use crate::planning::packs::{
+    DEFAULT_PACK_ID, PackDefinition, PackGeneratedRepositoryContract, PackPolicyProfile,
+    PackQualityProfile,
+};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct PackCatalogDocument {
@@ -20,6 +23,8 @@ pub struct PackCatalogEntry {
     pub display_name: String,
     pub default_runtime_provider: String,
     pub default_sandbox_profile: Option<String>,
+    pub policy_profile: PackPolicyProfile,
+    pub quality_profile: PackQualityProfile,
     pub backlog_template_count: usize,
     pub task_kinds: Vec<String>,
     pub generated_repository: Option<PackGeneratedRepositoryContract>,
@@ -97,6 +102,8 @@ impl PackCatalogEntry {
             display_name: pack.display_name.clone(),
             default_runtime_provider: pack.default_runtime_provider.clone(),
             default_sandbox_profile: pack.default_sandbox_profile.clone(),
+            policy_profile: pack.policy_profile.clone(),
+            quality_profile: pack.quality_profile.clone(),
             backlog_template_count: pack.backlog_templates.len(),
             task_kinds,
             generated_repository: pack.generated_repository.clone(),
@@ -139,6 +146,8 @@ mod tests {
                 "test".to_string()
             ]
         );
+        assert_eq!(cli_tool.policy_profile.max_task_timeout_seconds, Some(60));
+        assert_eq!(cli_tool.quality_profile.minimum_test_task_count, Some(1));
         assert!(cli_tool.generated_repository.is_some());
     }
 

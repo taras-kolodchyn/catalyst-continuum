@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeSet,
     fs,
     io::{Read, Write},
     net::{SocketAddr, TcpListener, TcpStream},
@@ -104,7 +105,6 @@ pub fn evaluate_run_quality(
         )
     })?;
 
-    let latest_snapshot = latest_artifact_of_type(artifacts, SNAPSHOT_ARTIFACT_TYPE);
     let latest_pr_candidate = latest_artifact_of_type(artifacts, PR_CANDIDATE_ARTIFACT_TYPE);
     let test_tasks = tasks
         .iter()
@@ -118,20 +118,11 @@ pub fn evaluate_run_quality(
     let mut checks = vec![
         evaluate_run_status_check(run_status, tasks),
         evaluate_failed_tasks_check(&failed_tasks),
-        evaluate_test_tasks_check(&test_tasks),
-        evaluate_artifact_presence_check(
-            "workspace_snapshot_present",
-            latest_snapshot,
-            "workspace_snapshot",
-        ),
-        evaluate_artifact_presence_check(
-            "pr_candidate_present",
-            latest_pr_candidate,
-            "pr_candidate",
-        ),
+        evaluate_test_tasks_check(pack, &test_tasks),
         evaluate_workspace_snapshot_freshness_check(artifacts),
         evaluate_pr_candidate_freshness_check(artifacts),
     ];
+    checks.extend(evaluate_required_artifact_checks(pack, artifacts));
     checks.push(evaluate_generated_repository_smoke(
         run,
         pack,
@@ -318,13 +309,32 @@ fn evaluate_failed_tasks_check(failed_tasks: &[&TaskSummary]) -> QualityCheck {
     }
 }
 
-fn evaluate_test_tasks_check(test_tasks: &[&TaskSummary]) -> QualityCheck {
+fn evaluate_test_tasks_check(pack: &PackDefinition, test_tasks: &[&TaskSummary]) -> QualityCheck {
+    let minimum_test_task_count = pack.quality_profile.minimum_test_task_count.unwrap_or(0);
+    if test_tasks.len() < minimum_test_task_count {
+        return QualityCheck::failed(
+            "test_tasks_succeeded",
+            format!(
+                "run contains {} test task(s), below the pack minimum of {}",
+                test_tasks.len(),
+                minimum_test_task_count
+            ),
+            json!({
+                "pack_id": pack.pack_id,
+                "test_task_count": test_tasks.len(),
+                "minimum_test_task_count": minimum_test_task_count,
+            }),
+        );
+    }
+
     if test_tasks.is_empty() {
         return QualityCheck::skipped(
             "test_tasks_succeeded",
             "run does not contain explicit test tasks",
             json!({
                 "test_task_count": 0,
+                "pack_id": pack.pack_id,
+                "minimum_test_task_count": minimum_test_task_count,
             }),
         );
     }
@@ -340,6 +350,7 @@ fn evaluate_test_tasks_check(test_tasks: &[&TaskSummary]) -> QualityCheck {
             format!("all {} test task(s) succeeded", test_tasks.len()),
             json!({
                 "test_task_count": test_tasks.len(),
+                "minimum_test_task_count": minimum_test_task_count,
             }),
         )
     } else {
@@ -352,6 +363,7 @@ fn evaluate_test_tasks_check(test_tasks: &[&TaskSummary]) -> QualityCheck {
             ),
             json!({
                 "test_task_count": test_tasks.len(),
+                "minimum_test_task_count": minimum_test_task_count,
                 "failed_test_task_count": failed_test_tasks.len(),
                 "tasks": failed_test_tasks.iter().map(|task| json!({
                     "task_id": task.task_id,
@@ -362,6 +374,60 @@ fn evaluate_test_tasks_check(test_tasks: &[&TaskSummary]) -> QualityCheck {
             }),
         )
     }
+}
+
+fn evaluate_required_artifact_checks(
+    pack: &PackDefinition,
+    artifacts: &[ArtifactSummary],
+) -> Vec<QualityCheck> {
+    let mut checks = vec![
+        evaluate_artifact_presence_check(
+            "workspace_snapshot_present",
+            latest_artifact_of_type(artifacts, SNAPSHOT_ARTIFACT_TYPE),
+            SNAPSHOT_ARTIFACT_TYPE,
+        ),
+        evaluate_artifact_presence_check(
+            "pr_candidate_present",
+            latest_artifact_of_type(artifacts, PR_CANDIDATE_ARTIFACT_TYPE),
+            PR_CANDIDATE_ARTIFACT_TYPE,
+        ),
+    ];
+
+    let additional_required_artifact_types = pack
+        .quality_profile
+        .required_artifact_types
+        .iter()
+        .filter(|artifact_type| {
+            artifact_type.as_str() != SNAPSHOT_ARTIFACT_TYPE
+                && artifact_type.as_str() != PR_CANDIDATE_ARTIFACT_TYPE
+        })
+        .map(|artifact_type| artifact_type.trim().to_string())
+        .collect::<BTreeSet<_>>();
+
+    for artifact_type in additional_required_artifact_types {
+        checks.push(evaluate_artifact_presence_check(
+            &required_artifact_check_id(&artifact_type),
+            latest_artifact_of_type(artifacts, &artifact_type),
+            &artifact_type,
+        ));
+    }
+
+    checks
+}
+
+fn required_artifact_check_id(artifact_type: &str) -> String {
+    let normalized = artifact_type
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() {
+                character.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+
+    format!("required_artifact_{normalized}_present")
 }
 
 fn evaluate_artifact_presence_check(
@@ -1178,6 +1244,7 @@ struct CommandOutcome {
 mod tests {
     use super::*;
 
+    use crate::models::task::TaskSummary;
     use crate::planning::{
         packs::PackDefinition,
         pr_candidate::PR_CANDIDATE_ARTIFACT_TYPE,
@@ -1214,6 +1281,43 @@ mod tests {
         assert!(Path::new(&evaluation.artifact.location_value).is_file());
 
         let _ = fs::remove_dir_all(temp_root);
+    }
+
+    #[test]
+    fn requires_minimum_test_task_count_from_pack_profile() {
+        let pack = PackDefinition::load(Some("cli-tool")).expect("cli-tool pack should load");
+        let test_tasks = Vec::<&TaskSummary>::new();
+
+        let check = evaluate_test_tasks_check(&pack, &test_tasks);
+
+        assert_eq!(check.check_id, "test_tasks_succeeded");
+        assert_eq!(check.status, "failed");
+        assert!(
+            check.summary.contains("below the pack minimum"),
+            "unexpected summary: {}",
+            check.summary
+        );
+    }
+
+    #[test]
+    fn requires_additional_artifacts_from_pack_profile() {
+        let pack = PackDefinition::load(Some("cli-tool")).expect("cli-tool pack should load");
+
+        let checks = evaluate_required_artifact_checks(
+            &pack,
+            &[
+                sample_artifact(SNAPSHOT_ARTIFACT_TYPE, Uuid::new_v4(), json!({})),
+                sample_artifact(PR_CANDIDATE_ARTIFACT_TYPE, Uuid::new_v4(), json!({})),
+            ],
+        );
+
+        assert!(checks.iter().any(
+            |check| check.check_id == "required_artifact_backlog_present"
+                && check.status == "failed"
+        ));
+        assert!(checks.iter().any(|check| check.check_id
+            == "required_artifact_policy_report_present"
+            && check.status == "failed"));
     }
 
     #[test]
