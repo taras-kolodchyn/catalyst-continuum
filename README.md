@@ -22,6 +22,7 @@ The rule is simple:
 The Rust command/application layer remains the single source of truth underneath all three interfaces.
 
 The first control-plane policy slice now lives in the brief itself. It does not duplicate LiteLLM token or spend budgets. Instead, it constrains orchestration-level behavior such as planned task count, total timeout budget, bounded retry scheduling, allowed task kinds, allowed runtime providers, and allowed sandbox profiles. Every accepted submission now emits a `policy_report` artifact alongside the `backlog`.
+Task `timeout_seconds` is now enforced by the Docker runtime itself, and the worker will reclaim stale `running` tasks whose lease has expired so a crashed task runner does not leave the run wedged forever.
 
 Example:
 

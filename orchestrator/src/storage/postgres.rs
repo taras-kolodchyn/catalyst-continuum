@@ -333,6 +333,67 @@ impl PostgresRunStore {
         Ok(None)
     }
 
+    pub fn list_reclaimable_running_tasks(
+        &mut self,
+        run_id: Option<Uuid>,
+        default_timeout_seconds: u64,
+        reclaim_grace_seconds: u64,
+    ) -> Result<Vec<TaskSummary>> {
+        let default_timeout_seconds =
+            i64::try_from(default_timeout_seconds).context("default timeout exceeds i64 range")?;
+        let reclaim_grace_seconds =
+            i64::try_from(reclaim_grace_seconds).context("reclaim grace exceeds i64 range")?;
+
+        let rows = self
+            .client
+            .query(
+                &format!(
+                    "SELECT
+                        task_id,
+                        run_id,
+                        backlog_item_id,
+                        kind,
+                        priority,
+                        title,
+                        description,
+                        status,
+                        execution,
+                        dependency_task_ids,
+                        source_refs,
+                        assigned_pack,
+                        approval_required,
+                        metadata,
+                        to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
+                        CASE
+                            WHEN started_at IS NULL THEN NULL
+                            ELSE to_char(started_at AT TIME ZONE 'UTC', '{RFC3339_SQL}')
+                        END AS started_at,
+                        CASE
+                            WHEN completed_at IS NULL THEN NULL
+                            ELSE to_char(completed_at AT TIME ZONE 'UTC', '{RFC3339_SQL}')
+                        END AS completed_at,
+                        failure_reason
+                     FROM tasks
+                     WHERE status = 'running'
+                       AND started_at IS NOT NULL
+                       AND ($1::uuid IS NULL OR run_id = $1)
+                       AND started_at <= NOW() - (
+                            (
+                                COALESCE(
+                                    NULLIF(execution ->> 'timeout_seconds', '')::bigint,
+                                    $2
+                                ) + $3
+                            ) * INTERVAL '1 second'
+                       )
+                     ORDER BY started_at ASC, backlog_item_id ASC"
+                ),
+                &[&run_id, &default_timeout_seconds, &reclaim_grace_seconds],
+            )
+            .context("failed to list reclaimable running tasks")?;
+
+        Ok(rows.iter().map(row_to_task_summary).collect())
+    }
+
     pub fn mark_task_running(&mut self, task_id: Uuid) -> Result<TaskSummary> {
         let row = self
             .client

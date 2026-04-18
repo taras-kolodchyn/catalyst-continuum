@@ -1,4 +1,11 @@
-use std::{fs, path::Path, process::Command};
+use std::{
+    fs,
+    io::Read,
+    path::Path,
+    process::{Child, Command, Stdio},
+    thread,
+    time::{Duration, Instant},
+};
 
 use anyhow::{Context, Result, ensure};
 use serde::Serialize;
@@ -77,7 +84,9 @@ impl RuntimeProvider for DockerRuntimeProvider {
             command.args(["-w", working_directory]);
         }
 
-        let output = command
+        command
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .args(["-e", &format!("CONTINUUM_RUN_ID={}", task.run_id)])
             .args(["-e", &format!("CONTINUUM_TASK_ID={}", task.task_id)])
             .args(["-e", &format!("CONTINUUM_TASK_KIND={}", task.kind)])
@@ -97,17 +106,13 @@ impl RuntimeProvider for DockerRuntimeProvider {
                 &format!("CONTINUUM_WORKSPACE_PATH={workspace_container_path}"),
             ])
             .arg(image)
-            .args(task.execution.command.iter().map(String::as_str))
-            .output();
+            .args(task.execution.command.iter().map(String::as_str));
+        let timeout = task.execution.timeout_seconds.map(Duration::from_secs);
+        let output = run_command_with_optional_timeout(&mut command, timeout);
 
-        let (exit_code, stdout, stderr) = match output {
-            Ok(output) => (
-                output.status.code().unwrap_or(-1),
-                String::from_utf8_lossy(&output.stdout).to_string(),
-                String::from_utf8_lossy(&output.stderr).to_string(),
-            ),
-            Err(error) => (-1, String::new(), error.to_string()),
-        };
+        let exit_code = output.exit_code;
+        let stdout = output.stdout;
+        let stderr = output.stderr;
 
         let task_status = if exit_code == 0 {
             "succeeded".to_string()
@@ -115,7 +120,12 @@ impl RuntimeProvider for DockerRuntimeProvider {
             "failed".to_string()
         };
 
-        let failure_reason = if exit_code == 0 {
+        let failure_reason = if output.timed_out {
+            Some(format!(
+                "docker execution exceeded timeout of {}s",
+                task.execution.timeout_seconds.unwrap_or_default()
+            ))
+        } else if exit_code == 0 {
             None
         } else if stderr.trim().is_empty() {
             Some(format!(
@@ -146,6 +156,8 @@ impl RuntimeProvider for DockerRuntimeProvider {
                 .as_ref()
                 .map(|workspace| workspace.source_artifact_id),
             exit_code,
+            timed_out: output.timed_out,
+            timeout_seconds: task.execution.timeout_seconds,
             status: task_status.clone(),
             stdout,
             stderr,
@@ -187,6 +199,8 @@ impl RuntimeProvider for DockerRuntimeProvider {
                 "task_kind": task.kind,
                 "status": task_status,
                 "exit_code": exit_code,
+                "timed_out": artifact_payload.timed_out,
+                "timeout_seconds": artifact_payload.timeout_seconds,
                 "image": image,
                 "command": task.execution.command,
                 "working_directory": working_directory,
@@ -206,7 +220,7 @@ impl RuntimeProvider for DockerRuntimeProvider {
             exit_code: artifact_payload.exit_code,
             artifacts: vec![artifact],
             failure_reason,
-            retryable: artifact_payload.exit_code != 0,
+            retryable: artifact_payload.exit_code != 0 || artifact_payload.timed_out,
         })
     }
 }
@@ -225,9 +239,108 @@ struct ExecutionArtifactPayload {
     workspace_path: Option<String>,
     workspace_source_artifact_id: Option<Uuid>,
     exit_code: i32,
+    timed_out: bool,
+    timeout_seconds: Option<u64>,
     status: String,
     stdout: String,
     stderr: String,
+}
+
+#[derive(Debug)]
+struct CommandOutput {
+    exit_code: i32,
+    stdout: String,
+    stderr: String,
+    timed_out: bool,
+}
+
+fn run_command_with_optional_timeout(
+    command: &mut Command,
+    timeout: Option<Duration>,
+) -> CommandOutput {
+    let child = match command.spawn() {
+        Ok(child) => child,
+        Err(error) => {
+            return CommandOutput {
+                exit_code: -1,
+                stdout: String::new(),
+                stderr: error.to_string(),
+                timed_out: false,
+            };
+        }
+    };
+
+    match timeout {
+        Some(timeout) if timeout > Duration::ZERO => wait_with_timeout(child, timeout),
+        _ => collect_child_output(child, None, false),
+    }
+}
+
+fn wait_with_timeout(mut child: Child, timeout: Duration) -> CommandOutput {
+    let started_at = Instant::now();
+
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return collect_child_output(child, status.code(), false),
+            Ok(None) if started_at.elapsed() < timeout => {
+                thread::sleep(Duration::from_millis(100));
+            }
+            Ok(None) => {
+                let _ = child.kill();
+                return collect_child_output(child, None, true);
+            }
+            Err(error) => {
+                return CommandOutput {
+                    exit_code: -1,
+                    stdout: String::new(),
+                    stderr: error.to_string(),
+                    timed_out: false,
+                };
+            }
+        }
+    }
+}
+
+fn collect_child_output(
+    mut child: Child,
+    exit_code: Option<i32>,
+    timed_out: bool,
+) -> CommandOutput {
+    let exit_code = match exit_code {
+        Some(exit_code) => exit_code,
+        None => match child.wait() {
+            Ok(status) => status.code().unwrap_or(-1),
+            Err(error) => {
+                return CommandOutput {
+                    exit_code: -1,
+                    stdout: String::new(),
+                    stderr: error.to_string(),
+                    timed_out,
+                };
+            }
+        },
+    };
+    let stdout = read_pipe_to_string(child.stdout.take());
+    let stderr = read_pipe_to_string(child.stderr.take());
+
+    CommandOutput {
+        exit_code,
+        stdout,
+        stderr,
+        timed_out,
+    }
+}
+
+fn read_pipe_to_string(pipe: Option<impl Read>) -> String {
+    let Some(mut pipe) = pipe else {
+        return String::new();
+    };
+    let mut buffer = Vec::new();
+    if pipe.read_to_end(&mut buffer).is_err() {
+        return String::new();
+    }
+
+    String::from_utf8_lossy(&buffer).to_string()
 }
 
 fn container_working_directory(
@@ -249,5 +362,40 @@ fn container_working_directory(
             .workspace
             .as_ref()
             .map(|workspace| workspace.container_path.clone()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::run_command_with_optional_timeout;
+    use std::{
+        process::{Command, Stdio},
+        time::Duration,
+    };
+
+    #[test]
+    fn collects_output_when_command_finishes_within_timeout() {
+        let mut command = Command::new("sh");
+        command.stdout(Stdio::piped()).stderr(Stdio::piped());
+        command.args(["-lc", "printf ok"]);
+
+        let output = run_command_with_optional_timeout(&mut command, Some(Duration::from_secs(1)));
+
+        assert_eq!(output.exit_code, 0);
+        assert_eq!(output.stdout, "ok");
+        assert!(!output.timed_out);
+    }
+
+    #[test]
+    fn kills_command_when_timeout_is_exceeded() {
+        let mut command = Command::new("sh");
+        command.stdout(Stdio::piped()).stderr(Stdio::piped());
+        command.args(["-lc", "sleep 1"]);
+
+        let output =
+            run_command_with_optional_timeout(&mut command, Some(Duration::from_millis(50)));
+
+        assert!(output.timed_out);
+        assert_ne!(output.exit_code, 0);
     }
 }

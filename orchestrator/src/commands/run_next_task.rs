@@ -1,8 +1,8 @@
 use anyhow::Context;
 use serde::Serialize;
 use serde_json::Value;
-use std::path::Path;
 use std::time::Instant;
+use std::{collections::HashMap, path::Path};
 
 use crate::{
     cli::RunNextTaskArgs,
@@ -16,6 +16,9 @@ use crate::{
     storage::postgres::PostgresRunStore,
     telemetry,
 };
+
+const DEFAULT_TASK_RECLAIM_TIMEOUT_SECONDS: u64 = 300;
+const TASK_RECLAIM_GRACE_SECONDS: u64 = 30;
 
 pub fn execute(args: RunNextTaskArgs) -> anyhow::Result<()> {
     let mut store = PostgresRunStore::connect(&args.database_url)?;
@@ -169,6 +172,7 @@ pub fn execute_next_task(
     run_id: Option<uuid::Uuid>,
     artifact_root: &Path,
 ) -> anyhow::Result<NextTaskExecution> {
+    reclaim_stale_running_tasks(store, run_id)?;
     let started_at = Instant::now();
     let selected_task = match store.fetch_next_runnable_task(run_id)? {
         Some(task) => task,
@@ -301,14 +305,9 @@ fn plan_task_completion(
     task: &TaskSummary,
     execution: &TaskExecutionResult,
 ) -> TaskCompletionPlan {
-    let retry_state = task
-        .retry_state
-        .clone()
-        .or_else(|| max_task_retry_count(run_context).map(TaskRetryState::new));
-
     match execution.task_status.as_str() {
         "succeeded" => {
-            let metadata = retry_state
+            let metadata = task_retry_state(run_context, task)
                 .as_ref()
                 .map(|state| metadata_with_retry_state(&task.metadata, &state.after_success()))
                 .unwrap_or_else(|| task.metadata.clone());
@@ -324,40 +323,147 @@ fn plan_task_completion(
                 .failure_reason
                 .clone()
                 .unwrap_or_else(|| "task execution failed".to_string());
-
-            if execution.retryable
-                && retry_state
-                    .as_ref()
-                    .is_some_and(TaskRetryState::can_schedule_retry)
-            {
-                let next_retry_state = retry_state
-                    .expect("retry state should exist when retry is allowed")
-                    .after_requeue(failure_reason.clone());
-                TaskCompletionPlan {
-                    status: "queued".to_string(),
-                    failure_reason: Some(failure_reason),
-                    metadata: metadata_with_retry_state(&task.metadata, &next_retry_state),
-                    retry_scheduled: true,
-                }
-            } else {
-                let metadata = retry_state
-                    .as_ref()
-                    .map(|state| {
-                        metadata_with_retry_state(
-                            &task.metadata,
-                            &state.after_terminal_failure(failure_reason.clone()),
-                        )
-                    })
-                    .unwrap_or_else(|| task.metadata.clone());
-                TaskCompletionPlan {
-                    status: "failed".to_string(),
-                    failure_reason: Some(failure_reason),
-                    metadata,
-                    retry_scheduled: false,
-                }
-            }
+            plan_failure_completion(run_context, task, failure_reason, execution.retryable)
         }
     }
+}
+
+fn reclaim_stale_running_tasks(
+    store: &mut PostgresRunStore,
+    run_id: Option<uuid::Uuid>,
+) -> anyhow::Result<Vec<TaskSummary>> {
+    let reclaimable_tasks = store.list_reclaimable_running_tasks(
+        run_id,
+        DEFAULT_TASK_RECLAIM_TIMEOUT_SECONDS,
+        TASK_RECLAIM_GRACE_SECONDS,
+    )?;
+    if reclaimable_tasks.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut reclaimed_tasks = Vec::with_capacity(reclaimable_tasks.len());
+    let mut run_context_by_id: HashMap<uuid::Uuid, RunContext> = HashMap::new();
+    let mut refreshed_run_ids = Vec::new();
+
+    for task in reclaimable_tasks {
+        let run_context = if let Some(run_context) = run_context_by_id.get(&task.run_id) {
+            run_context.clone()
+        } else {
+            let run_context = store.fetch_run_context(task.run_id)?;
+            run_context_by_id.insert(task.run_id, run_context.clone());
+            run_context
+        };
+        let reclaim_reason = stale_task_failure_reason(&task);
+        let completion_plan =
+            plan_failure_completion(&run_context, &task, reclaim_reason.clone(), true);
+        let reclaimed_task = if completion_plan.retry_scheduled {
+            tracing::warn!(
+                run_id = %task.run_id,
+                task_id = %task.task_id,
+                reclaim_reason,
+                retry_count = task
+                    .retry_state
+                    .as_ref()
+                    .map(|state| state.retry_count + 1)
+                    .unwrap_or(1),
+                max_retry_count = task
+                    .retry_state
+                    .as_ref()
+                    .map(|state| state.max_retry_count)
+                    .or_else(|| max_task_retry_count(&run_context)),
+                "reclaimed stale running task and requeued it for retry"
+            );
+            store.requeue_task(
+                task.task_id,
+                completion_plan.failure_reason.as_deref(),
+                &completion_plan.metadata,
+            )?
+        } else {
+            tracing::warn!(
+                run_id = %task.run_id,
+                task_id = %task.task_id,
+                reclaim_reason,
+                "reclaimed stale running task and marked it failed"
+            );
+            store.mark_task_finished(
+                task.task_id,
+                &completion_plan.status,
+                completion_plan.failure_reason.as_deref(),
+                &completion_plan.metadata,
+            )?
+        };
+        if !refreshed_run_ids.contains(&task.run_id) {
+            refreshed_run_ids.push(task.run_id);
+        }
+        reclaimed_tasks.push(reclaimed_task);
+    }
+
+    for run_id in refreshed_run_ids {
+        store.refresh_run_status(run_id)?;
+    }
+
+    Ok(reclaimed_tasks)
+}
+
+fn task_retry_state(run_context: &RunContext, task: &TaskSummary) -> Option<TaskRetryState> {
+    task.retry_state
+        .clone()
+        .or_else(|| max_task_retry_count(run_context).map(TaskRetryState::new))
+}
+
+fn plan_failure_completion(
+    run_context: &RunContext,
+    task: &TaskSummary,
+    failure_reason: String,
+    retryable: bool,
+) -> TaskCompletionPlan {
+    let retry_state = task_retry_state(run_context, task);
+
+    if retryable
+        && retry_state
+            .as_ref()
+            .is_some_and(TaskRetryState::can_schedule_retry)
+    {
+        let next_retry_state = retry_state
+            .expect("retry state should exist when retry is allowed")
+            .after_requeue(failure_reason.clone());
+        TaskCompletionPlan {
+            status: "queued".to_string(),
+            failure_reason: Some(failure_reason),
+            metadata: metadata_with_retry_state(&task.metadata, &next_retry_state),
+            retry_scheduled: true,
+        }
+    } else {
+        let metadata = retry_state
+            .as_ref()
+            .map(|state| {
+                metadata_with_retry_state(
+                    &task.metadata,
+                    &state.after_terminal_failure(failure_reason.clone()),
+                )
+            })
+            .unwrap_or_else(|| task.metadata.clone());
+        TaskCompletionPlan {
+            status: "failed".to_string(),
+            failure_reason: Some(failure_reason),
+            metadata,
+            retry_scheduled: false,
+        }
+    }
+}
+
+fn stale_task_failure_reason(task: &TaskSummary) -> String {
+    format!(
+        "task execution exceeded reclaim lease after {}s",
+        stale_task_reclaim_deadline_seconds(task)
+    )
+}
+
+fn stale_task_reclaim_deadline_seconds(task: &TaskSummary) -> u64 {
+    task.execution
+        .timeout_seconds
+        .unwrap_or(DEFAULT_TASK_RECLAIM_TIMEOUT_SECONDS)
+        .saturating_add(TASK_RECLAIM_GRACE_SECONDS)
 }
 
 fn max_task_retry_count(run_context: &RunContext) -> Option<u32> {
@@ -550,7 +656,10 @@ fn refresh_pr_candidate(
 
 #[cfg(test)]
 mod tests {
-    use super::{max_task_retry_count, plan_task_completion};
+    use super::{
+        max_task_retry_count, plan_failure_completion, plan_task_completion,
+        stale_task_failure_reason, stale_task_reclaim_deadline_seconds,
+    };
     use crate::{
         models::{
             run::RunContext,
@@ -645,6 +754,69 @@ mod tests {
         let run_context = sample_run_context(Some(3));
         assert_eq!(max_task_retry_count(&run_context), Some(3));
         assert_eq!(max_task_retry_count(&sample_run_context(None)), None);
+    }
+
+    #[test]
+    fn requeues_reclaimed_task_when_retry_budget_is_available() {
+        let run_context = sample_run_context(Some(2));
+        let task = sample_task(Some(TaskRetryState {
+            attempt_count: 1,
+            retry_count: 0,
+            max_retry_count: 2,
+            retry_scheduled: false,
+            last_failure_reason: None,
+        }));
+
+        let plan =
+            plan_failure_completion(&run_context, &task, stale_task_failure_reason(&task), true);
+
+        assert_eq!(plan.status, "queued");
+        assert!(plan.retry_scheduled);
+        let retry_state =
+            retry_state_from_metadata(&plan.metadata).expect("retry state should be recorded");
+        assert_eq!(retry_state.attempt_count, 2);
+        assert_eq!(retry_state.retry_count, 1);
+        assert!(retry_state.retry_scheduled);
+    }
+
+    #[test]
+    fn fails_reclaimed_task_when_retry_budget_is_exhausted() {
+        let run_context = sample_run_context(Some(1));
+        let task = sample_task(Some(TaskRetryState {
+            attempt_count: 1,
+            retry_count: 1,
+            max_retry_count: 1,
+            retry_scheduled: false,
+            last_failure_reason: Some("previous reclaim".to_string()),
+        }));
+
+        let plan =
+            plan_failure_completion(&run_context, &task, stale_task_failure_reason(&task), true);
+
+        assert_eq!(plan.status, "failed");
+        assert!(!plan.retry_scheduled);
+        let retry_state =
+            retry_state_from_metadata(&plan.metadata).expect("retry state should be recorded");
+        assert_eq!(retry_state.attempt_count, 2);
+        assert_eq!(retry_state.retry_count, 1);
+        assert!(!retry_state.retry_scheduled);
+        assert_eq!(
+            retry_state.last_failure_reason.as_deref(),
+            Some("task execution exceeded reclaim lease after 60s")
+        );
+    }
+
+    #[test]
+    fn computes_reclaim_deadline_from_task_timeout_with_grace() {
+        let task = sample_task(None);
+        assert_eq!(stale_task_reclaim_deadline_seconds(&task), 60);
+
+        let mut task_without_timeout = sample_task(None);
+        task_without_timeout.execution.timeout_seconds = None;
+        assert_eq!(
+            stale_task_reclaim_deadline_seconds(&task_without_timeout),
+            330
+        );
     }
 
     fn sample_run_context(max_task_retry_count: Option<u32>) -> RunContext {
