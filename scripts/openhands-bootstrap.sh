@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 REGISTER_MCP=0
+VALIDATE_MCP=0
 ENV_FILE=""
 
 usage() {
@@ -16,6 +17,7 @@ OpenHands MCP onboarding steps.
 
 Options:
   --register-mcp      Register catalyst-continuum in OpenHands after Postgres is ready
+  --validate-mcp      Run the safe stateful MCP validation flow after Postgres is ready
   --env-file PATH     Use a specific compose env file
   -h, --help          Show this help
 EOF
@@ -25,6 +27,10 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --register-mcp)
       REGISTER_MCP=1
+      shift
+      ;;
+    --validate-mcp)
+      VALIDATE_MCP=1
       shift
       ;;
     --env-file)
@@ -116,6 +122,14 @@ echo "postgres is ready"
 echo "database_url: $DATABASE_URL"
 echo
 
+if [ "$VALIDATE_MCP" -eq 1 ]; then
+  echo "running safe stateful MCP validation"
+  CATALYST_DATABASE_URL="$DATABASE_URL" \
+    CATALYST_ARTIFACT_ROOT="${CATALYST_ARTIFACT_ROOT:-$ROOT_DIR/.continuum/openhands-bootstrap-artifacts}" \
+    ./scripts/mcp-stateful-smoke.sh
+  echo
+fi
+
 if [ "$REGISTER_MCP" -eq 1 ]; then
   CATALYST_DATABASE_URL="$DATABASE_URL" ./scripts/openhands-register-mcp.sh
   echo
@@ -124,9 +138,10 @@ fi
 echo "next:"
 echo "  export CATALYST_DATABASE_URL='$DATABASE_URL'"
 echo "  ./scripts/mcp-smoke.sh"
+echo "  ./scripts/mcp-stateful-smoke.sh"
 echo "  ./scripts/openhands-register-mcp.sh"
 echo "  openhands -f examples/openhands/first-task.md"
 echo
 echo "inside OpenHands:"
 echo "  /mcp"
-echo "  ask it to run list_packs or validate_brief first"
+echo "  ask it to run the safe validation task from examples/openhands/first-task.md"

@@ -87,6 +87,7 @@ Use the smoke script to validate the server lifecycle and a basic tool call:
 
 ```bash
 ./scripts/mcp-smoke.sh
+./scripts/mcp-stateful-smoke.sh
 ```
 
 The script verifies:
@@ -95,6 +96,16 @@ The script verifies:
 - `notifications/initialized`
 - `tools/list`
 - `tools/call` against `validate_brief`
+
+The stateful companion script verifies:
+
+- `submit_brief`
+- `list_runs`
+- `describe_run`
+- repeated `run_worker_once` cycles until the run reaches a terminal state
+- `evaluate_run_policy`
+- `evaluate_run_quality`
+- `describe_artifact` for the persisted policy and quality reports
 
 For stateful sessions, `describe_artifact` is the generic inspection tool for persisted manifests and artifact metadata, `evaluate_run_policy` is the policy visibility checkpoint, and `evaluate_run_quality` is the remote-promotion quality checkpoint. Agent clients can call all three explicitly for inspection, while `publish_pr_export` and `open_github_pr` still enforce the quality gate automatically.
 

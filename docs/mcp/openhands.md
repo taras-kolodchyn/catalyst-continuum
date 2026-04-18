@@ -21,20 +21,21 @@ This is the fastest way to validate the integration locally with OpenHands.
 For the shortest setup path, use:
 
 ```bash
-./scripts/openhands-bootstrap.sh
+./scripts/openhands-bootstrap.sh --validate-mcp
 ```
 
 This script:
 
 - starts the pinned local Postgres service from `deploy/compose/compose.yaml`
 - waits until the database is ready
+- runs the safe stateful MCP validation flow when `--validate-mcp` is set
 - prints the computed `CATALYST_DATABASE_URL`
 - shows the next OpenHands commands to run
 
-To bootstrap Postgres and register the MCP server in one step:
+To bootstrap Postgres, validate the stateful MCP path, and register the MCP server in one step:
 
 ```bash
-./scripts/openhands-bootstrap.sh --register-mcp
+./scripts/openhands-bootstrap.sh --validate-mcp --register-mcp
 ```
 
 After that, start OpenHands with the prepared first task:
@@ -127,6 +128,7 @@ Stateful tools need `CATALYST_DATABASE_URL`:
 `describe_artifact` is the general inspection tool for OpenHands when it needs the persisted manifest or metadata behind a `backlog`, `policy_report`, `quality_report`, `pr_export`, or publication artifact referenced by `describe_run`.
 `evaluate_run_policy` is the visibility tool for OpenHands when it needs to inspect whether the current run still satisfies control-plane policy constraints such as runtime provider, sandbox profile, and planned timeout budget.
 `evaluate_run_quality` is the visibility tool for OpenHands when it needs to inspect whether a run is ready for remote PR promotion. Even if OpenHands skips that explicit call, `publish_pr_export` and `open_github_pr` will enforce the same automated gate before pushing changes outward.
+The safe first-run task in [examples/openhands/first-task.md](../../examples/openhands/first-task.md) stays below remote publication: it validates the MCP server, progresses a local run, evaluates policy and quality, and inspects the persisted artifacts.
 
 ## Reliability Note
 
@@ -146,6 +148,10 @@ Before wiring OpenHands, validate the server locally:
 
 ```bash
 ./scripts/mcp-smoke.sh
+./scripts/mcp-stateful-smoke.sh
 ```
 
-Then register the server in OpenHands and start a conversation. Ask OpenHands to inspect the available MCP tools or validate a brief. That is the shortest path to confirming the integration end to end.
+`./scripts/mcp-smoke.sh` validates the stateless handshake and tool discovery path.
+`./scripts/mcp-stateful-smoke.sh` validates the safe stateful path: brief submission, run listing, run progression through `run_worker_once`, policy/quality evaluation, and persisted artifact inspection.
+
+Then register the server in OpenHands and start a conversation with [examples/openhands/first-task.md](../../examples/openhands/first-task.md). That is the shortest path to confirming the integration end to end without publishing or opening a GitHub PR.
