@@ -26,11 +26,12 @@ use crate::{
         packs::PackDefinition, pr_candidate,
     },
     runtime::RuntimeRegistry,
-    storage::postgres::{DatabaseReadiness, PostgresRunStore, RunListFilters},
+    storage::postgres::{DatabaseReadiness, PostgresRunStore, RunEventListFilters, RunListFilters},
     telemetry,
 };
 
 const DEFAULT_RUN_LIST_LIMIT: usize = 20;
+const DEFAULT_RUN_EVENT_LIST_LIMIT: usize = 20;
 const DEFAULT_WEBHOOK_LIST_LIMIT: usize = 20;
 const DEFAULT_WEBHOOK_ACTION_REQUEST_LIST_LIMIT: usize = 20;
 const DEFAULT_REPOSITORY_SIGNAL_LIST_LIMIT: usize = 20;
@@ -90,6 +91,7 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                         "/artifacts/{artifact_id}",
                         "/runs",
                         "/runs/{run_id}",
+                        "/runs/{run_id}/events",
                         "/runs/{run_id}/artifacts/latest/{artifact_type}",
                         "POST /runs/{run_id}/tasks/next",
                         "POST /runs/{run_id}/worker/once",
@@ -471,6 +473,59 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                     },
                 ),
             },
+            ("GET", _) if run_events_path_parts(path).is_some() => {
+                match parse_run_events_path(path) {
+                    Ok(run_id) => match parse_list_run_events_request(query) {
+                        Ok(list_request) => match store.fetch_run_summary(run_id) {
+                            Ok(Some(_)) => match store.list_run_events(
+                                run_id,
+                                list_request.limit,
+                                &list_request.filters,
+                            ) {
+                                Ok(events) => json_response(
+                                    StatusCode(200),
+                                    &RecentRunEventsResponse {
+                                        count: events.len(),
+                                        events,
+                                    },
+                                ),
+                                Err(error) => json_response(
+                                    StatusCode(500),
+                                    &ErrorResponse {
+                                        error: format!(
+                                            "failed to list events for run {run_id}: {error}"
+                                        ),
+                                    },
+                                ),
+                            },
+                            Ok(None) => json_response(
+                                StatusCode(404),
+                                &ErrorResponse {
+                                    error: format!("run not found: {run_id}"),
+                                },
+                            ),
+                            Err(error) => json_response(
+                                StatusCode(500),
+                                &ErrorResponse {
+                                    error: format!("failed to load run {run_id}: {error}"),
+                                },
+                            ),
+                        },
+                        Err(error) => json_response(
+                            StatusCode(400),
+                            &ErrorResponse {
+                                error: error.to_string(),
+                            },
+                        ),
+                    },
+                    Err(error) => json_response(
+                        StatusCode(400),
+                        &ErrorResponse {
+                            error: error.to_string(),
+                        },
+                    ),
+                }
+            }
             ("GET", _) if latest_artifact_path_parts(path).is_some() => {
                 match parse_latest_artifact_path(path) {
                     Ok((run_id, artifact_type)) => match store.fetch_run_summary(run_id) {
@@ -1060,6 +1115,22 @@ fn parse_run_action_path(path: &str, suffix: &str) -> anyhow::Result<Uuid> {
     parse_run_id(run_id)
 }
 
+fn run_events_path_parts(path: &str) -> Option<&str> {
+    let run_id = path.strip_prefix("/runs/")?.strip_suffix("/events")?;
+    if run_id.is_empty() || run_id.contains('/') {
+        return None;
+    }
+
+    Some(run_id)
+}
+
+fn parse_run_events_path(path: &str) -> anyhow::Result<Uuid> {
+    let run_id = run_events_path_parts(path)
+        .ok_or_else(|| anyhow::anyhow!("invalid run events path: {path}"))?;
+
+    parse_run_id(run_id)
+}
+
 fn latest_artifact_path_parts(path: &str) -> Option<(&str, &str)> {
     let remainder = path.strip_prefix("/runs/")?;
     let (run_id, artifact_type) = remainder.split_once("/artifacts/latest/")?;
@@ -1179,6 +1250,32 @@ fn parse_list_runs_request(query: Option<&str>) -> anyhow::Result<ListRunsReques
     )?;
 
     Ok(ListRunsRequest { limit, filters })
+}
+
+fn parse_list_run_events_request(query: Option<&str>) -> anyhow::Result<ListRunEventsRequest> {
+    let query_pairs = parse_query_pairs(query);
+    let limit = match query_pairs.get("limit") {
+        Some(value) if !value.trim().is_empty() => {
+            value.trim().parse::<usize>().map_err(|error| {
+                anyhow::anyhow!("invalid run_events.limit `{}`: {error}", value.trim())
+            })?
+        }
+        _ => DEFAULT_RUN_EVENT_LIST_LIMIT,
+    };
+    let task_id = match query_pairs.get("task_id") {
+        Some(value) if !value.trim().is_empty() => {
+            Some(Uuid::parse_str(value.trim()).map_err(|error| {
+                anyhow::anyhow!("invalid run_events.task_id `{}`: {error}", value.trim())
+            })?)
+        }
+        _ => None,
+    };
+    let filters = RunEventListFilters::from_inputs(
+        query_pairs.get("event_type").map(String::as_str),
+        task_id,
+    );
+
+    Ok(ListRunEventsRequest { limit, filters })
 }
 
 fn parse_list_github_webhooks_request(
@@ -1336,6 +1433,7 @@ fn route_label(method: &str, path: &str) -> &'static str {
             "/artifacts/{artifact_id}"
         }
         ("GET", "/runs") => "/runs",
+        ("GET", _) if run_events_path_parts(path).is_some() => "/runs/{run_id}/events",
         ("GET", _) if latest_artifact_path_parts(path).is_some() => {
             "/runs/{run_id}/artifacts/latest/{artifact_type}"
         }
@@ -1435,6 +1533,12 @@ struct RecentRunsResponse {
     runs: Vec<crate::models::run::RunSummary>,
 }
 
+#[derive(Debug, Serialize)]
+struct RecentRunEventsResponse {
+    count: usize,
+    events: Vec<crate::models::run_event::RunEventSummary>,
+}
+
 #[derive(Debug)]
 struct ListGithubWebhooksRequest {
     limit: usize,
@@ -1477,6 +1581,12 @@ struct ListRunsRequest {
     filters: RunListFilters,
 }
 
+#[derive(Debug)]
+struct ListRunEventsRequest {
+    limit: usize,
+    filters: RunEventListFilters,
+}
+
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct RunNextGithubWebhookActionRequest {
@@ -1508,7 +1618,7 @@ mod tests {
     use super::{
         latest_artifact_path_parts, parse_list_github_webhook_action_requests_request,
         parse_list_github_webhooks_request, parse_list_repository_signals_request,
-        parse_list_runs_request, readiness_payload, route_label,
+        parse_list_run_events_request, parse_list_runs_request, readiness_payload, route_label,
     };
     use crate::storage::postgres::DatabaseReadiness;
     use anyhow::anyhow;
@@ -1608,6 +1718,14 @@ mod tests {
     }
 
     #[test]
+    fn labels_run_events_route() {
+        assert_eq!(
+            route_label("GET", "/runs/11111111-1111-1111-1111-111111111111/events"),
+            "/runs/{run_id}/events"
+        );
+    }
+
+    #[test]
     fn parses_list_runs_query_filters() {
         let request = parse_list_runs_request(Some("limit=5&status=running&target_pack=cli-tool"))
             .expect("query should parse");
@@ -1615,6 +1733,26 @@ mod tests {
         assert_eq!(request.limit, 5);
         assert_eq!(request.filters.status.as_deref(), Some("executing"));
         assert_eq!(request.filters.target_pack.as_deref(), Some("cli-tool"));
+    }
+
+    #[test]
+    fn parses_list_run_events_query_filters() {
+        let request = parse_list_run_events_request(Some(
+            "limit=5&event_type=task_succeeded&task_id=11111111-1111-1111-1111-111111111111",
+        ))
+        .expect("query should parse");
+
+        assert_eq!(request.limit, 5);
+        assert_eq!(
+            request.filters.event_type.as_deref(),
+            Some("task_succeeded")
+        );
+        assert_eq!(
+            request.filters.task_id,
+            Some(
+                uuid::Uuid::parse_str("11111111-1111-1111-1111-111111111111").expect("valid uuid")
+            )
+        );
     }
 
     #[test]

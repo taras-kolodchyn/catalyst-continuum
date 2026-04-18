@@ -10,6 +10,7 @@ use crate::models::{
         RepositorySignalDraft, RepositorySignalListFilters, RepositorySignalSummary,
     },
     run::{RunContext, RunDetail, RunDraft, RunSummary, RunTaskCounts, SubmissionRecord},
+    run_event::{RunEventDraft, RunEventSummary},
     task::{TaskDraft, TaskExecutionSpec, TaskSummary},
     webhook::{
         GitHubWebhookActionRequestDraft, GitHubWebhookActionRequestListFilters,
@@ -37,12 +38,27 @@ pub struct RunListFilters {
     pub target_pack: Option<String>,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct RunEventListFilters {
+    pub event_type: Option<String>,
+    pub task_id: Option<Uuid>,
+}
+
 impl RunListFilters {
     pub fn from_inputs(status: Option<&str>, target_pack: Option<&str>) -> Result<Self> {
         Ok(Self {
             status: normalize_run_status_filter(status)?,
             target_pack: normalize_optional_filter(target_pack),
         })
+    }
+}
+
+impl RunEventListFilters {
+    pub fn from_inputs(event_type: Option<&str>, task_id: Option<Uuid>) -> Self {
+        Self {
+            event_type: normalize_optional_filter(event_type),
+            task_id,
+        }
     }
 }
 
@@ -71,6 +87,7 @@ impl PostgresRunStore {
                     to_regclass('public.runs') IS NOT NULL AS has_runs,
                     to_regclass('public.artifacts') IS NOT NULL AS has_artifacts,
                     to_regclass('public.tasks') IS NOT NULL AS has_tasks,
+                    to_regclass('public.run_events') IS NOT NULL AS has_run_events,
                     to_regclass('public.webhook_deliveries') IS NOT NULL AS has_webhook_deliveries,
                     to_regclass('public.webhook_action_requests') IS NOT NULL AS has_webhook_action_requests,
                     to_regclass('public.repository_signals') IS NOT NULL AS has_repository_signals",
@@ -91,6 +108,10 @@ impl PostgresRunStore {
 
         if !row.get::<_, bool>("has_tasks") {
             missing_tables.push("tasks".to_string());
+        }
+
+        if !row.get::<_, bool>("has_run_events") {
+            missing_tables.push("run_events".to_string());
         }
 
         if !row.get::<_, bool>("has_webhook_deliveries") {
@@ -123,6 +144,21 @@ impl PostgresRunStore {
             .transaction()
             .context("failed to start postgres transaction")?;
         let submission = insert_submission_records(&mut transaction, draft, artifacts, tasks)?;
+        let event = RunEventDraft::for_run(
+            draft.run_id,
+            "run_submitted",
+            Some(draft.status.clone()),
+            format!("run accepted with trigger {}", draft.trigger),
+            serde_json::json!({
+                "trigger": draft.trigger,
+                "title": draft.title,
+                "target_pack": draft.selected_pack,
+                "task_count": tasks.len(),
+                "artifact_count": artifacts.len(),
+                "brief_source_path": draft.brief_source_path,
+            }),
+        );
+        let _ = insert_run_event_record(&mut transaction, &event)?;
 
         transaction
             .commit()
@@ -145,6 +181,22 @@ impl PostgresRunStore {
             .context("failed to start postgres transaction")?;
 
         let submission = insert_submission_records(&mut transaction, draft, artifacts, tasks)?;
+        let event = RunEventDraft::for_run(
+            draft.run_id,
+            "run_submitted",
+            Some(draft.status.clone()),
+            format!("run materialized from repository signal {}", signal_id),
+            serde_json::json!({
+                "trigger": draft.trigger,
+                "title": draft.title,
+                "target_pack": draft.selected_pack,
+                "task_count": tasks.len(),
+                "artifact_count": artifacts.len(),
+                "signal_id": signal_id,
+                "brief_source_path": draft.brief_source_path,
+            }),
+        );
+        let _ = insert_run_event_record(&mut transaction, &event)?;
 
         let signal_row = transaction
             .query_opt(
@@ -327,8 +379,11 @@ impl PostgresRunStore {
     }
 
     pub fn mark_task_running(&mut self, task_id: Uuid) -> Result<TaskSummary> {
-        let row = self
+        let mut transaction = self
             .client
+            .transaction()
+            .context("failed to start postgres transaction")?;
+        let row = transaction
             .query_one(
                 &format!(
                     "UPDATE tasks
@@ -366,7 +421,27 @@ impl PostgresRunStore {
             )
             .context("failed to mark task running")?;
 
-        Ok(row_to_task_summary(&row))
+        let task = row_to_task_summary(&row);
+        let event = RunEventDraft::for_task(
+            task.run_id,
+            task.task_id,
+            "task_started",
+            Some(task.status.clone()),
+            format!("task {} started", task.backlog_item_id),
+            serde_json::json!({
+                "backlog_item_id": task.backlog_item_id,
+                "kind": task.kind,
+                "priority": task.priority,
+                "title": task.title,
+                "provider": task.execution.provider,
+            }),
+        );
+        let _ = insert_run_event_record(&mut transaction, &event)?;
+        transaction
+            .commit()
+            .context("failed to commit task running transaction")?;
+
+        Ok(task)
     }
 
     pub fn mark_task_finished(
@@ -376,8 +451,11 @@ impl PostgresRunStore {
         failure_reason: Option<&str>,
         metadata: &Value,
     ) -> Result<TaskSummary> {
-        let row = self
+        let mut transaction = self
             .client
+            .transaction()
+            .context("failed to start postgres transaction")?;
+        let row = transaction
             .query_one(
                 &format!(
                     "UPDATE tasks
@@ -416,7 +494,33 @@ impl PostgresRunStore {
             )
             .context("failed to mark task finished")?;
 
-        Ok(row_to_task_summary(&row))
+        let task = row_to_task_summary(&row);
+        let event_type = match status {
+            "succeeded" => "task_succeeded",
+            "failed" => "task_failed",
+            other => other,
+        };
+        let event = RunEventDraft::for_task(
+            task.run_id,
+            task.task_id,
+            event_type,
+            Some(task.status.clone()),
+            format!("task {} marked {}", task.backlog_item_id, task.status),
+            serde_json::json!({
+                "backlog_item_id": task.backlog_item_id,
+                "kind": task.kind,
+                "priority": task.priority,
+                "title": task.title,
+                "failure_reason": task.failure_reason,
+                "retry_state": task.retry_state,
+            }),
+        );
+        let _ = insert_run_event_record(&mut transaction, &event)?;
+        transaction
+            .commit()
+            .context("failed to commit task finished transaction")?;
+
+        Ok(task)
     }
 
     pub fn requeue_task(
@@ -425,8 +529,11 @@ impl PostgresRunStore {
         failure_reason: Option<&str>,
         metadata: &Value,
     ) -> Result<TaskSummary> {
-        let row = self
+        let mut transaction = self
             .client
+            .transaction()
+            .context("failed to start postgres transaction")?;
+        let row = transaction
             .query_one(
                 &format!(
                     "UPDATE tasks
@@ -466,7 +573,32 @@ impl PostgresRunStore {
             )
             .context("failed to requeue task")?;
 
-        Ok(row_to_task_summary(&row))
+        let task = row_to_task_summary(&row);
+        let event = RunEventDraft::for_task(
+            task.run_id,
+            task.task_id,
+            "task_requeued",
+            Some(task.status.clone()),
+            format!("task {} requeued", task.backlog_item_id),
+            serde_json::json!({
+                "backlog_item_id": task.backlog_item_id,
+                "kind": task.kind,
+                "priority": task.priority,
+                "title": task.title,
+                "failure_reason": task.failure_reason,
+                "retry_state": task.retry_state,
+            }),
+        );
+        let _ = insert_run_event_record(&mut transaction, &event)?;
+        transaction
+            .commit()
+            .context("failed to commit task requeue transaction")?;
+
+        Ok(task)
+    }
+
+    pub fn insert_run_event(&mut self, event: &RunEventDraft) -> Result<RunEventSummary> {
+        insert_run_event_record(&mut self.client, event)
     }
 
     pub fn insert_artifact(&mut self, artifact: &ArtifactDraft) -> Result<ArtifactSummary> {
@@ -1901,6 +2033,50 @@ impl PostgresRunStore {
         Ok(rows.iter().map(row_to_run_summary).collect())
     }
 
+    pub fn list_run_events(
+        &mut self,
+        run_id: Uuid,
+        limit: usize,
+        filters: &RunEventListFilters,
+    ) -> Result<Vec<RunEventSummary>> {
+        let limit = i64::try_from(limit).context("run event list limit exceeds i64 range")?;
+        let rows = match (filters.event_type.as_deref(), filters.task_id) {
+            (None, None) => self
+                .client
+                .query(
+                    &run_event_summary_query("run_id = $1", "$2"),
+                    &[&run_id, &limit],
+                )
+                .context("failed to list run events")?,
+            (Some(event_type), None) => self
+                .client
+                .query(
+                    &run_event_summary_query("run_id = $1 AND event_type = $2", "$3"),
+                    &[&run_id, &event_type, &limit],
+                )
+                .context("failed to list run events")?,
+            (None, Some(task_id)) => self
+                .client
+                .query(
+                    &run_event_summary_query("run_id = $1 AND task_id = $2", "$3"),
+                    &[&run_id, &task_id, &limit],
+                )
+                .context("failed to list run events")?,
+            (Some(event_type), Some(task_id)) => self
+                .client
+                .query(
+                    &run_event_summary_query(
+                        "run_id = $1 AND event_type = $2 AND task_id = $3",
+                        "$4",
+                    ),
+                    &[&run_id, &event_type, &task_id, &limit],
+                )
+                .context("failed to list run events")?,
+        };
+
+        Ok(rows.iter().map(row_to_run_event_summary).collect())
+    }
+
     pub fn fetch_run_summary(&mut self, run_id: Uuid) -> Result<Option<RunSummary>> {
         let row = self
             .client
@@ -2033,18 +2209,50 @@ impl PostgresRunStore {
             "queued"
         };
 
-        let row = self
+        let mut transaction = self
             .client
+            .transaction()
+            .context("failed to start postgres transaction")?;
+        let row = transaction
             .query_one(
-                "UPDATE runs
-                 SET status = $2
-                 WHERE run_id = $1
-                 RETURNING status",
+                "WITH previous AS (
+                    SELECT status
+                    FROM runs
+                    WHERE run_id = $1
+                 ),
+                 updated AS (
+                    UPDATE runs
+                    SET status = $2
+                    WHERE run_id = $1
+                    RETURNING status
+                 )
+                 SELECT
+                    (SELECT status FROM previous) AS previous_status,
+                    (SELECT status FROM updated) AS status",
                 &[&run_id, &next_status],
             )
             .context("failed to update run status")?;
 
-        Ok(row.get("status"))
+        let previous_status: String = row.get("previous_status");
+        let status: String = row.get("status");
+        if previous_status != status {
+            let event = RunEventDraft::for_run(
+                run_id,
+                "run_status_changed",
+                Some(status.clone()),
+                format!("run status changed from {previous_status} to {status}"),
+                serde_json::json!({
+                    "previous_status": previous_status,
+                    "status": status,
+                }),
+            );
+            let _ = insert_run_event_record(&mut transaction, &event)?;
+        }
+        transaction
+            .commit()
+            .context("failed to commit run status refresh transaction")?;
+
+        Ok(status)
     }
 }
 
@@ -2087,6 +2295,21 @@ fn row_to_task_summary(row: &postgres::Row) -> TaskSummary {
         started_at: row.get("started_at"),
         completed_at: row.get("completed_at"),
         failure_reason: row.get("failure_reason"),
+        persisted: true,
+    }
+}
+
+fn row_to_run_event_summary(row: &postgres::Row) -> RunEventSummary {
+    RunEventSummary {
+        event_id: row.get("event_id"),
+        run_id: row.get("run_id"),
+        task_id: row.get("task_id"),
+        scope: row.get("scope"),
+        event_type: row.get("event_type"),
+        status: row.get("status"),
+        summary: row.get("summary"),
+        payload: row.get("payload"),
+        created_at: Some(row.get("created_at")),
         persisted: true,
     }
 }
@@ -2138,6 +2361,54 @@ fn row_to_github_webhook_delivery_summary(row: &postgres::Row) -> GitHubWebhookD
         updated_at: row.get("updated_at"),
         persisted: true,
     }
+}
+
+fn insert_run_event_record(
+    client: &mut impl GenericClient,
+    event: &RunEventDraft,
+) -> Result<RunEventSummary> {
+    let row = client
+        .query_one(
+            &format!(
+                "INSERT INTO run_events (
+                    event_id,
+                    run_id,
+                    task_id,
+                    schema_version,
+                    scope,
+                    event_type,
+                    status,
+                    summary,
+                    payload
+                ) VALUES (
+                    $1, $2, $3, $4, $5, $6, $7, $8, $9
+                )
+                RETURNING
+                    event_id,
+                    run_id,
+                    task_id,
+                    scope,
+                    event_type,
+                    status,
+                    summary,
+                    payload,
+                    to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at"
+            ),
+            &[
+                &event.event_id,
+                &event.run_id,
+                &event.task_id,
+                &event.schema_version,
+                &event.scope,
+                &event.event_type,
+                &event.status,
+                &event.summary,
+                &event.payload,
+            ],
+        )
+        .context("failed to insert run event")?;
+
+    Ok(row_to_run_event_summary(&row))
 }
 
 fn insert_submission_records(
@@ -2489,6 +2760,25 @@ fn run_summary_query(where_clause: &str, limit_placeholder: Option<&str>) -> Str
     }
 
     sql
+}
+
+fn run_event_summary_query(where_clause: &str, limit_placeholder: &str) -> String {
+    format!(
+        "SELECT
+            event_id,
+            run_id,
+            task_id,
+            scope,
+            event_type,
+            status,
+            summary,
+            payload,
+            to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at
+         FROM run_events
+         WHERE {where_clause}
+         ORDER BY created_at DESC, event_id DESC
+         LIMIT {limit_placeholder}"
+    )
 }
 
 fn positive_i64_to_usize(value: i64) -> usize {

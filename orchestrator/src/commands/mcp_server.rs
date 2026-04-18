@@ -21,7 +21,7 @@ use crate::{
         packs::PackDefinition,
     },
     runtime::RuntimeRegistry,
-    storage::postgres::{PostgresRunStore, RunListFilters},
+    storage::postgres::{PostgresRunStore, RunEventListFilters, RunListFilters},
 };
 
 const MCP_SERVER_NAME: &str = "catalyst-continuum-orchestrator";
@@ -157,6 +157,18 @@ struct ListRunsToolArgs {
 #[serde(deny_unknown_fields)]
 struct DescribeRunToolArgs {
     run_id: uuid::Uuid,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ListRunEventsToolArgs {
+    run_id: uuid::Uuid,
+    #[serde(default = "default_run_event_limit")]
+    limit: usize,
+    #[serde(default)]
+    event_type: Option<String>,
+    #[serde(default)]
+    task_id: Option<uuid::Uuid>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -503,6 +515,7 @@ impl StdioMcpServer {
             "describe_repository_signal" => self.call_describe_repository_signal(arguments),
             "list_runs" => self.call_list_runs(arguments),
             "describe_run" => self.call_describe_run(arguments),
+            "list_run_events" => self.call_list_run_events(arguments),
             "run_next_github_webhook_action" => self.call_run_next_github_webhook_action(arguments),
             "run_next_task" => self.call_run_next_task(arguments),
             "run_worker_once" => self.call_run_worker_once(arguments),
@@ -810,6 +823,22 @@ impl StdioMcpServer {
         })
     }
 
+    fn call_list_run_events(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: ListRunEventsToolArgs = parse_tool_arguments(arguments)?;
+            let mut store = self.open_store()?;
+            store
+                .fetch_run_summary(args.run_id)?
+                .with_context(|| format!("run not found: {}", args.run_id))?;
+            let filters =
+                RunEventListFilters::from_inputs(args.event_type.as_deref(), args.task_id);
+            let events = store.list_run_events(args.run_id, args.limit, &filters)?;
+            let structured =
+                serde_json::to_value(&events).context("failed to serialize run event list")?;
+            Ok(tool_success_object("events", structured))
+        })
+    }
+
     fn call_run_next_github_webhook_action(&self, arguments: Value) -> Value {
         call_tool(|| {
             let args: RunNextGithubWebhookActionToolArgs = parse_tool_arguments(arguments)?;
@@ -1083,6 +1112,10 @@ fn default_run_limit() -> usize {
     20
 }
 
+fn default_run_event_limit() -> usize {
+    20
+}
+
 fn default_webhook_limit() -> usize {
     20
 }
@@ -1254,6 +1287,19 @@ fn tool_definitions() -> Vec<Value> {
             "describe_run",
             "Fetch one orchestrator run with tasks and artifacts.",
             json_schema_object(&[required_string_property("run_id", "Run UUID.")]),
+        ),
+        tool_definition(
+            "list_run_events",
+            "List durable run and task events for one orchestrator run.",
+            json_schema_object(&[
+                required_string_property("run_id", "Run UUID."),
+                optional_integer_property("limit", "Maximum number of events to return."),
+                optional_string_property(
+                    "event_type",
+                    "Optional event type filter, for example task_succeeded.",
+                ),
+                optional_string_property("task_id", "Optional task UUID filter scoped to the run."),
+            ]),
         ),
         tool_definition(
             "run_next_github_webhook_action",
@@ -1434,7 +1480,7 @@ mod tests {
 
         assert_eq!(
             output[1]["result"]["tools"].as_array().map(Vec::len),
-            Some(24)
+            Some(25)
         );
         assert_eq!(output[1]["result"]["tools"][0]["name"], "list_packs");
         assert!(
@@ -1478,6 +1524,11 @@ mod tests {
                 .is_some_and(|tools| tools
                     .iter()
                     .any(|tool| tool["name"] == "describe_repository_signal"))
+        );
+        assert!(
+            output[1]["result"]["tools"]
+                .as_array()
+                .is_some_and(|tools| tools.iter().any(|tool| tool["name"] == "list_run_events"))
         );
         assert!(
             output[1]["result"]["tools"]

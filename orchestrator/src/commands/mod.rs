@@ -14,6 +14,7 @@ pub mod list_github_webhook_action_requests;
 pub mod list_github_webhooks;
 pub mod list_packs;
 pub mod list_repository_signals;
+pub mod list_run_events;
 pub mod list_runs;
 pub mod mcp_server;
 pub mod open_github_pr;

@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::{
     cli::EvaluateRunQualityArgs,
-    models::artifact::ArtifactSummary,
+    models::{artifact::ArtifactSummary, run_event::RunEventDraft},
     planning::{packs::PackDefinition, quality_gate},
     storage::postgres::PostgresRunStore,
 };
@@ -44,6 +44,27 @@ pub(crate) fn evaluate_run_quality(
         artifact_root,
     )?;
     let artifact = store.upsert_artifact(&evaluation.artifact)?;
+    let evaluation_pack_id = evaluation.pack_id.clone();
+    let _ = store.insert_run_event(&RunEventDraft::for_run(
+        run_id,
+        "run_quality_evaluated",
+        Some(if evaluation.passed {
+            "passed".to_string()
+        } else {
+            "failed".to_string()
+        }),
+        format!(
+            "run quality evaluated with {} failing check(s)",
+            evaluation.failed_check_count
+        ),
+        serde_json::json!({
+            "passed": evaluation.passed,
+            "failed_check_count": evaluation.failed_check_count,
+            "target_pack": evaluation_pack_id,
+            "artifact_id": artifact.artifact_id,
+            "source_pr_candidate_artifact_id": evaluation.source_pr_candidate_artifact_id,
+        }),
+    ))?;
 
     Ok(EvaluateRunQualityReport {
         run_id,

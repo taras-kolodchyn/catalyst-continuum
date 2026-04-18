@@ -63,6 +63,23 @@ CREATE TABLE IF NOT EXISTS tasks (
 CREATE INDEX IF NOT EXISTS idx_tasks_run_id ON tasks (run_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_kind ON tasks (kind);
 
+CREATE TABLE IF NOT EXISTS run_events (
+    event_id UUID PRIMARY KEY,
+    run_id UUID NOT NULL REFERENCES runs (run_id) ON DELETE CASCADE,
+    task_id UUID REFERENCES tasks (task_id) ON DELETE SET NULL,
+    schema_version TEXT NOT NULL,
+    scope TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    status TEXT,
+    summary TEXT NOT NULL,
+    payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_run_events_run_id ON run_events (run_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_run_events_event_type ON run_events (event_type);
+CREATE INDEX IF NOT EXISTS idx_run_events_task_id ON run_events (task_id);
+
 CREATE TABLE IF NOT EXISTS webhook_deliveries (
     provider TEXT NOT NULL,
     delivery_id TEXT PRIMARY KEY,

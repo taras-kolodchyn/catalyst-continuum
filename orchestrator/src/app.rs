@@ -5,9 +5,9 @@ use crate::{
         describe_github_webhook_action_request, describe_instance_config, describe_latest_artifact,
         describe_pack, describe_repository_signal, describe_run, evaluate_run_policy,
         evaluate_run_quality, export_pr_candidate, list_github_webhook_action_requests,
-        list_github_webhooks, list_packs, list_repository_signals, list_runs, mcp_server,
-        open_github_pr, publish_pr_export, run_next_github_webhook_action, run_next_task, serve,
-        submit_brief, submit_repository_signal, validate_brief, worker,
+        list_github_webhooks, list_packs, list_repository_signals, list_run_events, list_runs,
+        mcp_server, open_github_pr, publish_pr_export, run_next_github_webhook_action,
+        run_next_task, serve, submit_brief, submit_repository_signal, validate_brief, worker,
     },
     telemetry,
 };
@@ -37,6 +37,7 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
             list_github_webhook_action_requests::execute(args)
         }
         Command::ListRepositorySignals(args) => list_repository_signals::execute(args),
+        Command::ListRunEvents(args) => list_run_events::execute(args),
         Command::ListRuns(args) => list_runs::execute(args),
         Command::ValidateBrief(args) => validate_brief::execute(args),
         Command::SubmitBrief(args) => submit_brief::execute(args),

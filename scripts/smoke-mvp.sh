@@ -697,6 +697,50 @@ assert artifact["manifest"]["artifact_type"] == "quality_report", artifact
 assert artifact["manifest"]["passed"] is True, artifact
 PY
 
+RUN_EVENTS_CLI_FILE="$ARTIFACT_ROOT/run-events.json"
+RUN_EVENTS_HTTP_FILE="$ARTIFACT_ROOT/http-run-events.json"
+RUN_EVENTS_SUCCEEDED_HTTP_FILE="$ARTIFACT_ROOT/http-run-events-task-succeeded.json"
+"$BIN" list-run-events \
+  --database-url "$DATABASE_URL" \
+  --run-id "$RUN_ID" \
+  --limit 50 \
+  --json >"$RUN_EVENTS_CLI_FILE"
+curl -fsS "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/runs/${RUN_ID}/events?limit=50" \
+  >"$RUN_EVENTS_HTTP_FILE"
+curl -fsS "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/runs/${RUN_ID}/events?event_type=task_succeeded&limit=20" \
+  >"$RUN_EVENTS_SUCCEEDED_HTTP_FILE"
+python3 - "$RUN_EVENTS_CLI_FILE" "$RUN_EVENTS_HTTP_FILE" "$RUN_EVENTS_SUCCEEDED_HTTP_FILE" <<'PY'
+import json
+import pathlib
+import sys
+
+cli_events = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+http_events = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
+http_succeeded = json.loads(pathlib.Path(sys.argv[3]).read_text(encoding="utf-8"))
+
+assert isinstance(cli_events, list), cli_events
+assert http_events["count"] == len(http_events["events"]), http_events
+assert http_events["count"] >= 1, http_events
+
+required_event_types = {
+    "run_submitted",
+    "task_started",
+    "task_succeeded",
+    "run_policy_evaluated",
+    "run_quality_evaluated",
+}
+cli_event_types = {event["event_type"] for event in cli_events}
+http_event_types = {event["event_type"] for event in http_events["events"]}
+
+assert required_event_types.issubset(cli_event_types), (required_event_types, cli_event_types)
+assert required_event_types.issubset(http_event_types), (required_event_types, http_event_types)
+assert http_succeeded["count"] >= 1, http_succeeded
+assert all(
+    event["event_type"] == "task_succeeded"
+    for event in http_succeeded["events"]
+), http_succeeded
+PY
+
 "$BIN" export-pr-candidate \
   --database-url "$DATABASE_URL" \
   --artifact-root "$ARTIFACT_ROOT" \

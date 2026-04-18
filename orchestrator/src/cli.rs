@@ -29,6 +29,7 @@ pub enum Command {
     ListGithubWebhooks(ListGithubWebhooksArgs),
     ListGithubWebhookActionRequests(ListGithubWebhookActionRequestsArgs),
     ListRepositorySignals(ListRepositorySignalsArgs),
+    ListRunEvents(ListRunEventsArgs),
     ListRuns(ListRunsArgs),
     ValidateBrief(ValidateBriefArgs),
     SubmitBrief(SubmitBriefArgs),
@@ -61,6 +62,7 @@ impl Command {
             Self::ListGithubWebhooks(_) => "list-github-webhooks",
             Self::ListGithubWebhookActionRequests(_) => "list-github-webhook-action-requests",
             Self::ListRepositorySignals(_) => "list-repository-signals",
+            Self::ListRunEvents(_) => "list-run-events",
             Self::ListRuns(_) => "list-runs",
             Self::ValidateBrief(_) => "validate-brief",
             Self::SubmitBrief(_) => "submit-brief",
@@ -150,6 +152,27 @@ pub struct ListRunsArgs {
 
     #[arg(long)]
     pub target_pack: Option<String>,
+
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct ListRunEventsArgs {
+    #[arg(long, env = "CATALYST_DATABASE_URL")]
+    pub database_url: String,
+
+    #[arg(long)]
+    pub run_id: Uuid,
+
+    #[arg(long, default_value_t = 20)]
+    pub limit: usize,
+
+    #[arg(long)]
+    pub event_type: Option<String>,
+
+    #[arg(long)]
+    pub task_id: Option<Uuid>,
 
     #[arg(long)]
     pub json: bool,

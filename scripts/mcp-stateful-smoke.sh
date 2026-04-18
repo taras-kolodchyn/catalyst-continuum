@@ -404,6 +404,7 @@ try:
         "submit_repository_signal",
         "list_runs",
         "describe_run",
+        "list_run_events",
         "run_next_task",
         "run_worker_once",
         "evaluate_run_policy",
@@ -817,6 +818,9 @@ policy:
             f"stateful MCP smoke failed: expected run {run_id} to succeed, "
             f"got {run_detail['status']}"
         )
+    if not run_detail["tasks"]:
+        fail("stateful MCP smoke failed: describe_run should return tasks for the succeeded run")
+    first_task_id = run_detail["tasks"][0]["task_id"]
 
     policy = call_tool("evaluate_run_policy", {"run_id": run_id}, "policy")
     if policy["passed"] is not True:
@@ -853,6 +857,56 @@ policy:
         )
     if quality_artifact["manifest"]["passed"] is not True:
         fail("stateful MCP smoke failed: persisted quality report is not passed=true")
+
+    run_events = call_tool(
+        "list_run_events",
+        {"run_id": run_id, "limit": 50},
+        "events",
+    )
+    event_types = {event["event_type"] for event in run_events}
+    required_event_types = {
+        "run_submitted",
+        "run_status_changed",
+        "task_started",
+        "task_succeeded",
+        "run_policy_evaluated",
+        "run_quality_evaluated",
+    }
+    missing_event_types = required_event_types - event_types
+    if missing_event_types:
+        fail(
+            "stateful MCP smoke failed: missing expected run events "
+            f"{sorted(missing_event_types)} from {sorted(event_types)}"
+        )
+
+    task_events = call_tool(
+        "list_run_events",
+        {"run_id": run_id, "task_id": first_task_id, "limit": 20},
+        "events",
+    )
+    if not task_events:
+        fail(
+            "stateful MCP smoke failed: expected task-scoped events for "
+            f"task {first_task_id}"
+        )
+    if any(event.get("task_id") != first_task_id for event in task_events):
+        fail(
+            "stateful MCP smoke failed: task-scoped list_run_events returned mismatched task ids "
+            f"{task_events}"
+        )
+
+    succeeded_task_events = call_tool(
+        "list_run_events",
+        {"run_id": run_id, "event_type": "task_succeeded", "limit": 20},
+        "events",
+    )
+    if not succeeded_task_events:
+        fail("stateful MCP smoke failed: expected at least one task_succeeded event")
+    if any(event["event_type"] != "task_succeeded" for event in succeeded_task_events):
+        fail(
+            "stateful MCP smoke failed: event_type filter returned unexpected events "
+            f"{succeeded_task_events}"
+        )
 
     print("mcp stateful smoke passed")
 finally:

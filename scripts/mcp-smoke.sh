@@ -120,6 +120,7 @@ expected_tools = {
     "submit_brief",
     "list_runs",
     "describe_run",
+    "list_run_events",
     "run_next_task",
     "run_worker_once",
     "evaluate_run_policy",

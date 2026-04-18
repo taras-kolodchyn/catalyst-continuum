@@ -37,7 +37,10 @@ properties:
     enum:
       - cli
       - api
+      - http
+      - mcp
       - webhook
+      - repository_signal
       - scheduler
   title:
     type: string
