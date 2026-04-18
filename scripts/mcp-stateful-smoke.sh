@@ -13,9 +13,16 @@ POSTGRES_IMAGE="${MCP_SMOKE_POSTGRES_IMAGE:-postgres:${POSTGRES_VERSION}@${POSTG
 POSTGRES_DB="${MCP_SMOKE_POSTGRES_DB:-continuum}"
 POSTGRES_USER="${MCP_SMOKE_POSTGRES_USER:-continuum}"
 POSTGRES_PASSWORD="${MCP_SMOKE_POSTGRES_PASSWORD:-continuum-dev}"
-POSTGRES_PORT="${MCP_SMOKE_POSTGRES_PORT:-55433}"
+POSTGRES_PORT="${MCP_SMOKE_POSTGRES_PORT:-}"
 POSTGRES_CONTAINER_NAME="continuum-mcp-smoke-postgres-$$"
-ORCHESTRATOR_HTTP_PORT="${MCP_SMOKE_HTTP_PORT:-38081}"
+ORCHESTRATOR_HTTP_PORT="${MCP_SMOKE_HTTP_PORT:-$(python3 - <<'PY'
+import socket
+
+with socket.socket() as sock:
+    sock.bind(("127.0.0.1", 0))
+    print(sock.getsockname()[1])
+PY
+)}"
 GITHUB_WEBHOOK_SECRET="${CATALYST_GITHUB_APP_WEBHOOK_SECRET:-continuum-dev-webhook-secret}"
 GITHUB_APP_INSTALLATION_ID="${MCP_SMOKE_GITHUB_APP_INSTALLATION_ID:-42}"
 WEBHOOK_DELIVERY_ID="${MCP_SMOKE_WEBHOOK_DELIVERY_ID:-11111111-1111-1111-1111-111111111111}"
@@ -37,6 +44,18 @@ cleanup() {
 }
 trap cleanup EXIT
 
+postgres_publish_binding() {
+  if [ -n "$POSTGRES_PORT" ]; then
+    printf '%s\n' "127.0.0.1:${POSTGRES_PORT}:5432"
+  else
+    printf '%s\n' "127.0.0.1::5432"
+  fi
+}
+
+resolve_postgres_host_port() {
+  docker inspect --format='{{(index (index .NetworkSettings.Ports "5432/tcp") 0).HostPort}}' "$POSTGRES_CONTAINER_NAME"
+}
+
 if [ ! -f "$BRIEF_FILE" ]; then
   echo "brief file not found: $BRIEF_FILE" >&2
   exit 1
@@ -49,7 +68,7 @@ if [ -z "${CATALYST_DATABASE_URL:-}" ]; then
     -e POSTGRES_DB="$POSTGRES_DB" \
     -e POSTGRES_USER="$POSTGRES_USER" \
     -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
-    -p "${POSTGRES_PORT}:5432" \
+    -p "$(postgres_publish_binding)" \
     --health-cmd "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}" \
     --health-interval 2s \
     --health-timeout 5s \
@@ -68,6 +87,10 @@ if [ -z "${CATALYST_DATABASE_URL:-}" ]; then
   if [ "${STATUS:-}" != "healthy" ]; then
     echo "stateful MCP smoke postgres did not become healthy" >&2
     exit 1
+  fi
+
+  if [ -z "$POSTGRES_PORT" ]; then
+    POSTGRES_PORT="$(resolve_postgres_host_port)"
   fi
 
   DATABASE_URL="postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@127.0.0.1:${POSTGRES_PORT}/${POSTGRES_DB}"

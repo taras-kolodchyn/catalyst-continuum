@@ -14,7 +14,7 @@ POSTGRES_IMAGE="${SMOKE_POSTGRES_IMAGE:-postgres:${POSTGRES_VERSION}@${POSTGRES_
 POSTGRES_DB="${SMOKE_POSTGRES_DB:-continuum}"
 POSTGRES_USER="${SMOKE_POSTGRES_USER:-continuum}"
 POSTGRES_PASSWORD="${SMOKE_POSTGRES_PASSWORD:-continuum-dev}"
-POSTGRES_PORT="${SMOKE_POSTGRES_PORT:-55432}"
+POSTGRES_PORT="${SMOKE_POSTGRES_PORT:-}"
 GITHUB_WEBHOOK_SECRET="${SMOKE_GITHUB_WEBHOOK_SECRET:-continuum-smoke-webhook-secret}"
 GITHUB_APP_INSTALLATION_ID="${SMOKE_GITHUB_APP_INSTALLATION_ID:-42}"
 PUSH_WEBHOOK_ACTION_REQUEST_ID="${SMOKE_PUSH_WEBHOOK_ACTION_REQUEST_ID:-github:22222222-2222-2222-2222-222222222222:sync_default_branch}"
@@ -41,6 +41,18 @@ cleanup() {
 }
 trap cleanup EXIT
 
+postgres_publish_binding() {
+  if [ -n "$POSTGRES_PORT" ]; then
+    printf '%s\n' "127.0.0.1:${POSTGRES_PORT}:5432"
+  else
+    printf '%s\n' "127.0.0.1::5432"
+  fi
+}
+
+resolve_postgres_host_port() {
+  docker inspect --format='{{(index (index .NetworkSettings.Ports "5432/tcp") 0).HostPort}}' "$POSTGRES_CONTAINER_NAME"
+}
+
 if [ -z "${CATALYST_DATABASE_URL:-}" ]; then
   docker rm -f "$POSTGRES_CONTAINER_NAME" >/dev/null 2>&1 || true
   docker run -d \
@@ -48,7 +60,7 @@ if [ -z "${CATALYST_DATABASE_URL:-}" ]; then
     -e POSTGRES_DB="$POSTGRES_DB" \
     -e POSTGRES_USER="$POSTGRES_USER" \
     -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
-    -p "${POSTGRES_PORT}:5432" \
+    -p "$(postgres_publish_binding)" \
     --health-cmd "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}" \
     --health-interval 2s \
     --health-timeout 5s \
@@ -67,6 +79,10 @@ if [ -z "${CATALYST_DATABASE_URL:-}" ]; then
   if [ "${STATUS:-}" != "healthy" ]; then
     echo "smoke postgres did not become healthy" >&2
     exit 1
+  fi
+
+  if [ -z "$POSTGRES_PORT" ]; then
+    POSTGRES_PORT="$(resolve_postgres_host_port)"
   fi
 
   DATABASE_URL="postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@127.0.0.1:${POSTGRES_PORT}/${POSTGRES_DB}"
