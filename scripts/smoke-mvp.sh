@@ -18,6 +18,8 @@ POSTGRES_PORT="${SMOKE_POSTGRES_PORT:-55432}"
 GITHUB_WEBHOOK_SECRET="${SMOKE_GITHUB_WEBHOOK_SECRET:-continuum-smoke-webhook-secret}"
 GITHUB_APP_INSTALLATION_ID="${SMOKE_GITHUB_APP_INSTALLATION_ID:-42}"
 PUSH_WEBHOOK_ACTION_REQUEST_ID="${SMOKE_PUSH_WEBHOOK_ACTION_REQUEST_ID:-github:22222222-2222-2222-2222-222222222222:sync_default_branch}"
+PUSH_WEBHOOK_BEFORE_SHA="${SMOKE_PUSH_WEBHOOK_BEFORE_SHA:-1111111111111111111111111111111111111111}"
+PUSH_WEBHOOK_AFTER_SHA="${SMOKE_PUSH_WEBHOOK_AFTER_SHA:-2222222222222222222222222222222222222222}"
 POSTGRES_CONTAINER_NAME="continuum-smoke-postgres-$$"
 STARTED_POSTGRES=0
 ORCHESTRATOR_PID=""
@@ -152,11 +154,14 @@ WEBHOOK_PING_DETAIL_HTTP_FILE="$ARTIFACT_ROOT/http-webhook-ping-delivery.json"
 WEBHOOK_PUSH_DETAIL_HTTP_FILE="$ARTIFACT_ROOT/http-webhook-push-delivery.json"
 WEBHOOK_ACTION_LIST_HTTP_FILE="$ARTIFACT_ROOT/http-webhook-action-requests.json"
 WEBHOOK_ACTION_DETAIL_HTTP_FILE="$ARTIFACT_ROOT/http-webhook-action-request.json"
+WEBHOOK_ACTION_RUN_HTTP_FILE="$ARTIFACT_ROOT/http-webhook-action-run.json"
+WEBHOOK_ACTION_EXECUTED_HTTP_FILE="$ARTIFACT_ROOT/http-webhook-action-request-executed.json"
 WEBHOOK_LIST_CLI_FILE="$ARTIFACT_ROOT/cli-webhook-deliveries.json"
 WEBHOOK_PING_DETAIL_CLI_FILE="$ARTIFACT_ROOT/cli-webhook-ping-delivery.json"
 WEBHOOK_PUSH_DETAIL_CLI_FILE="$ARTIFACT_ROOT/cli-webhook-push-delivery.json"
 WEBHOOK_ACTION_LIST_CLI_FILE="$ARTIFACT_ROOT/cli-webhook-action-requests.json"
 WEBHOOK_ACTION_DETAIL_CLI_FILE="$ARTIFACT_ROOT/cli-webhook-action-request.json"
+WEBHOOK_ACTION_EXECUTED_CLI_FILE="$ARTIFACT_ROOT/cli-webhook-action-request-executed.json"
 cat >"$WEBHOOK_PAYLOAD_FILE" <<'EOF'
 {
   "zen": "Keep it logically awesome.",
@@ -171,6 +176,8 @@ EOF
 cat >"$PUSH_WEBHOOK_PAYLOAD_FILE" <<EOF
 {
   "ref": "refs/heads/main",
+  "before": "${PUSH_WEBHOOK_BEFORE_SHA}",
+  "after": "${PUSH_WEBHOOK_AFTER_SHA}",
   "repository": {
     "full_name": "smartit/catalyst-continuum",
     "default_branch": "main"
@@ -240,16 +247,20 @@ curl -fsS \
   --data-binary "@$PUSH_WEBHOOK_PAYLOAD_FILE" \
   "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/github/webhooks" >"$PUSH_WEBHOOK_RESPONSE_FILE"
 
-python3 - "$PUSH_WEBHOOK_RESPONSE_FILE" <<'PY'
+python3 - "$PUSH_WEBHOOK_RESPONSE_FILE" "$PUSH_WEBHOOK_BEFORE_SHA" "$PUSH_WEBHOOK_AFTER_SHA" <<'PY'
 import json
 import pathlib
 import sys
 
 response = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+before_sha = sys.argv[2]
+after_sha = sys.argv[3]
 assert response["status"] == "accepted", response
 assert response["outcome"] == "accepted", response
 assert response["event"] == "push", response
 assert response["ref_name"] == "refs/heads/main", response
+assert response["before_sha"] == before_sha, response
+assert response["after_sha"] == after_sha, response
 assert response["routing_status"] == "candidate", response
 assert response["routing_action"] == "sync_default_branch", response
 assert response["installation_id"] == 42, response
@@ -297,7 +308,8 @@ python3 - \
   "$WEBHOOK_PUSH_DETAIL_CLI_FILE" \
   "$WEBHOOK_ACTION_LIST_CLI_FILE" \
   "$WEBHOOK_ACTION_DETAIL_CLI_FILE" \
-  "$PUSH_WEBHOOK_ACTION_REQUEST_ID" <<'PY'
+  "$PUSH_WEBHOOK_ACTION_REQUEST_ID" \
+  "$PUSH_WEBHOOK_AFTER_SHA" <<'PY'
 import json
 import pathlib
 import sys
@@ -313,6 +325,7 @@ cli_push_detail = json.loads(pathlib.Path(sys.argv[8]).read_text(encoding="utf-8
 cli_action_list = json.loads(pathlib.Path(sys.argv[9]).read_text(encoding="utf-8"))
 cli_action_detail = json.loads(pathlib.Path(sys.argv[10]).read_text(encoding="utf-8"))
 action_request_id = sys.argv[11]
+after_sha = sys.argv[12]
 ping_delivery_id = "11111111-1111-1111-1111-111111111111"
 push_delivery_id = "22222222-2222-2222-2222-222222222222"
 
@@ -326,6 +339,7 @@ assert http_push_detail["delivery_id"] == push_delivery_id, http_push_detail
 assert http_push_detail["persisted"] is True, http_push_detail
 assert http_push_detail["routing_status"] == "candidate", http_push_detail
 assert http_push_detail["routing_action"] == "sync_default_branch", http_push_detail
+assert http_push_detail["after_sha"] == after_sha, http_push_detail
 assert http_action_list["count"] >= 1, http_action_list
 assert any(request["request_id"] == action_request_id for request in http_action_list["requests"]), http_action_list
 assert http_action_detail["request_id"] == action_request_id, http_action_detail
@@ -333,6 +347,7 @@ assert http_action_detail["persisted"] is True, http_action_detail
 assert http_action_detail["status"] == "pending", http_action_detail
 assert http_action_detail["action"] == "sync_default_branch", http_action_detail
 assert http_action_detail["delivery_id"] == push_delivery_id, http_action_detail
+assert http_action_detail["after_sha"] == after_sha, http_action_detail
 assert cli_ping_detail["delivery_id"] == ping_delivery_id, cli_ping_detail
 assert cli_ping_detail["persisted"] is True, cli_ping_detail
 assert cli_ping_detail["routing_status"] == "ignored", cli_ping_detail
@@ -340,6 +355,7 @@ assert cli_push_detail["delivery_id"] == push_delivery_id, cli_push_detail
 assert cli_push_detail["persisted"] is True, cli_push_detail
 assert cli_push_detail["routing_status"] == "candidate", cli_push_detail
 assert cli_push_detail["routing_action"] == "sync_default_branch", cli_push_detail
+assert cli_push_detail["after_sha"] == after_sha, cli_push_detail
 assert any(delivery["delivery_id"] == ping_delivery_id for delivery in cli_list), cli_list
 assert any(delivery["delivery_id"] == push_delivery_id for delivery in cli_list), cli_list
 assert any(request["request_id"] == action_request_id for request in cli_action_list), cli_action_list
@@ -347,6 +363,59 @@ assert cli_action_detail["request_id"] == action_request_id, cli_action_detail
 assert cli_action_detail["persisted"] is True, cli_action_detail
 assert cli_action_detail["status"] == "pending", cli_action_detail
 assert cli_action_detail["action"] == "sync_default_branch", cli_action_detail
+assert cli_action_detail["after_sha"] == after_sha, cli_action_detail
+PY
+
+curl -fsS \
+  -X POST \
+  -H "Content-Type: application/json" \
+  --data '{}' \
+  "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/github/webhook-actions/next" \
+  >"$WEBHOOK_ACTION_RUN_HTTP_FILE"
+curl -fsS \
+  "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/github/webhook-actions/${PUSH_WEBHOOK_ACTION_REQUEST_ID}" \
+  >"$WEBHOOK_ACTION_EXECUTED_HTTP_FILE"
+"$BIN" describe-github-webhook-action-request \
+  --database-url "$DATABASE_URL" \
+  --request-id "$PUSH_WEBHOOK_ACTION_REQUEST_ID" \
+  --json >"$WEBHOOK_ACTION_EXECUTED_CLI_FILE"
+python3 - \
+  "$WEBHOOK_ACTION_RUN_HTTP_FILE" \
+  "$WEBHOOK_ACTION_EXECUTED_HTTP_FILE" \
+  "$WEBHOOK_ACTION_EXECUTED_CLI_FILE" \
+  "$PUSH_WEBHOOK_ACTION_REQUEST_ID" \
+  "$PUSH_WEBHOOK_AFTER_SHA" <<'PY'
+import json
+import pathlib
+import sys
+
+run_response = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+http_detail = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
+cli_detail = json.loads(pathlib.Path(sys.argv[3]).read_text(encoding="utf-8"))
+request_id = sys.argv[4]
+after_sha = sys.argv[5]
+
+assert run_response["outcome"] == "executed", run_response
+assert run_response["execution_status"] == "succeeded", run_response
+assert run_response["request"]["request_id"] == request_id, run_response
+assert http_detail["request_id"] == request_id, http_detail
+assert http_detail["status"] == "succeeded", http_detail
+assert http_detail["attempt_count"] == 1, http_detail
+assert http_detail["after_sha"] == after_sha, http_detail
+assert http_detail["report_path"], http_detail
+report_path = pathlib.Path(http_detail["report_path"])
+assert report_path.is_file(), http_detail
+report = json.loads(report_path.read_text(encoding="utf-8"))
+assert report["sync"]["status"] == "observed_default_branch_head", report
+assert report["sync"]["after_sha"] == after_sha, report
+state_path = pathlib.Path(report["sync"]["state_path"])
+assert state_path.is_file(), report
+state = json.loads(state_path.read_text(encoding="utf-8"))
+assert state["after_sha"] == after_sha, state
+assert state["synced_from"]["request_id"] == request_id, state
+assert cli_detail["status"] == "succeeded", cli_detail
+assert cli_detail["attempt_count"] == 1, cli_detail
+assert cli_detail["after_sha"] == after_sha, cli_detail
 PY
 
 SUBMISSION_OUTPUT="$("$BIN" submit-brief \

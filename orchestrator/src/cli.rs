@@ -31,6 +31,7 @@ pub enum Command {
     ValidateBrief(ValidateBriefArgs),
     SubmitBrief(SubmitBriefArgs),
     RunNextTask(RunNextTaskArgs),
+    RunNextGithubWebhookAction(RunNextGithubWebhookActionArgs),
     Worker(WorkerArgs),
     EvaluateRunPolicy(EvaluateRunPolicyArgs),
     EvaluateRunQuality(EvaluateRunQualityArgs),
@@ -59,6 +60,7 @@ impl Command {
             Self::ValidateBrief(_) => "validate-brief",
             Self::SubmitBrief(_) => "submit-brief",
             Self::RunNextTask(_) => "run-next-task",
+            Self::RunNextGithubWebhookAction(_) => "run-next-github-webhook-action",
             Self::Worker(_) => "worker",
             Self::EvaluateRunPolicy(_) => "evaluate-run-policy",
             Self::EvaluateRunQuality(_) => "evaluate-run-quality",
@@ -291,6 +293,25 @@ pub struct RunNextTaskArgs {
 
     #[arg(long)]
     pub run_id: Option<Uuid>,
+
+    #[arg(long)]
+    pub pretty: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct RunNextGithubWebhookActionArgs {
+    #[arg(long, env = "CATALYST_DATABASE_URL")]
+    pub database_url: String,
+
+    #[arg(
+        long,
+        env = "CATALYST_ARTIFACT_ROOT",
+        default_value = ".continuum/artifacts"
+    )]
+    pub artifact_root: PathBuf,
+
+    #[arg(long)]
+    pub action: Option<String>,
 
     #[arg(long)]
     pub pretty: bool,

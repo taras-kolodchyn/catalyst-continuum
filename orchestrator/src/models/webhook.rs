@@ -16,6 +16,8 @@ pub struct GitHubWebhookDeliveryDraft {
     pub repository_default_branch: Option<String>,
     pub installation_id: Option<i64>,
     pub ref_name: Option<String>,
+    pub before_sha: Option<String>,
+    pub after_sha: Option<String>,
     pub routing_status: String,
     pub routing_action: Option<String>,
     pub routing_reason: String,
@@ -43,6 +45,10 @@ pub struct GitHubWebhookDeliverySummary {
     pub installation_id: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ref_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub before_sha: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub after_sha: Option<String>,
     pub routing_status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub routing_action: Option<String>,
@@ -75,6 +81,8 @@ pub struct GitHubWebhookActionRequestDraft {
     pub repository_default_branch: Option<String>,
     pub installation_id: Option<i64>,
     pub ref_name: Option<String>,
+    pub before_sha: Option<String>,
+    pub after_sha: Option<String>,
     pub requested_reason: String,
 }
 
@@ -93,7 +101,20 @@ pub struct GitHubWebhookActionRequestSummary {
     pub installation_id: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ref_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub before_sha: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub after_sha: Option<String>,
     pub requested_reason: String,
+    pub attempt_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub report_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failure_message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<String>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
     pub persisted: bool,
@@ -149,6 +170,8 @@ impl GitHubWebhookDeliveryDraft {
                 .transpose()
                 .context("installation id exceeds i64 range")?,
             ref_name: summary.ref_name.clone(),
+            before_sha: summary.before_sha.clone(),
+            after_sha: summary.after_sha.clone(),
             routing_status: routing.routing_status.clone(),
             routing_action: routing.routing_action.clone(),
             routing_reason: routing.routing_reason.clone(),
@@ -201,6 +224,14 @@ impl GitHubWebhookDeliverySummary {
         }
         if let Some(ref_name) = &self.ref_name {
             writeln!(&mut output, "ref_name: {}", ref_name)
+                .context("failed to render webhook delivery")?;
+        }
+        if let Some(before_sha) = &self.before_sha {
+            writeln!(&mut output, "before_sha: {}", before_sha)
+                .context("failed to render webhook delivery")?;
+        }
+        if let Some(after_sha) = &self.after_sha {
+            writeln!(&mut output, "after_sha: {}", after_sha)
                 .context("failed to render webhook delivery")?;
         }
         writeln!(&mut output, "routing_status: {}", self.routing_status)
@@ -265,6 +296,8 @@ impl GitHubWebhookActionRequestDraft {
             repository_default_branch: summary.repository_default_branch.clone(),
             installation_id: summary.installation_id,
             ref_name: summary.ref_name.clone(),
+            before_sha: summary.before_sha.clone(),
+            after_sha: summary.after_sha.clone(),
             requested_reason: summary.routing_reason.clone(),
         })
     }
@@ -309,8 +342,34 @@ impl GitHubWebhookActionRequestSummary {
             writeln!(&mut output, "ref_name: {}", ref_name)
                 .context("failed to render github webhook action request")?;
         }
+        if let Some(before_sha) = &self.before_sha {
+            writeln!(&mut output, "before_sha: {}", before_sha)
+                .context("failed to render github webhook action request")?;
+        }
+        if let Some(after_sha) = &self.after_sha {
+            writeln!(&mut output, "after_sha: {}", after_sha)
+                .context("failed to render github webhook action request")?;
+        }
         writeln!(&mut output, "requested_reason: {}", self.requested_reason)
             .context("failed to render github webhook action request")?;
+        writeln!(&mut output, "attempt_count: {}", self.attempt_count)
+            .context("failed to render github webhook action request")?;
+        if let Some(report_path) = &self.report_path {
+            writeln!(&mut output, "report_path: {}", report_path)
+                .context("failed to render github webhook action request")?;
+        }
+        if let Some(failure_message) = &self.failure_message {
+            writeln!(&mut output, "failure_message: {}", failure_message)
+                .context("failed to render github webhook action request")?;
+        }
+        if let Some(started_at) = &self.started_at {
+            writeln!(&mut output, "started_at: {}", started_at)
+                .context("failed to render github webhook action request")?;
+        }
+        if let Some(completed_at) = &self.completed_at {
+            writeln!(&mut output, "completed_at: {}", completed_at)
+                .context("failed to render github webhook action request")?;
+        }
         if let Some(created_at) = &self.created_at {
             writeln!(&mut output, "created_at: {}", created_at)
                 .context("failed to render github webhook action request")?;
@@ -342,6 +401,8 @@ impl GitHubWebhookDeliverySummary {
             repository_default_branch: draft.repository_default_branch.clone(),
             installation_id: draft.installation_id,
             ref_name: draft.ref_name.clone(),
+            before_sha: draft.before_sha.clone(),
+            after_sha: draft.after_sha.clone(),
             routing_status: draft.routing_status.clone(),
             routing_action: draft.routing_action.clone(),
             routing_reason: draft.routing_reason.clone(),
@@ -379,7 +440,14 @@ impl GitHubWebhookActionRequestSummary {
             repository_default_branch: draft.repository_default_branch.clone(),
             installation_id: draft.installation_id,
             ref_name: draft.ref_name.clone(),
+            before_sha: draft.before_sha.clone(),
+            after_sha: draft.after_sha.clone(),
             requested_reason: draft.requested_reason.clone(),
+            attempt_count: 0,
+            report_path: None,
+            failure_message: None,
+            started_at: None,
+            completed_at: None,
             created_at: None,
             updated_at: None,
             persisted: false,
@@ -419,6 +487,8 @@ mod tests {
                 repository_default_branch: Some("main".to_string()),
                 installation_id: Some(42),
                 ref_name: Some("refs/heads/main".to_string()),
+                before_sha: Some("1111111111111111111111111111111111111111".to_string()),
+                after_sha: Some("2222222222222222222222222222222222222222".to_string()),
                 payload_digest: "sha256:abc".to_string(),
                 payload_bytes: 128,
                 signature_verified: true,
@@ -447,6 +517,8 @@ mod tests {
         assert!(rendered.contains("event: push"));
         assert!(rendered.contains("repository_full_name: smartit/catalyst-continuum"));
         assert!(rendered.contains("ref_name: refs/heads/main"));
+        assert!(rendered.contains("before_sha: 1111111111111111111111111111111111111111"));
+        assert!(rendered.contains("after_sha: 2222222222222222222222222222222222222222"));
         assert!(rendered.contains("routing_status: candidate"));
         assert!(rendered.contains("routing_action: sync_default_branch"));
         assert!(rendered.contains("signature_verified: yes"));
@@ -468,6 +540,8 @@ mod tests {
                     repository_default_branch: Some("main".to_string()),
                     installation_id: Some(42),
                     ref_name: Some("refs/heads/main".to_string()),
+                    before_sha: Some("1111111111111111111111111111111111111111".to_string()),
+                    after_sha: Some("2222222222222222222222222222222222222222".to_string()),
                     payload_digest: "sha256:abc".to_string(),
                     payload_bytes: 128,
                     signature_verified: true,
@@ -492,6 +566,10 @@ mod tests {
         assert_eq!(request.action, "sync_default_branch");
         assert_eq!(request.status, "pending");
         assert_eq!(request.installation_id, Some(42));
+        assert_eq!(
+            request.after_sha.as_deref(),
+            Some("2222222222222222222222222222222222222222")
+        );
     }
 
     #[test]
@@ -506,6 +584,8 @@ mod tests {
             repository_default_branch: Some("main".to_string()),
             installation_id: Some(42),
             ref_name: Some("refs/heads/main".to_string()),
+            before_sha: Some("1111111111111111111111111111111111111111".to_string()),
+            after_sha: Some("2222222222222222222222222222222222222222".to_string()),
             requested_reason: "push delivery targets the repository default branch `main`"
                 .to_string(),
         };
@@ -521,6 +601,8 @@ mod tests {
         assert!(rendered.contains("request_id: github:delivery-1:sync_default_branch"));
         assert!(rendered.contains("action: sync_default_branch"));
         assert!(rendered.contains("status: pending"));
+        assert!(rendered.contains("attempt_count: 0"));
+        assert!(rendered.contains("after_sha: 2222222222222222222222222222222222222222"));
         assert!(rendered.contains("requested_reason: push delivery targets"));
         assert!(rendered.contains("persisted: yes"));
     }

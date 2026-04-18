@@ -190,6 +190,8 @@ mod tests {
             repository_default_branch: Some("main".to_string()),
             installation_id: Some(42),
             ref_name: None,
+            before_sha: None,
+            after_sha: None,
             payload_digest: "sha256:abc".to_string(),
             payload_bytes: 128,
             signature_verified: true,

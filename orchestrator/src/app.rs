@@ -5,8 +5,8 @@ use crate::{
         describe_github_webhook_action_request, describe_instance_config, describe_latest_artifact,
         describe_pack, describe_run, evaluate_run_policy, evaluate_run_quality,
         export_pr_candidate, list_github_webhook_action_requests, list_github_webhooks, list_packs,
-        list_runs, mcp_server, open_github_pr, publish_pr_export, run_next_task, serve,
-        submit_brief, validate_brief, worker,
+        list_runs, mcp_server, open_github_pr, publish_pr_export, run_next_github_webhook_action,
+        run_next_task, serve, submit_brief, validate_brief, worker,
     },
     telemetry,
 };
@@ -38,6 +38,7 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
         Command::ValidateBrief(args) => validate_brief::execute(args),
         Command::SubmitBrief(args) => submit_brief::execute(args),
         Command::RunNextTask(args) => run_next_task::execute(args),
+        Command::RunNextGithubWebhookAction(args) => run_next_github_webhook_action::execute(args),
         Command::Worker(args) => worker::execute(args),
         Command::EvaluateRunPolicy(args) => evaluate_run_policy::execute(args),
         Command::EvaluateRunQuality(args) => evaluate_run_quality::execute(args),

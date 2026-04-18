@@ -72,6 +72,8 @@ CREATE TABLE IF NOT EXISTS webhook_deliveries (
     repository_default_branch TEXT,
     installation_id BIGINT,
     ref_name TEXT,
+    before_sha TEXT,
+    after_sha TEXT,
     routing_status TEXT NOT NULL,
     routing_action TEXT,
     routing_reason TEXT NOT NULL,
@@ -100,7 +102,14 @@ CREATE TABLE IF NOT EXISTS webhook_action_requests (
     repository_default_branch TEXT,
     installation_id BIGINT,
     ref_name TEXT,
+    before_sha TEXT,
+    after_sha TEXT,
     requested_reason TEXT NOT NULL,
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    report_path TEXT,
+    failure_message TEXT,
+    started_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -124,6 +133,8 @@ ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS repository_full_name TEX
 ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS repository_default_branch TEXT;
 ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS installation_id BIGINT;
 ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS ref_name TEXT;
+ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS before_sha TEXT;
+ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS after_sha TEXT;
 ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS routing_status TEXT NOT NULL DEFAULT 'not_evaluated';
 ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS routing_action TEXT;
 ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS routing_reason TEXT NOT NULL DEFAULT '';
@@ -141,5 +152,12 @@ ALTER TABLE webhook_action_requests ADD COLUMN IF NOT EXISTS repository_full_nam
 ALTER TABLE webhook_action_requests ADD COLUMN IF NOT EXISTS repository_default_branch TEXT;
 ALTER TABLE webhook_action_requests ADD COLUMN IF NOT EXISTS installation_id BIGINT;
 ALTER TABLE webhook_action_requests ADD COLUMN IF NOT EXISTS ref_name TEXT;
+ALTER TABLE webhook_action_requests ADD COLUMN IF NOT EXISTS before_sha TEXT;
+ALTER TABLE webhook_action_requests ADD COLUMN IF NOT EXISTS after_sha TEXT;
 ALTER TABLE webhook_action_requests ADD COLUMN IF NOT EXISTS requested_reason TEXT NOT NULL DEFAULT '';
+ALTER TABLE webhook_action_requests ADD COLUMN IF NOT EXISTS attempt_count INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE webhook_action_requests ADD COLUMN IF NOT EXISTS report_path TEXT;
+ALTER TABLE webhook_action_requests ADD COLUMN IF NOT EXISTS failure_message TEXT;
+ALTER TABLE webhook_action_requests ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ;
+ALTER TABLE webhook_action_requests ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
 ALTER TABLE webhook_action_requests ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();

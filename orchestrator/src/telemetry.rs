@@ -34,6 +34,8 @@ struct Instruments {
     http_request_duration_ms: Histogram<f64>,
     webhook_deliveries: Counter<u64>,
     webhook_delivery_duration_ms: Histogram<f64>,
+    webhook_action_executions: Counter<u64>,
+    webhook_action_execution_duration_ms: Histogram<f64>,
     brief_submissions: Counter<u64>,
     brief_submission_duration_ms: Histogram<f64>,
     task_executions: Counter<u64>,
@@ -146,6 +148,25 @@ pub fn record_webhook_delivery(provider: &str, event: &str, outcome: &str, durat
     instruments.webhook_deliveries.add(1, &attributes);
     instruments
         .webhook_delivery_duration_ms
+        .record(duration_ms(duration), &attributes);
+}
+
+pub fn record_webhook_action_execution(
+    provider: &str,
+    action: &str,
+    outcome: &str,
+    duration: Duration,
+) {
+    let instruments = instruments();
+    let attributes = [
+        KeyValue::new("provider", provider.to_string()),
+        KeyValue::new("action", action.to_string()),
+        KeyValue::new("outcome", outcome.to_string()),
+    ];
+
+    instruments.webhook_action_executions.add(1, &attributes);
+    instruments
+        .webhook_action_execution_duration_ms
         .record(duration_ms(duration), &attributes);
 }
 
@@ -272,6 +293,16 @@ fn instruments() -> &'static Instruments {
             webhook_delivery_duration_ms: meter
                 .f64_histogram("catalyst_webhook_delivery_duration_ms")
                 .with_description("Duration of webhook delivery handling in milliseconds")
+                .build(),
+            webhook_action_executions: meter
+                .u64_counter("catalyst_webhook_action_executions")
+                .with_description("Count of executed GitHub webhook action requests")
+                .build(),
+            webhook_action_execution_duration_ms: meter
+                .f64_histogram("catalyst_webhook_action_execution_duration_ms")
+                .with_description(
+                    "Duration of GitHub webhook action request execution in milliseconds",
+                )
                 .build(),
             brief_submissions: meter
                 .u64_counter("catalyst_brief_submissions")

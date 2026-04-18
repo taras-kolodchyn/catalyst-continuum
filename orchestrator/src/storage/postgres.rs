@@ -682,6 +682,8 @@ impl PostgresRunStore {
                         repository_default_branch,
                         installation_id,
                         ref_name,
+                        before_sha,
+                        after_sha,
                         routing_status,
                         routing_action,
                         routing_reason,
@@ -693,7 +695,7 @@ impl PostgresRunStore {
                         receipt_path,
                         message
                     ) VALUES (
-                        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18
+                        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20
                     )
                     ON CONFLICT (delivery_id) DO UPDATE
                     SET provider = EXCLUDED.provider,
@@ -703,6 +705,8 @@ impl PostgresRunStore {
                         repository_default_branch = EXCLUDED.repository_default_branch,
                         installation_id = EXCLUDED.installation_id,
                         ref_name = EXCLUDED.ref_name,
+                        before_sha = EXCLUDED.before_sha,
+                        after_sha = EXCLUDED.after_sha,
                         routing_status = EXCLUDED.routing_status,
                         routing_action = EXCLUDED.routing_action,
                         routing_reason = EXCLUDED.routing_reason,
@@ -723,6 +727,8 @@ impl PostgresRunStore {
                         repository_default_branch,
                         installation_id,
                         ref_name,
+                        before_sha,
+                        after_sha,
                         routing_status,
                         routing_action,
                         routing_reason,
@@ -745,6 +751,8 @@ impl PostgresRunStore {
                     &delivery.repository_default_branch,
                     &delivery.installation_id,
                     &delivery.ref_name,
+                    &delivery.before_sha,
+                    &delivery.after_sha,
                     &delivery.routing_status,
                     &delivery.routing_action,
                     &delivery.routing_reason,
@@ -779,6 +787,8 @@ impl PostgresRunStore {
                         repository_default_branch,
                         installation_id,
                         ref_name,
+                        before_sha,
+                        after_sha,
                         routing_status,
                         routing_action,
                         routing_reason,
@@ -822,6 +832,8 @@ impl PostgresRunStore {
                             repository_default_branch,
                             installation_id,
                             ref_name,
+                            before_sha,
+                            after_sha,
                             routing_status,
                             routing_action,
                             routing_reason,
@@ -854,6 +866,8 @@ impl PostgresRunStore {
                             repository_default_branch,
                             installation_id,
                             ref_name,
+                            before_sha,
+                            after_sha,
                             routing_status,
                             routing_action,
                             routing_reason,
@@ -886,9 +900,9 @@ impl PostgresRunStore {
         &mut self,
         request: &GitHubWebhookActionRequestDraft,
     ) -> Result<GitHubWebhookActionRequestSummary> {
-        let row = self
+        let inserted = self
             .client
-            .query_one(
+            .query_opt(
                 &format!(
                     "INSERT INTO webhook_action_requests (
                         request_id,
@@ -900,18 +914,13 @@ impl PostgresRunStore {
                         repository_default_branch,
                         installation_id,
                         ref_name,
+                        before_sha,
+                        after_sha,
                         requested_reason
                     ) VALUES (
-                        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+                        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
                     )
-                    ON CONFLICT (provider, delivery_id, action) DO UPDATE
-                    SET status = EXCLUDED.status,
-                        repository_full_name = EXCLUDED.repository_full_name,
-                        repository_default_branch = EXCLUDED.repository_default_branch,
-                        installation_id = EXCLUDED.installation_id,
-                        ref_name = EXCLUDED.ref_name,
-                        requested_reason = EXCLUDED.requested_reason,
-                        updated_at = NOW()
+                    ON CONFLICT (provider, delivery_id, action) DO NOTHING
                     RETURNING
                         request_id,
                         provider,
@@ -922,7 +931,14 @@ impl PostgresRunStore {
                         repository_default_branch,
                         installation_id,
                         ref_name,
+                        before_sha,
+                        after_sha,
                         requested_reason,
+                        attempt_count,
+                        report_path,
+                        failure_message,
+                        to_char(started_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS started_at,
+                        to_char(completed_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS completed_at,
                         to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
                         to_char(updated_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS updated_at"
                 ),
@@ -936,12 +952,24 @@ impl PostgresRunStore {
                     &request.repository_default_branch,
                     &request.installation_id,
                     &request.ref_name,
+                    &request.before_sha,
+                    &request.after_sha,
                     &request.requested_reason,
                 ],
             )
             .context("failed to upsert github webhook action request")?;
 
-        Ok(row_to_github_webhook_action_request_summary(&row))
+        match inserted {
+            Some(row) => Ok(row_to_github_webhook_action_request_summary(&row)),
+            None => self
+                .fetch_github_webhook_action_request(&request.request_id)?
+                .with_context(|| {
+                    format!(
+                        "github webhook action request disappeared after conflict: {}",
+                        request.request_id
+                    )
+                }),
+        }
     }
 
     pub fn fetch_github_webhook_action_request(
@@ -962,7 +990,14 @@ impl PostgresRunStore {
                         repository_default_branch,
                         installation_id,
                         ref_name,
+                        before_sha,
+                        after_sha,
                         requested_reason,
+                        attempt_count,
+                        report_path,
+                        failure_message,
+                        to_char(started_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS started_at,
+                        to_char(completed_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS completed_at,
                         to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
                         to_char(updated_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS updated_at
                      FROM webhook_action_requests
@@ -1001,7 +1036,14 @@ impl PostgresRunStore {
                             repository_default_branch,
                             installation_id,
                             ref_name,
+                            before_sha,
+                            after_sha,
                             requested_reason,
+                            attempt_count,
+                            report_path,
+                            failure_message,
+                            to_char(started_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS started_at,
+                            to_char(completed_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS completed_at,
                             to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
                             to_char(updated_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS updated_at
                          FROM webhook_action_requests
@@ -1025,7 +1067,14 @@ impl PostgresRunStore {
                             repository_default_branch,
                             installation_id,
                             ref_name,
+                            before_sha,
+                            after_sha,
                             requested_reason,
+                            attempt_count,
+                            report_path,
+                            failure_message,
+                            to_char(started_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS started_at,
+                            to_char(completed_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS completed_at,
                             to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
                             to_char(updated_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS updated_at
                          FROM webhook_action_requests
@@ -1050,7 +1099,14 @@ impl PostgresRunStore {
                             repository_default_branch,
                             installation_id,
                             ref_name,
+                            before_sha,
+                            after_sha,
                             requested_reason,
+                            attempt_count,
+                            report_path,
+                            failure_message,
+                            to_char(started_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS started_at,
+                            to_char(completed_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS completed_at,
                             to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
                             to_char(updated_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS updated_at
                          FROM webhook_action_requests
@@ -1075,7 +1131,14 @@ impl PostgresRunStore {
                             repository_default_branch,
                             installation_id,
                             ref_name,
+                            before_sha,
+                            after_sha,
                             requested_reason,
+                            attempt_count,
+                            report_path,
+                            failure_message,
+                            to_char(started_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS started_at,
+                            to_char(completed_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS completed_at,
                             to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
                             to_char(updated_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS updated_at
                          FROM webhook_action_requests
@@ -1093,6 +1156,168 @@ impl PostgresRunStore {
             .iter()
             .map(row_to_github_webhook_action_request_summary)
             .collect())
+    }
+
+    pub fn claim_next_github_webhook_action_request(
+        &mut self,
+        action: Option<&str>,
+    ) -> Result<Option<GitHubWebhookActionRequestSummary>> {
+        let row = self
+            .client
+            .query_opt(
+                &format!(
+                    "WITH next_request AS (
+                        SELECT request_id
+                        FROM webhook_action_requests
+                        WHERE status = 'pending'
+                          AND ($1::TEXT IS NULL OR action = $1)
+                        ORDER BY created_at ASC, request_id ASC
+                        FOR UPDATE SKIP LOCKED
+                        LIMIT 1
+                    )
+                    UPDATE webhook_action_requests
+                    SET status = 'running',
+                        attempt_count = webhook_action_requests.attempt_count + 1,
+                        failure_message = NULL,
+                        report_path = NULL,
+                        started_at = NOW(),
+                        completed_at = NULL,
+                        updated_at = NOW()
+                    FROM next_request
+                    WHERE webhook_action_requests.request_id = next_request.request_id
+                    RETURNING
+                        webhook_action_requests.request_id,
+                        webhook_action_requests.provider,
+                        webhook_action_requests.delivery_id,
+                        webhook_action_requests.action,
+                        webhook_action_requests.status,
+                        webhook_action_requests.repository_full_name,
+                        webhook_action_requests.repository_default_branch,
+                        webhook_action_requests.installation_id,
+                        webhook_action_requests.ref_name,
+                        webhook_action_requests.before_sha,
+                        webhook_action_requests.after_sha,
+                        webhook_action_requests.requested_reason,
+                        webhook_action_requests.attempt_count,
+                        webhook_action_requests.report_path,
+                        webhook_action_requests.failure_message,
+                        to_char(webhook_action_requests.started_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS started_at,
+                        to_char(webhook_action_requests.completed_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS completed_at,
+                        to_char(webhook_action_requests.created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
+                        to_char(webhook_action_requests.updated_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS updated_at"
+                ),
+                &[&action],
+            )
+            .context("failed to claim github webhook action request")?;
+
+        Ok(row
+            .as_ref()
+            .map(row_to_github_webhook_action_request_summary))
+    }
+
+    pub fn mark_github_webhook_action_request_succeeded(
+        &mut self,
+        request_id: &str,
+        report_path: &str,
+    ) -> Result<GitHubWebhookActionRequestSummary> {
+        let row = self
+            .client
+            .query_opt(
+                &format!(
+                    "UPDATE webhook_action_requests
+                    SET status = 'succeeded',
+                        report_path = $2,
+                        failure_message = NULL,
+                        completed_at = NOW(),
+                        updated_at = NOW()
+                    WHERE request_id = $1
+                      AND status = 'running'
+                    RETURNING
+                        request_id,
+                        provider,
+                        delivery_id,
+                        action,
+                        status,
+                        repository_full_name,
+                        repository_default_branch,
+                        installation_id,
+                        ref_name,
+                        before_sha,
+                        after_sha,
+                        requested_reason,
+                        attempt_count,
+                        report_path,
+                        failure_message,
+                        to_char(started_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS started_at,
+                        to_char(completed_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS completed_at,
+                        to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
+                        to_char(updated_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS updated_at"
+                ),
+                &[&request_id, &report_path],
+            )
+            .with_context(|| {
+                format!("failed to mark github webhook action request succeeded: {request_id}")
+            })?;
+
+        row.as_ref()
+            .map(row_to_github_webhook_action_request_summary)
+            .with_context(|| {
+                format!(
+                    "github webhook action request is not running or does not exist: {request_id}"
+                )
+            })
+    }
+
+    pub fn mark_github_webhook_action_request_failed(
+        &mut self,
+        request_id: &str,
+        failure_message: &str,
+    ) -> Result<GitHubWebhookActionRequestSummary> {
+        let row = self
+            .client
+            .query_opt(
+                &format!(
+                    "UPDATE webhook_action_requests
+                    SET status = 'failed',
+                        failure_message = $2,
+                        completed_at = NOW(),
+                        updated_at = NOW()
+                    WHERE request_id = $1
+                      AND status = 'running'
+                    RETURNING
+                        request_id,
+                        provider,
+                        delivery_id,
+                        action,
+                        status,
+                        repository_full_name,
+                        repository_default_branch,
+                        installation_id,
+                        ref_name,
+                        before_sha,
+                        after_sha,
+                        requested_reason,
+                        attempt_count,
+                        report_path,
+                        failure_message,
+                        to_char(started_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS started_at,
+                        to_char(completed_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS completed_at,
+                        to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
+                        to_char(updated_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS updated_at"
+                ),
+                &[&request_id, &failure_message],
+            )
+            .with_context(|| {
+                format!("failed to mark github webhook action request failed: {request_id}")
+            })?;
+
+        row.as_ref()
+            .map(row_to_github_webhook_action_request_summary)
+            .with_context(|| {
+                format!(
+                    "github webhook action request is not running or does not exist: {request_id}"
+                )
+            })
     }
 
     pub fn list_run_artifacts(
@@ -1464,6 +1689,8 @@ fn row_to_github_webhook_delivery_summary(row: &postgres::Row) -> GitHubWebhookD
         repository_default_branch: row.get("repository_default_branch"),
         installation_id: row.get("installation_id"),
         ref_name: row.get("ref_name"),
+        before_sha: row.get("before_sha"),
+        after_sha: row.get("after_sha"),
         routing_status: row.get("routing_status"),
         routing_action: row.get("routing_action"),
         routing_reason: row.get("routing_reason"),
@@ -1493,7 +1720,14 @@ fn row_to_github_webhook_action_request_summary(
         repository_default_branch: row.get("repository_default_branch"),
         installation_id: row.get("installation_id"),
         ref_name: row.get("ref_name"),
+        before_sha: row.get("before_sha"),
+        after_sha: row.get("after_sha"),
         requested_reason: row.get("requested_reason"),
+        attempt_count: nonnegative_i32_to_usize(row.get("attempt_count")),
+        report_path: row.get("report_path"),
+        failure_message: row.get("failure_message"),
+        started_at: row.get("started_at"),
+        completed_at: row.get("completed_at"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
         persisted: true,
@@ -1617,6 +1851,10 @@ fn run_summary_query(where_clause: &str, limit_placeholder: Option<&str>) -> Str
 
 fn positive_i64_to_usize(value: i64) -> usize {
     usize::try_from(value).unwrap_or_default()
+}
+
+fn nonnegative_i32_to_usize(value: i32) -> usize {
+    usize::try_from(i64::from(value)).unwrap_or_default()
 }
 
 fn normalize_optional_filter(value: Option<&str>) -> Option<String> {

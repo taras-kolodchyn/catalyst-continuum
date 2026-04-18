@@ -21,6 +21,8 @@ GITHUB_APP_INSTALLATION_ID="${MCP_SMOKE_GITHUB_APP_INSTALLATION_ID:-42}"
 WEBHOOK_DELIVERY_ID="${MCP_SMOKE_WEBHOOK_DELIVERY_ID:-11111111-1111-1111-1111-111111111111}"
 PUSH_WEBHOOK_DELIVERY_ID="${MCP_SMOKE_PUSH_WEBHOOK_DELIVERY_ID:-22222222-2222-2222-2222-222222222222}"
 PUSH_WEBHOOK_ACTION_REQUEST_ID="${MCP_SMOKE_PUSH_WEBHOOK_ACTION_REQUEST_ID:-github:${PUSH_WEBHOOK_DELIVERY_ID}:sync_default_branch}"
+PUSH_WEBHOOK_BEFORE_SHA="${MCP_SMOKE_PUSH_WEBHOOK_BEFORE_SHA:-1111111111111111111111111111111111111111}"
+PUSH_WEBHOOK_AFTER_SHA="${MCP_SMOKE_PUSH_WEBHOOK_AFTER_SHA:-2222222222222222222222222222222222222222}"
 ORCHESTRATOR_PID=0
 STARTED_POSTGRES=0
 
@@ -115,6 +117,8 @@ EOF
 cat >"$PUSH_WEBHOOK_PAYLOAD_FILE" <<EOF
 {
   "ref": "refs/heads/main",
+  "before": "${PUSH_WEBHOOK_BEFORE_SHA}",
+  "after": "${PUSH_WEBHOOK_AFTER_SHA}",
   "repository": {
     "full_name": "smartit/catalyst-continuum",
     "default_branch": "main"
@@ -180,23 +184,27 @@ curl -fsS \
   --data-binary "@$PUSH_WEBHOOK_PAYLOAD_FILE" \
   "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/github/webhooks" >"$PUSH_WEBHOOK_RESPONSE_FILE"
 
-python3 - "$PUSH_WEBHOOK_RESPONSE_FILE" "$PUSH_WEBHOOK_DELIVERY_ID" <<'PY'
+python3 - "$PUSH_WEBHOOK_RESPONSE_FILE" "$PUSH_WEBHOOK_DELIVERY_ID" "$PUSH_WEBHOOK_BEFORE_SHA" "$PUSH_WEBHOOK_AFTER_SHA" <<'PY'
 import json
 import pathlib
 import sys
 
 response = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
 delivery_id = sys.argv[2]
+before_sha = sys.argv[3]
+after_sha = sys.argv[4]
 
 assert response["delivery_id"] == delivery_id, response
 assert response["event"] == "push", response
 assert response["ref_name"] == "refs/heads/main", response
+assert response["before_sha"] == before_sha, response
+assert response["after_sha"] == after_sha, response
 assert response["routing_status"] == "candidate", response
 assert response["routing_action"] == "sync_default_branch", response
 assert response["persisted"] is True, response
 PY
 
-python3 - "$DATABASE_URL" "$ARTIFACT_ROOT" "$BRIEF_FILE" "$WEBHOOK_DELIVERY_ID" "$PUSH_WEBHOOK_DELIVERY_ID" "$PUSH_WEBHOOK_ACTION_REQUEST_ID" <<'PY'
+python3 - "$DATABASE_URL" "$ARTIFACT_ROOT" "$BRIEF_FILE" "$WEBHOOK_DELIVERY_ID" "$PUSH_WEBHOOK_DELIVERY_ID" "$PUSH_WEBHOOK_ACTION_REQUEST_ID" "$PUSH_WEBHOOK_AFTER_SHA" <<'PY'
 import json
 import os
 import pathlib
@@ -209,6 +217,7 @@ brief_path = pathlib.Path(sys.argv[3])
 webhook_delivery_id = sys.argv[4]
 push_webhook_delivery_id = sys.argv[5]
 push_webhook_action_request_id = sys.argv[6]
+push_webhook_after_sha = sys.argv[7]
 root = pathlib.Path.cwd()
 try:
     brief_source_path = str(brief_path.relative_to(root))
@@ -364,6 +373,7 @@ try:
         "describe_github_webhook",
         "list_github_webhook_action_requests",
         "describe_github_webhook_action_request",
+        "run_next_github_webhook_action",
         "list_runs",
         "describe_run",
         "run_next_task",
@@ -453,6 +463,11 @@ try:
             "stateful MCP smoke failed: push webhook delivery should route to sync_default_branch, got "
             f"{push_webhook_delivery['routing_action']}"
         )
+    if push_webhook_delivery["after_sha"] != push_webhook_after_sha:
+        fail(
+            "stateful MCP smoke failed: push webhook delivery should expose after_sha, got "
+            f"{push_webhook_delivery['after_sha']}"
+        )
 
     push_webhook_action_request = call_tool(
         "describe_github_webhook_action_request",
@@ -478,6 +493,67 @@ try:
         fail(
             "stateful MCP smoke failed: webhook action request should target sync_default_branch, got "
             f"{push_webhook_action_request['action']}"
+        )
+    if push_webhook_action_request["after_sha"] != push_webhook_after_sha:
+        fail(
+            "stateful MCP smoke failed: webhook action request should expose after_sha, got "
+            f"{push_webhook_action_request['after_sha']}"
+        )
+
+    webhook_action_execution = call_tool(
+        "run_next_github_webhook_action",
+        {"action": "sync_default_branch"},
+        "execution",
+    )
+    if webhook_action_execution["outcome"] != "executed":
+        fail(
+            "stateful MCP smoke failed: run_next_github_webhook_action should execute a request, got "
+            f"{webhook_action_execution}"
+        )
+    if webhook_action_execution["execution_status"] != "succeeded":
+        fail(
+            "stateful MCP smoke failed: run_next_github_webhook_action should succeed, got "
+            f"{webhook_action_execution['execution_status']}"
+        )
+
+    executed_webhook_action_request = call_tool(
+        "describe_github_webhook_action_request",
+        {"request_id": push_webhook_action_request_id},
+        "request",
+    )
+    if executed_webhook_action_request["status"] != "succeeded":
+        fail(
+            "stateful MCP smoke failed: webhook action request should be succeeded after execution, got "
+            f"{executed_webhook_action_request['status']}"
+        )
+    if executed_webhook_action_request["attempt_count"] != 1:
+        fail(
+            "stateful MCP smoke failed: webhook action request attempt_count should be 1 after execution, got "
+            f"{executed_webhook_action_request['attempt_count']}"
+        )
+    report_path = pathlib.Path(executed_webhook_action_request["report_path"])
+    if not report_path.is_file():
+        fail(
+            "stateful MCP smoke failed: webhook action request report_path should point at a file, got "
+            f"{executed_webhook_action_request['report_path']}"
+        )
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    if report["sync"]["after_sha"] != push_webhook_after_sha:
+        fail(
+            "stateful MCP smoke failed: webhook action report should capture after_sha, got "
+            f"{report['sync']['after_sha']}"
+        )
+    state_path = pathlib.Path(report["sync"]["state_path"])
+    if not state_path.is_file():
+        fail(
+            "stateful MCP smoke failed: webhook action state_path should point at a file, got "
+            f"{report['sync']['state_path']}"
+        )
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    if state["after_sha"] != push_webhook_after_sha:
+        fail(
+            "stateful MCP smoke failed: webhook action state file should capture after_sha, got "
+            f"{state['after_sha']}"
         )
 
     catalog = call_tool("list_packs", {}, "catalog")

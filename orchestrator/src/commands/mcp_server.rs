@@ -8,7 +8,8 @@ use crate::{
     cli::McpServerArgs,
     commands::{
         describe_artifact, describe_latest_artifact, evaluate_run_policy, evaluate_run_quality,
-        export_pr_candidate, open_github_pr, publish_pr_export, run_next_task, worker,
+        export_pr_candidate, open_github_pr, publish_pr_export, run_next_github_webhook_action,
+        run_next_task, worker,
     },
     config::InstanceConfigReport,
     models::webhook::{GitHubWebhookActionRequestListFilters, GitHubWebhookListFilters},
@@ -182,6 +183,13 @@ struct DescribeGithubWebhookActionRequestToolArgs {
 #[serde(deny_unknown_fields)]
 struct RunScopedToolArgs {
     run_id: Option<uuid::Uuid>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RunNextGithubWebhookActionToolArgs {
+    #[serde(default)]
+    action: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -461,6 +469,7 @@ impl StdioMcpServer {
             }
             "list_runs" => self.call_list_runs(arguments),
             "describe_run" => self.call_describe_run(arguments),
+            "run_next_github_webhook_action" => self.call_run_next_github_webhook_action(arguments),
             "run_next_task" => self.call_run_next_task(arguments),
             "run_worker_once" => self.call_run_worker_once(arguments),
             "evaluate_run_policy" => self.call_evaluate_run_policy(arguments),
@@ -703,6 +712,25 @@ impl StdioMcpServer {
                 "run",
                 structured,
                 run.render_text()?,
+            ))
+        })
+    }
+
+    fn call_run_next_github_webhook_action(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: RunNextGithubWebhookActionToolArgs = parse_tool_arguments(arguments)?;
+            let mut store = self.open_store()?;
+            let execution = run_next_github_webhook_action::execute_next_github_webhook_action(
+                &mut store,
+                &self.config.artifact_root,
+                args.action.as_deref(),
+            )?;
+            let structured = serde_json::to_value(&execution)
+                .context("failed to serialize github webhook action execution")?;
+            Ok(tool_success_with_text(
+                "execution",
+                structured,
+                execution.render_text()?,
             ))
         })
     }
@@ -1088,6 +1116,14 @@ fn tool_definitions() -> Vec<Value> {
             json_schema_object(&[required_string_property("run_id", "Run UUID.")]),
         ),
         tool_definition(
+            "run_next_github_webhook_action",
+            "Execute the next pending GitHub webhook action request.",
+            json_schema_object(&[optional_string_property(
+                "action",
+                "Optional action filter, for example sync_default_branch.",
+            )]),
+        ),
+        tool_definition(
             "run_next_task",
             "Execute the next runnable task for a run, or globally when run_id is omitted.",
             json_schema_object(&[optional_string_property("run_id", "Optional run UUID.")]),
@@ -1258,7 +1294,7 @@ mod tests {
 
         assert_eq!(
             output[1]["result"]["tools"].as_array().map(Vec::len),
-            Some(20)
+            Some(21)
         );
         assert_eq!(output[1]["result"]["tools"][0]["name"], "list_packs");
         assert!(
@@ -1281,6 +1317,13 @@ mod tests {
                 .is_some_and(|tools| tools
                     .iter()
                     .any(|tool| tool["name"] == "list_github_webhook_action_requests"))
+        );
+        assert!(
+            output[1]["result"]["tools"]
+                .as_array()
+                .is_some_and(|tools| tools
+                    .iter()
+                    .any(|tool| tool["name"] == "run_next_github_webhook_action"))
         );
     }
 

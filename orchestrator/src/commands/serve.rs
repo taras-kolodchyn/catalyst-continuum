@@ -8,8 +8,9 @@ use crate::{
     cli::ServeArgs,
     commands::{
         create_draft_pr, describe_artifact, describe_latest_artifact, evaluate_run_policy,
-        evaluate_run_quality, export_pr_candidate, publish_pr_export, run_next_task,
-        submit_brief::submit_validated_brief, worker,
+        evaluate_run_quality, export_pr_candidate, publish_pr_export,
+        run_next_github_webhook_action, run_next_task, submit_brief::submit_validated_brief,
+        worker,
     },
     config::{InstanceConfigReport, load_github_app_webhook_secret},
     github_webhook_routing::evaluate_github_webhook_route,
@@ -79,6 +80,7 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                         "/github/webhook-actions",
                         "/github/webhook-actions/{request_id}",
                         "POST /github/webhooks",
+                        "POST /github/webhook-actions/next",
                         "/packs",
                         "/packs/{pack_id}",
                         "/artifacts/{artifact_id}",
@@ -170,6 +172,45 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                         StatusCode(400),
                         &ErrorResponse {
                             error: error.to_string(),
+                        },
+                    ),
+                }
+            }
+            ("POST", "/github/webhook-actions/next") => {
+                match read_optional_json_body::<RunNextGithubWebhookActionRequest>(&mut request) {
+                    Ok(run_request) => {
+                        match run_next_github_webhook_action::execute_next_github_webhook_action(
+                            &mut store,
+                            &args.artifact_root,
+                            run_request.action.as_deref(),
+                        ) {
+                            Ok(outcome) => {
+                                let status = if matches!(
+                                    outcome,
+                                    run_next_github_webhook_action::NextGitHubWebhookActionExecution::Idle(_)
+                                ) {
+                                    StatusCode(200)
+                                } else {
+                                    StatusCode(202)
+                                };
+                                json_response(status, &outcome)
+                            }
+                            Err(error) => json_response(
+                                StatusCode(500),
+                                &ErrorResponse {
+                                    error: format!(
+                                        "failed to execute github webhook action request: {error}"
+                                    ),
+                                },
+                            ),
+                        }
+                    }
+                    Err(error) => json_response(
+                        StatusCode(400),
+                        &ErrorResponse {
+                            error: format!(
+                                "failed to parse github webhook action request body: {error}"
+                            ),
                         },
                     ),
                 }
@@ -1205,6 +1246,7 @@ fn route_label(method: &str, path: &str) -> &'static str {
         ("GET", "/github/webhooks") => "/github/webhooks",
         ("GET", "/github/webhook-actions") => "/github/webhook-actions",
         ("POST", "/github/webhooks") => "/github/webhooks",
+        ("POST", "/github/webhook-actions/next") => "/github/webhook-actions/next",
         ("GET", _) if single_path_segment(path, "/github/webhooks/").is_some() => {
             "/github/webhooks/{delivery_id}"
         }
@@ -1347,6 +1389,12 @@ struct ListRunsRequest {
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+struct RunNextGithubWebhookActionRequest {
+    action: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 struct CreateDraftPrRequest {
     remote_url: Option<String>,
     branch_name: Option<String>,
@@ -1435,6 +1483,10 @@ mod tests {
             "/github/webhook-actions"
         );
         assert_eq!(route_label("POST", "/github/webhooks"), "/github/webhooks");
+        assert_eq!(
+            route_label("POST", "/github/webhook-actions/next"),
+            "/github/webhook-actions/next"
+        );
         assert_eq!(
             route_label("GET", "/github/webhooks/delivery-1"),
             "/github/webhooks/{delivery_id}"

@@ -16,6 +16,7 @@ pub mod list_runs;
 pub mod mcp_server;
 pub mod open_github_pr;
 pub mod publish_pr_export;
+pub mod run_next_github_webhook_action;
 pub mod run_next_task;
 pub mod serve;
 pub mod submit_brief;

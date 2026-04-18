@@ -91,6 +91,10 @@ pub struct GitHubWebhookReceiptSummary {
     pub installation_id: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ref_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub before_sha: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub after_sha: Option<String>,
     pub payload_digest: String,
     pub payload_bytes: usize,
     pub signature_verified: bool,
@@ -159,6 +163,14 @@ pub fn ingest_github_webhook(
         .get("ref")
         .and_then(Value::as_str)
         .map(str::to_string);
+    let before_sha = payload
+        .get("before")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let after_sha = payload
+        .get("after")
+        .and_then(Value::as_str)
+        .map(str::to_string);
     let received_at_epoch_ms = current_epoch_millis().map_err(|error| {
         GitHubWebhookError::internal(format!("failed to compute receipt timestamp: {error}"))
     })?;
@@ -182,6 +194,8 @@ pub fn ingest_github_webhook(
         repository_default_branch,
         installation_id,
         ref_name,
+        before_sha,
+        after_sha,
         payload_digest,
         payload_bytes: body.len(),
         signature_verified: true,
@@ -414,7 +428,7 @@ mod tests {
 
     #[test]
     fn captures_push_ref_name_when_present() {
-        let body = br#"{"ref":"refs/heads/main","repository":{"full_name":"smartit/catalyst-continuum","default_branch":"main"},"installation":{"id":42}}"#;
+        let body = br#"{"ref":"refs/heads/main","before":"1111111111111111111111111111111111111111","after":"2222222222222222222222222222222222222222","repository":{"full_name":"smartit/catalyst-continuum","default_branch":"main"},"installation":{"id":42}}"#;
         let secret = "continuum-webhook-secret";
         let signature = signature_for(secret, body);
         let artifact_root =
@@ -435,6 +449,14 @@ mod tests {
         assert_eq!(summary.event, "push");
         assert_eq!(summary.ref_name.as_deref(), Some("refs/heads/main"));
         assert_eq!(summary.installation_id, Some(42));
+        assert_eq!(
+            summary.before_sha.as_deref(),
+            Some("1111111111111111111111111111111111111111")
+        );
+        assert_eq!(
+            summary.after_sha.as_deref(),
+            Some("2222222222222222222222222222222222222222")
+        );
 
         let _ = fs::remove_dir_all(artifact_root);
     }

@@ -74,6 +74,9 @@ catalyst-continuum-orchestrator describe-artifact --database-url "$CATALYST_DATA
 catalyst-continuum-orchestrator describe-latest-artifact --database-url "$CATALYST_DATABASE_URL" --run-id "<RUN_ID>" --artifact-type quality_report --json
 catalyst-continuum-orchestrator list-github-webhooks --database-url "$CATALYST_DATABASE_URL" --event ping --json
 catalyst-continuum-orchestrator describe-github-webhook --database-url "$CATALYST_DATABASE_URL" --delivery-id "<DELIVERY_ID>" --json
+catalyst-continuum-orchestrator list-github-webhook-action-requests --database-url "$CATALYST_DATABASE_URL" --status pending --json
+catalyst-continuum-orchestrator describe-github-webhook-action-request --database-url "$CATALYST_DATABASE_URL" --request-id "<REQUEST_ID>" --json
+catalyst-continuum-orchestrator run-next-github-webhook-action --database-url "$CATALYST_DATABASE_URL" --artifact-root ".continuum/artifacts" --action sync_default_branch --pretty
 catalyst-continuum-orchestrator list-runs --database-url "$CATALYST_DATABASE_URL" --status succeeded --target-pack cli-tool --json
 catalyst-continuum-orchestrator describe-run --database-url "$CATALYST_DATABASE_URL" --run-id "<RUN_ID>" --json
 catalyst-continuum-orchestrator validate-brief --file examples/briefs/minimal-cli-tool.yaml --json
@@ -83,6 +86,9 @@ curl http://127.0.0.1:8080/readyz
 curl http://127.0.0.1:8080/config
 curl http://127.0.0.1:8080/github/webhooks
 curl http://127.0.0.1:8080/github/webhooks/<DELIVERY_ID>
+curl http://127.0.0.1:8080/github/webhook-actions
+curl http://127.0.0.1:8080/github/webhook-actions/<REQUEST_ID>
+curl -X POST -H 'Content-Type: application/json' --data '{"action":"sync_default_branch"}' http://127.0.0.1:8080/github/webhook-actions/next
 curl http://127.0.0.1:8080/packs
 curl http://127.0.0.1:8080/packs/container-service
 curl http://127.0.0.1:8080/artifacts/<ARTIFACT_ID>
@@ -105,6 +111,7 @@ The current HTTP surface is intentionally narrow. Agent-oriented orchestration a
 The same instance-aware entrypoints also accept `--runtime-providers-file <path>` when you need `serve`, `mcp-server`, `worker`, or `run-next-task` to use an explicit config file instead of relying only on environment discovery.
 The repository now ships a baseline [config/runtime-providers.yaml](config/runtime-providers.yaml) for local development, while [template-repo/config/runtime-providers.yaml](template-repo/config/runtime-providers.yaml) stays as the private-instance copy point.
 HTTP now also exposes a signed GitHub App webhook intake at `/github/webhooks`. It validates `X-Hub-Signature-256` against the configured webhook secret, persists a structured delivery receipt under the artifact root, and upserts a durable `webhook_deliveries` record in Postgres that can be inspected through `list-github-webhooks`, `describe-github-webhook`, `GET /github/webhooks`, and `GET /github/webhooks/{delivery_id}`. Each persisted delivery also carries a normalized routing decision so the control plane can distinguish ignored probes from real automation candidates. Candidate deliveries now materialize a durable pending `webhook_action_requests` record that is inspectable through `list-github-webhook-action-requests`, `describe-github-webhook-action-request`, `GET /github/webhook-actions`, and `GET /github/webhook-actions/{request_id}`. Today the first routed action is `sync_default_branch` for a signed `push` to the repository default branch.
+Those action requests are now executable through the shared Rust command layer via `run-next-github-webhook-action`, `POST /github/webhook-actions/next`, and the MCP tool `run_next_github_webhook_action`. The initial `sync_default_branch` executor path claims the next pending request, persists a per-request execution report under `github-webhook-actions/<provider>/<delivery>/<action>/report.json`, writes a durable repository state file under `github-repositories/<provider>/<owner>/<repo>/default-branch-state.json`, records execution telemetry, and marks the request as `succeeded` or `failed` with attempt counts and timestamps for auditability.
 
 `list-packs` and `describe-pack` now expose pack-level `policy_profile` and
 `quality_profile` contracts so open-source agents can inspect timeout/retry
@@ -133,8 +140,8 @@ catalyst-continuum-orchestrator mcp-server \
   --runtime-providers-file "config/runtime-providers.yaml"
 ```
 
-It currently exposes the first agent-facing tool set over MCP: pack inspection, instance inspection, artifact inspection, GitHub webhook inspection, GitHub webhook action-request inspection, latest-artifact lookup by type, brief validation and submission, run inspection, task execution, policy evaluation, automated quality evaluation, PR export/publication, and GitHub PR opening.
-That MCP surface now includes `describe_instance_config` so an agent can inspect runtime-provider enablement and GitHub App readiness before it decides whether remote publication is even possible in the current instance, plus `list_github_webhooks`, `describe_github_webhook`, `list_github_webhook_action_requests`, and `describe_github_webhook_action_request` when it needs auditable visibility into accepted GitHub App deliveries, their routing decisions, and the durable pending control-plane requests produced from them.
+It currently exposes the first agent-facing tool set over MCP: pack inspection, instance inspection, artifact inspection, GitHub webhook inspection, GitHub webhook action-request inspection and execution, latest-artifact lookup by type, brief validation and submission, run inspection, task execution, policy evaluation, automated quality evaluation, PR export/publication, and GitHub PR opening.
+That MCP surface now includes `describe_instance_config` so an agent can inspect runtime-provider enablement and GitHub App readiness before it decides whether remote publication is even possible in the current instance, plus `list_github_webhooks`, `describe_github_webhook`, `list_github_webhook_action_requests`, `describe_github_webhook_action_request`, and `run_next_github_webhook_action` when it needs auditable visibility into accepted GitHub App deliveries, their routing decisions, the durable control-plane requests produced from them, and the safe executor path that advances those requests.
 Use [examples/mcp/stdio-server.example.json](examples/mcp/stdio-server.example.json) as a neutral client config starting point, `./scripts/mcp-smoke.sh` for the stateless handshake/tool-discovery path, and `./scripts/mcp-stateful-smoke.sh` for the safe stateful run path.
 If OpenHands is the target client, prefer [examples/mcp/openhands.mcp.json](examples/mcp/openhands.mcp.json) and the registration flow documented in [docs/mcp/openhands.md](docs/mcp/openhands.md).
 For local OpenHands CLI registration, use `./scripts/openhands-register-mcp.sh`.
@@ -149,7 +156,7 @@ GitHub Actions runs one workflow, [`.github/workflows/ci.yml`](.github/workflows
 - `sbom`: builds the orchestrator image, generates an SPDX SBOM, uploads the SBOM artifact, and creates a GitHub/Sigstore provenance attestation for that uploaded artifact
 - `rust`: runs `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo build --workspace --locked`, and `cargo test --workspace --locked`
 - `compose`: validates `deploy/compose/compose.yaml` with the pinned `.env.example`
-- `smoke`: exercises the bootstrap flow end to end for the `container-service`, `cli-tool`, and `worker-service` packs, including `GET /config`, a signed GitHub webhook `ping`, a signed default-branch `push`, HTTP webhook inspection, HTTP webhook action-request inspection, CLI webhook inspection, CLI webhook action-request inspection, and then the safe stateful MCP path with `describe_instance_config`, `list_github_webhooks`, `describe_github_webhook`, `list_github_webhook_action_requests`, `describe_github_webhook_action_request`, `submit_brief`, `list_runs`, `describe_run`, `run_worker_once`, `evaluate_run_policy`, `evaluate_run_quality`, and `describe_artifact`
+- `smoke`: exercises the bootstrap flow end to end for the `container-service`, `cli-tool`, and `worker-service` packs, including `GET /config`, a signed GitHub webhook `ping`, a signed default-branch `push`, HTTP webhook inspection, HTTP webhook action-request inspection and execution, CLI webhook inspection, CLI webhook action-request inspection, report/state artifact verification for `sync_default_branch`, and then the safe stateful MCP path with `describe_instance_config`, `list_github_webhooks`, `describe_github_webhook`, `list_github_webhook_action_requests`, `describe_github_webhook_action_request`, `run_next_github_webhook_action`, `submit_brief`, `list_runs`, `describe_run`, `run_worker_once`, `evaluate_run_policy`, `evaluate_run_quality`, and `describe_artifact`
 
 Local runs through `act` use the runner image and container architecture pinned in [`.actrc`](.actrc), with the canonical values tracked in [`versions.env`](versions.env). GitHub-only publication steps such as artifact upload and attestation are skipped under `act`, because local runs do not expose GitHub runtime tokens, OIDC tokens, or the attestations API. The underlying build and SBOM generation steps still run locally.
 Pinned version policy and update automation are documented in [VERSIONS.md](VERSIONS.md).
@@ -168,7 +175,7 @@ The core checks can be run directly without GitHub Actions:
 ./scripts/mcp-stateful-smoke.sh
 ```
 
-`./scripts/smoke-mvp.sh` still runs a single end-to-end smoke pass, now including orchestrator HTTP liveness/readiness probes, `GET /config`, a signed GitHub webhook `ping`, a signed default-branch `push`, HTTP/CLI webhook inspection, HTTP/CLI webhook action-request inspection, policy/quality artifact inspection, and the automated run quality gate, and accepts `SMOKE_BRIEF_FILE` to target a specific brief, for example `examples/briefs/minimal-container-service.yaml` or `examples/briefs/minimal-cli-tool.yaml`. `./scripts/mcp-stateful-smoke.sh` complements it by validating the agent-facing MCP stateful path, including `describe_instance_config`, `list_github_webhooks`, `describe_github_webhook`, `list_github_webhook_action_requests`, and `describe_github_webhook_action_request`, without publishing or opening a GitHub PR.
+`./scripts/smoke-mvp.sh` still runs a single end-to-end smoke pass, now including orchestrator HTTP liveness/readiness probes, `GET /config`, a signed GitHub webhook `ping`, a signed default-branch `push`, HTTP/CLI webhook inspection, HTTP/CLI webhook action-request inspection, `POST /github/webhook-actions/next`, `run-next-github-webhook-action`, `sync_default_branch` report/state artifact verification, policy/quality artifact inspection, and the automated run quality gate, and accepts `SMOKE_BRIEF_FILE` to target a specific brief, for example `examples/briefs/minimal-container-service.yaml` or `examples/briefs/minimal-cli-tool.yaml`. `./scripts/mcp-stateful-smoke.sh` complements it by validating the agent-facing MCP stateful path, including `describe_instance_config`, `list_github_webhooks`, `describe_github_webhook`, `list_github_webhook_action_requests`, `describe_github_webhook_action_request`, and `run_next_github_webhook_action`, without publishing or opening a GitHub PR.
 
 To reproduce the workflow structure locally through `act`:
 
