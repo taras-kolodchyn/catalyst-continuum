@@ -15,9 +15,16 @@ POSTGRES_USER="${MCP_SMOKE_POSTGRES_USER:-continuum}"
 POSTGRES_PASSWORD="${MCP_SMOKE_POSTGRES_PASSWORD:-continuum-dev}"
 POSTGRES_PORT="${MCP_SMOKE_POSTGRES_PORT:-55433}"
 POSTGRES_CONTAINER_NAME="continuum-mcp-smoke-postgres-$$"
+ORCHESTRATOR_HTTP_PORT="${MCP_SMOKE_HTTP_PORT:-38081}"
+GITHUB_WEBHOOK_SECRET="${CATALYST_GITHUB_APP_WEBHOOK_SECRET:-continuum-dev-webhook-secret}"
+WEBHOOK_DELIVERY_ID="${MCP_SMOKE_WEBHOOK_DELIVERY_ID:-11111111-1111-1111-1111-111111111111}"
+ORCHESTRATOR_PID=0
 STARTED_POSTGRES=0
 
 cleanup() {
+  if [ "$ORCHESTRATOR_PID" -ne 0 ]; then
+    kill "$ORCHESTRATOR_PID" >/dev/null 2>&1 || true
+  fi
   if [ "$STARTED_POSTGRES" -eq 1 ]; then
     docker rm -f "$POSTGRES_CONTAINER_NAME" >/dev/null 2>&1 || true
   fi
@@ -65,7 +72,75 @@ fi
 rm -rf "$ARTIFACT_ROOT"
 mkdir -p "$ARTIFACT_ROOT"
 
-python3 - "$DATABASE_URL" "$ARTIFACT_ROOT" "$BRIEF_FILE" <<'PY'
+export CATALYST_GITHUB_APP_WEBHOOK_SECRET="$GITHUB_WEBHOOK_SECRET"
+ORCHESTRATOR_LOG_FILE="$ARTIFACT_ROOT/mcp-smoke-orchestrator.log"
+cargo run -q -p catalyst-continuum-orchestrator -- \
+  serve \
+  --bind-addr "127.0.0.1:${ORCHESTRATOR_HTTP_PORT}" \
+  --database-url "$DATABASE_URL" \
+  --artifact-root "$ARTIFACT_ROOT" >"$ORCHESTRATOR_LOG_FILE" 2>&1 &
+ORCHESTRATOR_PID=$!
+
+for _ in $(seq 1 30); do
+  if curl -fsS "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/readyz" >/dev/null 2>&1; then
+    break
+  fi
+  sleep 1
+done
+
+if ! curl -fsS "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/readyz" >/dev/null 2>&1; then
+  echo "stateful MCP smoke orchestrator did not become ready" >&2
+  exit 1
+fi
+
+WEBHOOK_PAYLOAD_FILE="$ARTIFACT_ROOT/mcp-webhook-ping.json"
+WEBHOOK_RESPONSE_FILE="$ARTIFACT_ROOT/mcp-webhook-response.json"
+cat >"$WEBHOOK_PAYLOAD_FILE" <<'EOF'
+{
+  "zen": "Keep it logically awesome.",
+  "hook_id": 42,
+  "repository": {
+    "full_name": "smartit/catalyst-continuum",
+    "default_branch": "main"
+  }
+}
+EOF
+
+WEBHOOK_SIGNATURE="$(python3 - "$GITHUB_WEBHOOK_SECRET" "$WEBHOOK_PAYLOAD_FILE" <<'PY'
+import hashlib
+import hmac
+import pathlib
+import sys
+
+secret = sys.argv[1].encode("utf-8")
+payload = pathlib.Path(sys.argv[2]).read_bytes()
+print("sha256=" + hmac.new(secret, payload, hashlib.sha256).hexdigest())
+PY
+)"
+
+curl -fsS \
+  -X POST \
+  -H "Content-Type: application/json" \
+  -H "X-GitHub-Event: ping" \
+  -H "X-GitHub-Delivery: $WEBHOOK_DELIVERY_ID" \
+  -H "X-Hub-Signature-256: $WEBHOOK_SIGNATURE" \
+  --data-binary "@$WEBHOOK_PAYLOAD_FILE" \
+  "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/github/webhooks" >"$WEBHOOK_RESPONSE_FILE"
+
+python3 - "$WEBHOOK_RESPONSE_FILE" "$WEBHOOK_DELIVERY_ID" <<'PY'
+import json
+import pathlib
+import sys
+
+response = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+delivery_id = sys.argv[2]
+
+assert response["delivery_id"] == delivery_id, response
+assert response["event"] == "ping", response
+assert response["persisted"] is True, response
+PY
+
+python3 - "$DATABASE_URL" "$ARTIFACT_ROOT" "$BRIEF_FILE" "$WEBHOOK_DELIVERY_ID" <<'PY'
 import json
 import os
 import pathlib
@@ -75,6 +150,7 @@ import sys
 database_url = sys.argv[1]
 artifact_root = sys.argv[2]
 brief_path = pathlib.Path(sys.argv[3])
+webhook_delivery_id = sys.argv[4]
 root = pathlib.Path.cwd()
 try:
     brief_source_path = str(brief_path.relative_to(root))
@@ -226,6 +302,8 @@ try:
         "describe_latest_artifact",
         "validate_brief",
         "submit_brief",
+        "list_github_webhooks",
+        "describe_github_webhook",
         "list_runs",
         "describe_run",
         "run_next_task",
@@ -249,6 +327,32 @@ try:
             "stateful MCP smoke failed: expected describe_instance_config to report "
             f"docker as the default runtime provider, got "
             f"{instance_config['runtime_providers']['default_provider']}"
+        )
+
+    deliveries = call_tool(
+        "list_github_webhooks",
+        {"event": "ping", "limit": 5},
+        "deliveries",
+    )
+    if not any(delivery["delivery_id"] == webhook_delivery_id for delivery in deliveries):
+        fail(
+            "stateful MCP smoke failed: expected webhook delivery in list_github_webhooks, got "
+            f"{deliveries}"
+        )
+
+    webhook_delivery = call_tool(
+        "describe_github_webhook",
+        {"delivery_id": webhook_delivery_id},
+        "delivery",
+    )
+    if webhook_delivery["delivery_id"] != webhook_delivery_id:
+        fail(
+            "stateful MCP smoke failed: describe_github_webhook returned unexpected delivery id "
+            f"{webhook_delivery['delivery_id']}"
+        )
+    if webhook_delivery["persisted"] is not True:
+        fail(
+            "stateful MCP smoke failed: describe_github_webhook should report a persisted delivery"
         )
 
     catalog = call_tool("list_packs", {}, "catalog")

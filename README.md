@@ -133,8 +133,8 @@ catalyst-continuum-orchestrator mcp-server \
   --runtime-providers-file "config/runtime-providers.yaml"
 ```
 
-It currently exposes the first agent-facing tool set over MCP: pack inspection, artifact inspection, latest-artifact lookup by type, brief validation and submission, run inspection, task execution, policy evaluation, automated quality evaluation, PR export/publication, and GitHub PR opening.
-That MCP surface now also includes `describe_instance_config` so an agent can inspect runtime-provider enablement and GitHub App readiness before it decides whether remote publication is even possible in the current instance.
+It currently exposes the first agent-facing tool set over MCP: pack inspection, instance inspection, artifact inspection, GitHub webhook inspection, latest-artifact lookup by type, brief validation and submission, run inspection, task execution, policy evaluation, automated quality evaluation, PR export/publication, and GitHub PR opening.
+That MCP surface now includes `describe_instance_config` so an agent can inspect runtime-provider enablement and GitHub App readiness before it decides whether remote publication is even possible in the current instance, plus `list_github_webhooks` and `describe_github_webhook` when it needs auditable visibility into accepted GitHub App deliveries.
 Use [examples/mcp/stdio-server.example.json](examples/mcp/stdio-server.example.json) as a neutral client config starting point, `./scripts/mcp-smoke.sh` for the stateless handshake/tool-discovery path, and `./scripts/mcp-stateful-smoke.sh` for the safe stateful run path.
 If OpenHands is the target client, prefer [examples/mcp/openhands.mcp.json](examples/mcp/openhands.mcp.json) and the registration flow documented in [docs/mcp/openhands.md](docs/mcp/openhands.md).
 For local OpenHands CLI registration, use `./scripts/openhands-register-mcp.sh`.
@@ -149,7 +149,7 @@ GitHub Actions runs one workflow, [`.github/workflows/ci.yml`](.github/workflows
 - `sbom`: builds the orchestrator image, generates an SPDX SBOM, uploads the SBOM artifact, and creates a GitHub/Sigstore provenance attestation for that uploaded artifact
 - `rust`: runs `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo build --workspace --locked`, and `cargo test --workspace --locked`
 - `compose`: validates `deploy/compose/compose.yaml` with the pinned `.env.example`
-- `smoke`: exercises the bootstrap flow end to end for the `container-service`, `cli-tool`, and `worker-service` packs, including `GET /config`, a signed GitHub webhook `ping`, HTTP webhook inspection, CLI webhook inspection, and then the safe stateful MCP path with `describe_instance_config`, `submit_brief`, `list_runs`, `describe_run`, `run_worker_once`, `evaluate_run_policy`, `evaluate_run_quality`, and `describe_artifact`
+- `smoke`: exercises the bootstrap flow end to end for the `container-service`, `cli-tool`, and `worker-service` packs, including `GET /config`, a signed GitHub webhook `ping`, HTTP webhook inspection, CLI webhook inspection, and then the safe stateful MCP path with `describe_instance_config`, `list_github_webhooks`, `describe_github_webhook`, `submit_brief`, `list_runs`, `describe_run`, `run_worker_once`, `evaluate_run_policy`, `evaluate_run_quality`, and `describe_artifact`
 
 Local runs through `act` use the runner image and container architecture pinned in [`.actrc`](.actrc), with the canonical values tracked in [`versions.env`](versions.env). GitHub-only publication steps such as artifact upload and attestation are skipped under `act`, because local runs do not expose GitHub runtime tokens, OIDC tokens, or the attestations API. The underlying build and SBOM generation steps still run locally.
 Pinned version policy and update automation are documented in [VERSIONS.md](VERSIONS.md).
@@ -168,7 +168,7 @@ The core checks can be run directly without GitHub Actions:
 ./scripts/mcp-stateful-smoke.sh
 ```
 
-`./scripts/smoke-mvp.sh` still runs a single end-to-end smoke pass, now including orchestrator HTTP liveness/readiness probes, `GET /config`, a signed GitHub webhook `ping`, HTTP/CLI webhook inspection, policy/quality artifact inspection, and the automated run quality gate, and accepts `SMOKE_BRIEF_FILE` to target a specific brief, for example `examples/briefs/minimal-container-service.yaml` or `examples/briefs/minimal-cli-tool.yaml`. `./scripts/mcp-stateful-smoke.sh` complements it by validating the agent-facing MCP stateful path, including `describe_instance_config`, without publishing or opening a GitHub PR.
+`./scripts/smoke-mvp.sh` still runs a single end-to-end smoke pass, now including orchestrator HTTP liveness/readiness probes, `GET /config`, a signed GitHub webhook `ping`, HTTP/CLI webhook inspection, policy/quality artifact inspection, and the automated run quality gate, and accepts `SMOKE_BRIEF_FILE` to target a specific brief, for example `examples/briefs/minimal-container-service.yaml` or `examples/briefs/minimal-cli-tool.yaml`. `./scripts/mcp-stateful-smoke.sh` complements it by validating the agent-facing MCP stateful path, including `describe_instance_config`, `list_github_webhooks`, and `describe_github_webhook`, without publishing or opening a GitHub PR.
 
 To reproduce the workflow structure locally through `act`:
 

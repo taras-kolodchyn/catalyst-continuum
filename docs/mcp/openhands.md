@@ -122,6 +122,8 @@ Stateful tools need `CATALYST_DATABASE_URL`:
 
 - `describe_artifact`
 - `describe_latest_artifact`
+- `list_github_webhooks`
+- `describe_github_webhook`
 - `submit_brief`
 - `list_runs`
 - `describe_run`
@@ -134,6 +136,7 @@ Stateful tools need `CATALYST_DATABASE_URL`:
 - `open_github_pr`
 
 `describe_instance_config` is the first inspection tool for OpenHands when it needs to understand whether the current instance is still Docker-only, whether future Proxmox or Kubernetes placeholders are enabled but unimplemented, and whether GitHub App credentials are complete enough for remote PR publication.
+`list_github_webhooks` and `describe_github_webhook` give OpenHands direct MCP visibility into accepted GitHub App deliveries when it needs to audit ingress state or correlate a delivery ID with later control-plane actions.
 `describe_artifact` is the general inspection tool for OpenHands when it needs the persisted manifest or metadata behind a `backlog`, `policy_report`, `quality_report`, `pr_export`, or publication artifact referenced by `describe_run`.
 `describe_latest_artifact` is the shortest path when OpenHands already knows the run and only needs the newest `policy_report`, `quality_report`, `pr_candidate`, or promotion artifact by type.
 `evaluate_run_policy` is the visibility tool for OpenHands when it needs to inspect whether the current run still satisfies control-plane policy constraints such as runtime provider, sandbox profile, and planned timeout budget.

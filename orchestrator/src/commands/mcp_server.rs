@@ -11,6 +11,7 @@ use crate::{
         export_pr_candidate, open_github_pr, publish_pr_export, run_next_task, worker,
     },
     config::InstanceConfigReport,
+    models::webhook::GitHubWebhookListFilters,
     planning::{
         brief_validation::validate_brief_document, pack_catalog::build_pack_catalog,
         packs::PackDefinition,
@@ -143,6 +144,21 @@ struct ListRunsToolArgs {
 #[serde(deny_unknown_fields)]
 struct DescribeRunToolArgs {
     run_id: uuid::Uuid,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ListGithubWebhooksToolArgs {
+    #[serde(default = "default_webhook_limit")]
+    limit: usize,
+    #[serde(default)]
+    event: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DescribeGithubWebhookToolArgs {
+    delivery_id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -418,6 +434,8 @@ impl StdioMcpServer {
             "describe_latest_artifact" => self.call_describe_latest_artifact(arguments),
             "validate_brief" => self.call_validate_brief(arguments),
             "submit_brief" => self.call_submit_brief(arguments),
+            "list_github_webhooks" => self.call_list_github_webhooks(arguments),
+            "describe_github_webhook" => self.call_describe_github_webhook(arguments),
             "list_runs" => self.call_list_runs(arguments),
             "describe_run" => self.call_describe_run(arguments),
             "run_next_task" => self.call_run_next_task(arguments),
@@ -565,6 +583,37 @@ impl StdioMcpServer {
                 "submission",
                 structured,
                 submission.render_text()?,
+            ))
+        })
+    }
+
+    fn call_list_github_webhooks(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: ListGithubWebhooksToolArgs = parse_tool_arguments(arguments)?;
+            let mut store = self.open_store()?;
+            let filters = GitHubWebhookListFilters::from_inputs(args.event.as_deref());
+            let deliveries = store.list_github_webhook_deliveries(args.limit, &filters)?;
+            let structured = serde_json::to_value(&deliveries)
+                .context("failed to serialize github webhook delivery list")?;
+            Ok(tool_success_object("deliveries", structured))
+        })
+    }
+
+    fn call_describe_github_webhook(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: DescribeGithubWebhookToolArgs = parse_tool_arguments(arguments)?;
+            let mut store = self.open_store()?;
+            let delivery = store
+                .fetch_github_webhook_delivery(&args.delivery_id)?
+                .with_context(|| {
+                    format!("github webhook delivery not found: {}", args.delivery_id)
+                })?;
+            let structured = serde_json::to_value(&delivery)
+                .context("failed to serialize github webhook delivery")?;
+            Ok(tool_success_with_text(
+                "delivery",
+                structured,
+                delivery.render_text()?,
             ))
         })
     }
@@ -852,6 +901,10 @@ fn default_run_limit() -> usize {
     20
 }
 
+fn default_webhook_limit() -> usize {
+    20
+}
+
 fn pretty_json(value: &Value) -> String {
     serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string())
 }
@@ -914,6 +967,25 @@ fn tool_definitions() -> Vec<Value> {
                     "When true, validates and plans without persisting to Postgres.",
                 ),
             ]),
+        ),
+        tool_definition(
+            "list_github_webhooks",
+            "List recent GitHub webhook deliveries accepted by the control plane.",
+            json_schema_object(&[
+                optional_integer_property("limit", "Maximum number of deliveries to return."),
+                optional_string_property(
+                    "event",
+                    "Optional GitHub event filter, for example ping or push.",
+                ),
+            ]),
+        ),
+        tool_definition(
+            "describe_github_webhook",
+            "Fetch one persisted GitHub webhook delivery with metadata and receipt linkage.",
+            json_schema_object(&[required_string_property(
+                "delivery_id",
+                "GitHub delivery identifier.",
+            )]),
         ),
         tool_definition(
             "list_runs",
@@ -1103,7 +1175,7 @@ mod tests {
 
         assert_eq!(
             output[1]["result"]["tools"].as_array().map(Vec::len),
-            Some(16)
+            Some(18)
         );
         assert_eq!(output[1]["result"]["tools"][0]["name"], "list_packs");
         assert!(
@@ -1112,6 +1184,13 @@ mod tests {
                 .is_some_and(|tools| tools
                     .iter()
                     .any(|tool| tool["name"] == "describe_instance_config"))
+        );
+        assert!(
+            output[1]["result"]["tools"]
+                .as_array()
+                .is_some_and(|tools| tools
+                    .iter()
+                    .any(|tool| tool["name"] == "list_github_webhooks"))
         );
     }
 
