@@ -6,6 +6,7 @@ cd "$ROOT_DIR"
 
 WORKFLOW_PATH="${ACT_WORKFLOW_PATH:-.github/workflows/ci.yml}"
 DEFAULT_EVENT="${ACT_DEFAULT_EVENT:-pull_request}"
+ACT_CONTAINER_ARCHITECTURE="${ACT_CONTAINER_ARCHITECTURE:-}"
 
 if ! command -v act >/dev/null 2>&1; then
   echo "act is required but was not found in PATH" >&2
@@ -33,4 +34,15 @@ case "${1:-}" in
     ;;
 esac
 
-exec act -W "$WORKFLOW_PATH" "$@"
+ACT_ARGS=()
+if [ -n "$ACT_CONTAINER_ARCHITECTURE" ]; then
+  ACT_ARGS+=(--container-architecture "$ACT_CONTAINER_ARCHITECTURE")
+else
+  case "$(uname -m)" in
+    arm64 | aarch64)
+      ACT_ARGS+=(--container-architecture "linux/arm64")
+      ;;
+  esac
+fi
+
+exec act -W "$WORKFLOW_PATH" "${ACT_ARGS[@]}" "$@"

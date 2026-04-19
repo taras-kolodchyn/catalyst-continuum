@@ -15,6 +15,7 @@ POSTGRES_DB="${SMOKE_POSTGRES_DB:-continuum}"
 POSTGRES_USER="${SMOKE_POSTGRES_USER:-continuum}"
 POSTGRES_PASSWORD="${SMOKE_POSTGRES_PASSWORD:-continuum-dev}"
 POSTGRES_PORT="${SMOKE_POSTGRES_PORT:-}"
+POSTGRES_NETWORK_MODE="${SMOKE_POSTGRES_NETWORK_MODE:-${ACT:+host}}"
 GITHUB_WEBHOOK_SECRET="${SMOKE_GITHUB_WEBHOOK_SECRET:-continuum-smoke-webhook-secret}"
 GITHUB_APP_INSTALLATION_ID="${SMOKE_GITHUB_APP_INSTALLATION_ID:-42}"
 PUSH_WEBHOOK_ACTION_REQUEST_ID="${SMOKE_PUSH_WEBHOOK_ACTION_REQUEST_ID:-github:22222222-2222-2222-2222-222222222222:sync_default_branch}"
@@ -55,12 +56,19 @@ resolve_postgres_host_port() {
 
 if [ -z "${CATALYST_DATABASE_URL:-}" ]; then
   docker rm -f "$POSTGRES_CONTAINER_NAME" >/dev/null 2>&1 || true
+  POSTGRES_DOCKER_ARGS=()
+  if [ "$POSTGRES_NETWORK_MODE" = "host" ]; then
+    POSTGRES_PORT="${POSTGRES_PORT:-5432}"
+    POSTGRES_DOCKER_ARGS+=(--network host)
+  else
+    POSTGRES_DOCKER_ARGS+=(-p "$(postgres_publish_binding)")
+  fi
   docker run -d \
     --name "$POSTGRES_CONTAINER_NAME" \
     -e POSTGRES_DB="$POSTGRES_DB" \
     -e POSTGRES_USER="$POSTGRES_USER" \
     -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
-    -p "$(postgres_publish_binding)" \
+    "${POSTGRES_DOCKER_ARGS[@]}" \
     --health-cmd "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}" \
     --health-interval 2s \
     --health-timeout 5s \
@@ -81,7 +89,7 @@ if [ -z "${CATALYST_DATABASE_URL:-}" ]; then
     exit 1
   fi
 
-  if [ -z "$POSTGRES_PORT" ]; then
+  if [ "$POSTGRES_NETWORK_MODE" != "host" ] && [ -z "$POSTGRES_PORT" ]; then
     POSTGRES_PORT="$(resolve_postgres_host_port)"
   fi
 
@@ -90,7 +98,15 @@ else
   DATABASE_URL="$CATALYST_DATABASE_URL"
 fi
 
-cargo build --quiet --locked
+if [ "${CATALYST_SKIP_WORKSPACE_BUILD:-0}" != "1" ]; then
+  cargo build --quiet --locked
+fi
+
+if [ ! -x "$BIN" ]; then
+  echo "orchestrator binary not found: $BIN" >&2
+  echo "run cargo build --workspace --locked or unset CATALYST_SKIP_WORKSPACE_BUILD" >&2
+  exit 1
+fi
 
 rm -rf "$ARTIFACT_ROOT"
 mkdir -p "$ARTIFACT_ROOT"
@@ -790,6 +806,7 @@ SERVICE_LOG="$REMOTE_ROOT/generated-service.log"
 HEALTH_OUTPUT="$REMOTE_ROOT/generated-service-health.json"
 REQUIREMENTS_OUTPUT="$REMOTE_ROOT/generated-service-requirements.json"
 SUMMARY_OUTPUT="$REMOTE_ROOT/generated-cli-summary.json"
+GENERATED_BINARY_PATH=""
 RUNTIME_DEFAULT_PORT=""
 SMOKE_SUMMARY_COMMAND=""
 SMOKE_REQUIREMENTS_COMMAND=""
@@ -826,12 +843,25 @@ SMOKE_SUMMARY_COMMAND="${PACK_CONTRACT_LINES[6]:-}"
 SMOKE_REQUIREMENTS_COMMAND="${PACK_CONTRACT_LINES[7]:-}"
 
 if [ -n "$GENERATED_RUNTIME_KIND" ]; then
+  GENERATED_PACKAGE_NAME="$(
+    python3 - "$GENERATED_REPO/Cargo.toml" <<'PY'
+import pathlib
+import sys
+import tomllib
+
+package = tomllib.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+print(package["package"]["name"])
+PY
+  )"
+  GENERATED_BINARY_PATH="$SERVICE_TARGET_DIR/debug/$GENERATED_PACKAGE_NAME"
+
   case "$GENERATED_RUNTIME_KIND" in
     cargo_binary)
       (
         cd "$GENERATED_REPO"
         CARGO_TARGET_DIR="$SERVICE_TARGET_DIR" cargo build --quiet
       )
+      test -x "$GENERATED_BINARY_PATH"
       ;;
     *)
       echo "unsupported generated runtime kind: $GENERATED_RUNTIME_KIND" >&2
@@ -849,7 +879,7 @@ if [ -n "$GENERATED_RUNTIME_KIND" ]; then
 
       (
         cd "$GENERATED_REPO"
-        CARGO_TARGET_DIR="$SERVICE_TARGET_DIR" env "$RUNTIME_PORT_ENV=$SERVICE_PORT" cargo run --quiet
+        env "$RUNTIME_PORT_ENV=$SERVICE_PORT" "$GENERATED_BINARY_PATH"
       ) >"$SERVICE_LOG" 2>&1 &
       SERVICE_PID="$!"
 
@@ -907,13 +937,13 @@ PY
 
       (
         cd "$GENERATED_REPO"
-        CARGO_TARGET_DIR="$SERVICE_TARGET_DIR" cargo run --quiet -- "$SMOKE_SUMMARY_COMMAND"
+        "$GENERATED_BINARY_PATH" "$SMOKE_SUMMARY_COMMAND"
       ) >"$SUMMARY_OUTPUT"
 
       if [ -n "$SMOKE_REQUIREMENTS_COMMAND" ]; then
         (
           cd "$GENERATED_REPO"
-          CARGO_TARGET_DIR="$SERVICE_TARGET_DIR" cargo run --quiet -- "$SMOKE_REQUIREMENTS_COMMAND"
+          "$GENERATED_BINARY_PATH" "$SMOKE_REQUIREMENTS_COMMAND"
         ) >"$REQUIREMENTS_OUTPUT"
       fi
 

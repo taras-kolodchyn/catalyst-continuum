@@ -9,11 +9,13 @@ source "$ROOT_DIR/versions.env"
 
 ARTIFACT_ROOT="${CATALYST_ARTIFACT_ROOT:-$ROOT_DIR/.continuum/mcp-stateful-artifacts}"
 BRIEF_FILE="${MCP_SMOKE_BRIEF_FILE:-$ROOT_DIR/examples/briefs/minimal-cli-tool.yaml}"
+BIN="${ROOT_DIR}/target/debug/catalyst-continuum-orchestrator"
 POSTGRES_IMAGE="${MCP_SMOKE_POSTGRES_IMAGE:-postgres:${POSTGRES_VERSION}@${POSTGRES_IMAGE_DIGEST}}"
 POSTGRES_DB="${MCP_SMOKE_POSTGRES_DB:-continuum}"
 POSTGRES_USER="${MCP_SMOKE_POSTGRES_USER:-continuum}"
 POSTGRES_PASSWORD="${MCP_SMOKE_POSTGRES_PASSWORD:-continuum-dev}"
 POSTGRES_PORT="${MCP_SMOKE_POSTGRES_PORT:-}"
+POSTGRES_NETWORK_MODE="${MCP_SMOKE_POSTGRES_NETWORK_MODE:-${ACT:+host}}"
 POSTGRES_CONTAINER_NAME="continuum-mcp-smoke-postgres-$$"
 ORCHESTRATOR_HTTP_PORT="${MCP_SMOKE_HTTP_PORT:-$(python3 - <<'PY'
 import socket
@@ -63,12 +65,19 @@ fi
 
 if [ -z "${CATALYST_DATABASE_URL:-}" ]; then
   docker rm -f "$POSTGRES_CONTAINER_NAME" >/dev/null 2>&1 || true
+  POSTGRES_DOCKER_ARGS=()
+  if [ "$POSTGRES_NETWORK_MODE" = "host" ]; then
+    POSTGRES_PORT="${POSTGRES_PORT:-5432}"
+    POSTGRES_DOCKER_ARGS+=(--network host)
+  else
+    POSTGRES_DOCKER_ARGS+=(-p "$(postgres_publish_binding)")
+  fi
   docker run -d \
     --name "$POSTGRES_CONTAINER_NAME" \
     -e POSTGRES_DB="$POSTGRES_DB" \
     -e POSTGRES_USER="$POSTGRES_USER" \
     -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
-    -p "$(postgres_publish_binding)" \
+    "${POSTGRES_DOCKER_ARGS[@]}" \
     --health-cmd "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}" \
     --health-interval 2s \
     --health-timeout 5s \
@@ -89,7 +98,7 @@ if [ -z "${CATALYST_DATABASE_URL:-}" ]; then
     exit 1
   fi
 
-  if [ -z "$POSTGRES_PORT" ]; then
+  if [ "$POSTGRES_NETWORK_MODE" != "host" ] && [ -z "$POSTGRES_PORT" ]; then
     POSTGRES_PORT="$(resolve_postgres_host_port)"
   fi
 
@@ -98,13 +107,23 @@ else
   DATABASE_URL="$CATALYST_DATABASE_URL"
 fi
 
+if [ "${CATALYST_SKIP_WORKSPACE_BUILD:-0}" != "1" ]; then
+  cargo build --quiet --locked -p catalyst-continuum-orchestrator
+fi
+
+if [ ! -x "$BIN" ]; then
+  echo "orchestrator binary not found: $BIN" >&2
+  echo "run cargo build --workspace --locked or unset CATALYST_SKIP_WORKSPACE_BUILD" >&2
+  exit 1
+fi
+
 rm -rf "$ARTIFACT_ROOT"
 mkdir -p "$ARTIFACT_ROOT"
 
 export CATALYST_GITHUB_APP_WEBHOOK_SECRET="$GITHUB_WEBHOOK_SECRET"
 export CATALYST_GITHUB_APP_INSTALLATION_ID="$GITHUB_APP_INSTALLATION_ID"
 ORCHESTRATOR_LOG_FILE="$ARTIFACT_ROOT/mcp-smoke-orchestrator.log"
-cargo run -q -p catalyst-continuum-orchestrator -- \
+"$BIN" \
   serve \
   --bind-addr "127.0.0.1:${ORCHESTRATOR_HTTP_PORT}" \
   --database-url "$DATABASE_URL" \
@@ -228,21 +247,22 @@ assert response["routing_action"] == "sync_default_branch", response
 assert response["persisted"] is True, response
 PY
 
-python3 - "$DATABASE_URL" "$ARTIFACT_ROOT" "$BRIEF_FILE" "$WEBHOOK_DELIVERY_ID" "$PUSH_WEBHOOK_DELIVERY_ID" "$PUSH_WEBHOOK_ACTION_REQUEST_ID" "$PUSH_WEBHOOK_SIGNAL_ID" "$PUSH_WEBHOOK_AFTER_SHA" <<'PY'
+python3 - "$BIN" "$DATABASE_URL" "$ARTIFACT_ROOT" "$BRIEF_FILE" "$WEBHOOK_DELIVERY_ID" "$PUSH_WEBHOOK_DELIVERY_ID" "$PUSH_WEBHOOK_ACTION_REQUEST_ID" "$PUSH_WEBHOOK_SIGNAL_ID" "$PUSH_WEBHOOK_AFTER_SHA" <<'PY'
 import json
 import os
 import pathlib
 import subprocess
 import sys
 
-database_url = sys.argv[1]
-artifact_root = sys.argv[2]
-brief_path = pathlib.Path(sys.argv[3])
-webhook_delivery_id = sys.argv[4]
-push_webhook_delivery_id = sys.argv[5]
-push_webhook_action_request_id = sys.argv[6]
-push_webhook_signal_id = sys.argv[7]
-push_webhook_after_sha = sys.argv[8]
+orchestrator_bin = sys.argv[1]
+database_url = sys.argv[2]
+artifact_root = sys.argv[3]
+brief_path = pathlib.Path(sys.argv[4])
+webhook_delivery_id = sys.argv[5]
+push_webhook_delivery_id = sys.argv[6]
+push_webhook_action_request_id = sys.argv[7]
+push_webhook_signal_id = sys.argv[8]
+push_webhook_after_sha = sys.argv[9]
 root = pathlib.Path.cwd()
 try:
     brief_source_path = str(brief_path.relative_to(root))
@@ -255,12 +275,7 @@ env["CATALYST_ARTIFACT_ROOT"] = artifact_root
 
 proc = subprocess.Popen(
     [
-        "cargo",
-        "run",
-        "-q",
-        "-p",
-        "catalyst-continuum-orchestrator",
-        "--",
+        orchestrator_bin,
         "mcp-server",
         "--artifact-root",
         artifact_root,
