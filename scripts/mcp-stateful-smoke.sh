@@ -447,6 +447,8 @@ try:
         "describe_github_webhook",
         "list_github_webhook_action_requests",
         "describe_github_webhook_action_request",
+        "describe_github_webhook_action_report",
+        "describe_github_default_branch_state",
         "run_next_github_webhook_action",
         "list_repository_signals",
         "describe_repository_signal",
@@ -639,29 +641,71 @@ try:
             "stateful MCP smoke failed: webhook action request attempt_count should be 1 after execution, got "
             f"{executed_webhook_action_request['attempt_count']}"
         )
-    report_path = pathlib.Path(executed_webhook_action_request["report_path"])
+    described_report = call_tool(
+        "describe_github_webhook_action_report",
+        {"request_id": push_webhook_action_request_id},
+        "report",
+    )
+    report_path = pathlib.Path(described_report["report_path"])
     if not report_path.is_file():
         fail(
-            "stateful MCP smoke failed: webhook action request report_path should point at a file, got "
-            f"{executed_webhook_action_request['report_path']}"
+            "stateful MCP smoke failed: webhook action report report_path should point at a file, got "
+            f"{described_report['report_path']}"
         )
-    report = json.loads(report_path.read_text(encoding="utf-8"))
-    if report["sync"]["after_sha"] != push_webhook_after_sha:
+    if described_report["persisted"] is not True:
+        fail(
+            "stateful MCP smoke failed: webhook action report should be marked persisted"
+        )
+    if described_report["report"]["request"]["request_id"] != push_webhook_action_request_id:
+        fail(
+            "stateful MCP smoke failed: webhook action report request_id mismatch, got "
+            f"{described_report['report']['request']['request_id']}"
+        )
+    if described_report["report"]["sync"]["after_sha"] != push_webhook_after_sha:
         fail(
             "stateful MCP smoke failed: webhook action report should capture after_sha, got "
-            f"{report['sync']['after_sha']}"
+            f"{described_report['report']['sync']['after_sha']}"
         )
-    state_path = pathlib.Path(report["sync"]["state_path"])
+    if described_report["report"]["sync"]["status"] != "observed_default_branch_head":
+        fail(
+            "stateful MCP smoke failed: webhook action report sync status mismatch, got "
+            f"{described_report['report']['sync']['status']}"
+        )
+    if executed_webhook_action_request["report_path"] != described_report["report_path"]:
+        fail(
+            "stateful MCP smoke failed: webhook action request report_path should match report detail, got "
+            f"{executed_webhook_action_request['report_path']} vs {described_report['report_path']}"
+        )
+
+    described_state = call_tool(
+        "describe_github_default_branch_state",
+        {"repository_full_name": "smartit/catalyst-continuum"},
+        "state",
+    )
+    state_path = pathlib.Path(described_state["state_path"])
     if not state_path.is_file():
         fail(
             "stateful MCP smoke failed: webhook action state_path should point at a file, got "
-            f"{report['sync']['state_path']}"
+            f"{described_state['state_path']}"
         )
-    state = json.loads(state_path.read_text(encoding="utf-8"))
-    if state["after_sha"] != push_webhook_after_sha:
+    if described_state["persisted"] is not True:
+        fail(
+            "stateful MCP smoke failed: default-branch state should be marked persisted"
+        )
+    if described_state["state"]["after_sha"] != push_webhook_after_sha:
         fail(
             "stateful MCP smoke failed: webhook action state file should capture after_sha, got "
-            f"{state['after_sha']}"
+            f"{described_state['state']['after_sha']}"
+        )
+    if described_state["state"]["synced_from"]["request_id"] != push_webhook_action_request_id:
+        fail(
+            "stateful MCP smoke failed: default-branch state should point at webhook action request, got "
+            f"{described_state['state']['synced_from']['request_id']}"
+        )
+    if described_report["report"]["sync"]["state_path"] != described_state["state_path"]:
+        fail(
+            "stateful MCP smoke failed: webhook action report state_path should match default-branch state detail, got "
+            f"{described_report['report']['sync']['state_path']} vs {described_state['state_path']}"
         )
 
     signals = call_tool(

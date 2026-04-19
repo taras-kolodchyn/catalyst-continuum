@@ -1,5 +1,7 @@
+use std::{fs, path::Path};
+
 use anyhow::{Context, Result};
-use serde::Serialize;
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{
     github_webhook_routing::GitHubWebhookRoutingDecision,
@@ -124,6 +126,101 @@ pub struct GitHubWebhookActionRequestSummary {
 pub struct GitHubWebhookActionRequestListFilters {
     pub status: Option<String>,
     pub action: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct GitHubWebhookActionReportExecution {
+    pub status: String,
+    pub executed_at_epoch_ms: u64,
+    pub request_attempt_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct GitHubWebhookActionReportRequest {
+    pub request_id: String,
+    pub provider: String,
+    pub delivery_id: String,
+    pub action: String,
+    pub requested_reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct GitHubWebhookActionReportRepository {
+    pub full_name: String,
+    pub default_branch: String,
+    pub ref_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct GitHubWebhookActionReportDelivery {
+    pub event: Option<String>,
+    pub outcome: Option<String>,
+    pub receipt_path: Option<String>,
+    pub payload_digest: Option<String>,
+    pub message: Option<String>,
+    pub before_sha: Option<String>,
+    pub after_sha: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct GitHubWebhookActionReportSync {
+    pub status: String,
+    pub state_path: String,
+    pub before_sha: Option<String>,
+    pub after_sha: String,
+    pub target_ref: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct GitHubWebhookActionReport {
+    pub report_version: u32,
+    pub execution: GitHubWebhookActionReportExecution,
+    pub request: GitHubWebhookActionReportRequest,
+    pub repository: GitHubWebhookActionReportRepository,
+    pub delivery: GitHubWebhookActionReportDelivery,
+    pub sync: GitHubWebhookActionReportSync,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct GitHubWebhookActionReportDetail {
+    pub report: GitHubWebhookActionReport,
+    pub report_path: String,
+    pub persisted: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct GitHubDefaultBranchStateSyncSource {
+    pub request_id: String,
+    pub delivery_id: String,
+    pub action: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct GitHubDefaultBranchState {
+    pub state_version: u32,
+    pub provider: String,
+    pub repository_full_name: String,
+    pub default_branch: String,
+    pub ref_name: String,
+    pub before_sha: Option<String>,
+    pub after_sha: String,
+    pub synced_from: GitHubDefaultBranchStateSyncSource,
+    pub updated_at_epoch_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct GitHubDefaultBranchStateDetail {
+    pub state: GitHubDefaultBranchState,
+    pub state_path: String,
+    pub persisted: bool,
 }
 
 impl GitHubWebhookListFilters {
@@ -389,6 +486,215 @@ impl GitHubWebhookActionRequestSummary {
     }
 }
 
+impl GitHubWebhookActionReportDetail {
+    pub fn from_path(path: &Path) -> Result<Self> {
+        let report = read_json_document(path, "github webhook action report")?;
+        Ok(Self {
+            report,
+            report_path: path.display().to_string(),
+            persisted: true,
+        })
+    }
+
+    pub fn render_text(&self) -> Result<String> {
+        use std::fmt::Write as _;
+
+        let mut output = String::new();
+        writeln!(&mut output, "report_path: {}", self.report_path)
+            .context("failed to render github webhook action report")?;
+        writeln!(
+            &mut output,
+            "persisted: {}",
+            if self.persisted { "yes" } else { "no" }
+        )
+        .context("failed to render github webhook action report")?;
+        writeln!(
+            &mut output,
+            "report_version: {}",
+            self.report.report_version
+        )
+        .context("failed to render github webhook action report")?;
+        writeln!(
+            &mut output,
+            "execution_status: {}",
+            self.report.execution.status
+        )
+        .context("failed to render github webhook action report")?;
+        writeln!(
+            &mut output,
+            "executed_at_epoch_ms: {}",
+            self.report.execution.executed_at_epoch_ms
+        )
+        .context("failed to render github webhook action report")?;
+        writeln!(
+            &mut output,
+            "request_attempt_count: {}",
+            self.report.execution.request_attempt_count
+        )
+        .context("failed to render github webhook action report")?;
+        writeln!(
+            &mut output,
+            "request_id: {}",
+            self.report.request.request_id
+        )
+        .context("failed to render github webhook action report")?;
+        writeln!(&mut output, "provider: {}", self.report.request.provider)
+            .context("failed to render github webhook action report")?;
+        writeln!(
+            &mut output,
+            "delivery_id: {}",
+            self.report.request.delivery_id
+        )
+        .context("failed to render github webhook action report")?;
+        writeln!(&mut output, "action: {}", self.report.request.action)
+            .context("failed to render github webhook action report")?;
+        writeln!(
+            &mut output,
+            "requested_reason: {}",
+            self.report.request.requested_reason
+        )
+        .context("failed to render github webhook action report")?;
+        writeln!(
+            &mut output,
+            "repository_full_name: {}",
+            self.report.repository.full_name
+        )
+        .context("failed to render github webhook action report")?;
+        writeln!(
+            &mut output,
+            "default_branch: {}",
+            self.report.repository.default_branch
+        )
+        .context("failed to render github webhook action report")?;
+        writeln!(&mut output, "ref_name: {}", self.report.repository.ref_name)
+            .context("failed to render github webhook action report")?;
+        if let Some(event) = &self.report.delivery.event {
+            writeln!(&mut output, "delivery_event: {}", event)
+                .context("failed to render github webhook action report")?;
+        }
+        if let Some(outcome) = &self.report.delivery.outcome {
+            writeln!(&mut output, "delivery_outcome: {}", outcome)
+                .context("failed to render github webhook action report")?;
+        }
+        if let Some(receipt_path) = &self.report.delivery.receipt_path {
+            writeln!(&mut output, "receipt_path: {}", receipt_path)
+                .context("failed to render github webhook action report")?;
+        }
+        if let Some(payload_digest) = &self.report.delivery.payload_digest {
+            writeln!(&mut output, "payload_digest: {}", payload_digest)
+                .context("failed to render github webhook action report")?;
+        }
+        if let Some(message) = &self.report.delivery.message {
+            writeln!(&mut output, "delivery_message: {}", message)
+                .context("failed to render github webhook action report")?;
+        }
+        if let Some(before_sha) = &self.report.delivery.before_sha {
+            writeln!(&mut output, "before_sha: {}", before_sha)
+                .context("failed to render github webhook action report")?;
+        }
+        if let Some(after_sha) = &self.report.delivery.after_sha {
+            writeln!(&mut output, "delivery_after_sha: {}", after_sha)
+                .context("failed to render github webhook action report")?;
+        }
+        writeln!(&mut output, "sync_status: {}", self.report.sync.status)
+            .context("failed to render github webhook action report")?;
+        writeln!(&mut output, "state_path: {}", self.report.sync.state_path)
+            .context("failed to render github webhook action report")?;
+        if let Some(before_sha) = &self.report.sync.before_sha {
+            writeln!(&mut output, "sync_before_sha: {}", before_sha)
+                .context("failed to render github webhook action report")?;
+        }
+        writeln!(
+            &mut output,
+            "sync_after_sha: {}",
+            self.report.sync.after_sha
+        )
+        .context("failed to render github webhook action report")?;
+        write!(&mut output, "target_ref: {}", self.report.sync.target_ref)
+            .context("failed to render github webhook action report")?;
+
+        Ok(output)
+    }
+}
+
+impl GitHubDefaultBranchStateDetail {
+    pub fn from_path(path: &Path) -> Result<Self> {
+        let state = read_json_document(path, "github default-branch state")?;
+        Ok(Self {
+            state,
+            state_path: path.display().to_string(),
+            persisted: true,
+        })
+    }
+
+    pub fn render_text(&self) -> Result<String> {
+        use std::fmt::Write as _;
+
+        let mut output = String::new();
+        writeln!(&mut output, "state_path: {}", self.state_path)
+            .context("failed to render github default-branch state")?;
+        writeln!(
+            &mut output,
+            "persisted: {}",
+            if self.persisted { "yes" } else { "no" }
+        )
+        .context("failed to render github default-branch state")?;
+        writeln!(&mut output, "state_version: {}", self.state.state_version)
+            .context("failed to render github default-branch state")?;
+        writeln!(&mut output, "provider: {}", self.state.provider)
+            .context("failed to render github default-branch state")?;
+        writeln!(
+            &mut output,
+            "repository_full_name: {}",
+            self.state.repository_full_name
+        )
+        .context("failed to render github default-branch state")?;
+        writeln!(&mut output, "default_branch: {}", self.state.default_branch)
+            .context("failed to render github default-branch state")?;
+        writeln!(&mut output, "ref_name: {}", self.state.ref_name)
+            .context("failed to render github default-branch state")?;
+        if let Some(before_sha) = &self.state.before_sha {
+            writeln!(&mut output, "before_sha: {}", before_sha)
+                .context("failed to render github default-branch state")?;
+        }
+        writeln!(&mut output, "after_sha: {}", self.state.after_sha)
+            .context("failed to render github default-branch state")?;
+        writeln!(
+            &mut output,
+            "synced_request_id: {}",
+            self.state.synced_from.request_id
+        )
+        .context("failed to render github default-branch state")?;
+        writeln!(
+            &mut output,
+            "synced_delivery_id: {}",
+            self.state.synced_from.delivery_id
+        )
+        .context("failed to render github default-branch state")?;
+        writeln!(
+            &mut output,
+            "synced_action: {}",
+            self.state.synced_from.action
+        )
+        .context("failed to render github default-branch state")?;
+        write!(
+            &mut output,
+            "updated_at_epoch_ms: {}",
+            self.state.updated_at_epoch_ms
+        )
+        .context("failed to render github default-branch state")?;
+
+        Ok(output)
+    }
+}
+
+fn read_json_document<T: DeserializeOwned>(path: &Path, label: &str) -> Result<T> {
+    let bytes =
+        fs::read(path).with_context(|| format!("failed to read {label}: {}", path.display()))?;
+    serde_json::from_slice(&bytes)
+        .with_context(|| format!("failed to parse {label} JSON: {}", path.display()))
+}
+
 #[cfg(test)]
 impl GitHubWebhookDeliverySummary {
     fn from_draft(draft: &GitHubWebhookDeliveryDraft) -> Self {
@@ -465,6 +771,7 @@ impl GitHubWebhookActionRequestSummary {
 #[cfg(test)]
 mod tests {
     use super::{
+        GitHubDefaultBranchStateDetail, GitHubWebhookActionReportDetail,
         GitHubWebhookActionRequestDraft, GitHubWebhookActionRequestSummary,
         GitHubWebhookDeliveryDraft, GitHubWebhookDeliverySummary,
     };
@@ -472,6 +779,17 @@ mod tests {
         github_webhook_routing::GitHubWebhookRoutingDecision,
         github_webhooks::GitHubWebhookReceiptSummary,
     };
+    use std::{fs, path::PathBuf};
+    use uuid::Uuid;
+
+    fn temp_json_path(file_name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "catalyst-continuum-webhook-tests-{}",
+            Uuid::new_v4()
+        ));
+        fs::create_dir_all(&dir).expect("temp dir should be created");
+        dir.join(file_name)
+    }
 
     #[test]
     fn renders_webhook_delivery_summary() {
@@ -605,5 +923,105 @@ mod tests {
         assert!(rendered.contains("after_sha: 2222222222222222222222222222222222222222"));
         assert!(rendered.contains("requested_reason: push delivery targets"));
         assert!(rendered.contains("persisted: yes"));
+    }
+
+    #[test]
+    fn loads_and_renders_github_webhook_action_report_detail() {
+        let path = temp_json_path("report.json");
+        fs::write(
+            &path,
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "report_version": 1,
+                "execution": {
+                    "status": "succeeded",
+                    "executed_at_epoch_ms": 123,
+                    "request_attempt_count": 1
+                },
+                "request": {
+                    "request_id": "github:delivery-1:sync_default_branch",
+                    "provider": "github",
+                    "delivery_id": "delivery-1",
+                    "action": "sync_default_branch",
+                    "requested_reason": "sync default branch"
+                },
+                "repository": {
+                    "full_name": "smartit/catalyst-continuum",
+                    "default_branch": "main",
+                    "ref_name": "refs/heads/main"
+                },
+                "delivery": {
+                    "event": "push",
+                    "outcome": "accepted",
+                    "receipt_path": "/tmp/receipt.json",
+                    "payload_digest": "sha256:abc",
+                    "message": "accepted",
+                    "before_sha": "111",
+                    "after_sha": "222"
+                },
+                "sync": {
+                    "status": "observed_default_branch_head",
+                    "state_path": "/tmp/default-branch-state.json",
+                    "before_sha": "111",
+                    "after_sha": "222",
+                    "target_ref": "refs/heads/main"
+                }
+            }))
+            .expect("report should serialize"),
+        )
+        .expect("report should be written");
+
+        let detail = GitHubWebhookActionReportDetail::from_path(&path).expect("report should load");
+        let rendered = detail.render_text().expect("report should render");
+
+        assert_eq!(
+            detail.report.request.request_id,
+            "github:delivery-1:sync_default_branch"
+        );
+        assert_eq!(detail.report.sync.after_sha, "222");
+        assert!(rendered.contains("report_path:"));
+        assert!(rendered.contains("execution_status: succeeded"));
+        assert!(rendered.contains("request_id: github:delivery-1:sync_default_branch"));
+        assert!(rendered.contains("sync_after_sha: 222"));
+
+        fs::remove_dir_all(path.parent().expect("temp file should have a parent"))
+            .expect("temp dir should be removed");
+    }
+
+    #[test]
+    fn loads_and_renders_github_default_branch_state_detail() {
+        let path = temp_json_path("default-branch-state.json");
+        fs::write(
+            &path,
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "state_version": 1,
+                "provider": "github",
+                "repository_full_name": "smartit/catalyst-continuum",
+                "default_branch": "main",
+                "ref_name": "refs/heads/main",
+                "before_sha": "111",
+                "after_sha": "222",
+                "synced_from": {
+                    "request_id": "github:delivery-1:sync_default_branch",
+                    "delivery_id": "delivery-1",
+                    "action": "sync_default_branch"
+                },
+                "updated_at_epoch_ms": 123
+            }))
+            .expect("state should serialize"),
+        )
+        .expect("state should be written");
+
+        let detail = GitHubDefaultBranchStateDetail::from_path(&path).expect("state should load");
+        let rendered = detail.render_text().expect("state should render");
+
+        assert_eq!(detail.state.after_sha, "222");
+        assert_eq!(detail.state.synced_from.action, "sync_default_branch");
+        assert!(rendered.contains("state_path:"));
+        assert!(rendered.contains("repository_full_name: smartit/catalyst-continuum"));
+        assert!(rendered.contains("synced_request_id: github:delivery-1:sync_default_branch"));
+        assert!(rendered.contains("updated_at_epoch_ms: 123"));
+
+        fs::remove_dir_all(path.parent().expect("temp file should have a parent"))
+            .expect("temp dir should be removed");
     }
 }

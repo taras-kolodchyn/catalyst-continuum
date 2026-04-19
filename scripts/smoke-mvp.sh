@@ -189,6 +189,8 @@ WEBHOOK_ACTION_LIST_HTTP_FILE="$ARTIFACT_ROOT/http-webhook-action-requests.json"
 WEBHOOK_ACTION_DETAIL_HTTP_FILE="$ARTIFACT_ROOT/http-webhook-action-request.json"
 WEBHOOK_ACTION_RUN_HTTP_FILE="$ARTIFACT_ROOT/http-webhook-action-run.json"
 WEBHOOK_ACTION_EXECUTED_HTTP_FILE="$ARTIFACT_ROOT/http-webhook-action-request-executed.json"
+WEBHOOK_ACTION_REPORT_HTTP_FILE="$ARTIFACT_ROOT/http-webhook-action-report.json"
+DEFAULT_BRANCH_STATE_HTTP_FILE="$ARTIFACT_ROOT/http-default-branch-state.json"
 REPOSITORY_SIGNAL_LIST_HTTP_FILE="$ARTIFACT_ROOT/http-repository-signals.json"
 REPOSITORY_SIGNAL_DETAIL_HTTP_FILE="$ARTIFACT_ROOT/http-repository-signal.json"
 WEBHOOK_LIST_CLI_FILE="$ARTIFACT_ROOT/cli-webhook-deliveries.json"
@@ -197,6 +199,8 @@ WEBHOOK_PUSH_DETAIL_CLI_FILE="$ARTIFACT_ROOT/cli-webhook-push-delivery.json"
 WEBHOOK_ACTION_LIST_CLI_FILE="$ARTIFACT_ROOT/cli-webhook-action-requests.json"
 WEBHOOK_ACTION_DETAIL_CLI_FILE="$ARTIFACT_ROOT/cli-webhook-action-request.json"
 WEBHOOK_ACTION_EXECUTED_CLI_FILE="$ARTIFACT_ROOT/cli-webhook-action-request-executed.json"
+WEBHOOK_ACTION_REPORT_CLI_FILE="$ARTIFACT_ROOT/cli-webhook-action-report.json"
+DEFAULT_BRANCH_STATE_CLI_FILE="$ARTIFACT_ROOT/cli-default-branch-state.json"
 REPOSITORY_SIGNAL_LIST_CLI_FILE="$ARTIFACT_ROOT/cli-repository-signals.json"
 REPOSITORY_SIGNAL_DETAIL_CLI_FILE="$ARTIFACT_ROOT/cli-repository-signal.json"
 REPOSITORY_SIGNAL_BRIEF_FILE="$ARTIFACT_ROOT/repository-signal-brief.yaml"
@@ -433,6 +437,12 @@ curl -fsS \
   "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/github/webhook-actions/${PUSH_WEBHOOK_ACTION_REQUEST_ID}" \
   >"$WEBHOOK_ACTION_EXECUTED_HTTP_FILE"
 curl -fsS \
+  "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/github/webhook-actions/${PUSH_WEBHOOK_ACTION_REQUEST_ID}/report" \
+  >"$WEBHOOK_ACTION_REPORT_HTTP_FILE"
+curl -fsS \
+  "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/github/repositories/smartit/catalyst-continuum/default-branch-state" \
+  >"$DEFAULT_BRANCH_STATE_HTTP_FILE"
+curl -fsS \
   "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/repository-signals" \
   >"$REPOSITORY_SIGNAL_LIST_HTTP_FILE"
 curl -fsS \
@@ -442,6 +452,14 @@ curl -fsS \
   --database-url "$DATABASE_URL" \
   --request-id "$PUSH_WEBHOOK_ACTION_REQUEST_ID" \
   --json >"$WEBHOOK_ACTION_EXECUTED_CLI_FILE"
+"$BIN" describe-github-webhook-action-report \
+  --database-url "$DATABASE_URL" \
+  --request-id "$PUSH_WEBHOOK_ACTION_REQUEST_ID" \
+  --json >"$WEBHOOK_ACTION_REPORT_CLI_FILE"
+"$BIN" describe-github-default-branch-state \
+  --artifact-root "$ARTIFACT_ROOT" \
+  --repository-full-name "smartit/catalyst-continuum" \
+  --json >"$DEFAULT_BRANCH_STATE_CLI_FILE"
 "$BIN" list-repository-signals \
   --database-url "$DATABASE_URL" \
   --json >"$REPOSITORY_SIGNAL_LIST_CLI_FILE"
@@ -453,6 +471,10 @@ python3 - \
   "$WEBHOOK_ACTION_RUN_HTTP_FILE" \
   "$WEBHOOK_ACTION_EXECUTED_HTTP_FILE" \
   "$WEBHOOK_ACTION_EXECUTED_CLI_FILE" \
+  "$WEBHOOK_ACTION_REPORT_HTTP_FILE" \
+  "$DEFAULT_BRANCH_STATE_HTTP_FILE" \
+  "$WEBHOOK_ACTION_REPORT_CLI_FILE" \
+  "$DEFAULT_BRANCH_STATE_CLI_FILE" \
   "$REPOSITORY_SIGNAL_LIST_HTTP_FILE" \
   "$REPOSITORY_SIGNAL_DETAIL_HTTP_FILE" \
   "$REPOSITORY_SIGNAL_LIST_CLI_FILE" \
@@ -468,14 +490,18 @@ import sys
 run_response = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
 http_detail = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
 cli_detail = json.loads(pathlib.Path(sys.argv[3]).read_text(encoding="utf-8"))
-http_signal_list = json.loads(pathlib.Path(sys.argv[4]).read_text(encoding="utf-8"))
-http_signal_detail = json.loads(pathlib.Path(sys.argv[5]).read_text(encoding="utf-8"))
-cli_signal_list = json.loads(pathlib.Path(sys.argv[6]).read_text(encoding="utf-8"))
-cli_signal_detail = json.loads(pathlib.Path(sys.argv[7]).read_text(encoding="utf-8"))
-request_id = sys.argv[8]
-signal_id = sys.argv[9]
-after_sha = sys.argv[10]
-expected_attempt_count = int(sys.argv[11])
+http_report = json.loads(pathlib.Path(sys.argv[4]).read_text(encoding="utf-8"))
+http_state = json.loads(pathlib.Path(sys.argv[5]).read_text(encoding="utf-8"))
+cli_report = json.loads(pathlib.Path(sys.argv[6]).read_text(encoding="utf-8"))
+cli_state = json.loads(pathlib.Path(sys.argv[7]).read_text(encoding="utf-8"))
+http_signal_list = json.loads(pathlib.Path(sys.argv[8]).read_text(encoding="utf-8"))
+http_signal_detail = json.loads(pathlib.Path(sys.argv[9]).read_text(encoding="utf-8"))
+cli_signal_list = json.loads(pathlib.Path(sys.argv[10]).read_text(encoding="utf-8"))
+cli_signal_detail = json.loads(pathlib.Path(sys.argv[11]).read_text(encoding="utf-8"))
+request_id = sys.argv[12]
+signal_id = sys.argv[13]
+after_sha = sys.argv[14]
+expected_attempt_count = int(sys.argv[15])
 
 assert run_response["outcome"] == "executed", run_response
 assert run_response["execution_status"] == "succeeded", run_response
@@ -490,19 +516,28 @@ assert http_detail["status"] == "succeeded", http_detail
 assert http_detail["attempt_count"] == expected_attempt_count, http_detail
 assert http_detail["after_sha"] == after_sha, http_detail
 assert http_detail["report_path"], http_detail
-report_path = pathlib.Path(http_detail["report_path"])
-assert report_path.is_file(), http_detail
-report = json.loads(report_path.read_text(encoding="utf-8"))
-assert report["sync"]["status"] == "observed_default_branch_head", report
-assert report["sync"]["after_sha"] == after_sha, report
-state_path = pathlib.Path(report["sync"]["state_path"])
-assert state_path.is_file(), report
-state = json.loads(state_path.read_text(encoding="utf-8"))
-assert state["after_sha"] == after_sha, state
-assert state["synced_from"]["request_id"] == request_id, state
 assert cli_detail["status"] == "succeeded", cli_detail
 assert cli_detail["attempt_count"] == expected_attempt_count, cli_detail
 assert cli_detail["after_sha"] == after_sha, cli_detail
+assert http_report["persisted"] is True, http_report
+assert http_report["report_path"] == http_detail["report_path"], (http_report, http_detail)
+report_path = pathlib.Path(http_report["report_path"])
+assert report_path.is_file(), http_report
+assert http_report["report"]["request"]["request_id"] == request_id, http_report
+assert http_report["report"]["sync"]["status"] == "observed_default_branch_head", http_report
+assert http_report["report"]["sync"]["after_sha"] == after_sha, http_report
+assert cli_report["persisted"] is True, cli_report
+assert cli_report["report"]["request"]["request_id"] == request_id, cli_report
+assert cli_report["report"]["sync"]["after_sha"] == after_sha, cli_report
+assert http_state["persisted"] is True, http_state
+state_path = pathlib.Path(http_state["state_path"])
+assert state_path.is_file(), http_state
+assert http_state["state"]["after_sha"] == after_sha, http_state
+assert http_state["state"]["synced_from"]["request_id"] == request_id, http_state
+assert http_report["report"]["sync"]["state_path"] == http_state["state_path"], (http_report, http_state)
+assert cli_state["persisted"] is True, cli_state
+assert cli_state["state"]["after_sha"] == after_sha, cli_state
+assert cli_state["state"]["synced_from"]["request_id"] == request_id, cli_state
 assert http_signal_list["count"] >= 1, http_signal_list
 assert any(signal["signal_id"] == signal_id for signal in http_signal_list["signals"]), http_signal_list
 assert http_signal_detail["signal_id"] == signal_id, http_signal_detail

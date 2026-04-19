@@ -493,7 +493,7 @@ fn repository_signal_payload_path(
     }
 }
 
-fn repository_state_path(
+pub(crate) fn repository_state_path(
     artifact_root: &Path,
     provider: &str,
     repository_full_name: &str,

@@ -7,9 +7,10 @@ use serde_json::{Map, Value, json};
 use crate::{
     cli::McpServerArgs,
     commands::{
-        describe_artifact, describe_latest_artifact, evaluate_run_policy, evaluate_run_quality,
-        export_pr_candidate, open_github_pr, publish_pr_export, run_next_github_webhook_action,
-        run_next_task, worker,
+        describe_artifact, describe_github_default_branch_state,
+        describe_github_webhook_action_report, describe_latest_artifact, evaluate_run_policy,
+        evaluate_run_quality, export_pr_candidate, open_github_pr, publish_pr_export,
+        run_next_github_webhook_action, run_next_task, worker,
     },
     config::InstanceConfigReport,
     models::{
@@ -205,6 +206,12 @@ struct DescribeGithubWebhookActionRequestToolArgs {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct DescribeGithubWebhookActionReportToolArgs {
+    request_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ListRepositorySignalsToolArgs {
     #[serde(default = "default_repository_signal_limit")]
     limit: usize,
@@ -220,6 +227,14 @@ struct ListRepositorySignalsToolArgs {
 #[serde(deny_unknown_fields)]
 struct DescribeRepositorySignalToolArgs {
     signal_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DescribeGithubDefaultBranchStateToolArgs {
+    repository_full_name: String,
+    #[serde(default = "default_github_provider")]
+    provider: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -511,6 +526,12 @@ impl StdioMcpServer {
             "describe_github_webhook_action_request" => {
                 self.call_describe_github_webhook_action_request(arguments)
             }
+            "describe_github_webhook_action_report" => {
+                self.call_describe_github_webhook_action_report(arguments)
+            }
+            "describe_github_default_branch_state" => {
+                self.call_describe_github_default_branch_state(arguments)
+            }
             "list_repository_signals" => self.call_list_repository_signals(arguments),
             "describe_repository_signal" => self.call_describe_repository_signal(arguments),
             "list_runs" => self.call_list_runs(arguments),
@@ -757,6 +778,50 @@ impl StdioMcpServer {
                 "request",
                 structured,
                 request.render_text()?,
+            ))
+        })
+    }
+
+    fn call_describe_github_webhook_action_report(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: DescribeGithubWebhookActionReportToolArgs = parse_tool_arguments(arguments)?;
+            let mut store = self.open_store()?;
+            let request = store
+                .fetch_github_webhook_action_request(&args.request_id)?
+                .with_context(|| {
+                    format!(
+                        "github webhook action request not found: {}",
+                        args.request_id
+                    )
+                })?;
+            let report =
+                describe_github_webhook_action_report::describe_github_webhook_action_report(
+                    &request,
+                )?;
+            let structured = serde_json::to_value(&report)
+                .context("failed to serialize github webhook action report")?;
+            Ok(tool_success_with_text(
+                "report",
+                structured,
+                report.render_text()?,
+            ))
+        })
+    }
+
+    fn call_describe_github_default_branch_state(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: DescribeGithubDefaultBranchStateToolArgs = parse_tool_arguments(arguments)?;
+            let state = describe_github_default_branch_state::describe_github_default_branch_state(
+                &self.config.artifact_root,
+                &args.provider,
+                &args.repository_full_name,
+            )?;
+            let structured = serde_json::to_value(&state)
+                .context("failed to serialize github default-branch state")?;
+            Ok(tool_success_with_text(
+                "state",
+                structured,
+                state.render_text()?,
             ))
         })
     }
@@ -1124,6 +1189,10 @@ fn default_repository_signal_limit() -> usize {
     20
 }
 
+fn default_github_provider() -> String {
+    "github".to_string()
+}
+
 fn pretty_json(value: &Value) -> String {
     serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string())
 }
@@ -1240,6 +1309,28 @@ fn tool_definitions() -> Vec<Value> {
                 "request_id",
                 "GitHub webhook action request identifier.",
             )]),
+        ),
+        tool_definition(
+            "describe_github_webhook_action_report",
+            "Fetch the persisted execution report produced by one completed GitHub webhook action request.",
+            json_schema_object(&[required_string_property(
+                "request_id",
+                "GitHub webhook action request identifier.",
+            )]),
+        ),
+        tool_definition(
+            "describe_github_default_branch_state",
+            "Fetch the current persisted default-branch sync state for one GitHub repository.",
+            json_schema_object(&[
+                required_string_property(
+                    "repository_full_name",
+                    "Repository full name, for example smartit/catalyst-continuum.",
+                ),
+                optional_string_property(
+                    "provider",
+                    "Optional repository provider. Defaults to github.",
+                ),
+            ]),
         ),
         tool_definition(
             "list_repository_signals",
@@ -1480,7 +1571,7 @@ mod tests {
 
         assert_eq!(
             output[1]["result"]["tools"].as_array().map(Vec::len),
-            Some(25)
+            Some(27)
         );
         assert_eq!(output[1]["result"]["tools"][0]["name"], "list_packs");
         assert!(
@@ -1517,6 +1608,20 @@ mod tests {
                 .is_some_and(|tools| tools
                     .iter()
                     .any(|tool| tool["name"] == "list_repository_signals"))
+        );
+        assert!(
+            output[1]["result"]["tools"]
+                .as_array()
+                .is_some_and(|tools| tools
+                    .iter()
+                    .any(|tool| tool["name"] == "describe_github_webhook_action_report"))
+        );
+        assert!(
+            output[1]["result"]["tools"]
+                .as_array()
+                .is_some_and(|tools| tools
+                    .iter()
+                    .any(|tool| tool["name"] == "describe_github_default_branch_state"))
         );
         assert!(
             output[1]["result"]["tools"]

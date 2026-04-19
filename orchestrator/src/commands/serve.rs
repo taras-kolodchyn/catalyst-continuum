@@ -7,7 +7,8 @@ use uuid::Uuid;
 use crate::{
     cli::ServeArgs,
     commands::{
-        create_draft_pr, describe_artifact, describe_latest_artifact, evaluate_run_policy,
+        create_draft_pr, describe_artifact, describe_github_default_branch_state,
+        describe_github_webhook_action_report, describe_latest_artifact, evaluate_run_policy,
         evaluate_run_quality, export_pr_candidate, publish_pr_export,
         run_next_github_webhook_action, run_next_task, submit_brief::submit_validated_brief,
         worker,
@@ -82,6 +83,8 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                         "/github/webhooks/{delivery_id}",
                         "/github/webhook-actions",
                         "/github/webhook-actions/{request_id}",
+                        "/github/webhook-actions/{request_id}/report",
+                        "/github/repositories/{owner}/{repo}/default-branch-state",
                         "/repository-signals",
                         "/repository-signals/{signal_id}",
                         "POST /github/webhooks",
@@ -394,6 +397,76 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                             ),
                         },
                     ),
+                }
+            }
+            ("GET", _) if github_webhook_action_report_path_request_id(path).is_some() => {
+                let request_id = github_webhook_action_report_path_request_id(path)
+                    .expect("github webhook action report path guard should provide request id");
+                match store.fetch_github_webhook_action_request(request_id) {
+                    Ok(Some(request)) => {
+                        match describe_github_webhook_action_report::describe_github_webhook_action_report(&request) {
+                            Ok(report) => json_response(StatusCode(200), &report),
+                            Err(error) => {
+                                let status = if request.report_path.is_none() {
+                                    StatusCode(409)
+                                } else {
+                                    StatusCode(500)
+                                };
+                                json_response(
+                                    status,
+                                    &ErrorResponse {
+                                        error: format!(
+                                            "failed to fetch github webhook action report for {request_id}: {error}"
+                                        ),
+                                    },
+                                )
+                            }
+                        }
+                    }
+                    Ok(None) => json_response(
+                        StatusCode(404),
+                        &ErrorResponse {
+                            error: format!("github webhook action request not found: {request_id}"),
+                        },
+                    ),
+                    Err(error) => json_response(
+                        StatusCode(500),
+                        &ErrorResponse {
+                            error: format!(
+                                "failed to fetch github webhook action request {request_id}: {error}"
+                            ),
+                        },
+                    ),
+                }
+            }
+            ("GET", _) if github_default_branch_state_path_parts(path).is_some() => {
+                let (owner, repo) = github_default_branch_state_path_parts(path)
+                    .expect("github default-branch state path guard should provide owner and repo");
+                let repository_full_name = format!("{owner}/{repo}");
+                match describe_github_default_branch_state::describe_github_default_branch_state(
+                    &args.artifact_root,
+                    "github",
+                    &repository_full_name,
+                ) {
+                    Ok(state) => json_response(StatusCode(200), &state),
+                    Err(error) => {
+                        let status = if error
+                            .to_string()
+                            .contains("github default-branch state not found")
+                        {
+                            StatusCode(404)
+                        } else {
+                            StatusCode(500)
+                        };
+                        json_response(
+                            status,
+                            &ErrorResponse {
+                                error: format!(
+                                    "failed to fetch github default-branch state for {repository_full_name}: {error}"
+                                ),
+                            },
+                        )
+                    }
                 }
             }
             ("GET", _) if single_path_segment(path, "/repository-signals/").is_some() => {
@@ -1148,6 +1221,31 @@ fn parse_latest_artifact_path(path: &str) -> anyhow::Result<(Uuid, &str)> {
     Ok((parse_run_id(run_id)?, artifact_type))
 }
 
+fn github_webhook_action_report_path_request_id(path: &str) -> Option<&str> {
+    let request_id = path
+        .strip_prefix("/github/webhook-actions/")?
+        .strip_suffix("/report")?;
+    if request_id.is_empty() || request_id.contains('/') {
+        return None;
+    }
+
+    Some(request_id)
+}
+
+fn github_default_branch_state_path_parts(path: &str) -> Option<(&str, &str)> {
+    let remainder = path
+        .strip_prefix("/github/repositories/")?
+        .strip_suffix("/default-branch-state")?;
+    let mut parts = remainder.split('/');
+    let owner = parts.next()?;
+    let repo = parts.next()?;
+    if owner.is_empty() || repo.is_empty() || parts.next().is_some() {
+        return None;
+    }
+
+    Some((owner, repo))
+}
+
 fn single_path_segment<'a>(path: &'a str, prefix: &str) -> Option<&'a str> {
     path.strip_prefix(prefix)
         .filter(|value| !value.is_empty() && !value.contains('/'))
@@ -1416,6 +1514,12 @@ fn route_label(method: &str, path: &str) -> &'static str {
         ("GET", "/config") => "/config",
         ("GET", "/github/webhooks") => "/github/webhooks",
         ("GET", "/github/webhook-actions") => "/github/webhook-actions",
+        ("GET", _) if github_webhook_action_report_path_request_id(path).is_some() => {
+            "/github/webhook-actions/{request_id}/report"
+        }
+        ("GET", _) if github_default_branch_state_path_parts(path).is_some() => {
+            "/github/repositories/{owner}/{repo}/default-branch-state"
+        }
         ("GET", "/repository-signals") => "/repository-signals",
         ("POST", "/github/webhooks") => "/github/webhooks",
         ("POST", "/github/webhook-actions/next") => "/github/webhook-actions/next",
@@ -1616,6 +1720,7 @@ struct PublishPrExportRequest {
 #[cfg(test)]
 mod tests {
     use super::{
+        github_default_branch_state_path_parts, github_webhook_action_report_path_request_id,
         latest_artifact_path_parts, parse_list_github_webhook_action_requests_request,
         parse_list_github_webhooks_request, parse_list_repository_signals_request,
         parse_list_run_events_request, parse_list_runs_request, readiness_payload, route_label,
@@ -1700,6 +1805,17 @@ mod tests {
             "/github/webhook-actions/{request_id}"
         );
         assert_eq!(
+            route_label("GET", "/github/webhook-actions/request-1/report"),
+            "/github/webhook-actions/{request_id}/report"
+        );
+        assert_eq!(
+            route_label(
+                "GET",
+                "/github/repositories/smartit/catalyst-continuum/default-branch-state"
+            ),
+            "/github/repositories/{owner}/{repo}/default-branch-state"
+        );
+        assert_eq!(
             route_label("GET", "/repository-signals/signal-1"),
             "/repository-signals/{signal_id}"
         );
@@ -1715,6 +1831,25 @@ mod tests {
             "/runs/{run_id}/artifacts/latest/{artifact_type}"
         );
         assert!(latest_artifact_path_parts("/runs/not-a-uuid").is_none());
+    }
+
+    #[test]
+    fn parses_github_auxiliary_paths() {
+        assert_eq!(
+            github_webhook_action_report_path_request_id(
+                "/github/webhook-actions/request-1/report"
+            ),
+            Some("request-1")
+        );
+        assert_eq!(
+            github_default_branch_state_path_parts(
+                "/github/repositories/smartit/catalyst-continuum/default-branch-state"
+            ),
+            Some(("smartit", "catalyst-continuum"))
+        );
+        assert!(
+            github_default_branch_state_path_parts("/github/repositories/only-owner").is_none()
+        );
     }
 
     #[test]

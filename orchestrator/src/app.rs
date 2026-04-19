@@ -1,7 +1,8 @@
 use crate::{
     cli::{Cli, Command},
     commands::{
-        create_draft_pr, describe_artifact, describe_github_webhook,
+        create_draft_pr, describe_artifact, describe_github_default_branch_state,
+        describe_github_webhook, describe_github_webhook_action_report,
         describe_github_webhook_action_request, describe_instance_config, describe_latest_artifact,
         describe_pack, describe_repository_signal, describe_run, evaluate_run_policy,
         evaluate_run_quality, export_pr_candidate, list_github_webhook_action_requests,
@@ -24,10 +25,16 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
         Command::DescribeInstanceConfig(args) => describe_instance_config::execute(args),
         Command::DescribePack(args) => describe_pack::execute(args),
         Command::DescribeArtifact(args) => describe_artifact::execute(args),
+        Command::DescribeGithubDefaultBranchState(args) => {
+            describe_github_default_branch_state::execute(args)
+        }
         Command::DescribeLatestArtifact(args) => describe_latest_artifact::execute(args),
         Command::DescribeGithubWebhook(args) => describe_github_webhook::execute(args),
         Command::DescribeGithubWebhookActionRequest(args) => {
             describe_github_webhook_action_request::execute(args)
+        }
+        Command::DescribeGithubWebhookActionReport(args) => {
+            describe_github_webhook_action_report::execute(args)
         }
         Command::DescribeRepositorySignal(args) => describe_repository_signal::execute(args),
         Command::DescribeRun(args) => describe_run::execute(args),
