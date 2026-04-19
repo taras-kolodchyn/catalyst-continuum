@@ -33,8 +33,13 @@ PUSH_WEBHOOK_ACTION_REQUEST_ID="${MCP_SMOKE_PUSH_WEBHOOK_ACTION_REQUEST_ID:-gith
 PUSH_WEBHOOK_SIGNAL_ID="${MCP_SMOKE_PUSH_WEBHOOK_SIGNAL_ID:-${PUSH_WEBHOOK_ACTION_REQUEST_ID}:default_branch_updated}"
 PUSH_WEBHOOK_BEFORE_SHA="${MCP_SMOKE_PUSH_WEBHOOK_BEFORE_SHA:-1111111111111111111111111111111111111111}"
 PUSH_WEBHOOK_AFTER_SHA="${MCP_SMOKE_PUSH_WEBHOOK_AFTER_SHA:-2222222222222222222222222222222222222222}"
+CURL_ARGS=(-fsS --connect-timeout 5 --max-time 20)
 ORCHESTRATOR_PID=0
 STARTED_POSTGRES=0
+
+log_phase() {
+  printf '[mcp-stateful-smoke] %s\n' "$1"
+}
 
 cleanup() {
   if [ "$ORCHESTRATOR_PID" -ne 0 ]; then
@@ -97,6 +102,7 @@ if [ -z "${CATALYST_DATABASE_URL:-}" ]; then
     echo "stateful MCP smoke postgres did not become healthy" >&2
     exit 1
   fi
+  log_phase "postgres ready"
 
   if [ "$POSTGRES_NETWORK_MODE" != "host" ] && [ -z "$POSTGRES_PORT" ]; then
     POSTGRES_PORT="$(resolve_postgres_host_port)"
@@ -141,6 +147,7 @@ if ! curl -fsS "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/readyz" >/dev/null 2>
   echo "stateful MCP smoke orchestrator did not become ready" >&2
   exit 1
 fi
+log_phase "orchestrator ready"
 
 WEBHOOK_PAYLOAD_FILE="$ARTIFACT_ROOT/mcp-webhook-ping.json"
 WEBHOOK_RESPONSE_FILE="$ARTIFACT_ROOT/mcp-webhook-response.json"
@@ -196,7 +203,8 @@ print("sha256=" + hmac.new(secret, payload, hashlib.sha256).hexdigest())
 PY
 )"
 
-curl -fsS \
+log_phase "send ping webhook over HTTP"
+curl "${CURL_ARGS[@]}" \
   -X POST \
   -H "Content-Type: application/json" \
   -H "X-GitHub-Event: ping" \
@@ -218,7 +226,8 @@ assert response["event"] == "ping", response
 assert response["persisted"] is True, response
 PY
 
-curl -fsS \
+log_phase "send push webhook over HTTP"
+curl "${CURL_ARGS[@]}" \
   -X POST \
   -H "Content-Type: application/json" \
   -H "X-GitHub-Event: push" \
@@ -251,6 +260,7 @@ python3 - "$BIN" "$DATABASE_URL" "$ARTIFACT_ROOT" "$BRIEF_FILE" "$WEBHOOK_DELIVE
 import json
 import os
 import pathlib
+import select
 import subprocess
 import sys
 
@@ -290,6 +300,7 @@ proc = subprocess.Popen(
 )
 
 next_id = 1
+REQUEST_TIMEOUT_SECONDS = 30
 
 
 def fail(message):
@@ -321,6 +332,12 @@ def send(message):
 
 def recv():
     assert proc.stdout is not None
+    ready, _, _ = select.select([proc.stdout], [], [], REQUEST_TIMEOUT_SECONDS)
+    if not ready:
+        fail(
+            "stateful MCP smoke failed: timed out waiting for an MCP response "
+            f"after {REQUEST_TIMEOUT_SECONDS}s"
+        )
     line = proc.stdout.readline()
     if not line:
         fail(f"stateful MCP smoke failed: server exited unexpectedly with code {proc.poll()}")
@@ -385,6 +402,7 @@ def log_phase(message):
 
 
 try:
+    log_phase("initialize MCP stdio session")
     initialize = request(
         "initialize",
         {
@@ -439,6 +457,7 @@ try:
             f"{sorted(missing_tools)}"
         )
 
+    log_phase("list MCP tools")
     log_phase("inspect instance, webhook, and repository-signal state through MCP")
     instance_config = call_tool("describe_instance_config", {}, "instance_config")
     if instance_config["runtime_providers"]["default_provider"] != "docker":
