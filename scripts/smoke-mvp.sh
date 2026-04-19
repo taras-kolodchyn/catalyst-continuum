@@ -801,7 +801,8 @@ assert required_event_types.issubset(event_types), (required_event_types, event_
 PY
 
 GENERATED_REPO="$EXPORT_ROOT/repository"
-SERVICE_TARGET_DIR="$REMOTE_ROOT/generated-target"
+GENERATED_TARGET_ROOT="${CATALYST_GENERATED_TARGET_ROOT:-$ROOT_DIR/target/generated-smoke}"
+SERVICE_TARGET_DIR="$GENERATED_TARGET_ROOT/$PACK_ID"
 SERVICE_LOG="$REMOTE_ROOT/generated-service.log"
 HEALTH_OUTPUT="$REMOTE_ROOT/generated-service-health.json"
 REQUIREMENTS_OUTPUT="$REMOTE_ROOT/generated-service-requirements.json"
@@ -843,6 +844,7 @@ SMOKE_SUMMARY_COMMAND="${PACK_CONTRACT_LINES[6]:-}"
 SMOKE_REQUIREMENTS_COMMAND="${PACK_CONTRACT_LINES[7]:-}"
 
 if [ -n "$GENERATED_RUNTIME_KIND" ]; then
+  mkdir -p "$SERVICE_TARGET_DIR"
   GENERATED_PACKAGE_NAME="$(
     python3 - "$GENERATED_REPO/Cargo.toml" <<'PY'
 import pathlib
