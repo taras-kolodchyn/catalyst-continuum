@@ -58,6 +58,7 @@ For serious delivery work, also run the local GitHub Actions shape through `act`
 Treat a change as serious when it affects CI, smoke coverage, multi-surface behavior, release paths, webhook flows, repository-signal flows, MCP flows, or draft-PR/promotion behavior.
 At minimum, run the closest relevant `act` job such as `./scripts/ci-act.sh -j smoke`, `./scripts/ci-act.sh -j rust`, or `./scripts/ci-act.sh -j sbom`.
 When the change is broad or high-risk, prefer running the full local workflow shape rather than a single job.
+If full `act` execution is blocked by an upstream Apple Silicon `rustc` or `qemu` fault, run the closest native repository validation plus the nearest `act` shape check with `-n`, then report the exact blocker instead of claiming the local workflow executed successfully.
 
 ## Delivery Rules
 

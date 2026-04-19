@@ -143,7 +143,7 @@ The local `v0.1` compose stack now includes an observability baseline:
 - Tempo for traces
 - Grafana with pinned datasource and dashboard provisioning
 
-The telemetry surface now also emits dedicated metrics for promotion steps, runtime-enforced task timeouts, stale task reclaim events, and stale GitHub webhook action reclaims, so these control-plane paths can be broken out cleanly in Grafana instead of being inferred from generic command/task counters.
+The telemetry surface now also emits dedicated metrics for promotion steps, runtime-enforced task timeouts, stale task reclaim events, stale GitHub webhook action reclaims, and repository-signal lifecycle/materialization outcomes, so these control-plane paths can be broken out cleanly in Grafana instead of being inferred from generic command/task counters.
 
 The repository now also carries a `template-repo/` skeleton for the future
 private deployment repository, including runtime-provider config placeholders and
@@ -177,7 +177,8 @@ GitHub Actions runs one workflow, [`.github/workflows/ci.yml`](.github/workflows
 - `compose`: validates `deploy/compose/compose.yaml` with the pinned `.env.example`
 - `smoke`: runs as a matrix so each long end-to-end scenario is isolated in its own job: `mvp-container-service`, `mvp-cli-tool`, `mvp-worker-service`, and `mcp-stateful-cli-tool`
 
-Local runs through `act` use the runner image and container architecture pinned in [`.actrc`](.actrc), with the canonical values tracked in [`versions.env`](versions.env). GitHub-only publication steps such as artifact upload and attestation are skipped under `act`, because local runs do not expose GitHub runtime tokens, OIDC tokens, or the attestations API. The underlying build and SBOM generation steps still run locally.
+Local runs through `act` use the runner image and container architecture pinned in [`.actrc`](.actrc), with the canonical values tracked in [`versions.env`](versions.env). `./scripts/ci-act.sh` now follows that pinned container architecture by default instead of silently switching to the host architecture, and still lets operators override it explicitly through `ACT_CONTAINER_ARCHITECTURE` when they need to debug a local runner quirk. GitHub-only publication steps such as artifact upload and attestation are skipped under `act`, because local runs do not expose GitHub runtime tokens, OIDC tokens, or the attestations API. The underlying build and SBOM generation steps still run locally.
+On Apple Silicon, full `act` execution can still be blocked by upstream Rust 1.94.1 and `qemu` faults inside the emulated runner image even when the pinned configuration is correct. When that happens, treat `./scripts/ci-act.sh -j smoke -n` as the workflow-shape check, run the closest native repository validations such as `./scripts/ci-smoke.sh` or `./scripts/ci-rust.sh`, and report the exact upstream failure instead of claiming the local `act` job passed.
 Pinned version policy and update automation are documented in [VERSIONS.md](VERSIONS.md).
 GitHub Actions are pinned to commit SHAs instead of floating tags.
 Docker base and runtime images are pinned by tag and digest.

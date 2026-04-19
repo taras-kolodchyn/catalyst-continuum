@@ -604,6 +604,118 @@
       ],
       "title": "Stale Task Reclaims",
       "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 40
+      },
+      "id": 11,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (signal_kind, status) (rate(catalyst_repository_signal_events_total[5m]))",
+          "legendFormat": "{{signal_kind}} {{status}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Repository Signal Lifecycle Rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 40
+      },
+      "id": 12,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (mode, invoked_via, signal_kind, outcome) (rate(catalyst_repository_signal_submissions_total[5m]))",
+          "legendFormat": "{{mode}} {{invoked_via}} {{signal_kind}} {{outcome}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Repository Signal Submission Rate",
+      "type": "timeseries"
     }
   ],
   "refresh": "15s",
@@ -624,6 +736,6 @@
   "timezone": "",
   "title": "Catalyst Continuum Overview",
   "uid": "catalyst-continuum-overview",
-  "version": 2,
+  "version": 3,
   "weekStart": ""
 }

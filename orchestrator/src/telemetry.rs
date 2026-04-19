@@ -37,6 +37,9 @@ struct Instruments {
     webhook_action_executions: Counter<u64>,
     webhook_action_execution_duration_ms: Histogram<f64>,
     webhook_action_reclaims: Counter<u64>,
+    repository_signal_events: Counter<u64>,
+    repository_signal_submissions: Counter<u64>,
+    repository_signal_submission_duration_ms: Histogram<f64>,
     brief_submissions: Counter<u64>,
     brief_submission_duration_ms: Histogram<f64>,
     task_executions: Counter<u64>,
@@ -182,6 +185,44 @@ pub fn record_webhook_action_reclaim(provider: &str, action: &str, outcome: &str
     instruments.webhook_action_reclaims.add(1, &attributes);
 }
 
+pub fn record_repository_signal_event(provider: &str, signal_kind: &str, status: &str, count: u64) {
+    if count == 0 {
+        return;
+    }
+
+    let instruments = instruments();
+    let attributes = [
+        KeyValue::new("provider", provider.to_string()),
+        KeyValue::new("signal_kind", signal_kind.to_string()),
+        KeyValue::new("status", status.to_string()),
+    ];
+
+    instruments.repository_signal_events.add(count, &attributes);
+}
+
+pub fn record_repository_signal_submission(
+    mode: &str,
+    invoked_via: &str,
+    signal_kind: &str,
+    outcome: &str,
+    duration: Duration,
+) {
+    let instruments = instruments();
+    let attributes = [
+        KeyValue::new("mode", mode.to_string()),
+        KeyValue::new("invoked_via", invoked_via.to_string()),
+        KeyValue::new("signal_kind", signal_kind.to_string()),
+        KeyValue::new("outcome", outcome.to_string()),
+    ];
+
+    instruments
+        .repository_signal_submissions
+        .add(1, &attributes);
+    instruments
+        .repository_signal_submission_duration_ms
+        .record(duration_ms(duration), &attributes);
+}
+
 pub fn record_brief_submission(
     trigger: &str,
     pack_id: &str,
@@ -319,6 +360,22 @@ fn instruments() -> &'static Instruments {
             webhook_action_reclaims: meter
                 .u64_counter("catalyst_webhook_action_reclaims")
                 .with_description("Count of stale GitHub webhook action reclaim events")
+                .build(),
+            repository_signal_events: meter
+                .u64_counter("catalyst_repository_signal_events")
+                .with_description(
+                    "Count of repository signal lifecycle events by terminal or live status",
+                )
+                .build(),
+            repository_signal_submissions: meter
+                .u64_counter("catalyst_repository_signal_submissions")
+                .with_description("Count of repository signal materialization attempts")
+                .build(),
+            repository_signal_submission_duration_ms: meter
+                .f64_histogram("catalyst_repository_signal_submission_duration_ms")
+                .with_description(
+                    "Duration of repository signal materialization attempts in milliseconds",
+                )
                 .build(),
             brief_submissions: meter
                 .u64_counter("catalyst_brief_submissions")

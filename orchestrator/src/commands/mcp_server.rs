@@ -732,6 +732,7 @@ impl StdioMcpServer {
                     database_url,
                     &self.config.artifact_root,
                     &args.signal_id,
+                    "named",
                     "mcp",
                 )?;
             let structured = serde_json::to_value(&submission)

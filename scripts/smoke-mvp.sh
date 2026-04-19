@@ -7,15 +7,34 @@ cd "$ROOT_DIR"
 # shellcheck disable=SC1091
 source "$ROOT_DIR/versions.env"
 
+resolve_cargo_target_root() {
+  if [ -n "${CARGO_TARGET_DIR:-}" ]; then
+    case "$CARGO_TARGET_DIR" in
+      /*)
+        printf '%s\n' "$CARGO_TARGET_DIR"
+        ;;
+      *)
+        printf '%s/%s\n' "$ROOT_DIR" "$CARGO_TARGET_DIR"
+        ;;
+    esac
+  else
+    printf '%s/target\n' "$ROOT_DIR"
+  fi
+}
+
+ORCHESTRATOR_TARGET_ROOT="$(resolve_cargo_target_root)"
 ARTIFACT_ROOT="${CATALYST_ARTIFACT_ROOT:-$ROOT_DIR/.continuum/ci-artifacts}"
 BRIEF_FILE="${SMOKE_BRIEF_FILE:-$ROOT_DIR/examples/briefs/minimal-container-service.yaml}"
-BIN="${ROOT_DIR}/target/debug/catalyst-continuum-orchestrator"
+BIN="${ORCHESTRATOR_TARGET_ROOT}/debug/catalyst-continuum-orchestrator"
 POSTGRES_IMAGE="${SMOKE_POSTGRES_IMAGE:-postgres:${POSTGRES_VERSION}@${POSTGRES_IMAGE_DIGEST}}"
 POSTGRES_DB="${SMOKE_POSTGRES_DB:-continuum}"
 POSTGRES_USER="${SMOKE_POSTGRES_USER:-continuum}"
 POSTGRES_PASSWORD="${SMOKE_POSTGRES_PASSWORD:-continuum-dev}"
 POSTGRES_PORT="${SMOKE_POSTGRES_PORT:-}"
 POSTGRES_NETWORK_MODE="${SMOKE_POSTGRES_NETWORK_MODE:-${ACT:+host}}"
+if [ -z "$POSTGRES_NETWORK_MODE" ]; then
+  POSTGRES_NETWORK_MODE="bridge"
+fi
 GITHUB_WEBHOOK_SECRET="${SMOKE_GITHUB_WEBHOOK_SECRET:-continuum-smoke-webhook-secret}"
 GITHUB_APP_INSTALLATION_ID="${SMOKE_GITHUB_APP_INSTALLATION_ID:-42}"
 PUSH_WEBHOOK_ACTION_REQUEST_ID="${SMOKE_PUSH_WEBHOOK_ACTION_REQUEST_ID:-github:22222222-2222-2222-2222-222222222222:sync_default_branch}"
@@ -26,7 +45,9 @@ SECOND_PUSH_WEBHOOK_ACTION_REQUEST_ID="${SMOKE_SECOND_PUSH_WEBHOOK_ACTION_REQUES
 SECOND_PUSH_WEBHOOK_SIGNAL_ID="${SMOKE_SECOND_PUSH_WEBHOOK_SIGNAL_ID:-${SECOND_PUSH_WEBHOOK_ACTION_REQUEST_ID}:default_branch_updated}"
 SECOND_PUSH_WEBHOOK_BEFORE_SHA="${SMOKE_SECOND_PUSH_WEBHOOK_BEFORE_SHA:-${PUSH_WEBHOOK_AFTER_SHA}}"
 SECOND_PUSH_WEBHOOK_AFTER_SHA="${SMOKE_SECOND_PUSH_WEBHOOK_AFTER_SHA:-3333333333333333333333333333333333333333}"
-POSTGRES_CONTAINER_NAME="continuum-smoke-postgres-$$"
+POSTGRES_CONTAINER_SUFFIX="${CI_SMOKE_SCENARIO:-default}-$$"
+POSTGRES_CONTAINER_SUFFIX="${POSTGRES_CONTAINER_SUFFIX//[^a-zA-Z0-9_.-]/-}"
+POSTGRES_CONTAINER_NAME="continuum-smoke-postgres-${POSTGRES_CONTAINER_SUFFIX}"
 STARTED_POSTGRES=0
 ORCHESTRATOR_PID=""
 SERVICE_PID=""
@@ -46,12 +67,45 @@ cleanup() {
 }
 trap cleanup EXIT
 
+print_postgres_debug() {
+  if docker ps -a --format '{{.Names}}' | grep -Fx "$POSTGRES_CONTAINER_NAME" >/dev/null 2>&1; then
+    echo "--- postgres logs: $POSTGRES_CONTAINER_NAME ---" >&2
+    docker logs "$POSTGRES_CONTAINER_NAME" >&2 || true
+    echo "--- postgres inspect: $POSTGRES_CONTAINER_NAME ---" >&2
+    docker inspect "$POSTGRES_CONTAINER_NAME" >&2 || true
+  fi
+}
+
 postgres_publish_binding() {
   if [ -n "$POSTGRES_PORT" ]; then
     printf '%s\n' "127.0.0.1:${POSTGRES_PORT}:5432"
   else
     printf '%s\n' "127.0.0.1::5432"
   fi
+}
+
+default_host_postgres_port() {
+  case "${CI_SMOKE_SCENARIO:-}" in
+    mvp-container-service)
+      printf '%s\n' "55432"
+      ;;
+    mvp-cli-tool)
+      printf '%s\n' "55433"
+      ;;
+    mvp-worker-service)
+      printf '%s\n' "55434"
+      ;;
+    mcp-stateful-cli-tool)
+      printf '%s\n' "55435"
+      ;;
+    *)
+      python3 - "$$" <<'PY'
+import sys
+
+print(55000 + (int(sys.argv[1]) % 1000))
+PY
+      ;;
+  esac
 }
 
 resolve_postgres_host_port() {
@@ -61,9 +115,15 @@ resolve_postgres_host_port() {
 if [ -z "${CATALYST_DATABASE_URL:-}" ]; then
   docker rm -f "$POSTGRES_CONTAINER_NAME" >/dev/null 2>&1 || true
   POSTGRES_DOCKER_ARGS=()
+  POSTGRES_HEALTH_PORT="5432"
+  POSTGRES_SERVER_PORT="5432"
+  POSTGRES_SERVER_ARGS=()
   if [ "$POSTGRES_NETWORK_MODE" = "host" ]; then
-    POSTGRES_PORT="${POSTGRES_PORT:-5432}"
+    POSTGRES_PORT="${POSTGRES_PORT:-$(default_host_postgres_port)}"
     POSTGRES_DOCKER_ARGS+=(--network host)
+    POSTGRES_HEALTH_PORT="$POSTGRES_PORT"
+    POSTGRES_SERVER_PORT="$POSTGRES_PORT"
+    POSTGRES_SERVER_ARGS+=(-c "port=${POSTGRES_PORT}")
   else
     POSTGRES_DOCKER_ARGS+=(-p "$(postgres_publish_binding)")
   fi
@@ -73,11 +133,11 @@ if [ -z "${CATALYST_DATABASE_URL:-}" ]; then
     -e POSTGRES_USER="$POSTGRES_USER" \
     -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
     "${POSTGRES_DOCKER_ARGS[@]}" \
-    --health-cmd "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}" \
+    --health-cmd "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB} -p ${POSTGRES_HEALTH_PORT}" \
     --health-interval 2s \
     --health-timeout 5s \
     --health-retries 30 \
-    "$POSTGRES_IMAGE" >/dev/null
+    "$POSTGRES_IMAGE" "${POSTGRES_SERVER_ARGS[@]}" >/dev/null
   STARTED_POSTGRES=1
 
   for _ in $(seq 1 30); do
@@ -89,6 +149,7 @@ if [ -z "${CATALYST_DATABASE_URL:-}" ]; then
   done
 
   if [ "${STATUS:-}" != "healthy" ]; then
+    print_postgres_debug
     echo "smoke postgres did not become healthy" >&2
     exit 1
   fi
@@ -493,12 +554,12 @@ PY
 
 EXPECTED_WEBHOOK_ACTION_ATTEMPT_COUNT=1
 RECLAIM_UPDATE_SQL="WITH updated AS (UPDATE webhook_action_requests SET status = 'running', attempt_count = 1, started_at = NOW() - INTERVAL '400 seconds', updated_at = NOW() - INTERVAL '400 seconds' WHERE request_id = '${PUSH_WEBHOOK_ACTION_REQUEST_ID}' RETURNING 1) SELECT count(*) FROM updated;"
-if [ "$STARTED_POSTGRES" -eq 1 ]; then
-  RECLAIM_UPDATE_COUNT="$(
-    docker exec "$POSTGRES_CONTAINER_NAME" \
-      psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tA -c "$RECLAIM_UPDATE_SQL" \
+  if [ "$STARTED_POSTGRES" -eq 1 ]; then
+    RECLAIM_UPDATE_COUNT="$(
+      docker exec "$POSTGRES_CONTAINER_NAME" \
+      psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -p "$POSTGRES_SERVER_PORT" -tA -c "$RECLAIM_UPDATE_SQL" \
       | tr -d '[:space:]'
-  )"
+    )"
   test "$RECLAIM_UPDATE_COUNT" = "1"
   EXPECTED_WEBHOOK_ACTION_ATTEMPT_COUNT=2
 elif command -v psql >/dev/null 2>&1; then
@@ -603,6 +664,7 @@ assert run_response["signal"]["signal_kind"] == "default_branch_updated", run_re
 assert run_response["signal"]["status"] == "pending", run_response
 assert run_response["signal"]["proposed_run_trigger"] == "repository_signal", run_response
 assert run_response["signal"]["after_sha"] == after_sha, run_response
+assert run_response["superseded_signal_count"] == 0, run_response
 assert http_detail["request_id"] == request_id, http_detail
 assert http_detail["status"] == "succeeded", http_detail
 assert http_detail["attempt_count"] == expected_attempt_count, http_detail
@@ -730,6 +792,7 @@ assert run_response["request"]["request_id"] == request_id, run_response
 assert run_response["signal"]["signal_id"] == signal_id, run_response
 assert run_response["signal"]["status"] == "pending", run_response
 assert run_response["signal"]["after_sha"] == after_sha, run_response
+assert run_response["superseded_signal_count"] == 1, run_response
 
 assert action_detail["request_id"] == request_id, action_detail
 assert action_detail["status"] == "succeeded", action_detail

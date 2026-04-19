@@ -58,6 +58,7 @@ pub struct GitHubWebhookActionExecutionReport {
     request: GitHubWebhookActionRequestSummary,
     delivery: Option<GitHubWebhookDeliverySummary>,
     signal: Option<RepositorySignalSummary>,
+    superseded_signal_count: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -98,6 +99,12 @@ impl GitHubWebhookActionExecutionReport {
             writeln!(&mut output, "{}", signal.render_text()?)
                 .context("failed to render github webhook action execution")?;
         }
+        writeln!(
+            &mut output,
+            "superseded_signal_count: {}",
+            self.superseded_signal_count
+        )
+        .context("failed to render github webhook action execution")?;
 
         Ok(output)
     }
@@ -178,7 +185,19 @@ pub fn execute_next_github_webhook_action(
         );
 
     match execution_result {
-        Ok((updated_request, signal)) => {
+        Ok(completion) => {
+            telemetry::record_repository_signal_event(
+                &completion.signal.provider,
+                &completion.signal.signal_kind,
+                &completion.signal.status,
+                1,
+            );
+            telemetry::record_repository_signal_event(
+                &completion.signal.provider,
+                &completion.signal.signal_kind,
+                "superseded",
+                completion.superseded_signal_count,
+            );
             telemetry::record_webhook_action_execution(
                 &provider,
                 &action,
@@ -188,9 +207,10 @@ pub fn execute_next_github_webhook_action(
             Ok(NextGitHubWebhookActionExecution::Executed(Box::new(
                 GitHubWebhookActionExecutionReport {
                     execution_status: "succeeded".to_string(),
-                    request: updated_request,
+                    request: completion.request,
                     delivery,
-                    signal: Some(signal),
+                    signal: Some(completion.signal),
+                    superseded_signal_count: completion.superseded_signal_count,
                 },
             )))
         }
@@ -210,6 +230,7 @@ pub fn execute_next_github_webhook_action(
                     request: updated_request,
                     delivery,
                     signal: None,
+                    superseded_signal_count: 0,
                 },
             )))
         }

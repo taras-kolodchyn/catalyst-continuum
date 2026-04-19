@@ -7,16 +7,37 @@ cd "$ROOT_DIR"
 # shellcheck disable=SC1091
 source "$ROOT_DIR/versions.env"
 
+resolve_cargo_target_root() {
+  if [ -n "${CARGO_TARGET_DIR:-}" ]; then
+    case "$CARGO_TARGET_DIR" in
+      /*)
+        printf '%s\n' "$CARGO_TARGET_DIR"
+        ;;
+      *)
+        printf '%s/%s\n' "$ROOT_DIR" "$CARGO_TARGET_DIR"
+        ;;
+    esac
+  else
+    printf '%s/target\n' "$ROOT_DIR"
+  fi
+}
+
+ORCHESTRATOR_TARGET_ROOT="$(resolve_cargo_target_root)"
 ARTIFACT_ROOT="${CATALYST_ARTIFACT_ROOT:-$ROOT_DIR/.continuum/mcp-stateful-artifacts}"
 BRIEF_FILE="${MCP_SMOKE_BRIEF_FILE:-$ROOT_DIR/examples/briefs/minimal-cli-tool.yaml}"
-BIN="${ROOT_DIR}/target/debug/catalyst-continuum-orchestrator"
+BIN="${ORCHESTRATOR_TARGET_ROOT}/debug/catalyst-continuum-orchestrator"
 POSTGRES_IMAGE="${MCP_SMOKE_POSTGRES_IMAGE:-postgres:${POSTGRES_VERSION}@${POSTGRES_IMAGE_DIGEST}}"
 POSTGRES_DB="${MCP_SMOKE_POSTGRES_DB:-continuum}"
 POSTGRES_USER="${MCP_SMOKE_POSTGRES_USER:-continuum}"
 POSTGRES_PASSWORD="${MCP_SMOKE_POSTGRES_PASSWORD:-continuum-dev}"
 POSTGRES_PORT="${MCP_SMOKE_POSTGRES_PORT:-}"
 POSTGRES_NETWORK_MODE="${MCP_SMOKE_POSTGRES_NETWORK_MODE:-${ACT:+host}}"
-POSTGRES_CONTAINER_NAME="continuum-mcp-smoke-postgres-$$"
+if [ -z "$POSTGRES_NETWORK_MODE" ]; then
+  POSTGRES_NETWORK_MODE="bridge"
+fi
+POSTGRES_CONTAINER_SUFFIX="${CI_SMOKE_SCENARIO:-stateful}-$$"
+POSTGRES_CONTAINER_SUFFIX="${POSTGRES_CONTAINER_SUFFIX//[^a-zA-Z0-9_.-]/-}"
+POSTGRES_CONTAINER_NAME="continuum-mcp-smoke-postgres-${POSTGRES_CONTAINER_SUFFIX}"
 ORCHESTRATOR_HTTP_PORT="${MCP_SMOKE_HTTP_PORT:-$(python3 - <<'PY'
 import socket
 
@@ -51,12 +72,36 @@ cleanup() {
 }
 trap cleanup EXIT
 
+print_postgres_debug() {
+  if docker ps -a --format '{{.Names}}' | grep -Fx "$POSTGRES_CONTAINER_NAME" >/dev/null 2>&1; then
+    echo "--- postgres logs: $POSTGRES_CONTAINER_NAME ---" >&2
+    docker logs "$POSTGRES_CONTAINER_NAME" >&2 || true
+    echo "--- postgres inspect: $POSTGRES_CONTAINER_NAME ---" >&2
+    docker inspect "$POSTGRES_CONTAINER_NAME" >&2 || true
+  fi
+}
+
 postgres_publish_binding() {
   if [ -n "$POSTGRES_PORT" ]; then
     printf '%s\n' "127.0.0.1:${POSTGRES_PORT}:5432"
   else
     printf '%s\n' "127.0.0.1::5432"
   fi
+}
+
+default_host_postgres_port() {
+  case "${CI_SMOKE_SCENARIO:-}" in
+    mcp-stateful-cli-tool)
+      printf '%s\n' "55435"
+      ;;
+    *)
+      python3 - "$$" <<'PY'
+import sys
+
+print(56000 + (int(sys.argv[1]) % 1000))
+PY
+      ;;
+  esac
 }
 
 resolve_postgres_host_port() {
@@ -71,9 +116,13 @@ fi
 if [ -z "${CATALYST_DATABASE_URL:-}" ]; then
   docker rm -f "$POSTGRES_CONTAINER_NAME" >/dev/null 2>&1 || true
   POSTGRES_DOCKER_ARGS=()
+  POSTGRES_HEALTH_PORT="5432"
+  POSTGRES_SERVER_ARGS=()
   if [ "$POSTGRES_NETWORK_MODE" = "host" ]; then
-    POSTGRES_PORT="${POSTGRES_PORT:-5432}"
+    POSTGRES_PORT="${POSTGRES_PORT:-$(default_host_postgres_port)}"
     POSTGRES_DOCKER_ARGS+=(--network host)
+    POSTGRES_HEALTH_PORT="$POSTGRES_PORT"
+    POSTGRES_SERVER_ARGS+=(-c "port=${POSTGRES_PORT}")
   else
     POSTGRES_DOCKER_ARGS+=(-p "$(postgres_publish_binding)")
   fi
@@ -83,11 +132,11 @@ if [ -z "${CATALYST_DATABASE_URL:-}" ]; then
     -e POSTGRES_USER="$POSTGRES_USER" \
     -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
     "${POSTGRES_DOCKER_ARGS[@]}" \
-    --health-cmd "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}" \
+    --health-cmd "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB} -p ${POSTGRES_HEALTH_PORT}" \
     --health-interval 2s \
     --health-timeout 5s \
     --health-retries 30 \
-    "$POSTGRES_IMAGE" >/dev/null
+    "$POSTGRES_IMAGE" "${POSTGRES_SERVER_ARGS[@]}" >/dev/null
   STARTED_POSTGRES=1
 
   for _ in $(seq 1 30); do
@@ -99,6 +148,7 @@ if [ -z "${CATALYST_DATABASE_URL:-}" ]; then
   done
 
   if [ "${STATUS:-}" != "healthy" ]; then
+    print_postgres_debug
     echo "stateful MCP smoke postgres did not become healthy" >&2
     exit 1
   fi
@@ -659,6 +709,11 @@ try:
         fail(
             "stateful MCP smoke failed: execution signal status mismatch, got "
             f"{signal['status']}"
+        )
+    if webhook_action_execution["superseded_signal_count"] != 0:
+        fail(
+            "stateful MCP smoke failed: first repository signal execution should not supersede older signals, got "
+            f"{webhook_action_execution['superseded_signal_count']}"
         )
     if signal["proposed_run_trigger"] != "repository_signal":
         fail(

@@ -32,6 +32,12 @@ pub struct DatabaseReadiness {
     pub missing_tables: Vec<String>,
 }
 
+pub struct GitHubWebhookActionSignalCompletion {
+    pub request: GitHubWebhookActionRequestSummary,
+    pub signal: RepositorySignalSummary,
+    pub superseded_signal_count: u64,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct RunListFilters {
     pub status: Option<String>,
@@ -1415,7 +1421,7 @@ impl PostgresRunStore {
         request_id: &str,
         report_path: &str,
         signal: &RepositorySignalDraft,
-    ) -> Result<(GitHubWebhookActionRequestSummary, RepositorySignalSummary)> {
+    ) -> Result<GitHubWebhookActionSignalCompletion> {
         ensure!(
             signal.source_request_id == request_id,
             "repository signal source_request_id does not match completed request"
@@ -1614,7 +1620,11 @@ impl PostgresRunStore {
             .commit()
             .context("failed to commit github webhook action completion transaction")?;
 
-        Ok((request, row_to_repository_signal_summary(&signal_row)))
+        Ok(GitHubWebhookActionSignalCompletion {
+            request,
+            signal: row_to_repository_signal_summary(&signal_row),
+            superseded_signal_count: superseded_count,
+        })
     }
 
     pub fn fetch_repository_signal(

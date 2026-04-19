@@ -12,6 +12,7 @@ use crate::{
     },
     planning::brief_validation::validate_brief_document,
     storage::postgres::PostgresRunStore,
+    telemetry,
 };
 
 const DEFAULT_PENDING_SIGNAL_SCAN_LIMIT: usize = 20;
@@ -181,6 +182,7 @@ pub fn submit_next_repository_signal_document(
             database_url,
             artifact_root,
             &signal.signal_id,
+            "next",
             invoked_via,
         )?;
         return Ok(NextRepositorySignalSubmission::Submitted(Box::new(
@@ -188,12 +190,24 @@ pub fn submit_next_repository_signal_document(
         )));
     }
 
+    let outcome = if stale_reason.is_some() {
+        "stale_only"
+    } else {
+        "no_match"
+    };
     let reason = stale_reason.unwrap_or_else(|| {
         format!(
             "no pending repository signal matched repository `{}` on default branch `{}`",
             target.repository_full_name, target.default_branch
         )
     });
+    telemetry::record_repository_signal_submission(
+        "next",
+        invoked_via,
+        normalized_signal_kind.as_deref().unwrap_or("any"),
+        outcome,
+        started_at.elapsed(),
+    );
 
     Ok(NextRepositorySignalSubmission::Idle(
         NoMaterializableRepositorySignal {

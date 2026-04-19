@@ -27,6 +27,7 @@ pub fn execute(args: SubmitRepositorySignalArgs) -> anyhow::Result<()> {
         &args.database_url,
         &args.artifact_root,
         &args.signal_id,
+        "named",
         "cli",
     )?;
 
@@ -70,6 +71,7 @@ pub fn submit_repository_signal_document(
     database_url: &str,
     artifact_root: &Path,
     signal_id: &str,
+    submission_mode: &str,
     invoked_via: &str,
 ) -> anyhow::Result<RepositorySignalSubmission> {
     let started_at = Instant::now();
@@ -84,6 +86,13 @@ pub fn submit_repository_signal_document(
     let validated = validate_brief_document(raw_brief, brief_source_path)?;
     ensure_brief_matches_signal(&validated.brief, &signal)?;
     if let Some(reason) = repository_signal_staleness_reason(artifact_root, &signal)? {
+        telemetry::record_repository_signal_submission(
+            submission_mode,
+            invoked_via,
+            &signal.signal_kind,
+            "stale_rejected",
+            started_at.elapsed(),
+        );
         anyhow::bail!("{reason}");
     }
 
@@ -114,6 +123,19 @@ pub fn submit_repository_signal_document(
         false,
         submission.tasks.len() as u64,
         submission.artifacts.len() as u64,
+        started_at.elapsed(),
+    );
+    telemetry::record_repository_signal_event(
+        &signal.provider,
+        &signal.signal_kind,
+        "submitted",
+        1,
+    );
+    telemetry::record_repository_signal_submission(
+        submission_mode,
+        invoked_via,
+        &signal.signal_kind,
+        "submitted",
         started_at.elapsed(),
     );
 
