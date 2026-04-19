@@ -177,6 +177,6 @@ Before wiring OpenHands, validate the server locally:
 ```
 
 `./scripts/mcp-smoke.sh` validates the stateless handshake and tool discovery path.
-`./scripts/mcp-stateful-smoke.sh` validates the safe stateful path: GitHub webhook inspection and execution, repository-signal inspection, brief submission, run listing, run-event inspection, run progression through `run_worker_once`, policy/quality evaluation, and persisted artifact inspection.
+`./scripts/mcp-stateful-smoke.sh` validates the safe stateful path: GitHub webhook inspection and execution, repository-signal inspection, brief submission, run listing, one `run_worker_once` execution, policy evaluation, persisted policy-artifact inspection, and run-event inspection. The heavier full-run quality-gate path stays in `./scripts/smoke-mvp.sh` and `./scripts/ci-smoke.sh`, so the MCP smoke stays focused on agent-facing transport and stateful tool contracts.
 
 Then register the server in OpenHands and start a conversation with [examples/openhands/first-task.md](../../examples/openhands/first-task.md). That is the shortest path to confirming the integration end to end without publishing or opening a GitHub PR.

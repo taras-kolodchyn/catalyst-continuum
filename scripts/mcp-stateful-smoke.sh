@@ -380,6 +380,10 @@ def call_tool(name, arguments=None, key=None):
     return structured[key]
 
 
+def log_phase(message):
+    print(f"[mcp-stateful-smoke] {message}", flush=True)
+
+
 try:
     initialize = request(
         "initialize",
@@ -435,6 +439,7 @@ try:
             f"{sorted(missing_tools)}"
         )
 
+    log_phase("inspect instance, webhook, and repository-signal state through MCP")
     instance_config = call_tool("describe_instance_config", {}, "instance_config")
     if instance_config["runtime_providers"]["default_provider"] != "docker":
         fail(
@@ -778,6 +783,7 @@ policy:
         fail(f"stateful MCP smoke failed: cli-tool pack missing from {pack_ids}")
 
     brief_content = brief_path.read_text(encoding="utf-8")
+    log_phase("validate and submit a brief through MCP")
     validation = call_tool(
         "validate_brief",
         {
@@ -810,42 +816,45 @@ policy:
             f"{run_detail['run_id']}"
         )
 
-    max_worker_cycles = 12
-    for _ in range(max_worker_cycles):
-        run_detail = call_tool("describe_run", {"run_id": run_id}, "run")
-        if run_detail["status"] in {"succeeded", "failed"}:
-            break
-        worker = call_tool("run_worker_once", {"run_id": run_id}, "worker")
-        if worker["worker_status"] not in {"executed", "idle"}:
-            fail(
-                "stateful MCP smoke failed: unexpected worker_status "
-                f"{worker['worker_status']}"
-            )
-    else:
+    log_phase("execute a single worker cycle through MCP")
+    worker = call_tool("run_worker_once", {"run_id": run_id}, "worker")
+    if worker["worker_status"] != "executed":
         fail(
-            f"stateful MCP smoke failed: run {run_id} did not reach terminal status "
-            f"after {max_worker_cycles} worker cycles"
+            "stateful MCP smoke failed: expected run_worker_once to execute a task, got "
+            f"{worker['worker_status']}"
+        )
+    last_execution = worker.get("last_execution")
+    if not last_execution:
+        fail("stateful MCP smoke failed: run_worker_once should return last_execution details")
+    executed_task = last_execution.get("task") or {}
+    first_task_id = executed_task.get("task_id")
+    if not first_task_id:
+        fail("stateful MCP smoke failed: executed worker cycle did not expose task_id")
+    if executed_task.get("status") != "succeeded":
+        fail(
+            "stateful MCP smoke failed: expected executed task to succeed, got "
+            f"{executed_task.get('status')}"
         )
 
     run_detail = call_tool("describe_run", {"run_id": run_id}, "run")
-    if run_detail["status"] != "succeeded":
+    if run_detail["status"] == "failed":
         fail(
-            f"stateful MCP smoke failed: expected run {run_id} to succeed, "
+            f"stateful MCP smoke failed: run {run_id} should not fail after one worker cycle, "
             f"got {run_detail['status']}"
         )
     if not run_detail["tasks"]:
-        fail("stateful MCP smoke failed: describe_run should return tasks for the succeeded run")
-    first_task_id = run_detail["tasks"][0]["task_id"]
+        fail("stateful MCP smoke failed: describe_run should return tasks after execution starts")
+    if not any(task["task_id"] == first_task_id for task in run_detail["tasks"]):
+        fail(
+            "stateful MCP smoke failed: describe_run should include the executed task "
+            f"{first_task_id}"
+        )
 
+    log_phase("evaluate policy and inspect persisted artifacts through MCP")
     policy = call_tool("evaluate_run_policy", {"run_id": run_id}, "policy")
     if policy["passed"] is not True:
         fail("stateful MCP smoke failed: evaluate_run_policy returned passed=false")
     policy_artifact_id = policy["artifact"]["artifact_id"]
-
-    quality = call_tool("evaluate_run_quality", {"run_id": run_id}, "quality_gate")
-    if quality["passed"] is not True:
-        fail("stateful MCP smoke failed: evaluate_run_quality returned passed=false")
-    quality_artifact_id = quality["artifact"]["artifact_id"]
 
     policy_artifact = call_tool(
         "describe_artifact",
@@ -860,19 +869,7 @@ policy:
     if policy_artifact["manifest"]["passed"] is not True:
         fail("stateful MCP smoke failed: persisted policy report is not passed=true")
 
-    quality_artifact = call_tool(
-        "describe_artifact",
-        {"artifact_id": quality_artifact_id},
-        "artifact",
-    )
-    if quality_artifact["artifact"]["artifact_type"] != "quality_report":
-        fail(
-            "stateful MCP smoke failed: expected quality_report artifact, got "
-            f"{quality_artifact['artifact']['artifact_type']}"
-        )
-    if quality_artifact["manifest"]["passed"] is not True:
-        fail("stateful MCP smoke failed: persisted quality report is not passed=true")
-
+    log_phase("inspect run events through MCP")
     run_events = call_tool(
         "list_run_events",
         {"run_id": run_id, "limit": 50},
@@ -885,7 +882,6 @@ policy:
         "task_started",
         "task_succeeded",
         "run_policy_evaluated",
-        "run_quality_evaluated",
     }
     missing_event_types = required_event_types - event_types
     if missing_event_types:
@@ -923,7 +919,7 @@ policy:
             f"{succeeded_task_events}"
         )
 
-    print("mcp stateful smoke passed")
+    log_phase("mcp stateful smoke passed")
 finally:
     try:
         if proc.stdin is not None:
