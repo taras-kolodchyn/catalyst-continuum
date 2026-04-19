@@ -64,8 +64,11 @@ impl RunEventListFilters {
 
 impl PostgresRunStore {
     pub fn connect(database_url: &str) -> Result<Self> {
-        let client = Client::connect(database_url, NoTls)
+        let mut client = Client::connect(database_url, NoTls)
             .with_context(|| format!("failed to connect to postgres: {}", database_url))?;
+        client
+            .batch_execute("SET client_min_messages TO WARNING;")
+            .context("failed to configure postgres session settings")?;
 
         Ok(Self { client })
     }

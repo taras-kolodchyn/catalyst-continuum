@@ -263,6 +263,8 @@ import pathlib
 import select
 import subprocess
 import sys
+import threading
+from collections import deque
 
 orchestrator_bin = sys.argv[1]
 database_url = sys.argv[2]
@@ -301,6 +303,17 @@ proc = subprocess.Popen(
 
 next_id = 1
 REQUEST_TIMEOUT_SECONDS = 30
+stderr_lines = deque(maxlen=400)
+
+
+def drain_stderr():
+    assert proc.stderr is not None
+    for line in proc.stderr:
+        stderr_lines.append(line)
+
+
+stderr_thread = threading.Thread(target=drain_stderr, daemon=True)
+stderr_thread.start()
 
 
 def fail(message):
@@ -315,11 +328,8 @@ def fail(message):
             proc.kill()
         except Exception:
             pass
-    stderr = ""
-    try:
-        stderr = proc.stderr.read()
-    except Exception:
-        pass
+    stderr_thread.join(timeout=1)
+    stderr = "".join(stderr_lines)
     raise SystemExit(f"{message}\nSTDERR:\n{stderr}")
 
 
@@ -382,6 +392,7 @@ def notify(method, params=None):
 
 
 def call_tool(name, arguments=None, key=None):
+    log_phase(f"call MCP tool {name}")
     result = request(
         "tools/call",
         {
@@ -392,6 +403,7 @@ def call_tool(name, arguments=None, key=None):
     if result.get("isError"):
         fail(f"stateful MCP smoke failed: tool {name} returned an error: {result}")
     structured = result["structuredContent"]
+    log_phase(f"completed MCP tool {name}")
     if key is None:
         return structured
     return structured[key]
