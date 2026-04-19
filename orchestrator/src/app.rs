@@ -3,9 +3,10 @@ use crate::{
     commands::{
         create_draft_pr, describe_artifact, describe_github_default_branch_state,
         describe_github_webhook, describe_github_webhook_action_report,
-        describe_github_webhook_action_request, describe_instance_config, describe_latest_artifact,
-        describe_pack, describe_repository_signal, describe_repository_signal_payload,
-        describe_run, evaluate_run_policy, evaluate_run_quality, export_pr_candidate,
+        describe_github_webhook_action_request, describe_github_webhook_receipt,
+        describe_instance_config, describe_latest_artifact, describe_pack,
+        describe_repository_signal, describe_repository_signal_payload, describe_run,
+        evaluate_run_policy, evaluate_run_quality, export_pr_candidate,
         list_github_webhook_action_requests, list_github_webhooks, list_packs,
         list_repository_signals, list_run_events, list_runs, mcp_server, open_github_pr,
         publish_pr_export, run_next_github_webhook_action, run_next_task, serve, submit_brief,
@@ -31,6 +32,9 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
         }
         Command::DescribeLatestArtifact(args) => describe_latest_artifact::execute(args),
         Command::DescribeGithubWebhook(args) => describe_github_webhook::execute(args),
+        Command::DescribeGithubWebhookReceipt(args) => {
+            describe_github_webhook_receipt::execute(args)
+        }
         Command::DescribeGithubWebhookActionRequest(args) => {
             describe_github_webhook_action_request::execute(args)
         }

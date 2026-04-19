@@ -4,6 +4,7 @@ pub mod describe_github_default_branch_state;
 pub mod describe_github_webhook;
 pub mod describe_github_webhook_action_report;
 pub mod describe_github_webhook_action_request;
+pub mod describe_github_webhook_receipt;
 pub mod describe_instance_config;
 pub mod describe_latest_artifact;
 pub mod describe_pack;

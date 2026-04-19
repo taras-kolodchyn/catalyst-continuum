@@ -8,10 +8,10 @@ use crate::{
     cli::McpServerArgs,
     commands::{
         describe_artifact, describe_github_default_branch_state,
-        describe_github_webhook_action_report, describe_latest_artifact,
-        describe_repository_signal_payload, evaluate_run_policy, evaluate_run_quality,
-        export_pr_candidate, open_github_pr, publish_pr_export, run_next_github_webhook_action,
-        run_next_task, worker,
+        describe_github_webhook_action_report, describe_github_webhook_receipt,
+        describe_latest_artifact, describe_repository_signal_payload, evaluate_run_policy,
+        evaluate_run_quality, export_pr_candidate, open_github_pr, publish_pr_export,
+        run_next_github_webhook_action, run_next_task, worker,
     },
     config::InstanceConfigReport,
     models::{
@@ -185,6 +185,12 @@ struct ListGithubWebhooksToolArgs {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct DescribeGithubWebhookToolArgs {
+    delivery_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DescribeGithubWebhookReceiptToolArgs {
     delivery_id: String,
 }
 
@@ -527,6 +533,9 @@ impl StdioMcpServer {
             "submit_repository_signal" => self.call_submit_repository_signal(arguments),
             "list_github_webhooks" => self.call_list_github_webhooks(arguments),
             "describe_github_webhook" => self.call_describe_github_webhook(arguments),
+            "describe_github_webhook_receipt" => {
+                self.call_describe_github_webhook_receipt(arguments)
+            }
             "list_github_webhook_action_requests" => {
                 self.call_list_github_webhook_action_requests(arguments)
             }
@@ -751,6 +760,27 @@ impl StdioMcpServer {
                 "delivery",
                 structured,
                 delivery.render_text()?,
+            ))
+        })
+    }
+
+    fn call_describe_github_webhook_receipt(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: DescribeGithubWebhookReceiptToolArgs = parse_tool_arguments(arguments)?;
+            let mut store = self.open_store()?;
+            let delivery = store
+                .fetch_github_webhook_delivery(&args.delivery_id)?
+                .with_context(|| {
+                    format!("github webhook delivery not found: {}", args.delivery_id)
+                })?;
+            let receipt =
+                describe_github_webhook_receipt::describe_github_webhook_receipt(&delivery)?;
+            let structured = serde_json::to_value(&receipt)
+                .context("failed to serialize github webhook receipt")?;
+            Ok(tool_success_with_text(
+                "receipt",
+                structured,
+                receipt.render_text()?,
             ))
         })
     }
@@ -1317,6 +1347,14 @@ fn tool_definitions() -> Vec<Value> {
             )]),
         ),
         tool_definition(
+            "describe_github_webhook_receipt",
+            "Fetch the persisted receipt produced for one accepted GitHub webhook delivery.",
+            json_schema_object(&[required_string_property(
+                "delivery_id",
+                "GitHub delivery identifier.",
+            )]),
+        ),
+        tool_definition(
             "list_github_webhook_action_requests",
             "List pending or historical GitHub webhook action requests materialized by the control plane.",
             json_schema_object(&[
@@ -1608,7 +1646,7 @@ mod tests {
 
         assert_eq!(
             output[1]["result"]["tools"].as_array().map(Vec::len),
-            Some(28)
+            Some(29)
         );
         assert_eq!(output[1]["result"]["tools"][0]["name"], "list_packs");
         assert!(
@@ -1631,6 +1669,13 @@ mod tests {
                 .is_some_and(|tools| tools
                     .iter()
                     .any(|tool| tool["name"] == "list_github_webhooks"))
+        );
+        assert!(
+            output[1]["result"]["tools"]
+                .as_array()
+                .is_some_and(|tools| tools
+                    .iter()
+                    .any(|tool| tool["name"] == "describe_github_webhook_receipt"))
         );
         assert!(
             output[1]["result"]["tools"]

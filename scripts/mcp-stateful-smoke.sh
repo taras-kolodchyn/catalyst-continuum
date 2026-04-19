@@ -445,6 +445,7 @@ try:
         "submit_brief",
         "list_github_webhooks",
         "describe_github_webhook",
+        "describe_github_webhook_receipt",
         "list_github_webhook_action_requests",
         "describe_github_webhook_action_request",
         "describe_github_webhook_action_report",
@@ -525,6 +526,28 @@ try:
         fail(
             "stateful MCP smoke failed: describe_github_webhook should report a persisted delivery"
         )
+    webhook_receipt = call_tool(
+        "describe_github_webhook_receipt",
+        {"delivery_id": webhook_delivery_id},
+        "receipt",
+    )
+    if webhook_receipt["persisted"] is not True:
+        fail(
+            "stateful MCP smoke failed: describe_github_webhook_receipt should report a persisted receipt"
+        )
+    if webhook_receipt["receipt"]["summary"]["delivery_id"] != webhook_delivery_id:
+        fail(
+            "stateful MCP smoke failed: webhook receipt summary returned unexpected delivery id "
+            f"{webhook_receipt['receipt']['summary']['delivery_id']}"
+        )
+    if (
+        webhook_receipt["receipt"]["payload"]["repository"]["full_name"]
+        != "smartit/catalyst-continuum"
+    ):
+        fail(
+            "stateful MCP smoke failed: webhook receipt payload should expose repository full name, got "
+            f"{webhook_receipt['receipt']['payload']}"
+        )
 
     push_webhook_delivery = call_tool(
         "describe_github_webhook",
@@ -550,6 +573,26 @@ try:
         fail(
             "stateful MCP smoke failed: push webhook delivery should expose after_sha, got "
             f"{push_webhook_delivery['after_sha']}"
+        )
+    push_webhook_receipt = call_tool(
+        "describe_github_webhook_receipt",
+        {"delivery_id": push_webhook_delivery_id},
+        "receipt",
+    )
+    if push_webhook_receipt["receipt"]["summary"]["delivery_id"] != push_webhook_delivery_id:
+        fail(
+            "stateful MCP smoke failed: push webhook receipt returned unexpected delivery id "
+            f"{push_webhook_receipt['receipt']['summary']['delivery_id']}"
+        )
+    if push_webhook_receipt["receipt"]["summary"]["after_sha"] != push_webhook_after_sha:
+        fail(
+            "stateful MCP smoke failed: push webhook receipt should expose after_sha, got "
+            f"{push_webhook_receipt['receipt']['summary']['after_sha']}"
+        )
+    if push_webhook_receipt["receipt_path"] != push_webhook_delivery["receipt_path"]:
+        fail(
+            "stateful MCP smoke failed: push webhook receipt path should match delivery receipt_path, got "
+            f"{push_webhook_receipt['receipt_path']} vs {push_webhook_delivery['receipt_path']}"
         )
 
     push_webhook_action_request = call_tool(

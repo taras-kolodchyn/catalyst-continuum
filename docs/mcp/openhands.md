@@ -125,6 +125,7 @@ Stateful tools need `CATALYST_DATABASE_URL`:
 - `describe_latest_artifact`
 - `list_github_webhooks`
 - `describe_github_webhook`
+- `describe_github_webhook_receipt`
 - `list_github_webhook_action_requests`
 - `describe_github_webhook_action_request`
 - `describe_github_webhook_action_report`
@@ -147,6 +148,7 @@ Stateful tools need `CATALYST_DATABASE_URL`:
 
 `describe_instance_config` is the first inspection tool for OpenHands when it needs to understand whether the current instance is still Docker-only, whether future Proxmox or Kubernetes placeholders are enabled but unimplemented, and whether GitHub App credentials are complete enough for remote PR publication.
 `list_github_webhooks` and `describe_github_webhook` give OpenHands direct MCP visibility into accepted GitHub App deliveries, including whether the control plane currently ignores that delivery or classifies it as a safe automation candidate such as `sync_default_branch`.
+`describe_github_webhook_receipt` lets OpenHands inspect the persisted signed ingress receipt behind one accepted delivery, including headers and normalized payload fields, without scraping `receipt_path` from the delivery summary.
 `list_github_webhook_action_requests` and `describe_github_webhook_action_request` let OpenHands inspect the durable control-plane requests materialized from those candidate deliveries.
 `describe_github_webhook_action_report` lets OpenHands inspect the persisted execution report produced by one completed webhook action request without scraping raw artifact directories.
 `describe_github_default_branch_state` lets OpenHands inspect the current repository-scoped default-branch sync state directly from the artifact root, so it can confirm the observed branch head and the originating request even in sessions that do not need Postgres-backed tools.
@@ -183,6 +185,6 @@ Before wiring OpenHands, validate the server locally:
 ```
 
 `./scripts/mcp-smoke.sh` validates the stateless handshake and tool discovery path.
-`./scripts/mcp-stateful-smoke.sh` validates the safe stateful path: GitHub webhook inspection and execution, webhook execution-report inspection, default-branch-state inspection, repository-signal inspection plus payload inspection, brief submission, run listing, one `run_worker_once` execution, policy evaluation, persisted policy-artifact inspection, and run-event inspection. The heavier full-run quality-gate path stays in `./scripts/smoke-mvp.sh` and `./scripts/ci-smoke.sh`, so the MCP smoke stays focused on agent-facing transport and stateful tool contracts.
+`./scripts/mcp-stateful-smoke.sh` validates the safe stateful path: GitHub webhook inspection plus receipt inspection and execution, webhook execution-report inspection, default-branch-state inspection, repository-signal inspection plus payload inspection, brief submission, run listing, one `run_worker_once` execution, policy evaluation, persisted policy-artifact inspection, and run-event inspection. The heavier full-run quality-gate path stays in `./scripts/smoke-mvp.sh` and `./scripts/ci-smoke.sh`, so the MCP smoke stays focused on agent-facing transport and stateful tool contracts.
 
 Then register the server in OpenHands and start a conversation with [examples/openhands/first-task.md](../../examples/openhands/first-task.md). That is the shortest path to confirming the integration end to end without publishing or opening a GitHub PR.

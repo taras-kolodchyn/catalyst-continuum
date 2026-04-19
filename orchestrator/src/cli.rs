@@ -23,6 +23,7 @@ pub enum Command {
     DescribeGithubDefaultBranchState(DescribeGithubDefaultBranchStateArgs),
     DescribeLatestArtifact(DescribeLatestArtifactArgs),
     DescribeGithubWebhook(DescribeGithubWebhookArgs),
+    DescribeGithubWebhookReceipt(DescribeGithubWebhookReceiptArgs),
     DescribeGithubWebhookActionRequest(DescribeGithubWebhookActionRequestArgs),
     DescribeGithubWebhookActionReport(DescribeGithubWebhookActionReportArgs),
     DescribeRepositorySignal(DescribeRepositorySignalArgs),
@@ -59,6 +60,7 @@ impl Command {
             Self::DescribeGithubDefaultBranchState(_) => "describe-github-default-branch-state",
             Self::DescribeLatestArtifact(_) => "describe-latest-artifact",
             Self::DescribeGithubWebhook(_) => "describe-github-webhook",
+            Self::DescribeGithubWebhookReceipt(_) => "describe-github-webhook-receipt",
             Self::DescribeGithubWebhookActionRequest(_) => "describe-github-webhook-action-request",
             Self::DescribeGithubWebhookActionReport(_) => "describe-github-webhook-action-report",
             Self::DescribeRepositorySignal(_) => "describe-repository-signal",
@@ -354,6 +356,18 @@ pub struct DescribeRunArgs {
 
 #[derive(Debug, Args)]
 pub struct DescribeGithubWebhookArgs {
+    #[arg(long, env = "CATALYST_DATABASE_URL")]
+    pub database_url: String,
+
+    #[arg(long)]
+    pub delivery_id: String,
+
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct DescribeGithubWebhookReceiptArgs {
     #[arg(long, env = "CATALYST_DATABASE_URL")]
     pub database_url: String,
 

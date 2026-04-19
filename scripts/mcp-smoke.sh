@@ -116,6 +116,7 @@ expected_tools = {
     "describe_instance_config",
     "describe_artifact",
     "describe_latest_artifact",
+    "describe_github_webhook_receipt",
     "describe_github_webhook_action_report",
     "describe_github_default_branch_state",
     "describe_repository_signal_payload",

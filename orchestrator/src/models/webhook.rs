@@ -130,6 +130,53 @@ pub struct GitHubWebhookActionRequestListFilters {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+pub struct GitHubWebhookReceiptPersistedSummary {
+    pub status: String,
+    pub outcome: String,
+    pub provider: String,
+    pub delivery_id: String,
+    pub event: String,
+    pub action: Option<String>,
+    pub repository_full_name: Option<String>,
+    pub repository_default_branch: Option<String>,
+    pub installation_id: Option<u64>,
+    pub ref_name: Option<String>,
+    pub before_sha: Option<String>,
+    pub after_sha: Option<String>,
+    pub payload_digest: String,
+    pub payload_bytes: usize,
+    pub signature_verified: bool,
+    pub received_at_epoch_ms: u64,
+    pub receipt_path: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct GitHubWebhookReceiptHeaders {
+    pub event: String,
+    pub delivery_id: String,
+    pub signature_sha256: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct GitHubWebhookReceipt {
+    pub receipt_version: u32,
+    pub summary: GitHubWebhookReceiptPersistedSummary,
+    pub headers: GitHubWebhookReceiptHeaders,
+    pub payload: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct GitHubWebhookReceiptDetail {
+    pub receipt: GitHubWebhookReceipt,
+    pub receipt_path: String,
+    pub persisted: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct GitHubWebhookActionReportExecution {
     pub status: String,
     pub executed_at_epoch_ms: u64,
@@ -486,6 +533,141 @@ impl GitHubWebhookActionRequestSummary {
     }
 }
 
+impl GitHubWebhookReceiptDetail {
+    pub fn from_path(path: &Path) -> Result<Self> {
+        let receipt = read_json_document(path, "github webhook receipt")?;
+        Ok(Self {
+            receipt,
+            receipt_path: path.display().to_string(),
+            persisted: true,
+        })
+    }
+
+    pub fn render_text(&self) -> Result<String> {
+        use std::fmt::Write as _;
+
+        let mut output = String::new();
+        writeln!(&mut output, "receipt_path: {}", self.receipt_path)
+            .context("failed to render github webhook receipt")?;
+        writeln!(
+            &mut output,
+            "persisted: {}",
+            if self.persisted { "yes" } else { "no" }
+        )
+        .context("failed to render github webhook receipt")?;
+        writeln!(
+            &mut output,
+            "receipt_version: {}",
+            self.receipt.receipt_version
+        )
+        .context("failed to render github webhook receipt")?;
+        writeln!(&mut output, "status: {}", self.receipt.summary.status)
+            .context("failed to render github webhook receipt")?;
+        writeln!(&mut output, "outcome: {}", self.receipt.summary.outcome)
+            .context("failed to render github webhook receipt")?;
+        writeln!(&mut output, "provider: {}", self.receipt.summary.provider)
+            .context("failed to render github webhook receipt")?;
+        writeln!(
+            &mut output,
+            "delivery_id: {}",
+            self.receipt.summary.delivery_id
+        )
+        .context("failed to render github webhook receipt")?;
+        writeln!(&mut output, "event: {}", self.receipt.summary.event)
+            .context("failed to render github webhook receipt")?;
+        if let Some(action) = &self.receipt.summary.action {
+            writeln!(&mut output, "action: {}", action)
+                .context("failed to render github webhook receipt")?;
+        }
+        if let Some(repository_full_name) = &self.receipt.summary.repository_full_name {
+            writeln!(
+                &mut output,
+                "repository_full_name: {}",
+                repository_full_name
+            )
+            .context("failed to render github webhook receipt")?;
+        }
+        if let Some(repository_default_branch) = &self.receipt.summary.repository_default_branch {
+            writeln!(
+                &mut output,
+                "repository_default_branch: {}",
+                repository_default_branch
+            )
+            .context("failed to render github webhook receipt")?;
+        }
+        if let Some(installation_id) = self.receipt.summary.installation_id {
+            writeln!(&mut output, "installation_id: {}", installation_id)
+                .context("failed to render github webhook receipt")?;
+        }
+        if let Some(ref_name) = &self.receipt.summary.ref_name {
+            writeln!(&mut output, "ref_name: {}", ref_name)
+                .context("failed to render github webhook receipt")?;
+        }
+        if let Some(before_sha) = &self.receipt.summary.before_sha {
+            writeln!(&mut output, "before_sha: {}", before_sha)
+                .context("failed to render github webhook receipt")?;
+        }
+        if let Some(after_sha) = &self.receipt.summary.after_sha {
+            writeln!(&mut output, "after_sha: {}", after_sha)
+                .context("failed to render github webhook receipt")?;
+        }
+        writeln!(
+            &mut output,
+            "payload_digest: {}",
+            self.receipt.summary.payload_digest
+        )
+        .context("failed to render github webhook receipt")?;
+        writeln!(
+            &mut output,
+            "payload_bytes: {}",
+            self.receipt.summary.payload_bytes
+        )
+        .context("failed to render github webhook receipt")?;
+        writeln!(
+            &mut output,
+            "signature_verified: {}",
+            if self.receipt.summary.signature_verified {
+                "yes"
+            } else {
+                "no"
+            }
+        )
+        .context("failed to render github webhook receipt")?;
+        writeln!(
+            &mut output,
+            "received_at_epoch_ms: {}",
+            self.receipt.summary.received_at_epoch_ms
+        )
+        .context("failed to render github webhook receipt")?;
+        writeln!(&mut output, "message: {}", self.receipt.summary.message)
+            .context("failed to render github webhook receipt")?;
+        writeln!(&mut output, "header_event: {}", self.receipt.headers.event)
+            .context("failed to render github webhook receipt")?;
+        writeln!(
+            &mut output,
+            "header_delivery_id: {}",
+            self.receipt.headers.delivery_id
+        )
+        .context("failed to render github webhook receipt")?;
+        writeln!(
+            &mut output,
+            "header_signature_sha256: {}",
+            self.receipt.headers.signature_sha256
+        )
+        .context("failed to render github webhook receipt")?;
+        writeln!(&mut output, "payload:").context("failed to render github webhook receipt")?;
+        write!(
+            &mut output,
+            "{}",
+            serde_json::to_string_pretty(&self.receipt.payload)
+                .context("failed to format github webhook receipt payload")?
+        )
+        .context("failed to render github webhook receipt")?;
+
+        Ok(output)
+    }
+}
+
 impl GitHubWebhookActionReportDetail {
     pub fn from_path(path: &Path) -> Result<Self> {
         let report = read_json_document(path, "github webhook action report")?;
@@ -773,7 +955,7 @@ mod tests {
     use super::{
         GitHubDefaultBranchStateDetail, GitHubWebhookActionReportDetail,
         GitHubWebhookActionRequestDraft, GitHubWebhookActionRequestSummary,
-        GitHubWebhookDeliveryDraft, GitHubWebhookDeliverySummary,
+        GitHubWebhookDeliveryDraft, GitHubWebhookDeliverySummary, GitHubWebhookReceiptDetail,
     };
     use crate::{
         github_webhook_routing::GitHubWebhookRoutingDecision,
@@ -982,6 +1164,66 @@ mod tests {
         assert!(rendered.contains("execution_status: succeeded"));
         assert!(rendered.contains("request_id: github:delivery-1:sync_default_branch"));
         assert!(rendered.contains("sync_after_sha: 222"));
+
+        fs::remove_dir_all(path.parent().expect("temp file should have a parent"))
+            .expect("temp dir should be removed");
+    }
+
+    #[test]
+    fn loads_and_renders_github_webhook_receipt_detail() {
+        let path = temp_json_path("receipt.json");
+        fs::write(
+            &path,
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "receipt_version": 1,
+                "summary": {
+                    "status": "accepted",
+                    "outcome": "accepted",
+                    "provider": "github",
+                    "delivery_id": "delivery-1",
+                    "event": "push",
+                    "action": "synchronize",
+                    "repository_full_name": "smartit/catalyst-continuum",
+                    "repository_default_branch": "main",
+                    "installation_id": 42,
+                    "ref_name": "refs/heads/main",
+                    "before_sha": "111",
+                    "after_sha": "222",
+                    "payload_digest": "sha256:abc",
+                    "payload_bytes": 123,
+                    "signature_verified": true,
+                    "received_at_epoch_ms": 456,
+                    "receipt_path": "/tmp/receipt.json",
+                    "message": "accepted GitHub webhook delivery `push`"
+                },
+                "headers": {
+                    "event": "push",
+                    "delivery_id": "delivery-1",
+                    "signature_sha256": "sha256:deadbeef"
+                },
+                "payload": {
+                    "repository": {
+                        "full_name": "smartit/catalyst-continuum"
+                    }
+                }
+            }))
+            .expect("receipt should serialize"),
+        )
+        .expect("receipt should be written");
+
+        let detail = GitHubWebhookReceiptDetail::from_path(&path).expect("receipt should load");
+        let rendered = detail.render_text().expect("receipt should render");
+
+        assert_eq!(detail.receipt.summary.delivery_id, "delivery-1");
+        assert_eq!(detail.receipt.headers.event, "push");
+        assert_eq!(
+            detail.receipt.payload["repository"]["full_name"],
+            "smartit/catalyst-continuum"
+        );
+        assert!(rendered.contains("receipt_path:"));
+        assert!(rendered.contains("delivery_id: delivery-1"));
+        assert!(rendered.contains("payload_digest: sha256:abc"));
+        assert!(rendered.contains("\"full_name\": \"smartit/catalyst-continuum\""));
 
         fs::remove_dir_all(path.parent().expect("temp file should have a parent"))
             .expect("temp dir should be removed");

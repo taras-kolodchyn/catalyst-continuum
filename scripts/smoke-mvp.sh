@@ -185,6 +185,8 @@ PUSH_WEBHOOK_RESPONSE_FILE="$ARTIFACT_ROOT/github-webhook-push-response.json"
 WEBHOOK_LIST_HTTP_FILE="$ARTIFACT_ROOT/http-webhook-deliveries.json"
 WEBHOOK_PING_DETAIL_HTTP_FILE="$ARTIFACT_ROOT/http-webhook-ping-delivery.json"
 WEBHOOK_PUSH_DETAIL_HTTP_FILE="$ARTIFACT_ROOT/http-webhook-push-delivery.json"
+WEBHOOK_PING_RECEIPT_HTTP_FILE="$ARTIFACT_ROOT/http-webhook-ping-receipt.json"
+WEBHOOK_PUSH_RECEIPT_HTTP_FILE="$ARTIFACT_ROOT/http-webhook-push-receipt.json"
 WEBHOOK_ACTION_LIST_HTTP_FILE="$ARTIFACT_ROOT/http-webhook-action-requests.json"
 WEBHOOK_ACTION_DETAIL_HTTP_FILE="$ARTIFACT_ROOT/http-webhook-action-request.json"
 WEBHOOK_ACTION_RUN_HTTP_FILE="$ARTIFACT_ROOT/http-webhook-action-run.json"
@@ -197,6 +199,8 @@ REPOSITORY_SIGNAL_PAYLOAD_HTTP_FILE="$ARTIFACT_ROOT/http-repository-signal-paylo
 WEBHOOK_LIST_CLI_FILE="$ARTIFACT_ROOT/cli-webhook-deliveries.json"
 WEBHOOK_PING_DETAIL_CLI_FILE="$ARTIFACT_ROOT/cli-webhook-ping-delivery.json"
 WEBHOOK_PUSH_DETAIL_CLI_FILE="$ARTIFACT_ROOT/cli-webhook-push-delivery.json"
+WEBHOOK_PING_RECEIPT_CLI_FILE="$ARTIFACT_ROOT/cli-webhook-ping-receipt.json"
+WEBHOOK_PUSH_RECEIPT_CLI_FILE="$ARTIFACT_ROOT/cli-webhook-push-receipt.json"
 WEBHOOK_ACTION_LIST_CLI_FILE="$ARTIFACT_ROOT/cli-webhook-action-requests.json"
 WEBHOOK_ACTION_DETAIL_CLI_FILE="$ARTIFACT_ROOT/cli-webhook-action-request.json"
 WEBHOOK_ACTION_EXECUTED_CLI_FILE="$ARTIFACT_ROOT/cli-webhook-action-request-executed.json"
@@ -265,11 +269,6 @@ assert response["status"] == "accepted", response
 assert response["outcome"] == "ping", response
 assert response["event"] == "ping", response
 assert response["signature_verified"] is True, response
-receipt_path = pathlib.Path(response["receipt_path"])
-assert receipt_path.is_file(), response
-receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
-assert receipt["summary"]["event"] == "ping", receipt
-assert receipt["payload"]["repository"]["full_name"] == "smartit/catalyst-continuum", receipt
 PY
 
 PUSH_WEBHOOK_SIGNATURE="$(python3 - "$GITHUB_WEBHOOK_SECRET" "$PUSH_WEBHOOK_PAYLOAD_FILE" <<'PY'
@@ -320,6 +319,12 @@ curl -fsS \
   "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/github/webhooks/22222222-2222-2222-2222-222222222222" \
   >"$WEBHOOK_PUSH_DETAIL_HTTP_FILE"
 curl -fsS \
+  "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/github/webhooks/11111111-1111-1111-1111-111111111111/receipt" \
+  >"$WEBHOOK_PING_RECEIPT_HTTP_FILE"
+curl -fsS \
+  "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/github/webhooks/22222222-2222-2222-2222-222222222222/receipt" \
+  >"$WEBHOOK_PUSH_RECEIPT_HTTP_FILE"
+curl -fsS \
   "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/github/webhook-actions" \
   >"$WEBHOOK_ACTION_LIST_HTTP_FILE"
 curl -fsS \
@@ -336,6 +341,14 @@ curl -fsS \
   --database-url "$DATABASE_URL" \
   --delivery-id "22222222-2222-2222-2222-222222222222" \
   --json >"$WEBHOOK_PUSH_DETAIL_CLI_FILE"
+"$BIN" describe-github-webhook-receipt \
+  --database-url "$DATABASE_URL" \
+  --delivery-id "11111111-1111-1111-1111-111111111111" \
+  --json >"$WEBHOOK_PING_RECEIPT_CLI_FILE"
+"$BIN" describe-github-webhook-receipt \
+  --database-url "$DATABASE_URL" \
+  --delivery-id "22222222-2222-2222-2222-222222222222" \
+  --json >"$WEBHOOK_PUSH_RECEIPT_CLI_FILE"
 "$BIN" list-github-webhook-action-requests \
   --database-url "$DATABASE_URL" \
   --json >"$WEBHOOK_ACTION_LIST_CLI_FILE"
@@ -347,11 +360,15 @@ python3 - \
   "$WEBHOOK_LIST_HTTP_FILE" \
   "$WEBHOOK_PING_DETAIL_HTTP_FILE" \
   "$WEBHOOK_PUSH_DETAIL_HTTP_FILE" \
+  "$WEBHOOK_PING_RECEIPT_HTTP_FILE" \
+  "$WEBHOOK_PUSH_RECEIPT_HTTP_FILE" \
   "$WEBHOOK_ACTION_LIST_HTTP_FILE" \
   "$WEBHOOK_ACTION_DETAIL_HTTP_FILE" \
   "$WEBHOOK_LIST_CLI_FILE" \
   "$WEBHOOK_PING_DETAIL_CLI_FILE" \
   "$WEBHOOK_PUSH_DETAIL_CLI_FILE" \
+  "$WEBHOOK_PING_RECEIPT_CLI_FILE" \
+  "$WEBHOOK_PUSH_RECEIPT_CLI_FILE" \
   "$WEBHOOK_ACTION_LIST_CLI_FILE" \
   "$WEBHOOK_ACTION_DETAIL_CLI_FILE" \
   "$PUSH_WEBHOOK_ACTION_REQUEST_ID" \
@@ -363,15 +380,19 @@ import sys
 http_list = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
 http_ping_detail = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
 http_push_detail = json.loads(pathlib.Path(sys.argv[3]).read_text(encoding="utf-8"))
-http_action_list = json.loads(pathlib.Path(sys.argv[4]).read_text(encoding="utf-8"))
-http_action_detail = json.loads(pathlib.Path(sys.argv[5]).read_text(encoding="utf-8"))
-cli_list = json.loads(pathlib.Path(sys.argv[6]).read_text(encoding="utf-8"))
-cli_ping_detail = json.loads(pathlib.Path(sys.argv[7]).read_text(encoding="utf-8"))
-cli_push_detail = json.loads(pathlib.Path(sys.argv[8]).read_text(encoding="utf-8"))
-cli_action_list = json.loads(pathlib.Path(sys.argv[9]).read_text(encoding="utf-8"))
-cli_action_detail = json.loads(pathlib.Path(sys.argv[10]).read_text(encoding="utf-8"))
-action_request_id = sys.argv[11]
-after_sha = sys.argv[12]
+http_ping_receipt = json.loads(pathlib.Path(sys.argv[4]).read_text(encoding="utf-8"))
+http_push_receipt = json.loads(pathlib.Path(sys.argv[5]).read_text(encoding="utf-8"))
+http_action_list = json.loads(pathlib.Path(sys.argv[6]).read_text(encoding="utf-8"))
+http_action_detail = json.loads(pathlib.Path(sys.argv[7]).read_text(encoding="utf-8"))
+cli_list = json.loads(pathlib.Path(sys.argv[8]).read_text(encoding="utf-8"))
+cli_ping_detail = json.loads(pathlib.Path(sys.argv[9]).read_text(encoding="utf-8"))
+cli_push_detail = json.loads(pathlib.Path(sys.argv[10]).read_text(encoding="utf-8"))
+cli_ping_receipt = json.loads(pathlib.Path(sys.argv[11]).read_text(encoding="utf-8"))
+cli_push_receipt = json.loads(pathlib.Path(sys.argv[12]).read_text(encoding="utf-8"))
+cli_action_list = json.loads(pathlib.Path(sys.argv[13]).read_text(encoding="utf-8"))
+cli_action_detail = json.loads(pathlib.Path(sys.argv[14]).read_text(encoding="utf-8"))
+action_request_id = sys.argv[15]
+after_sha = sys.argv[16]
 ping_delivery_id = "11111111-1111-1111-1111-111111111111"
 push_delivery_id = "22222222-2222-2222-2222-222222222222"
 
@@ -386,6 +407,18 @@ assert http_push_detail["persisted"] is True, http_push_detail
 assert http_push_detail["routing_status"] == "candidate", http_push_detail
 assert http_push_detail["routing_action"] == "sync_default_branch", http_push_detail
 assert http_push_detail["after_sha"] == after_sha, http_push_detail
+assert http_ping_receipt["persisted"] is True, http_ping_receipt
+assert http_ping_receipt["receipt_path"] == http_ping_detail["receipt_path"], http_ping_receipt
+assert http_ping_receipt["receipt"]["summary"]["delivery_id"] == ping_delivery_id, http_ping_receipt
+assert http_ping_receipt["receipt"]["summary"]["event"] == "ping", http_ping_receipt
+assert http_ping_receipt["receipt"]["headers"]["event"] == "ping", http_ping_receipt
+assert http_ping_receipt["receipt"]["payload"]["repository"]["full_name"] == "smartit/catalyst-continuum", http_ping_receipt
+assert http_push_receipt["persisted"] is True, http_push_receipt
+assert http_push_receipt["receipt_path"] == http_push_detail["receipt_path"], http_push_receipt
+assert http_push_receipt["receipt"]["summary"]["delivery_id"] == push_delivery_id, http_push_receipt
+assert http_push_receipt["receipt"]["summary"]["after_sha"] == after_sha, http_push_receipt
+assert http_push_receipt["receipt"]["summary"]["payload_digest"] == http_push_detail["payload_digest"], http_push_receipt
+assert http_push_receipt["receipt"]["payload"]["repository"]["default_branch"] == "main", http_push_receipt
 assert http_action_list["count"] >= 1, http_action_list
 assert any(request["request_id"] == action_request_id for request in http_action_list["requests"]), http_action_list
 assert http_action_detail["request_id"] == action_request_id, http_action_detail
@@ -402,6 +435,15 @@ assert cli_push_detail["persisted"] is True, cli_push_detail
 assert cli_push_detail["routing_status"] == "candidate", cli_push_detail
 assert cli_push_detail["routing_action"] == "sync_default_branch", cli_push_detail
 assert cli_push_detail["after_sha"] == after_sha, cli_push_detail
+assert cli_ping_receipt["persisted"] is True, cli_ping_receipt
+assert cli_ping_receipt["receipt_path"] == cli_ping_detail["receipt_path"], cli_ping_receipt
+assert cli_ping_receipt["receipt"]["summary"]["delivery_id"] == ping_delivery_id, cli_ping_receipt
+assert cli_ping_receipt["receipt"]["payload"]["repository"]["full_name"] == "smartit/catalyst-continuum", cli_ping_receipt
+assert cli_push_receipt["persisted"] is True, cli_push_receipt
+assert cli_push_receipt["receipt_path"] == cli_push_detail["receipt_path"], cli_push_receipt
+assert cli_push_receipt["receipt"]["summary"]["delivery_id"] == push_delivery_id, cli_push_receipt
+assert cli_push_receipt["receipt"]["summary"]["after_sha"] == after_sha, cli_push_receipt
+assert cli_push_receipt["receipt"]["headers"]["event"] == "push", cli_push_receipt
 assert any(delivery["delivery_id"] == ping_delivery_id for delivery in cli_list), cli_list
 assert any(delivery["delivery_id"] == push_delivery_id for delivery in cli_list), cli_list
 assert any(request["request_id"] == action_request_id for request in cli_action_list), cli_action_list

@@ -8,10 +8,11 @@ use crate::{
     cli::ServeArgs,
     commands::{
         create_draft_pr, describe_artifact, describe_github_default_branch_state,
-        describe_github_webhook_action_report, describe_latest_artifact,
-        describe_repository_signal_payload, evaluate_run_policy, evaluate_run_quality,
-        export_pr_candidate, publish_pr_export, run_next_github_webhook_action, run_next_task,
-        submit_brief::submit_validated_brief, worker,
+        describe_github_webhook_action_report, describe_github_webhook_receipt,
+        describe_latest_artifact, describe_repository_signal_payload, evaluate_run_policy,
+        evaluate_run_quality, export_pr_candidate, publish_pr_export,
+        run_next_github_webhook_action, run_next_task, submit_brief::submit_validated_brief,
+        worker,
     },
     config::{InstanceConfigReport, load_github_app_webhook_secret},
     github_webhook_routing::evaluate_github_webhook_route,
@@ -81,6 +82,7 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                         "/config",
                         "/github/webhooks",
                         "/github/webhooks/{delivery_id}",
+                        "/github/webhooks/{delivery_id}/receipt",
                         "/github/webhook-actions",
                         "/github/webhook-actions/{request_id}",
                         "/github/webhook-actions/{request_id}/report",
@@ -356,6 +358,41 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                     webhook_started_at.elapsed(),
                 );
                 response
+            }
+            ("GET", _) if github_webhook_receipt_path_delivery_id(path).is_some() => {
+                let delivery_id = github_webhook_receipt_path_delivery_id(path)
+                    .expect("github webhook receipt path guard should provide delivery id");
+                match store.fetch_github_webhook_delivery(delivery_id) {
+                    Ok(Some(delivery)) => {
+                        match describe_github_webhook_receipt::describe_github_webhook_receipt(
+                            &delivery,
+                        ) {
+                            Ok(receipt) => json_response(StatusCode(200), &receipt),
+                            Err(error) => json_response(
+                                StatusCode(500),
+                                &ErrorResponse {
+                                    error: format!(
+                                        "failed to fetch github webhook receipt for {delivery_id}: {error}"
+                                    ),
+                                },
+                            ),
+                        }
+                    }
+                    Ok(None) => json_response(
+                        StatusCode(404),
+                        &ErrorResponse {
+                            error: format!("github webhook delivery not found: {delivery_id}"),
+                        },
+                    ),
+                    Err(error) => json_response(
+                        StatusCode(500),
+                        &ErrorResponse {
+                            error: format!(
+                                "failed to fetch github webhook delivery {delivery_id}: {error}"
+                            ),
+                        },
+                    ),
+                }
             }
             ("GET", _) if single_path_segment(path, "/github/webhooks/").is_some() => {
                 let delivery_id = single_path_segment(path, "/github/webhooks/")
@@ -1269,6 +1306,17 @@ fn github_webhook_action_report_path_request_id(path: &str) -> Option<&str> {
     Some(request_id)
 }
 
+fn github_webhook_receipt_path_delivery_id(path: &str) -> Option<&str> {
+    let delivery_id = path
+        .strip_prefix("/github/webhooks/")?
+        .strip_suffix("/receipt")?;
+    if delivery_id.is_empty() || delivery_id.contains('/') {
+        return None;
+    }
+
+    Some(delivery_id)
+}
+
 fn github_default_branch_state_path_parts(path: &str) -> Option<(&str, &str)> {
     let remainder = path
         .strip_prefix("/github/repositories/")?
@@ -1562,6 +1610,9 @@ fn route_label(method: &str, path: &str) -> &'static str {
         ("GET", "/config") => "/config",
         ("GET", "/github/webhooks") => "/github/webhooks",
         ("GET", "/github/webhook-actions") => "/github/webhook-actions",
+        ("GET", _) if github_webhook_receipt_path_delivery_id(path).is_some() => {
+            "/github/webhooks/{delivery_id}/receipt"
+        }
         ("GET", _) if github_webhook_action_report_path_request_id(path).is_some() => {
             "/github/webhook-actions/{request_id}/report"
         }
@@ -1772,10 +1823,11 @@ struct PublishPrExportRequest {
 mod tests {
     use super::{
         github_default_branch_state_path_parts, github_webhook_action_report_path_request_id,
-        latest_artifact_path_parts, parse_list_github_webhook_action_requests_request,
-        parse_list_github_webhooks_request, parse_list_repository_signals_request,
-        parse_list_run_events_request, parse_list_runs_request, readiness_payload,
-        repository_signal_payload_path_signal_id, route_label,
+        github_webhook_receipt_path_delivery_id, latest_artifact_path_parts,
+        parse_list_github_webhook_action_requests_request, parse_list_github_webhooks_request,
+        parse_list_repository_signals_request, parse_list_run_events_request,
+        parse_list_runs_request, readiness_payload, repository_signal_payload_path_signal_id,
+        route_label,
     };
     use crate::storage::postgres::DatabaseReadiness;
     use anyhow::anyhow;
@@ -1853,6 +1905,10 @@ mod tests {
             "/github/webhooks/{delivery_id}"
         );
         assert_eq!(
+            route_label("GET", "/github/webhooks/delivery-1/receipt"),
+            "/github/webhooks/{delivery_id}/receipt"
+        );
+        assert_eq!(
             route_label("GET", "/github/webhook-actions/request-1"),
             "/github/webhook-actions/{request_id}"
         );
@@ -1898,6 +1954,10 @@ mod tests {
             Some("request-1")
         );
         assert_eq!(
+            github_webhook_receipt_path_delivery_id("/github/webhooks/delivery-1/receipt"),
+            Some("delivery-1")
+        );
+        assert_eq!(
             github_default_branch_state_path_parts(
                 "/github/repositories/smartit/catalyst-continuum/default-branch-state"
             ),
@@ -1910,6 +1970,7 @@ mod tests {
         assert!(
             github_default_branch_state_path_parts("/github/repositories/only-owner").is_none()
         );
+        assert!(github_webhook_receipt_path_delivery_id("/github/webhooks/delivery-1").is_none());
         assert!(repository_signal_payload_path_signal_id("/repository-signals/signal-1").is_none());
     }
 
