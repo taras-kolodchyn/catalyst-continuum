@@ -26,6 +26,7 @@ pub enum Command {
     DescribeGithubWebhookActionRequest(DescribeGithubWebhookActionRequestArgs),
     DescribeGithubWebhookActionReport(DescribeGithubWebhookActionReportArgs),
     DescribeRepositorySignal(DescribeRepositorySignalArgs),
+    DescribeRepositorySignalPayload(DescribeRepositorySignalPayloadArgs),
     DescribeRun(DescribeRunArgs),
     ListPacks(ListPacksArgs),
     ListGithubWebhooks(ListGithubWebhooksArgs),
@@ -61,6 +62,7 @@ impl Command {
             Self::DescribeGithubWebhookActionRequest(_) => "describe-github-webhook-action-request",
             Self::DescribeGithubWebhookActionReport(_) => "describe-github-webhook-action-report",
             Self::DescribeRepositorySignal(_) => "describe-repository-signal",
+            Self::DescribeRepositorySignalPayload(_) => "describe-repository-signal-payload",
             Self::DescribeRun(_) => "describe-run",
             Self::ListPacks(_) => "list-packs",
             Self::ListGithubWebhooks(_) => "list-github-webhooks",
@@ -388,6 +390,18 @@ pub struct DescribeGithubWebhookActionReportArgs {
 
 #[derive(Debug, Args)]
 pub struct DescribeRepositorySignalArgs {
+    #[arg(long, env = "CATALYST_DATABASE_URL")]
+    pub database_url: String,
+
+    #[arg(long)]
+    pub signal_id: String,
+
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct DescribeRepositorySignalPayloadArgs {
     #[arg(long, env = "CATALYST_DATABASE_URL")]
     pub database_url: String,
 

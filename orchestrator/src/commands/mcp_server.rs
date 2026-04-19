@@ -8,9 +8,10 @@ use crate::{
     cli::McpServerArgs,
     commands::{
         describe_artifact, describe_github_default_branch_state,
-        describe_github_webhook_action_report, describe_latest_artifact, evaluate_run_policy,
-        evaluate_run_quality, export_pr_candidate, open_github_pr, publish_pr_export,
-        run_next_github_webhook_action, run_next_task, worker,
+        describe_github_webhook_action_report, describe_latest_artifact,
+        describe_repository_signal_payload, evaluate_run_policy, evaluate_run_quality,
+        export_pr_candidate, open_github_pr, publish_pr_export, run_next_github_webhook_action,
+        run_next_task, worker,
     },
     config::InstanceConfigReport,
     models::{
@@ -226,6 +227,12 @@ struct ListRepositorySignalsToolArgs {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct DescribeRepositorySignalToolArgs {
+    signal_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DescribeRepositorySignalPayloadToolArgs {
     signal_id: String,
 }
 
@@ -534,6 +541,9 @@ impl StdioMcpServer {
             }
             "list_repository_signals" => self.call_list_repository_signals(arguments),
             "describe_repository_signal" => self.call_describe_repository_signal(arguments),
+            "describe_repository_signal_payload" => {
+                self.call_describe_repository_signal_payload(arguments)
+            }
             "list_runs" => self.call_list_runs(arguments),
             "describe_run" => self.call_describe_run(arguments),
             "list_run_events" => self.call_list_run_events(arguments),
@@ -855,6 +865,25 @@ impl StdioMcpServer {
                 "signal",
                 structured,
                 signal.render_text()?,
+            ))
+        })
+    }
+
+    fn call_describe_repository_signal_payload(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: DescribeRepositorySignalPayloadToolArgs = parse_tool_arguments(arguments)?;
+            let mut store = self.open_store()?;
+            let signal = store
+                .fetch_repository_signal(&args.signal_id)?
+                .with_context(|| format!("repository signal not found: {}", args.signal_id))?;
+            let payload =
+                describe_repository_signal_payload::describe_repository_signal_payload(&signal)?;
+            let structured = serde_json::to_value(&payload)
+                .context("failed to serialize repository signal payload")?;
+            Ok(tool_success_with_text(
+                "payload",
+                structured,
+                payload.render_text()?,
             ))
         })
     }
@@ -1363,6 +1392,14 @@ fn tool_definitions() -> Vec<Value> {
             )]),
         ),
         tool_definition(
+            "describe_repository_signal_payload",
+            "Fetch the persisted payload emitted for one durable repository automation signal.",
+            json_schema_object(&[required_string_property(
+                "signal_id",
+                "Repository signal identifier.",
+            )]),
+        ),
+        tool_definition(
             "list_runs",
             "List recent orchestrator runs.",
             json_schema_object(&[
@@ -1571,7 +1608,7 @@ mod tests {
 
         assert_eq!(
             output[1]["result"]["tools"].as_array().map(Vec::len),
-            Some(27)
+            Some(28)
         );
         assert_eq!(output[1]["result"]["tools"][0]["name"], "list_packs");
         assert!(
@@ -1629,6 +1666,13 @@ mod tests {
                 .is_some_and(|tools| tools
                     .iter()
                     .any(|tool| tool["name"] == "describe_repository_signal"))
+        );
+        assert!(
+            output[1]["result"]["tools"]
+                .as_array()
+                .is_some_and(|tools| tools
+                    .iter()
+                    .any(|tool| tool["name"] == "describe_repository_signal_payload"))
         );
         assert!(
             output[1]["result"]["tools"]

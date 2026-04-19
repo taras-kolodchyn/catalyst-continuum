@@ -8,6 +8,7 @@ pub mod describe_instance_config;
 pub mod describe_latest_artifact;
 pub mod describe_pack;
 pub mod describe_repository_signal;
+pub mod describe_repository_signal_payload;
 pub mod describe_run;
 pub mod evaluate_run_policy;
 pub mod evaluate_run_quality;

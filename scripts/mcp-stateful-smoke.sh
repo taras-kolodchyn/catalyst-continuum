@@ -452,6 +452,7 @@ try:
         "run_next_github_webhook_action",
         "list_repository_signals",
         "describe_repository_signal",
+        "describe_repository_signal_payload",
         "submit_repository_signal",
         "list_runs",
         "describe_run",
@@ -744,27 +745,41 @@ try:
             "stateful MCP smoke failed: repository signal should propose repository_signal trigger, got "
             f"{described_signal['proposed_run_trigger']}"
         )
-    signal_payload_path = pathlib.Path(described_signal["payload_path"])
+    described_signal_payload = call_tool(
+        "describe_repository_signal_payload",
+        {"signal_id": push_webhook_signal_id},
+        "payload",
+    )
+    signal_payload_path = pathlib.Path(described_signal_payload["payload_path"])
     if not signal_payload_path.is_file():
         fail(
             "stateful MCP smoke failed: repository signal payload_path should point at a file, got "
-            f"{described_signal['payload_path']}"
+            f"{described_signal_payload['payload_path']}"
         )
-    signal_payload = json.loads(signal_payload_path.read_text(encoding="utf-8"))
-    if signal_payload["signal"]["signal_id"] != push_webhook_signal_id:
+    if described_signal_payload["payload_path"] != described_signal["payload_path"]:
+        fail(
+            "stateful MCP smoke failed: repository signal payload path should match signal detail, got "
+            f"{described_signal_payload['payload_path']} vs {described_signal['payload_path']}"
+        )
+    if described_signal_payload["payload"]["signal"]["signal_id"] != push_webhook_signal_id:
         fail(
             "stateful MCP smoke failed: repository signal payload should capture signal_id, got "
-            f"{signal_payload['signal']['signal_id']}"
+            f"{described_signal_payload['payload']['signal']['signal_id']}"
         )
-    if signal_payload["automation"]["run_trigger"] != "repository_signal":
+    if described_signal_payload["payload"]["automation"]["run_trigger"] != "repository_signal":
         fail(
             "stateful MCP smoke failed: repository signal payload should propose repository_signal trigger, got "
-            f"{signal_payload['automation']['run_trigger']}"
+            f"{described_signal_payload['payload']['automation']['run_trigger']}"
         )
-    if signal_payload["repository"]["after_sha"] != push_webhook_after_sha:
+    if described_signal_payload["payload"]["source"]["request_id"] != push_webhook_action_request_id:
+        fail(
+            "stateful MCP smoke failed: repository signal payload should capture source_request_id, got "
+            f"{described_signal_payload['payload']['source']['request_id']}"
+        )
+    if described_signal_payload["payload"]["repository"]["after_sha"] != push_webhook_after_sha:
         fail(
             "stateful MCP smoke failed: repository signal payload should capture after_sha, got "
-            f"{signal_payload['repository']['after_sha']}"
+            f"{described_signal_payload['payload']['repository']['after_sha']}"
         )
 
     signal_brief_content = """\

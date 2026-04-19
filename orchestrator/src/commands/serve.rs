@@ -8,10 +8,10 @@ use crate::{
     cli::ServeArgs,
     commands::{
         create_draft_pr, describe_artifact, describe_github_default_branch_state,
-        describe_github_webhook_action_report, describe_latest_artifact, evaluate_run_policy,
-        evaluate_run_quality, export_pr_candidate, publish_pr_export,
-        run_next_github_webhook_action, run_next_task, submit_brief::submit_validated_brief,
-        worker,
+        describe_github_webhook_action_report, describe_latest_artifact,
+        describe_repository_signal_payload, evaluate_run_policy, evaluate_run_quality,
+        export_pr_candidate, publish_pr_export, run_next_github_webhook_action, run_next_task,
+        submit_brief::submit_validated_brief, worker,
     },
     config::{InstanceConfigReport, load_github_app_webhook_secret},
     github_webhook_routing::evaluate_github_webhook_route,
@@ -87,6 +87,7 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                         "/github/repositories/{owner}/{repo}/default-branch-state",
                         "/repository-signals",
                         "/repository-signals/{signal_id}",
+                        "/repository-signals/{signal_id}/payload",
                         "POST /github/webhooks",
                         "POST /github/webhook-actions/next",
                         "/packs",
@@ -467,6 +468,42 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                             },
                         )
                     }
+                }
+            }
+            ("GET", _) if repository_signal_payload_path_signal_id(path).is_some() => {
+                let signal_id = repository_signal_payload_path_signal_id(path).expect(
+                    "repository signal payload path guard should provide a single path segment",
+                );
+                match store.fetch_repository_signal(signal_id) {
+                    Ok(Some(signal)) => {
+                        match describe_repository_signal_payload::describe_repository_signal_payload(
+                            &signal,
+                        ) {
+                            Ok(payload) => json_response(StatusCode(200), &payload),
+                            Err(error) => json_response(
+                                StatusCode(500),
+                                &ErrorResponse {
+                                    error: format!(
+                                        "failed to fetch repository signal payload for {signal_id}: {error}"
+                                    ),
+                                },
+                            ),
+                        }
+                    }
+                    Ok(None) => json_response(
+                        StatusCode(404),
+                        &ErrorResponse {
+                            error: format!("repository signal not found: {signal_id}"),
+                        },
+                    ),
+                    Err(error) => json_response(
+                        StatusCode(500),
+                        &ErrorResponse {
+                            error: format!(
+                                "failed to fetch repository signal {signal_id}: {error}"
+                            ),
+                        },
+                    ),
                 }
             }
             ("GET", _) if single_path_segment(path, "/repository-signals/").is_some() => {
@@ -1246,6 +1283,17 @@ fn github_default_branch_state_path_parts(path: &str) -> Option<(&str, &str)> {
     Some((owner, repo))
 }
 
+fn repository_signal_payload_path_signal_id(path: &str) -> Option<&str> {
+    let signal_id = path
+        .strip_prefix("/repository-signals/")?
+        .strip_suffix("/payload")?;
+    if signal_id.is_empty() || signal_id.contains('/') {
+        return None;
+    }
+
+    Some(signal_id)
+}
+
 fn single_path_segment<'a>(path: &'a str, prefix: &str) -> Option<&'a str> {
     path.strip_prefix(prefix)
         .filter(|value| !value.is_empty() && !value.contains('/'))
@@ -1521,6 +1569,9 @@ fn route_label(method: &str, path: &str) -> &'static str {
             "/github/repositories/{owner}/{repo}/default-branch-state"
         }
         ("GET", "/repository-signals") => "/repository-signals",
+        ("GET", _) if repository_signal_payload_path_signal_id(path).is_some() => {
+            "/repository-signals/{signal_id}/payload"
+        }
         ("POST", "/github/webhooks") => "/github/webhooks",
         ("POST", "/github/webhook-actions/next") => "/github/webhook-actions/next",
         ("GET", _) if single_path_segment(path, "/github/webhooks/").is_some() => {
@@ -1723,7 +1774,8 @@ mod tests {
         github_default_branch_state_path_parts, github_webhook_action_report_path_request_id,
         latest_artifact_path_parts, parse_list_github_webhook_action_requests_request,
         parse_list_github_webhooks_request, parse_list_repository_signals_request,
-        parse_list_run_events_request, parse_list_runs_request, readiness_payload, route_label,
+        parse_list_run_events_request, parse_list_runs_request, readiness_payload,
+        repository_signal_payload_path_signal_id, route_label,
     };
     use crate::storage::postgres::DatabaseReadiness;
     use anyhow::anyhow;
@@ -1819,6 +1871,10 @@ mod tests {
             route_label("GET", "/repository-signals/signal-1"),
             "/repository-signals/{signal_id}"
         );
+        assert_eq!(
+            route_label("GET", "/repository-signals/signal-1/payload"),
+            "/repository-signals/{signal_id}/payload"
+        );
     }
 
     #[test]
@@ -1847,9 +1903,14 @@ mod tests {
             ),
             Some(("smartit", "catalyst-continuum"))
         );
+        assert_eq!(
+            repository_signal_payload_path_signal_id("/repository-signals/signal-1/payload"),
+            Some("signal-1")
+        );
         assert!(
             github_default_branch_state_path_parts("/github/repositories/only-owner").is_none()
         );
+        assert!(repository_signal_payload_path_signal_id("/repository-signals/signal-1").is_none());
     }
 
     #[test]

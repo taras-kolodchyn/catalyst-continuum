@@ -193,6 +193,7 @@ WEBHOOK_ACTION_REPORT_HTTP_FILE="$ARTIFACT_ROOT/http-webhook-action-report.json"
 DEFAULT_BRANCH_STATE_HTTP_FILE="$ARTIFACT_ROOT/http-default-branch-state.json"
 REPOSITORY_SIGNAL_LIST_HTTP_FILE="$ARTIFACT_ROOT/http-repository-signals.json"
 REPOSITORY_SIGNAL_DETAIL_HTTP_FILE="$ARTIFACT_ROOT/http-repository-signal.json"
+REPOSITORY_SIGNAL_PAYLOAD_HTTP_FILE="$ARTIFACT_ROOT/http-repository-signal-payload.json"
 WEBHOOK_LIST_CLI_FILE="$ARTIFACT_ROOT/cli-webhook-deliveries.json"
 WEBHOOK_PING_DETAIL_CLI_FILE="$ARTIFACT_ROOT/cli-webhook-ping-delivery.json"
 WEBHOOK_PUSH_DETAIL_CLI_FILE="$ARTIFACT_ROOT/cli-webhook-push-delivery.json"
@@ -203,6 +204,7 @@ WEBHOOK_ACTION_REPORT_CLI_FILE="$ARTIFACT_ROOT/cli-webhook-action-report.json"
 DEFAULT_BRANCH_STATE_CLI_FILE="$ARTIFACT_ROOT/cli-default-branch-state.json"
 REPOSITORY_SIGNAL_LIST_CLI_FILE="$ARTIFACT_ROOT/cli-repository-signals.json"
 REPOSITORY_SIGNAL_DETAIL_CLI_FILE="$ARTIFACT_ROOT/cli-repository-signal.json"
+REPOSITORY_SIGNAL_PAYLOAD_CLI_FILE="$ARTIFACT_ROOT/cli-repository-signal-payload.json"
 REPOSITORY_SIGNAL_BRIEF_FILE="$ARTIFACT_ROOT/repository-signal-brief.yaml"
 REPOSITORY_SIGNAL_SUBMISSION_CLI_FILE="$ARTIFACT_ROOT/cli-repository-signal-submission.json"
 REPOSITORY_SIGNAL_SUBMITTED_CLI_FILE="$ARTIFACT_ROOT/cli-repository-signal-submitted.json"
@@ -448,6 +450,9 @@ curl -fsS \
 curl -fsS \
   "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/repository-signals/${PUSH_WEBHOOK_SIGNAL_ID}" \
   >"$REPOSITORY_SIGNAL_DETAIL_HTTP_FILE"
+curl -fsS \
+  "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/repository-signals/${PUSH_WEBHOOK_SIGNAL_ID}/payload" \
+  >"$REPOSITORY_SIGNAL_PAYLOAD_HTTP_FILE"
 "$BIN" describe-github-webhook-action-request \
   --database-url "$DATABASE_URL" \
   --request-id "$PUSH_WEBHOOK_ACTION_REQUEST_ID" \
@@ -467,6 +472,10 @@ curl -fsS \
   --database-url "$DATABASE_URL" \
   --signal-id "$PUSH_WEBHOOK_SIGNAL_ID" \
   --json >"$REPOSITORY_SIGNAL_DETAIL_CLI_FILE"
+"$BIN" describe-repository-signal-payload \
+  --database-url "$DATABASE_URL" \
+  --signal-id "$PUSH_WEBHOOK_SIGNAL_ID" \
+  --json >"$REPOSITORY_SIGNAL_PAYLOAD_CLI_FILE"
 python3 - \
   "$WEBHOOK_ACTION_RUN_HTTP_FILE" \
   "$WEBHOOK_ACTION_EXECUTED_HTTP_FILE" \
@@ -477,8 +486,10 @@ python3 - \
   "$DEFAULT_BRANCH_STATE_CLI_FILE" \
   "$REPOSITORY_SIGNAL_LIST_HTTP_FILE" \
   "$REPOSITORY_SIGNAL_DETAIL_HTTP_FILE" \
+  "$REPOSITORY_SIGNAL_PAYLOAD_HTTP_FILE" \
   "$REPOSITORY_SIGNAL_LIST_CLI_FILE" \
   "$REPOSITORY_SIGNAL_DETAIL_CLI_FILE" \
+  "$REPOSITORY_SIGNAL_PAYLOAD_CLI_FILE" \
   "$PUSH_WEBHOOK_ACTION_REQUEST_ID" \
   "$PUSH_WEBHOOK_SIGNAL_ID" \
   "$PUSH_WEBHOOK_AFTER_SHA" \
@@ -496,12 +507,14 @@ cli_report = json.loads(pathlib.Path(sys.argv[6]).read_text(encoding="utf-8"))
 cli_state = json.loads(pathlib.Path(sys.argv[7]).read_text(encoding="utf-8"))
 http_signal_list = json.loads(pathlib.Path(sys.argv[8]).read_text(encoding="utf-8"))
 http_signal_detail = json.loads(pathlib.Path(sys.argv[9]).read_text(encoding="utf-8"))
-cli_signal_list = json.loads(pathlib.Path(sys.argv[10]).read_text(encoding="utf-8"))
-cli_signal_detail = json.loads(pathlib.Path(sys.argv[11]).read_text(encoding="utf-8"))
-request_id = sys.argv[12]
-signal_id = sys.argv[13]
-after_sha = sys.argv[14]
-expected_attempt_count = int(sys.argv[15])
+http_signal_payload = json.loads(pathlib.Path(sys.argv[10]).read_text(encoding="utf-8"))
+cli_signal_list = json.loads(pathlib.Path(sys.argv[11]).read_text(encoding="utf-8"))
+cli_signal_detail = json.loads(pathlib.Path(sys.argv[12]).read_text(encoding="utf-8"))
+cli_signal_payload = json.loads(pathlib.Path(sys.argv[13]).read_text(encoding="utf-8"))
+request_id = sys.argv[14]
+signal_id = sys.argv[15]
+after_sha = sys.argv[16]
+expected_attempt_count = int(sys.argv[17])
 
 assert run_response["outcome"] == "executed", run_response
 assert run_response["execution_status"] == "succeeded", run_response
@@ -547,16 +560,20 @@ assert http_signal_detail["status"] == "pending", http_signal_detail
 assert http_signal_detail["proposed_run_trigger"] == "repository_signal", http_signal_detail
 assert http_signal_detail["source_request_id"] == request_id, http_signal_detail
 assert http_signal_detail["after_sha"] == after_sha, http_signal_detail
-signal_payload_path = pathlib.Path(http_signal_detail["payload_path"])
-assert signal_payload_path.is_file(), http_signal_detail
-signal_payload = json.loads(signal_payload_path.read_text(encoding="utf-8"))
-assert signal_payload["signal"]["signal_id"] == signal_id, signal_payload
-assert signal_payload["signal"]["signal_kind"] == "default_branch_updated", signal_payload
-assert signal_payload["signal"]["proposed_run_trigger"] == "repository_signal", signal_payload
-assert signal_payload["automation"]["run_trigger"] == "repository_signal", signal_payload
-assert signal_payload["automation"]["trigger_metadata"]["signal_id"] == signal_id, signal_payload
-assert signal_payload["automation"]["trigger_metadata"]["source_request_id"] == request_id, signal_payload
-assert signal_payload["repository"]["after_sha"] == after_sha, signal_payload
+assert http_signal_payload["persisted"] is True, http_signal_payload
+assert http_signal_payload["payload_path"] == http_signal_detail["payload_path"], (http_signal_payload, http_signal_detail)
+signal_payload_path = pathlib.Path(http_signal_payload["payload_path"])
+assert signal_payload_path.is_file(), http_signal_payload
+assert http_signal_payload["payload"]["signal"]["signal_id"] == signal_id, http_signal_payload
+assert http_signal_payload["payload"]["signal"]["signal_kind"] == "default_branch_updated", http_signal_payload
+assert http_signal_payload["payload"]["signal"]["proposed_run_trigger"] == "repository_signal", http_signal_payload
+assert http_signal_payload["payload"]["source"]["request_id"] == request_id, http_signal_payload
+assert http_signal_payload["payload"]["source"]["report_path"] == http_report["report_path"], http_signal_payload
+assert http_signal_payload["payload"]["source"]["state_path"] == http_state["state_path"], http_signal_payload
+assert http_signal_payload["payload"]["automation"]["run_trigger"] == "repository_signal", http_signal_payload
+assert http_signal_payload["payload"]["automation"]["trigger_metadata"]["signal_id"] == signal_id, http_signal_payload
+assert http_signal_payload["payload"]["automation"]["trigger_metadata"]["source_request_id"] == request_id, http_signal_payload
+assert http_signal_payload["payload"]["repository"]["after_sha"] == after_sha, http_signal_payload
 assert any(signal["signal_id"] == signal_id for signal in cli_signal_list), cli_signal_list
 assert cli_signal_detail["signal_id"] == signal_id, cli_signal_detail
 assert cli_signal_detail["persisted"] is True, cli_signal_detail
@@ -565,6 +582,11 @@ assert cli_signal_detail["status"] == "pending", cli_signal_detail
 assert cli_signal_detail["proposed_run_trigger"] == "repository_signal", cli_signal_detail
 assert cli_signal_detail["source_request_id"] == request_id, cli_signal_detail
 assert cli_signal_detail["after_sha"] == after_sha, cli_signal_detail
+assert cli_signal_payload["persisted"] is True, cli_signal_payload
+assert cli_signal_payload["payload"]["signal"]["signal_id"] == signal_id, cli_signal_payload
+assert cli_signal_payload["payload"]["source"]["request_id"] == request_id, cli_signal_payload
+assert cli_signal_payload["payload"]["repository"]["after_sha"] == after_sha, cli_signal_payload
+assert cli_signal_payload["payload"]["automation"]["run_trigger"] == "repository_signal", cli_signal_payload
 PY
 
 cat >"$REPOSITORY_SIGNAL_BRIEF_FILE" <<'EOF'

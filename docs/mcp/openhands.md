@@ -131,6 +131,7 @@ Stateful tools need `CATALYST_DATABASE_URL`:
 - `run_next_github_webhook_action`
 - `list_repository_signals`
 - `describe_repository_signal`
+- `describe_repository_signal_payload`
 - `submit_repository_signal`
 - `submit_brief`
 - `list_runs`
@@ -151,6 +152,7 @@ Stateful tools need `CATALYST_DATABASE_URL`:
 `describe_github_default_branch_state` lets OpenHands inspect the current repository-scoped default-branch sync state directly from the artifact root, so it can confirm the observed branch head and the originating request even in sessions that do not need Postgres-backed tools.
 `run_next_github_webhook_action` is the safe executor path for those requests and currently advances `sync_default_branch` by claiming the next pending request, writing a request-scoped report plus repository-scoped default-branch state, emitting a durable `default_branch_updated` repository signal, and returning the terminal request summary.
 `list_repository_signals` and `describe_repository_signal` let OpenHands inspect that repository-scoped automation handoff directly, including the proposed `repository_signal` trigger metadata for later orchestration.
+`describe_repository_signal_payload` lets OpenHands inspect the persisted automation payload behind that signal, including the source report/state linkage and trigger metadata, without scraping raw artifact files.
 `submit_repository_signal` is the explicit bridge from that pending repository signal into a real run: OpenHands supplies the brief content, the orchestrator enforces repository/default-branch alignment, persists a linked run with trigger `repository_signal`, and updates the signal with `materialized_run_id`.
 `list_run_events` is the shared audit trail for OpenHands when it needs durable visibility into run status changes, task starts/completions, and policy or quality checkpoints without reverse-engineering them from artifact timestamps.
 `describe_artifact` is the general inspection tool for OpenHands when it needs the persisted manifest or metadata behind a `backlog`, `policy_report`, `quality_report`, `pr_export`, or publication artifact referenced by `describe_run`.
@@ -181,6 +183,6 @@ Before wiring OpenHands, validate the server locally:
 ```
 
 `./scripts/mcp-smoke.sh` validates the stateless handshake and tool discovery path.
-`./scripts/mcp-stateful-smoke.sh` validates the safe stateful path: GitHub webhook inspection and execution, webhook execution-report inspection, default-branch-state inspection, repository-signal inspection, brief submission, run listing, one `run_worker_once` execution, policy evaluation, persisted policy-artifact inspection, and run-event inspection. The heavier full-run quality-gate path stays in `./scripts/smoke-mvp.sh` and `./scripts/ci-smoke.sh`, so the MCP smoke stays focused on agent-facing transport and stateful tool contracts.
+`./scripts/mcp-stateful-smoke.sh` validates the safe stateful path: GitHub webhook inspection and execution, webhook execution-report inspection, default-branch-state inspection, repository-signal inspection plus payload inspection, brief submission, run listing, one `run_worker_once` execution, policy evaluation, persisted policy-artifact inspection, and run-event inspection. The heavier full-run quality-gate path stays in `./scripts/smoke-mvp.sh` and `./scripts/ci-smoke.sh`, so the MCP smoke stays focused on agent-facing transport and stateful tool contracts.
 
 Then register the server in OpenHands and start a conversation with [examples/openhands/first-task.md](../../examples/openhands/first-task.md). That is the shortest path to confirming the integration end to end without publishing or opening a GitHub PR.

@@ -1,5 +1,7 @@
+use std::{fs, path::Path};
+
 use anyhow::{Context, Result};
-use serde::Serialize;
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use uuid::Uuid;
 
 #[derive(Debug, Clone)]
@@ -60,6 +62,83 @@ pub struct RepositorySignalListFilters {
     pub status: Option<String>,
     pub signal_kind: Option<String>,
     pub repository_full_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct RepositorySignalPayloadSignal {
+    pub signal_id: String,
+    pub provider: String,
+    pub repository_full_name: String,
+    pub signal_kind: String,
+    pub status: String,
+    pub proposed_run_trigger: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct RepositorySignalPayloadRepository {
+    pub full_name: String,
+    pub default_branch: String,
+    pub ref_name: String,
+    pub before_sha: Option<String>,
+    pub after_sha: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct RepositorySignalPayloadSourceDelivery {
+    pub event: Option<String>,
+    pub outcome: Option<String>,
+    pub receipt_path: Option<String>,
+    pub payload_digest: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct RepositorySignalPayloadSource {
+    pub delivery_id: String,
+    pub request_id: String,
+    pub action: String,
+    pub report_path: String,
+    pub state_path: String,
+    pub delivery: RepositorySignalPayloadSourceDelivery,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct RepositorySignalPayloadAutomationTriggerMetadata {
+    pub signal_id: String,
+    pub signal_kind: String,
+    pub provider: String,
+    pub repository_full_name: String,
+    pub after_sha: String,
+    pub source_request_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct RepositorySignalPayloadAutomation {
+    pub run_trigger: String,
+    pub trigger_metadata: RepositorySignalPayloadAutomationTriggerMetadata,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct RepositorySignalPayload {
+    pub signal_version: u32,
+    pub signal: RepositorySignalPayloadSignal,
+    pub repository: RepositorySignalPayloadRepository,
+    pub source: RepositorySignalPayloadSource,
+    pub automation: RepositorySignalPayloadAutomation,
+    pub emitted_at_epoch_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RepositorySignalPayloadDetail {
+    pub payload: RepositorySignalPayload,
+    pub payload_path: String,
+    pub persisted: bool,
 }
 
 impl RepositorySignalSummary {
@@ -177,6 +256,178 @@ impl RepositorySignalSummary {
     }
 }
 
+impl RepositorySignalPayloadDetail {
+    pub fn from_path(path: &Path) -> Result<Self> {
+        let payload = read_json_document(path, "repository signal payload")?;
+        Ok(Self {
+            payload,
+            payload_path: path.display().to_string(),
+            persisted: true,
+        })
+    }
+
+    pub fn render_text(&self) -> Result<String> {
+        use std::fmt::Write as _;
+
+        let mut output = String::new();
+        writeln!(&mut output, "payload_path: {}", self.payload_path)
+            .context("failed to render repository signal payload")?;
+        writeln!(
+            &mut output,
+            "persisted: {}",
+            if self.persisted { "yes" } else { "no" }
+        )
+        .context("failed to render repository signal payload")?;
+        writeln!(
+            &mut output,
+            "signal_version: {}",
+            self.payload.signal_version
+        )
+        .context("failed to render repository signal payload")?;
+        writeln!(&mut output, "signal_id: {}", self.payload.signal.signal_id)
+            .context("failed to render repository signal payload")?;
+        writeln!(&mut output, "provider: {}", self.payload.signal.provider)
+            .context("failed to render repository signal payload")?;
+        writeln!(
+            &mut output,
+            "repository_full_name: {}",
+            self.payload.signal.repository_full_name
+        )
+        .context("failed to render repository signal payload")?;
+        writeln!(
+            &mut output,
+            "signal_kind: {}",
+            self.payload.signal.signal_kind
+        )
+        .context("failed to render repository signal payload")?;
+        writeln!(&mut output, "signal_status: {}", self.payload.signal.status)
+            .context("failed to render repository signal payload")?;
+        writeln!(
+            &mut output,
+            "proposed_run_trigger: {}",
+            self.payload.signal.proposed_run_trigger
+        )
+        .context("failed to render repository signal payload")?;
+        writeln!(
+            &mut output,
+            "default_branch: {}",
+            self.payload.repository.default_branch
+        )
+        .context("failed to render repository signal payload")?;
+        writeln!(
+            &mut output,
+            "ref_name: {}",
+            self.payload.repository.ref_name
+        )
+        .context("failed to render repository signal payload")?;
+        if let Some(before_sha) = &self.payload.repository.before_sha {
+            writeln!(&mut output, "before_sha: {}", before_sha)
+                .context("failed to render repository signal payload")?;
+        }
+        writeln!(
+            &mut output,
+            "after_sha: {}",
+            self.payload.repository.after_sha
+        )
+        .context("failed to render repository signal payload")?;
+        writeln!(
+            &mut output,
+            "source_delivery_id: {}",
+            self.payload.source.delivery_id
+        )
+        .context("failed to render repository signal payload")?;
+        writeln!(
+            &mut output,
+            "source_request_id: {}",
+            self.payload.source.request_id
+        )
+        .context("failed to render repository signal payload")?;
+        writeln!(&mut output, "source_action: {}", self.payload.source.action)
+            .context("failed to render repository signal payload")?;
+        writeln!(
+            &mut output,
+            "report_path: {}",
+            self.payload.source.report_path
+        )
+        .context("failed to render repository signal payload")?;
+        writeln!(
+            &mut output,
+            "state_path: {}",
+            self.payload.source.state_path
+        )
+        .context("failed to render repository signal payload")?;
+        if let Some(event) = &self.payload.source.delivery.event {
+            writeln!(&mut output, "delivery_event: {}", event)
+                .context("failed to render repository signal payload")?;
+        }
+        if let Some(outcome) = &self.payload.source.delivery.outcome {
+            writeln!(&mut output, "delivery_outcome: {}", outcome)
+                .context("failed to render repository signal payload")?;
+        }
+        if let Some(receipt_path) = &self.payload.source.delivery.receipt_path {
+            writeln!(&mut output, "receipt_path: {}", receipt_path)
+                .context("failed to render repository signal payload")?;
+        }
+        if let Some(payload_digest) = &self.payload.source.delivery.payload_digest {
+            writeln!(&mut output, "payload_digest: {}", payload_digest)
+                .context("failed to render repository signal payload")?;
+        }
+        writeln!(
+            &mut output,
+            "automation_run_trigger: {}",
+            self.payload.automation.run_trigger
+        )
+        .context("failed to render repository signal payload")?;
+        writeln!(
+            &mut output,
+            "automation_signal_id: {}",
+            self.payload.automation.trigger_metadata.signal_id
+        )
+        .context("failed to render repository signal payload")?;
+        writeln!(
+            &mut output,
+            "automation_signal_kind: {}",
+            self.payload.automation.trigger_metadata.signal_kind
+        )
+        .context("failed to render repository signal payload")?;
+        writeln!(
+            &mut output,
+            "automation_provider: {}",
+            self.payload.automation.trigger_metadata.provider
+        )
+        .context("failed to render repository signal payload")?;
+        writeln!(
+            &mut output,
+            "automation_repository_full_name: {}",
+            self.payload
+                .automation
+                .trigger_metadata
+                .repository_full_name
+        )
+        .context("failed to render repository signal payload")?;
+        writeln!(
+            &mut output,
+            "automation_after_sha: {}",
+            self.payload.automation.trigger_metadata.after_sha
+        )
+        .context("failed to render repository signal payload")?;
+        writeln!(
+            &mut output,
+            "automation_source_request_id: {}",
+            self.payload.automation.trigger_metadata.source_request_id
+        )
+        .context("failed to render repository signal payload")?;
+        write!(
+            &mut output,
+            "emitted_at_epoch_ms: {}",
+            self.payload.emitted_at_epoch_ms
+        )
+        .context("failed to render repository signal payload")?;
+
+        Ok(output)
+    }
+}
+
 impl RepositorySignalListFilters {
     pub fn from_inputs(
         status: Option<&str>,
@@ -200,9 +451,20 @@ impl RepositorySignalListFilters {
     }
 }
 
+fn read_json_document<T: DeserializeOwned>(path: &Path, label: &str) -> Result<T> {
+    let bytes =
+        fs::read(path).with_context(|| format!("failed to read {label}: {}", path.display()))?;
+    serde_json::from_slice(&bytes)
+        .with_context(|| format!("failed to parse {label} JSON: {}", path.display()))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{RepositorySignalDraft, RepositorySignalListFilters, RepositorySignalSummary};
+    use super::{
+        RepositorySignalDraft, RepositorySignalListFilters, RepositorySignalPayloadDetail,
+        RepositorySignalSummary,
+    };
+    use std::{env, fs};
     use uuid::Uuid;
 
     #[test]
@@ -290,5 +552,80 @@ mod tests {
         assert_eq!(summary.proposed_run_trigger, "repository_signal");
         assert_eq!(summary.materialized_run_id, None);
         assert!(!summary.persisted);
+    }
+
+    #[test]
+    fn loads_and_renders_repository_signal_payload_detail() {
+        let path =
+            env::temp_dir().join(format!("repository-signal-payload-{}.json", Uuid::new_v4()));
+        fs::write(
+            &path,
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "signal_version": 1,
+                "signal": {
+                    "signal_id": "github:delivery-1:sync_default_branch:default_branch_updated",
+                    "provider": "github",
+                    "repository_full_name": "smartit/catalyst-continuum",
+                    "signal_kind": "default_branch_updated",
+                    "status": "pending",
+                    "proposed_run_trigger": "repository_signal"
+                },
+                "repository": {
+                    "full_name": "smartit/catalyst-continuum",
+                    "default_branch": "main",
+                    "ref_name": "refs/heads/main",
+                    "before_sha": "1111111111111111111111111111111111111111",
+                    "after_sha": "2222222222222222222222222222222222222222"
+                },
+                "source": {
+                    "delivery_id": "delivery-1",
+                    "request_id": "github:delivery-1:sync_default_branch",
+                    "action": "sync_default_branch",
+                    "report_path": "/tmp/report.json",
+                    "state_path": "/tmp/state.json",
+                    "delivery": {
+                        "event": "push",
+                        "outcome": "accepted",
+                        "receipt_path": "/tmp/receipt.json",
+                        "payload_digest": "sha256:test"
+                    }
+                },
+                "automation": {
+                    "run_trigger": "repository_signal",
+                    "trigger_metadata": {
+                        "signal_id": "github:delivery-1:sync_default_branch:default_branch_updated",
+                        "signal_kind": "default_branch_updated",
+                        "provider": "github",
+                        "repository_full_name": "smartit/catalyst-continuum",
+                        "after_sha": "2222222222222222222222222222222222222222",
+                        "source_request_id": "github:delivery-1:sync_default_branch"
+                    }
+                },
+                "emitted_at_epoch_ms": 1713542400000u64
+            }))
+            .expect("payload JSON should serialize"),
+        )
+        .expect("payload JSON should be written");
+
+        let detail =
+            RepositorySignalPayloadDetail::from_path(&path).expect("payload detail should load");
+        let rendered = detail.render_text().expect("payload detail should render");
+
+        assert_eq!(
+            detail.payload.signal.signal_id,
+            "github:delivery-1:sync_default_branch:default_branch_updated"
+        );
+        assert_eq!(
+            detail.payload.source.request_id,
+            "github:delivery-1:sync_default_branch"
+        );
+        assert_eq!(
+            detail.payload.automation.trigger_metadata.after_sha,
+            "2222222222222222222222222222222222222222"
+        );
+        assert!(rendered.contains("automation_run_trigger: repository_signal"));
+        assert!(rendered.contains("source_action: sync_default_branch"));
+
+        let _ = fs::remove_file(path);
     }
 }
