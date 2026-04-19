@@ -1,3 +1,4 @@
+pub mod agent_routing;
 pub mod backlog;
 pub mod brief_validation;
 pub mod github_pr;

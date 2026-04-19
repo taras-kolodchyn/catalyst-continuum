@@ -52,6 +52,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     dependency_task_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
     source_refs JSONB NOT NULL DEFAULT '[]'::jsonb,
     assigned_pack TEXT,
+    assigned_agent TEXT,
+    orchestrator_model TEXT,
     approval_required BOOLEAN NOT NULL DEFAULT FALSE,
     metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
     started_at TIMESTAMPTZ,
@@ -178,6 +180,8 @@ ALTER TABLE tasks ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS failure_reason TEXT;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS execution JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS assigned_agent TEXT;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS orchestrator_model TEXT;
 ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS provider TEXT NOT NULL DEFAULT 'github';
 ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS action TEXT;
 ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS repository_full_name TEXT;

@@ -3,6 +3,12 @@ pack_id: container-service
 display_name: Container Service
 default_runtime_provider: docker
 default_sandbox_profile: restricted
+agent_profile:
+  default_agent: openhands
+  supported_agents:
+    - openhands
+    - codex
+  default_orchestrator_model: planner-default
 policy_profile:
   require_explicit_policy: false
   max_task_timeout_seconds: 60
@@ -27,6 +33,7 @@ backlog_templates:
     generator: static
     id: PLAN-001
     kind: plan
+    agent: codex
     priority: high
     title: Translate the brief into an implementation plan
     description_template: >

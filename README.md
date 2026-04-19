@@ -22,6 +22,7 @@ The rule is simple:
 The Rust command/application layer remains the single source of truth underneath all three interfaces.
 
 The first control-plane policy slice now lives in the brief itself. It does not duplicate LiteLLM token or spend budgets. Instead, it constrains orchestration-level behavior such as planned task count, total timeout budget, bounded retry scheduling, allowed task kinds, allowed runtime providers, and allowed sandbox profiles. Every accepted submission now emits a `policy_report` artifact alongside the `backlog`.
+The same brief and pack contract now also carries explicit agent routing metadata. Packs declare an `agent_profile` with supported agents and a default orchestrator model hint, briefs can narrow that contract with `allowed_agents`, `default_agent`, and `orchestrator_model`, and the resolved routing is materialized into the backlog plus each persisted task as `assigned_agent` and `orchestrator_model`.
 Task `timeout_seconds` is now enforced by the Docker runtime itself, and the worker will reclaim stale `running` tasks whose lease has expired so a crashed task runner does not leave the run wedged forever.
 Each durable run, task, and promotion-path transition now also emits a `run_event` record in Postgres, so operators and MCP clients can inspect the same audit trail through `list-run-events`, `GET /runs/{run_id}/events`, and the MCP `list_run_events` tool.
 
@@ -35,7 +36,16 @@ policy:
   allowed_task_kinds: [plan, scaffold, code, test]
   allowed_runtime_providers: [docker]
   allowed_sandbox_profiles: [restricted]
+execution_preferences:
+  repo_pack: cli-tool
+  default_runtime_provider: docker
+  sandbox_profile: restricted
+  orchestrator_model: planner-default
+  default_agent: openhands
+  allowed_agents: [openhands, codex]
 ```
+
+The shipped packs currently use `codex` for the planning task and `openhands` for the scaffold/code/test flow. That is an explicit contract, not a hidden scheduler: `describe-pack` exposes the pack-level `agent_profile`, `validate-brief` exposes the resolved `agent_routing`, and `describe-run` shows the resulting task-level assignments.
 
 The current run policy can also be re-evaluated explicitly:
 
@@ -132,9 +142,10 @@ HTTP now also exposes a signed GitHub App webhook intake at `/github/webhooks`. 
 Those action requests are now executable through the shared Rust command layer via `run-next-github-webhook-action`, `POST /github/webhook-actions/next`, and the MCP tool `run_next_github_webhook_action`. The initial `sync_default_branch` executor path claims the next pending request, persists a per-request execution report under `github-webhook-actions/<provider>/<delivery>/<action>/report.json`, writes a durable repository state file under `github-repositories/<provider>/<owner>/<repo>/default-branch-state.json`, emits a durable `repository_signals` record plus JSON payload for the repository-scoped `default_branch_updated` automation handoff, records execution telemetry, and marks the request as `succeeded` or `failed` with attempt counts and timestamps for auditability. Those persisted report and state artifacts are inspectable through `describe-github-webhook-action-report`, `describe-github-default-branch-state`, `GET /github/webhook-actions/{request_id}/report`, `GET /github/repositories/{owner}/{repo}/default-branch-state`, and the MCP tools `describe_github_webhook_action_report` plus `describe_github_default_branch_state`. The resulting repository signals remain inspectable through `list-repository-signals`, `describe-repository-signal`, `describe-repository-signal-payload`, `GET /repository-signals`, `GET /repository-signals/{signal_id}`, `GET /repository-signals/{signal_id}/payload`, and the MCP tools `list_repository_signals`, `describe_repository_signal`, plus `describe_repository_signal_payload`.
 The next control-plane handoff is now explicit: `submit-repository-signal`, `submit-next-repository-signal`, and the MCP tools `submit_repository_signal` plus `submit_next_repository_signal` validate a brief against pending repository signals, enforce that the brief targets the same repository and default branch, reject stale signals when the persisted default-branch state has already advanced, materialize a `run` with trigger `repository_signal`, and link that run back onto the signal as `materialized_run_id`. `submit-next-repository-signal` is the queue-safe convenience path when an operator or agent wants the latest fresh pending signal for the repository declared in the brief instead of naming one signal id manually. `run-next-repository-automation` and the MCP tool `run_next_repository_automation` are the first brief-wired automation composition on top of those primitives: they validate the brief up front, execute at most one pending webhook action, and then materialize the freshest matching repository signal into a run when possible, so cron or agent-driven control loops do not need to reimplement the sequence themselves. When a newer `sync_default_branch` execution emits a fresh `default_branch_updated` signal for the same repository/default branch, the control plane now marks older still-pending signals as `superseded` so the queue and audit trail stay aligned with the latest observed head. The executor still reclaims stale `running` action requests before each claim so a crashed control-plane worker does not wedge repository sync forever.
 
-`list-packs` and `describe-pack` now expose pack-level `policy_profile` and
-`quality_profile` contracts so open-source agents can inspect timeout/retry
-ceilings and publication prerequisites before they start a run.
+`list-packs` and `describe-pack` now expose pack-level `agent_profile`,
+`policy_profile`, and `quality_profile` contracts so open-source agents can
+inspect supported routing targets, timeout/retry ceilings, and publication
+prerequisites before they start a run.
 
 The local `v0.1` compose stack now includes an observability baseline:
 

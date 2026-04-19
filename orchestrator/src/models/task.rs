@@ -19,6 +19,8 @@ pub struct TaskDraft {
     pub dependency_task_ids: Value,
     pub source_refs: Value,
     pub assigned_pack: Option<String>,
+    pub assigned_agent: Option<String>,
+    pub orchestrator_model: Option<String>,
     pub approval_required: bool,
     pub metadata: Value,
 }
@@ -46,6 +48,8 @@ pub struct TaskSummary {
     pub dependency_task_ids: Value,
     pub source_refs: Value,
     pub assigned_pack: Option<String>,
+    pub assigned_agent: Option<String>,
+    pub orchestrator_model: Option<String>,
     pub approval_required: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub retry_state: Option<TaskRetryState>,
@@ -73,6 +77,8 @@ impl TaskSummary {
             dependency_task_ids: draft.dependency_task_ids.clone(),
             source_refs: draft.source_refs.clone(),
             assigned_pack: draft.assigned_pack.clone(),
+            assigned_agent: draft.assigned_agent.clone(),
+            orchestrator_model: draft.orchestrator_model.clone(),
             approval_required: draft.approval_required,
             retry_state: retry_state_from_metadata(&draft.metadata),
             metadata: draft.metadata.clone(),
@@ -107,6 +113,14 @@ impl TaskSummary {
             .context("failed to render task")?;
         writeln!(&mut output, "provider: {}", self.execution.provider)
             .context("failed to render task")?;
+        if let Some(assigned_agent) = &self.assigned_agent {
+            writeln!(&mut output, "assigned_agent: {}", assigned_agent)
+                .context("failed to render task")?;
+        }
+        if let Some(orchestrator_model) = &self.orchestrator_model {
+            writeln!(&mut output, "orchestrator_model: {}", orchestrator_model)
+                .context("failed to render task")?;
+        }
         if let Some(image) = &self.execution.image {
             writeln!(&mut output, "image: {}", image).context("failed to render task")?;
         }

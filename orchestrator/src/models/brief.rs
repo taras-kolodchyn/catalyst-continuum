@@ -72,6 +72,9 @@ impl Brief {
         if let Some(policy) = &self.policy {
             policy.validate()?;
         }
+        if let Some(execution_preferences) = &self.execution_preferences {
+            execution_preferences.validate()?;
+        }
 
         for requirement in self
             .functional_requirements
@@ -177,6 +180,54 @@ pub struct ExecutionPreferences {
     pub default_runtime_provider: Option<RuntimeProvider>,
     #[serde(default)]
     pub sandbox_profile: Option<String>,
+    #[serde(default)]
+    pub orchestrator_model: Option<String>,
+    #[serde(default)]
+    pub default_agent: Option<String>,
+    #[serde(default)]
+    pub allowed_agents: Vec<String>,
+}
+
+impl ExecutionPreferences {
+    fn validate(&self) -> Result<()> {
+        if let Some(repo_pack) = &self.repo_pack {
+            ensure!(
+                !repo_pack.trim().is_empty(),
+                "execution_preferences.repo_pack must not be empty"
+            );
+        }
+        if let Some(sandbox_profile) = &self.sandbox_profile {
+            ensure!(
+                !sandbox_profile.trim().is_empty(),
+                "execution_preferences.sandbox_profile must not be empty"
+            );
+        }
+        if let Some(orchestrator_model) = &self.orchestrator_model {
+            ensure!(
+                !orchestrator_model.trim().is_empty(),
+                "execution_preferences.orchestrator_model must not be empty"
+            );
+        }
+        if let Some(default_agent) = &self.default_agent {
+            ensure!(
+                !default_agent.trim().is_empty(),
+                "execution_preferences.default_agent must not be empty"
+            );
+        }
+        validate_policy_list("execution_preferences.allowed_agents", &self.allowed_agents)?;
+        if let Some(default_agent) = &self.default_agent {
+            ensure!(
+                self.allowed_agents.is_empty()
+                    || self
+                        .allowed_agents
+                        .iter()
+                        .any(|agent| agent == default_agent),
+                "execution_preferences.default_agent must be listed in execution_preferences.allowed_agents when an allowlist is declared"
+            );
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

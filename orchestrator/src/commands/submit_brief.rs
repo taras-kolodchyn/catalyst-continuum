@@ -145,12 +145,17 @@ pub(crate) fn prepare_validated_submission(
             serde_json::to_value(&report.pack_selection)
                 .context("failed to serialize pack selection metadata")?,
         );
+        metadata.insert(
+            "agent_routing".to_string(),
+            serde_json::to_value(&report.agent_routing)
+                .context("failed to serialize agent routing metadata")?,
+        );
     }
     draft.selected_pack = Some(pack.pack_id.clone());
 
     let generated_backlog =
         generate_initial_backlog(&brief, &draft, &pack, artifact_root, !dry_run)?;
-    let task_drafts = materialize_tasks(&draft, &pack, &generated_backlog.document.items)?;
+    let task_drafts = materialize_tasks(&draft, &pack, &generated_backlog.document)?;
     let policy_evaluation =
         policy::evaluate_submission_policy(&draft, &brief, &pack, &task_drafts, artifact_root)?;
     if !policy_evaluation.passed {
@@ -187,6 +192,11 @@ mod tests {
         assert_eq!(
             submission.tasks[0].assigned_pack.as_deref(),
             Some(DEFAULT_PACK_ID)
+        );
+        assert_eq!(submission.tasks[0].assigned_agent.as_deref(), Some("codex"));
+        assert_eq!(
+            submission.tasks[0].orchestrator_model.as_deref(),
+            Some("planner-default")
         );
         assert!(
             submission
@@ -258,6 +268,9 @@ repository:
 execution_preferences:
   default_runtime_provider: docker
   sandbox_profile: restricted
+  allowed_agents:
+    - openhands
+    - codex
 "#
     }
 
@@ -291,6 +304,9 @@ execution_preferences:
   repo_pack: {pack_id}
   default_runtime_provider: docker
   sandbox_profile: restricted
+  allowed_agents:
+    - openhands
+    - codex
 "#
         )
     }

@@ -15,6 +15,7 @@ use crate::models::{
     run::RunDraft,
 };
 
+use super::agent_routing::{ResolvedAgentRouting, resolve_agent_routing};
 use super::packs::{
     BacklogGenerator, PackBacklogTemplate, PackDefinition, PriorityStrategy, SourceStrategy,
     render_template,
@@ -29,6 +30,14 @@ pub struct BacklogDocument {
     pub title: String,
     pub summary: String,
     pub selected_pack: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub orchestrator_model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_agent: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowed_agents: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub supported_agents: Vec<String>,
     pub items: Vec<BacklogItem>,
 }
 
@@ -41,6 +50,8 @@ pub struct BacklogItem {
     pub title: String,
     pub description: String,
     pub sources: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub assigned_agent: Option<String>,
 }
 
 pub struct GeneratedBacklogArtifact {
@@ -55,6 +66,7 @@ pub fn generate_initial_backlog(
     artifact_root: &Path,
     persist_file: bool,
 ) -> Result<GeneratedBacklogArtifact> {
+    let agent_routing = resolve_agent_routing(brief, pack)?;
     let document = BacklogDocument {
         schema_version: "v0.1".to_string(),
         artifact_type: "backlog".to_string(),
@@ -63,7 +75,11 @@ pub fn generate_initial_backlog(
         title: format!("{} Initial Backlog", brief.title),
         summary: brief.summary.clone(),
         selected_pack: Some(pack.pack_id.clone()),
-        items: build_backlog_items(brief, run, pack)?,
+        orchestrator_model: agent_routing.orchestrator_model.clone(),
+        default_agent: agent_routing.default_agent.clone(),
+        allowed_agents: agent_routing.allowed_agents.clone(),
+        supported_agents: agent_routing.supported_agents.clone(),
+        items: build_backlog_items(brief, run, pack, &agent_routing)?,
     };
 
     let artifact_path = artifact_root
@@ -102,13 +118,22 @@ fn build_backlog_items(
     brief: &Brief,
     run: &RunDraft,
     pack: &PackDefinition,
+    agent_routing: &ResolvedAgentRouting,
 ) -> Result<Vec<BacklogItem>> {
     let mut items = Vec::new();
 
     for template in &pack.backlog_templates {
         match template.generator {
             BacklogGenerator::Static => {
-                items.push(render_backlog_item(template, brief, run, pack, None, None)?);
+                items.push(render_backlog_item(
+                    template,
+                    brief,
+                    run,
+                    pack,
+                    agent_routing,
+                    None,
+                    None,
+                )?);
             }
             BacklogGenerator::PerFunctionalRequirement => {
                 for (index, requirement) in brief.functional_requirements.iter().enumerate() {
@@ -117,6 +142,7 @@ fn build_backlog_items(
                         brief,
                         run,
                         pack,
+                        agent_routing,
                         Some(requirement),
                         Some(index + 1),
                     )?);
@@ -124,7 +150,15 @@ fn build_backlog_items(
             }
             BacklogGenerator::StaticIfNonFunctionalRequirements => {
                 if !brief.non_functional_requirements.is_empty() {
-                    items.push(render_backlog_item(template, brief, run, pack, None, None)?);
+                    items.push(render_backlog_item(
+                        template,
+                        brief,
+                        run,
+                        pack,
+                        agent_routing,
+                        None,
+                        None,
+                    )?);
                 }
             }
         }
@@ -138,6 +172,7 @@ fn render_backlog_item(
     brief: &Brief,
     run: &RunDraft,
     pack: &PackDefinition,
+    agent_routing: &ResolvedAgentRouting,
     requirement: Option<&crate::models::brief::Requirement>,
     index: Option<usize>,
 ) -> Result<BacklogItem> {
@@ -204,6 +239,7 @@ fn render_backlog_item(
             &replacements,
         )?,
         sources: resolve_sources(template, brief, run, pack, requirement),
+        assigned_agent: agent_routing.assigned_agent_for_template(&template.template_id),
     })
 }
 
@@ -317,12 +353,16 @@ mod tests {
         let run = RunDraft::from_brief(&brief, "examples/brief.yaml".to_string());
         let pack = PackDefinition::load(Some("container-service")).expect("pack should load");
 
-        let items = build_backlog_items(&brief, &run, &pack).expect("backlog should build");
+        let routing = resolve_agent_routing(&brief, &pack).expect("routing should resolve");
+        let items =
+            build_backlog_items(&brief, &run, &pack, &routing).expect("backlog should build");
 
         assert_eq!(items.len(), 5);
         assert_eq!(items[0].template_id, "plan");
         assert_eq!(items[0].id, "PLAN-001");
+        assert_eq!(items[0].assigned_agent.as_deref(), Some("codex"));
         assert_eq!(items[1].sources, vec!["pack:container-service".to_string()]);
+        assert_eq!(items[1].assigned_agent.as_deref(), Some("openhands"));
         assert_eq!(items[2].id, "CODE-001");
         assert_eq!(items[2].priority, "high");
         assert_eq!(items[4].id, "TEST-001");
@@ -381,6 +421,9 @@ mod tests {
                 repo_pack: Some("container-service".to_string()),
                 default_runtime_provider: Some(RuntimeProvider::Docker),
                 sandbox_profile: Some("restricted".to_string()),
+                orchestrator_model: Some("planner-default".to_string()),
+                default_agent: Some("openhands".to_string()),
+                allowed_agents: vec!["openhands".to_string(), "codex".to_string()],
             }),
             policy: None,
             budget_policy_hint: None,

@@ -18,6 +18,8 @@ pub struct PackDefinition {
     pub default_runtime_provider: String,
     #[serde(default)]
     pub default_sandbox_profile: Option<String>,
+    #[serde(default, skip_serializing_if = "PackAgentProfile::is_empty")]
+    pub agent_profile: PackAgentProfile,
     #[serde(default, skip_serializing_if = "PackPolicyProfile::is_empty")]
     pub policy_profile: PackPolicyProfile,
     #[serde(default, skip_serializing_if = "PackQualityProfile::is_empty")]
@@ -107,6 +109,7 @@ impl PackDefinition {
             !self.default_runtime_provider.trim().is_empty(),
             "pack default_runtime_provider must not be empty"
         );
+        self.agent_profile.validate()?;
         self.policy_profile.validate()?;
         self.quality_profile.validate()?;
         if let Some(generated_repository) = &self.generated_repository {
@@ -118,10 +121,60 @@ impl PackDefinition {
         );
 
         for template in &self.backlog_templates {
-            template.validate(&self.root_path)?;
+            template.validate(&self.root_path, &self.agent_profile)?;
         }
 
         Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PackAgentProfile {
+    #[serde(default)]
+    pub default_agent: Option<String>,
+    #[serde(default)]
+    pub supported_agents: Vec<String>,
+    #[serde(default)]
+    pub default_orchestrator_model: Option<String>,
+}
+
+impl PackAgentProfile {
+    fn validate(&self) -> Result<()> {
+        if let Some(default_agent) = &self.default_agent {
+            ensure!(
+                !default_agent.trim().is_empty(),
+                "agent_profile.default_agent must not be empty"
+            );
+            ensure!(
+                self.supported_agents.is_empty()
+                    || self
+                        .supported_agents
+                        .iter()
+                        .any(|agent| agent == default_agent),
+                "agent_profile.default_agent must be listed in agent_profile.supported_agents when a support list is declared"
+            );
+        }
+        for agent in &self.supported_agents {
+            ensure!(
+                !agent.trim().is_empty(),
+                "agent_profile.supported_agents must not contain empty strings"
+            );
+        }
+        if let Some(default_orchestrator_model) = &self.default_orchestrator_model {
+            ensure!(
+                !default_orchestrator_model.trim().is_empty(),
+                "agent_profile.default_orchestrator_model must not be empty"
+            );
+        }
+
+        Ok(())
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.default_agent.is_none()
+            && self.supported_agents.is_empty()
+            && self.default_orchestrator_model.is_none()
     }
 }
 
@@ -222,6 +275,8 @@ pub struct PackBacklogTemplate {
     #[serde(default)]
     pub dependencies: PackDependencyTemplate,
     #[serde(default)]
+    pub agent: Option<String>,
+    #[serde(default)]
     pub materialization: Option<PackMaterializationTemplate>,
     #[serde(default)]
     pub approval_required: Option<bool>,
@@ -229,7 +284,7 @@ pub struct PackBacklogTemplate {
 }
 
 impl PackBacklogTemplate {
-    fn validate(&self, root_path: &Path) -> Result<()> {
+    fn validate(&self, root_path: &Path, agent_profile: &PackAgentProfile) -> Result<()> {
         ensure!(
             !self.template_id.trim().is_empty(),
             "backlog template_id must not be empty"
@@ -260,6 +315,23 @@ impl PackBacklogTemplate {
         );
 
         self.dependencies.validate(&self.template_id)?;
+        if let Some(agent) = &self.agent {
+            ensure!(
+                !agent.trim().is_empty(),
+                "backlog template {} agent must not be empty",
+                self.template_id
+            );
+            ensure!(
+                agent_profile.supported_agents.is_empty()
+                    || agent_profile
+                        .supported_agents
+                        .iter()
+                        .any(|supported| supported == agent),
+                "backlog template {} agent `{}` must be listed in agent_profile.supported_agents",
+                self.template_id,
+                agent
+            );
+        }
         if let Some(materialization) = &self.materialization {
             materialization.validate(&self.template_id, root_path)?;
         }

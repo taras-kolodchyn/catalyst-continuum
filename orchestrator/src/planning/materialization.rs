@@ -344,7 +344,7 @@ mod tests {
             generate_initial_backlog(&brief, &run, &pack, Path::new(".tmp-artifacts"), false)
                 .expect("backlog should generate");
         let tasks =
-            materialize_tasks(&run, &pack, &generated.document.items).expect("tasks should build");
+            materialize_tasks(&run, &pack, &generated.document).expect("tasks should build");
         let task = TaskSummary::from_draft(&tasks[1]);
         let run_context = RunContext::from_draft(&run);
         let temp_root =
@@ -399,7 +399,7 @@ mod tests {
             generate_initial_backlog(&brief, &run, &pack, Path::new(".tmp-artifacts"), false)
                 .expect("backlog should generate");
         let tasks =
-            materialize_tasks(&run, &pack, &generated.document.items).expect("tasks should build");
+            materialize_tasks(&run, &pack, &generated.document).expect("tasks should build");
         let task = TaskSummary::from_draft(&tasks[2]);
         let run_context = RunContext::from_draft(&run);
         let temp_root =
@@ -486,6 +486,9 @@ mod tests {
                 repo_pack: Some("container-service".to_string()),
                 default_runtime_provider: Some(RuntimeProvider::Docker),
                 sandbox_profile: Some("restricted".to_string()),
+                orchestrator_model: None,
+                default_agent: None,
+                allowed_agents: Vec::new(),
             }),
             policy: None,
             budget_policy_hint: None,

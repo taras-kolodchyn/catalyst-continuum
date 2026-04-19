@@ -100,6 +100,7 @@ That means it must:
 - Support Codex and Cursor as external coding agents through MCP-compatible integration.
 
 The selected pack for a task determines which external coding agent or model stack is used.
+That selection should be explicit and inspectable rather than inferred from prompt text alone: packs define supported/default agents and a default orchestrator-model hint, briefs can narrow or override within that contract, and the resolved assignment should be materialized into backlog and task state.
 
 Interface boundary decision:
 

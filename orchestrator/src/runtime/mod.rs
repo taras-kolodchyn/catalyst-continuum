@@ -270,6 +270,8 @@ mod tests {
             dependency_task_ids: json!([]),
             source_refs: json!(["test"]),
             assigned_pack: None,
+            assigned_agent: None,
+            orchestrator_model: None,
             approval_required: false,
             retry_state: None,
             metadata: json!({}),

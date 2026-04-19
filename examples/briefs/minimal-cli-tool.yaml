@@ -40,6 +40,11 @@ execution_preferences:
   repo_pack: cli-tool
   default_runtime_provider: docker
   sandbox_profile: restricted
+  orchestrator_model: planner-default
+  default_agent: openhands
+  allowed_agents:
+    - openhands
+    - codex
 policy:
   max_task_count: 8
   max_total_timeout_seconds: 180

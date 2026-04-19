@@ -36,6 +36,35 @@ fn render_text(pack: &PackDefinition) -> anyhow::Result<String> {
     }
     writeln!(
         &mut output,
+        "agent_profile_contract: {}",
+        if pack.agent_profile.is_empty() {
+            "absent"
+        } else {
+            "present"
+        }
+    )
+    .context("failed to render pack report")?;
+    if let Some(default_agent) = &pack.agent_profile.default_agent {
+        writeln!(&mut output, "agent_profile_default_agent: {default_agent}")
+            .context("failed to render pack report")?;
+    }
+    if !pack.agent_profile.supported_agents.is_empty() {
+        writeln!(
+            &mut output,
+            "agent_profile_supported_agents: {}",
+            pack.agent_profile.supported_agents.join(", ")
+        )
+        .context("failed to render pack report")?;
+    }
+    if let Some(default_orchestrator_model) = &pack.agent_profile.default_orchestrator_model {
+        writeln!(
+            &mut output,
+            "agent_profile_default_orchestrator_model: {default_orchestrator_model}"
+        )
+        .context("failed to render pack report")?;
+    }
+    writeln!(
+        &mut output,
         "policy_profile_contract: {}",
         if pack.policy_profile.is_empty() {
             "absent"

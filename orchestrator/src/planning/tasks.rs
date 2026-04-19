@@ -10,7 +10,7 @@ use crate::{
         task::{TaskDraft, TaskExecutionSpec, TaskRetryState, metadata_with_retry_state},
     },
     planning::{
-        backlog::BacklogItem,
+        backlog::{BacklogDocument, BacklogItem},
         packs::{PackBacklogTemplate, PackDefinition, render_template},
     },
 };
@@ -18,8 +18,9 @@ use crate::{
 pub fn materialize_tasks(
     run: &RunDraft,
     pack: &PackDefinition,
-    backlog_items: &[BacklogItem],
+    backlog: &BacklogDocument,
 ) -> Result<Vec<TaskDraft>> {
+    let backlog_items = &backlog.items;
     let task_ids_by_item: HashMap<&str, Uuid> = backlog_items
         .iter()
         .map(|item| (item.id.as_str(), Uuid::new_v4()))
@@ -43,7 +44,6 @@ pub fn materialize_tasks(
                     )
                 })?;
             let dependency_task_ids = dependency_task_ids(template, &task_ids_by_kind);
-            let metadata = task_metadata(run, pack, item);
 
             Ok(TaskDraft {
                 task_id: task_ids_by_item[item.id.as_str()],
@@ -58,10 +58,12 @@ pub fn materialize_tasks(
                 dependency_task_ids: json!(dependency_task_ids),
                 source_refs: json!(item.sources),
                 assigned_pack: Some(pack.pack_id.clone()),
+                assigned_agent: item.assigned_agent.clone(),
+                orchestrator_model: backlog.orchestrator_model.clone(),
                 approval_required: template
                     .approval_required
                     .unwrap_or(item.kind == "deploy" || item.kind == "review"),
-                metadata,
+                metadata: task_metadata(run, pack, backlog, item),
             })
         })
         .collect()
@@ -156,12 +158,24 @@ fn collect_ids_by_kind(
     task_ids_by_kind
 }
 
-fn task_metadata(run: &RunDraft, pack: &PackDefinition, item: &BacklogItem) -> serde_json::Value {
+fn task_metadata(
+    run: &RunDraft,
+    pack: &PackDefinition,
+    backlog: &BacklogDocument,
+    item: &BacklogItem,
+) -> serde_json::Value {
     let metadata = json!({
         "generated_from": "initial_backlog",
         "brief_id": run.brief_id,
         "pack_id": pack.pack_id,
         "template_id": item.template_id,
+        "agent_routing": {
+            "assigned_agent": item.assigned_agent.clone(),
+            "orchestrator_model": backlog.orchestrator_model.clone(),
+            "default_agent": backlog.default_agent.clone(),
+            "allowed_agents": backlog.allowed_agents.clone(),
+            "supported_agents": backlog.supported_agents.clone(),
+        },
     });
 
     match max_task_retry_count_from_run(run) {
@@ -204,9 +218,14 @@ mod tests {
             .expect("backlog should generate");
 
         let tasks =
-            materialize_tasks(&run, &pack, &generated.document.items).expect("tasks should build");
+            materialize_tasks(&run, &pack, &generated.document).expect("tasks should build");
 
         assert_eq!(tasks[0].assigned_pack.as_deref(), Some("container-service"));
+        assert_eq!(tasks[0].assigned_agent.as_deref(), Some("codex"));
+        assert_eq!(
+            tasks[0].orchestrator_model.as_deref(),
+            Some("planner-default")
+        );
         assert_eq!(tasks[0].execution.provider, "docker");
         assert_eq!(
             tasks[0].execution.image.as_deref(),
@@ -248,7 +267,7 @@ mod tests {
             .expect("backlog should generate");
 
         let tasks =
-            materialize_tasks(&run, &pack, &generated.document.items).expect("tasks should build");
+            materialize_tasks(&run, &pack, &generated.document).expect("tasks should build");
 
         assert!(tasks.iter().all(|task| {
             task.metadata
@@ -288,6 +307,7 @@ mod tests {
                 required_kinds: vec!["code".to_string(), "scaffold".to_string()],
                 fallback_kinds: vec!["plan".to_string()],
             },
+            agent: None,
             materialization: None,
             approval_required: None,
             execution: crate::planning::packs::PackExecutionTemplate {
@@ -350,6 +370,9 @@ mod tests {
                 repo_pack: Some("container-service".to_string()),
                 default_runtime_provider: Some(RuntimeProvider::Docker),
                 sandbox_profile: Some("restricted".to_string()),
+                orchestrator_model: Some("planner-default".to_string()),
+                default_agent: Some("openhands".to_string()),
+                allowed_agents: vec!["openhands".to_string(), "codex".to_string()],
             }),
             policy: None,
             budget_policy_hint: None,

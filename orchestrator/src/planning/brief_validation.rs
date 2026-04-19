@@ -4,6 +4,7 @@ use serde::Serialize;
 use crate::{
     models::brief::{Brief, RepositoryTarget},
     planning::{
+        agent_routing::{ResolvedAgentRouting, resolve_agent_routing},
         pack_catalog::{PackCatalogEntry, resolve_pack_selection},
         packs::PackDefinition,
     },
@@ -33,6 +34,7 @@ pub struct BriefValidationReport {
     pub deliverable_count: usize,
     pub acceptance_criteria_count: usize,
     pub pack_selection: BriefPackSelectionReport,
+    pub agent_routing: ResolvedAgentRouting,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -64,6 +66,7 @@ pub fn validate_brief_document(
             .as_ref()
             .and_then(|prefs| prefs.repo_pack.as_deref()),
     )?;
+    let agent_routing = resolve_agent_routing(&brief, &selection.pack)?;
     let resolved_pack = PackCatalogEntry::from_pack(&selection.pack);
 
     Ok(ValidatedBriefSubmission {
@@ -91,6 +94,7 @@ pub fn validate_brief_document(
                 available_pack_ids: selection.available_pack_ids,
                 resolved_pack,
             },
+            agent_routing,
         },
     })
 }
@@ -135,6 +139,30 @@ impl BriefValidationReport {
             self.pack_selection.used_default
         )
         .context("failed to render brief validation")?;
+        if let Some(orchestrator_model) = &self.agent_routing.orchestrator_model {
+            writeln!(&mut output, "orchestrator_model: {orchestrator_model}")
+                .context("failed to render brief validation")?;
+        }
+        if let Some(default_agent) = &self.agent_routing.default_agent {
+            writeln!(&mut output, "default_agent: {default_agent}")
+                .context("failed to render brief validation")?;
+        }
+        if !self.agent_routing.allowed_agents.is_empty() {
+            writeln!(
+                &mut output,
+                "allowed_agents: {}",
+                self.agent_routing.allowed_agents.join(", ")
+            )
+            .context("failed to render brief validation")?;
+        }
+        if !self.agent_routing.supported_agents.is_empty() {
+            writeln!(
+                &mut output,
+                "supported_agents: {}",
+                self.agent_routing.supported_agents.join(", ")
+            )
+            .context("failed to render brief validation")?;
+        }
         writeln!(&mut output, "goal_count: {}", self.goal_count)
             .context("failed to render brief validation")?;
         writeln!(
@@ -175,6 +203,10 @@ mod tests {
         );
         assert!(validated.report.pack_selection.used_default);
         assert_eq!(validated.pack.pack_id, "container-service");
+        assert_eq!(
+            validated.report.agent_routing.default_agent.as_deref(),
+            Some("openhands")
+        );
     }
 
     fn sample_brief_without_repo_pack() -> &'static str {

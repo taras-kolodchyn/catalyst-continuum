@@ -871,6 +871,8 @@ mod tests {
             dependency_task_ids: json!([]),
             source_refs: json!(["test"]),
             assigned_pack: Some("container-service".to_string()),
+            assigned_agent: Some("openhands".to_string()),
+            orchestrator_model: Some("planner-default".to_string()),
             approval_required: false,
             retry_state,
             metadata,

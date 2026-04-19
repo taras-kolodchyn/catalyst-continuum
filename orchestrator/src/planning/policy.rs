@@ -1100,6 +1100,9 @@ mod tests {
                 repo_pack: Some("cli-tool".to_string()),
                 default_runtime_provider: Some(RuntimeProvider::Docker),
                 sandbox_profile: Some("restricted".to_string()),
+                orchestrator_model: None,
+                default_agent: None,
+                allowed_agents: Vec::new(),
             }),
             policy,
             budget_policy_hint: None,
@@ -1141,6 +1144,8 @@ mod tests {
             dependency_task_ids: json!([]),
             source_refs: json!(["test"]),
             assigned_pack: Some("cli-tool".to_string()),
+            assigned_agent: Some("openhands".to_string()),
+            orchestrator_model: Some("planner-default".to_string()),
             approval_required: false,
             metadata,
         }

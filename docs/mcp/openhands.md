@@ -119,6 +119,8 @@ Stateless tools work even without Postgres:
 - `describe_pack`
 - `validate_brief`
 
+That stateless path is also the first routing checkpoint for OpenHands: `describe_pack` exposes the selected pack's `agent_profile`, and `validate_brief` resolves the brief's `agent_routing` so OpenHands can see whether the run expects `openhands`, `codex`, or another supported agent before any stateful execution starts.
+
 Stateful tools need `CATALYST_DATABASE_URL`:
 
 - `describe_artifact`

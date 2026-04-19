@@ -37,6 +37,8 @@ Stateless tools do not require Postgres:
 - `describe_pack`
 - `validate_brief`
 
+The stateless inspection path is enough to resolve the initial routing contract before a run exists: `describe_pack` exposes the pack-level `agent_profile`, and `validate_brief` resolves the brief-level `agent_routing` including `default_agent`, `allowed_agents`, and the resulting per-template assignments.
+
 Stateful tools require `CATALYST_DATABASE_URL` or `--database-url` when launching the server:
 
 - `describe_artifact`
