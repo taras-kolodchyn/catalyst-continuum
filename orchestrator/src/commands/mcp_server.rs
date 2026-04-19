@@ -11,7 +11,7 @@ use crate::{
         describe_github_webhook_action_report, describe_github_webhook_receipt,
         describe_latest_artifact, describe_repository_signal_payload, evaluate_run_policy,
         evaluate_run_quality, export_pr_candidate, open_github_pr, publish_pr_export,
-        run_next_github_webhook_action, run_next_task, worker,
+        run_next_github_webhook_action, run_next_task, submit_next_repository_signal, worker,
     },
     config::InstanceConfigReport,
     models::{
@@ -142,6 +142,16 @@ struct SubmitRepositorySignalToolArgs {
     brief_content: String,
     #[serde(default = "default_inline_brief_source_path")]
     brief_source_path: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SubmitNextRepositorySignalToolArgs {
+    brief_content: String,
+    #[serde(default = "default_inline_brief_source_path")]
+    brief_source_path: String,
+    #[serde(default)]
+    signal_kind: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -530,6 +540,7 @@ impl StdioMcpServer {
             "describe_latest_artifact" => self.call_describe_latest_artifact(arguments),
             "validate_brief" => self.call_validate_brief(arguments),
             "submit_brief" => self.call_submit_brief(arguments),
+            "submit_next_repository_signal" => self.call_submit_next_repository_signal(arguments),
             "submit_repository_signal" => self.call_submit_repository_signal(arguments),
             "list_github_webhooks" => self.call_list_github_webhooks(arguments),
             "describe_github_webhook" => self.call_describe_github_webhook(arguments),
@@ -725,6 +736,32 @@ impl StdioMcpServer {
                 )?;
             let structured = serde_json::to_value(&submission)
                 .context("failed to serialize repository signal submission")?;
+            Ok(tool_success_with_text(
+                "submission",
+                structured,
+                submission.render_text()?,
+            ))
+        })
+    }
+
+    fn call_submit_next_repository_signal(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: SubmitNextRepositorySignalToolArgs = parse_tool_arguments(arguments)?;
+            let database_url = self
+                .config
+                .database_url
+                .as_deref()
+                .context("submit_next_repository_signal requires a configured database URL")?;
+            let submission = submit_next_repository_signal::submit_next_repository_signal_document(
+                &args.brief_content,
+                &args.brief_source_path,
+                database_url,
+                &self.config.artifact_root,
+                args.signal_kind.as_deref(),
+                "mcp",
+            )?;
+            let structured = serde_json::to_value(&submission)
+                .context("failed to serialize next repository signal submission")?;
             Ok(tool_success_with_text(
                 "submission",
                 structured,
@@ -1316,6 +1353,21 @@ fn tool_definitions() -> Vec<Value> {
             ]),
         ),
         tool_definition(
+            "submit_next_repository_signal",
+            "Materialize the latest fresh pending repository signal for the repository declared in an inline YAML brief.",
+            json_schema_object(&[
+                required_string_property("brief_content", "Structured brief YAML content."),
+                optional_string_property(
+                    "brief_source_path",
+                    "Logical source path reported in submission output.",
+                ),
+                optional_string_property(
+                    "signal_kind",
+                    "Optional signal kind filter, for example default_branch_updated.",
+                ),
+            ]),
+        ),
+        tool_definition(
             "submit_repository_signal",
             "Submit an inline YAML product brief against one pending repository signal and materialize a run linked to that signal.",
             json_schema_object(&[
@@ -1646,7 +1698,7 @@ mod tests {
 
         assert_eq!(
             output[1]["result"]["tools"].as_array().map(Vec::len),
-            Some(29)
+            Some(30)
         );
         assert_eq!(output[1]["result"]["tools"][0]["name"], "list_packs");
         assert!(
@@ -1655,6 +1707,13 @@ mod tests {
                 .is_some_and(|tools| tools
                     .iter()
                     .any(|tool| tool["name"] == "describe_instance_config"))
+        );
+        assert!(
+            output[1]["result"]["tools"]
+                .as_array()
+                .is_some_and(|tools| tools
+                    .iter()
+                    .any(|tool| tool["name"] == "submit_next_repository_signal"))
         );
         assert!(
             output[1]["result"]["tools"]

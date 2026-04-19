@@ -6,6 +6,7 @@ use serde_json::json;
 
 use crate::{
     cli::SubmitRepositorySignalArgs,
+    commands::describe_github_default_branch_state,
     commands::submit_brief::prepare_validated_submission,
     models::{
         brief::{Brief, RepositoryHost},
@@ -82,6 +83,9 @@ pub fn submit_repository_signal_document(
 
     let validated = validate_brief_document(raw_brief, brief_source_path)?;
     ensure_brief_matches_signal(&validated.brief, &signal)?;
+    if let Some(reason) = repository_signal_staleness_reason(artifact_root, &signal)? {
+        anyhow::bail!("{reason}");
+    }
 
     let mut planned = prepare_validated_submission(
         validated,
@@ -196,6 +200,62 @@ fn ensure_brief_matches_signal(brief: &Brief, signal: &RepositorySignalSummary) 
     Ok(())
 }
 
+pub(crate) fn repository_signal_staleness_reason(
+    artifact_root: &Path,
+    signal: &RepositorySignalSummary,
+) -> Result<Option<String>> {
+    let signal_default_branch = signal
+        .repository_default_branch
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .context("repository signal submission requires repository_default_branch")?;
+    let signal_after_sha = signal
+        .after_sha
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .context("repository signal submission requires after_sha")?;
+    let state = describe_github_default_branch_state::describe_github_default_branch_state(
+        artifact_root,
+        &signal.provider,
+        &signal.repository_full_name,
+    )?;
+
+    if state.state.default_branch != signal_default_branch {
+        return Ok(Some(format!(
+            "repository signal `{}` is stale: current default branch is `{}` in `{}`, but the signal targets `{}`",
+            signal.signal_id, state.state.default_branch, state.state_path, signal_default_branch
+        )));
+    }
+    if state.state.after_sha != signal_after_sha {
+        return Ok(Some(format!(
+            "repository signal `{}` is stale: current default-branch head is `{}` in `{}`, but the signal head is `{}`",
+            signal.signal_id, state.state.after_sha, state.state_path, signal_after_sha
+        )));
+    }
+    if state.state.synced_from.request_id != signal.source_request_id {
+        return Ok(Some(format!(
+            "repository signal `{}` is stale: current default-branch state in `{}` came from request `{}`, but the signal came from `{}`",
+            signal.signal_id,
+            state.state_path,
+            state.state.synced_from.request_id,
+            signal.source_request_id
+        )));
+    }
+    if state.state.synced_from.delivery_id != signal.source_delivery_id {
+        return Ok(Some(format!(
+            "repository signal `{}` is stale: current default-branch state in `{}` came from delivery `{}`, but the signal came from `{}`",
+            signal.signal_id,
+            state.state_path,
+            state.state.synced_from.delivery_id,
+            signal.source_delivery_id
+        )));
+    }
+
+    Ok(None)
+}
+
 fn annotate_draft_with_signal(
     draft: &mut RunDraft,
     signal: &RepositorySignalSummary,
@@ -227,14 +287,17 @@ fn annotate_draft_with_signal(
 #[cfg(test)]
 mod tests {
     use super::{
-        annotate_draft_with_signal, ensure_brief_matches_signal, ensure_signal_ready_for_submission,
+        annotate_draft_with_signal, ensure_brief_matches_signal,
+        ensure_signal_ready_for_submission, repository_signal_staleness_reason,
     };
+    use crate::commands::run_next_github_webhook_action;
     use crate::models::{
         brief::{Brief, RepositoryHost, RepositoryTarget, RepositoryVisibility},
         repository_signal::RepositorySignalSummary,
         run::RunDraft,
     };
     use serde_json::json;
+    use std::{fs, path::PathBuf};
     use uuid::Uuid;
 
     #[test]
@@ -278,6 +341,71 @@ mod tests {
             ensure_signal_ready_for_submission(&signal).expect_err("submitted signal should fail");
 
         assert!(error.to_string().contains("is not pending"));
+    }
+
+    #[test]
+    fn accepts_fresh_repository_signal_state() {
+        let signal = sample_signal();
+        let artifact_root = temp_artifact_root();
+        write_default_branch_state(
+            &artifact_root,
+            "main",
+            "2222222222222222222222222222222222222222",
+            "request-1",
+            "delivery-1",
+        );
+
+        let reason = repository_signal_staleness_reason(&artifact_root, &signal)
+            .expect("fresh state should evaluate");
+
+        assert_eq!(reason, None);
+        fs::remove_dir_all(&artifact_root).expect("temp dir should be removed");
+    }
+
+    #[test]
+    fn rejects_signal_when_default_branch_state_head_has_advanced() {
+        let signal = sample_signal();
+        let artifact_root = temp_artifact_root();
+        write_default_branch_state(
+            &artifact_root,
+            "main",
+            "3333333333333333333333333333333333333333",
+            "request-2",
+            "delivery-2",
+        );
+
+        let reason = repository_signal_staleness_reason(&artifact_root, &signal)
+            .expect("staleness should evaluate")
+            .expect("advanced head should mark the signal stale");
+
+        assert!(
+            reason.contains(
+                "current default-branch head is `3333333333333333333333333333333333333333`"
+            )
+        );
+        assert!(reason.contains("signal head is `2222222222222222222222222222222222222222`"));
+        fs::remove_dir_all(&artifact_root).expect("temp dir should be removed");
+    }
+
+    #[test]
+    fn rejects_signal_when_default_branch_state_origin_differs() {
+        let signal = sample_signal();
+        let artifact_root = temp_artifact_root();
+        write_default_branch_state(
+            &artifact_root,
+            "main",
+            "2222222222222222222222222222222222222222",
+            "request-2",
+            "delivery-2",
+        );
+
+        let reason = repository_signal_staleness_reason(&artifact_root, &signal)
+            .expect("staleness should evaluate")
+            .expect("different sync origin should mark the signal stale");
+
+        assert!(reason.contains("came from request `request-2`"));
+        assert!(reason.contains("signal came from `request-1`"));
+        fs::remove_dir_all(&artifact_root).expect("temp dir should be removed");
     }
 
     fn sample_signal() -> RepositorySignalSummary {
@@ -345,5 +473,54 @@ mod tests {
             budget_policy_hint: None,
             metadata: Default::default(),
         }
+    }
+
+    fn temp_artifact_root() -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "catalyst-continuum-repository-signal-tests-{}",
+            Uuid::new_v4()
+        ));
+        fs::create_dir_all(&dir).expect("temp dir should be created");
+        dir
+    }
+
+    fn write_default_branch_state(
+        artifact_root: &std::path::Path,
+        default_branch: &str,
+        after_sha: &str,
+        request_id: &str,
+        delivery_id: &str,
+    ) {
+        let state_path = run_next_github_webhook_action::repository_state_path(
+            artifact_root,
+            "github",
+            "smartit/catalyst-continuum",
+        );
+        fs::create_dir_all(
+            state_path
+                .parent()
+                .expect("state path should have a parent"),
+        )
+        .expect("state dir should be created");
+        fs::write(
+            &state_path,
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "state_version": 1,
+                "provider": "github",
+                "repository_full_name": "smartit/catalyst-continuum",
+                "default_branch": default_branch,
+                "ref_name": format!("refs/heads/{default_branch}"),
+                "before_sha": "1111111111111111111111111111111111111111",
+                "after_sha": after_sha,
+                "synced_from": {
+                    "request_id": request_id,
+                    "delivery_id": delivery_id,
+                    "action": "sync_default_branch"
+                },
+                "updated_at_epoch_ms": 1
+            }))
+            .expect("state should serialize"),
+        )
+        .expect("state should be written");
     }
 }

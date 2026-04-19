@@ -122,6 +122,7 @@ expected_tools = {
     "describe_repository_signal_payload",
     "validate_brief",
     "submit_brief",
+    "submit_next_repository_signal",
     "list_runs",
     "describe_run",
     "list_run_events",

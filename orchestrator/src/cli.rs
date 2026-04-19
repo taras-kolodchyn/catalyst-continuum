@@ -37,6 +37,7 @@ pub enum Command {
     ListRuns(ListRunsArgs),
     ValidateBrief(ValidateBriefArgs),
     SubmitBrief(SubmitBriefArgs),
+    SubmitNextRepositorySignal(SubmitNextRepositorySignalArgs),
     SubmitRepositorySignal(SubmitRepositorySignalArgs),
     RunNextTask(RunNextTaskArgs),
     RunNextGithubWebhookAction(RunNextGithubWebhookActionArgs),
@@ -74,6 +75,7 @@ impl Command {
             Self::ListRuns(_) => "list-runs",
             Self::ValidateBrief(_) => "validate-brief",
             Self::SubmitBrief(_) => "submit-brief",
+            Self::SubmitNextRepositorySignal(_) => "submit-next-repository-signal",
             Self::SubmitRepositorySignal(_) => "submit-repository-signal",
             Self::RunNextTask(_) => "run-next-task",
             Self::RunNextGithubWebhookAction(_) => "run-next-github-webhook-action",
@@ -334,6 +336,31 @@ pub struct SubmitRepositorySignalArgs {
         default_value = ".continuum/artifacts"
     )]
     pub artifact_root: PathBuf,
+
+    #[arg(long)]
+    pub json: bool,
+
+    #[arg(long)]
+    pub pretty: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct SubmitNextRepositorySignalArgs {
+    #[arg(long, short = 'f')]
+    pub file: PathBuf,
+
+    #[arg(long, env = "CATALYST_DATABASE_URL")]
+    pub database_url: String,
+
+    #[arg(
+        long,
+        env = "CATALYST_ARTIFACT_ROOT",
+        default_value = ".continuum/artifacts"
+    )]
+    pub artifact_root: PathBuf,
+
+    #[arg(long)]
+    pub signal_kind: Option<String>,
 
     #[arg(long)]
     pub json: bool,

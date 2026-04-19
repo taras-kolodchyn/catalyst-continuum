@@ -676,11 +676,11 @@ policy:
     - restricted
 EOF
 
-"$BIN" submit-repository-signal \
+"$BIN" submit-next-repository-signal \
   --database-url "$DATABASE_URL" \
   --artifact-root "$ARTIFACT_ROOT" \
-  --signal-id "$PUSH_WEBHOOK_SIGNAL_ID" \
   --file "$REPOSITORY_SIGNAL_BRIEF_FILE" \
+  --signal-kind "default_branch_updated" \
   --json >"$REPOSITORY_SIGNAL_SUBMISSION_CLI_FILE"
 "$BIN" describe-repository-signal \
   --database-url "$DATABASE_URL" \

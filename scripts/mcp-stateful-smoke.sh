@@ -454,6 +454,7 @@ try:
         "list_repository_signals",
         "describe_repository_signal",
         "describe_repository_signal_payload",
+        "submit_next_repository_signal",
         "submit_repository_signal",
         "list_runs",
         "describe_run",
@@ -869,11 +870,11 @@ policy:
 """
 
     signal_submission = call_tool(
-        "submit_repository_signal",
+        "submit_next_repository_signal",
         {
-            "signal_id": push_webhook_signal_id,
             "brief_content": signal_brief_content,
             "brief_source_path": "mcp:inline-repository-signal-brief.yaml",
+            "signal_kind": "default_branch_updated",
         },
         "submission",
     )
