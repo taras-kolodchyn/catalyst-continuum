@@ -84,6 +84,16 @@ postgres_publish_binding() {
   fi
 }
 
+allocate_loopback_port() {
+  python3 - <<'PY'
+import socket
+
+with socket.socket() as sock:
+    sock.bind(("127.0.0.1", 0))
+    print(sock.getsockname()[1])
+PY
+}
+
 default_host_postgres_port() {
   case "${CI_SMOKE_SCENARIO:-}" in
     mvp-container-service)
@@ -176,14 +186,7 @@ fi
 rm -rf "$ARTIFACT_ROOT"
 mkdir -p "$ARTIFACT_ROOT"
 
-ORCHESTRATOR_HTTP_PORT="${SMOKE_HTTP_PORT:-$(python3 - <<'PY'
-import socket
-
-with socket.socket() as sock:
-    sock.bind(("127.0.0.1", 0))
-    print(sock.getsockname()[1])
-PY
-)}"
+ORCHESTRATOR_HTTP_PORT="${SMOKE_HTTP_PORT:-$(allocate_loopback_port)}"
 ORCHESTRATOR_LOG="$ARTIFACT_ROOT/orchestrator-http.log"
 LIVENESS_FILE="$ARTIFACT_ROOT/orchestrator-livez.json"
 READINESS_FILE="$ARTIFACT_ROOT/orchestrator-readyz.json"
@@ -1148,7 +1151,7 @@ PY
     "")
       ;;
     http_json)
-      SERVICE_PORT="${SMOKE_SERVICE_PORT:-38080}"
+      SERVICE_PORT="${SMOKE_SERVICE_PORT:-$(allocate_loopback_port)}"
       test -n "$RUNTIME_PORT_ENV"
       test -n "$RUNTIME_DEFAULT_PORT"
 
