@@ -119,7 +119,7 @@ Stateless tools work even without Postgres:
 - `describe_pack`
 - `validate_brief`
 
-That stateless path is also the first routing checkpoint for OpenHands: `describe_pack` exposes the selected pack's `agent_profile`, and `validate_brief` resolves the brief's `agent_routing` so OpenHands can see whether the run expects `openhands`, `codex`, or another supported agent before any stateful execution starts.
+That stateless path is also the first routing checkpoint for OpenHands: `describe_pack` exposes the selected pack's `agent_profile`, and `validate_brief` resolves the brief's `agent_routing` so OpenHands can see whether the run expects `openhands`, `codex`, or another supported agent before any stateful execution starts. After a run exists, the same routing contract is also persisted as `agent_dispatch_plan`, which gives OpenHands a stable run-level delegation document instead of forcing it to infer agent ownership from raw task rows.
 
 Stateful tools need `CATALYST_DATABASE_URL`:
 
@@ -163,8 +163,8 @@ Stateful tools need `CATALYST_DATABASE_URL`:
 `submit_next_repository_signal` is the queue-safe companion when OpenHands only has the repository-scoped brief and wants the freshest pending signal that still matches the current default-branch state, without naming a signal id manually.
 `run_next_repository_automation` is the higher-level safe automation step for OpenHands control loops: it validates the brief first, advances at most one pending webhook action, and then materializes the freshest matching repository signal into a run when possible, so the client can drive one auditable automation cycle with a single tool call.
 `list_run_events` is the shared audit trail for OpenHands when it needs durable visibility into run status changes, task starts/completions, and policy or quality checkpoints without reverse-engineering them from artifact timestamps.
-`describe_artifact` is the general inspection tool for OpenHands when it needs the persisted manifest or metadata behind a `backlog`, `policy_report`, `quality_report`, `pr_export`, or publication artifact referenced by `describe_run`.
-`describe_latest_artifact` is the shortest path when OpenHands already knows the run and only needs the newest `policy_report`, `quality_report`, `pr_candidate`, or promotion artifact by type.
+`describe_artifact` is the general inspection tool for OpenHands when it needs the persisted manifest or metadata behind a `backlog`, `agent_dispatch_plan`, `policy_report`, `quality_report`, `pr_export`, or publication artifact referenced by `describe_run`.
+`describe_latest_artifact` is the shortest path when OpenHands already knows the run and only needs the newest `agent_dispatch_plan`, `policy_report`, `quality_report`, `pr_candidate`, or promotion artifact by type.
 `evaluate_run_policy` is the visibility tool for OpenHands when it needs to inspect whether the current run still satisfies control-plane policy constraints such as runtime provider, sandbox profile, and planned timeout budget.
 `evaluate_run_quality` is the visibility tool for OpenHands when it needs to inspect whether a run is ready for remote PR promotion. Even if OpenHands skips that explicit call, `publish_pr_export` and `open_github_pr` will enforce the same automated gate before pushing changes outward.
 The safe first-run task in [examples/openhands/first-task.md](../../examples/openhands/first-task.md) stays below remote publication: it validates the MCP server, progresses a local run, evaluates policy and quality, and inspects the persisted artifacts.

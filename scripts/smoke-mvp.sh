@@ -874,6 +874,8 @@ test -n "$PACK_ID"
 
 RUNS_HTTP_FILE="$ARTIFACT_ROOT/http-runs.json"
 RUN_DETAIL_HTTP_FILE="$ARTIFACT_ROOT/http-run-detail.json"
+AGENT_DISPATCH_ARTIFACT_FILE="$ARTIFACT_ROOT/agent-dispatch-artifact.json"
+AGENT_DISPATCH_ARTIFACT_HTTP_FILE="$ARTIFACT_ROOT/http-agent-dispatch-artifact.json"
 curl -fsS "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/runs" >"$RUNS_HTTP_FILE"
 curl -fsS "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/runs/${RUN_ID}" >"$RUN_DETAIL_HTTP_FILE"
 python3 - "$RUNS_HTTP_FILE" "$RUN_DETAIL_HTTP_FILE" "$RUN_ID" <<'PY'
@@ -889,6 +891,32 @@ assert runs["count"] >= 1, runs
 assert any(run["run_id"] == run_id for run in runs["runs"]), runs
 assert run_detail["run_id"] == run_id, run_detail
 assert isinstance(run_detail["tasks"], list), run_detail
+PY
+"$BIN" describe-latest-artifact \
+  --database-url "$DATABASE_URL" \
+  --run-id "$RUN_ID" \
+  --artifact-type agent_dispatch_plan \
+  --json >"$AGENT_DISPATCH_ARTIFACT_FILE"
+curl -fsS "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/runs/${RUN_ID}/artifacts/latest/agent_dispatch_plan" \
+  >"$AGENT_DISPATCH_ARTIFACT_HTTP_FILE"
+python3 - "$AGENT_DISPATCH_ARTIFACT_FILE" "$AGENT_DISPATCH_ARTIFACT_HTTP_FILE" "$RUN_ID" <<'PY'
+import json
+import pathlib
+import sys
+
+cli_artifact = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+http_artifact = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
+run_id = sys.argv[3]
+
+for artifact in (cli_artifact, http_artifact):
+    assert artifact["run_id"] == run_id, artifact
+    assert artifact["artifact"]["artifact_type"] == "agent_dispatch_plan", artifact
+    assert artifact["manifest"]["artifact_type"] == "agent_dispatch_plan", artifact
+    assert artifact["manifest"]["default_agent"] == "openhands", artifact
+    assert len(artifact["manifest"]["tasks"]) >= 1, artifact
+    dispatch_agents = {bucket["agent"] for bucket in artifact["manifest"]["agents"]}
+    assert "codex" in dispatch_agents, artifact
+    assert "openhands" in dispatch_agents, artifact
 PY
 
 POLICY_OUTPUT="$("$BIN" evaluate-run-policy \

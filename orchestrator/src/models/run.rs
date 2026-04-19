@@ -11,6 +11,7 @@ use crate::models::{
 
 const ARTIFACT_HIGHLIGHT_TYPES: &[&str] = &[
     "backlog",
+    "agent_dispatch_plan",
     "policy_report",
     "quality_report",
     "workspace_snapshot",

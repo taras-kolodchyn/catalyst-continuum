@@ -21,8 +21,8 @@ The rule is simple:
 
 The Rust command/application layer remains the single source of truth underneath all three interfaces.
 
-The first control-plane policy slice now lives in the brief itself. It does not duplicate LiteLLM token or spend budgets. Instead, it constrains orchestration-level behavior such as planned task count, total timeout budget, bounded retry scheduling, allowed task kinds, allowed runtime providers, and allowed sandbox profiles. Every accepted submission now emits a `policy_report` artifact alongside the `backlog`.
-The same brief and pack contract now also carries explicit agent routing metadata. Packs declare an `agent_profile` with supported agents and a default orchestrator model hint, briefs can narrow that contract with `allowed_agents`, `default_agent`, and `orchestrator_model`, and the resolved routing is materialized into the backlog plus each persisted task as `assigned_agent` and `orchestrator_model`.
+The first control-plane policy slice now lives in the brief itself. It does not duplicate LiteLLM token or spend budgets. Instead, it constrains orchestration-level behavior such as planned task count, total timeout budget, bounded retry scheduling, allowed task kinds, allowed runtime providers, and allowed sandbox profiles. Every accepted submission now emits a `policy_report` artifact alongside the `backlog` and the routing-oriented `agent_dispatch_plan`.
+The same brief and pack contract now also carries explicit agent routing metadata. Packs declare an `agent_profile` with supported agents and a default orchestrator model hint, briefs can narrow that contract with `allowed_agents`, `default_agent`, and `orchestrator_model`, and the resolved routing is materialized into the backlog plus each persisted task as `assigned_agent` and `orchestrator_model`. The control plane also persists that routing as `agent_dispatch_plan`, which groups the run's tasks by assigned agent and gives OpenHands, Codex, and operators a stable handoff artifact instead of forcing them to reconstruct delegation from raw task rows.
 Task `timeout_seconds` is now enforced by the Docker runtime itself, and the worker will reclaim stale `running` tasks whose lease has expired so a crashed task runner does not leave the run wedged forever.
 Each durable run, task, and promotion-path transition now also emits a `run_event` record in Postgres, so operators and MCP clients can inspect the same audit trail through `list-run-events`, `GET /runs/{run_id}/events`, and the MCP `list_run_events` tool.
 
@@ -45,7 +45,7 @@ execution_preferences:
   allowed_agents: [openhands, codex]
 ```
 
-The shipped packs currently use `codex` for the planning task and `openhands` for the scaffold/code/test flow. That is an explicit contract, not a hidden scheduler: `describe-pack` exposes the pack-level `agent_profile`, `validate-brief` exposes the resolved `agent_routing`, and `describe-run` shows the resulting task-level assignments.
+The shipped packs currently use `codex` for the planning task and `openhands` for the scaffold/code/test flow. That is an explicit contract, not a hidden scheduler: `describe-pack` exposes the pack-level `agent_profile`, `validate-brief` exposes the resolved `agent_routing`, `describe-run` shows the resulting task-level assignments, and `describe-latest-artifact --artifact-type agent_dispatch_plan` exposes the persisted dispatch view for the whole run.
 
 The current run policy can also be re-evaluated explicitly:
 
@@ -82,6 +82,7 @@ catalyst-continuum-orchestrator describe-instance-config --json
 catalyst-continuum-orchestrator list-packs --json
 catalyst-continuum-orchestrator describe-pack --pack-id container-service --json
 catalyst-continuum-orchestrator describe-artifact --database-url "$CATALYST_DATABASE_URL" --artifact-id "<ARTIFACT_ID>" --json
+catalyst-continuum-orchestrator describe-latest-artifact --database-url "$CATALYST_DATABASE_URL" --run-id "<RUN_ID>" --artifact-type agent_dispatch_plan --json
 catalyst-continuum-orchestrator describe-latest-artifact --database-url "$CATALYST_DATABASE_URL" --run-id "<RUN_ID>" --artifact-type quality_report --json
 catalyst-continuum-orchestrator list-github-webhooks --database-url "$CATALYST_DATABASE_URL" --event ping --json
 catalyst-continuum-orchestrator describe-github-webhook --database-url "$CATALYST_DATABASE_URL" --delivery-id "<DELIVERY_ID>" --json

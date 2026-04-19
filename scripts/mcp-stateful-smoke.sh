@@ -1032,6 +1032,33 @@ policy:
             "stateful MCP smoke failed: describe_run returned wrong run_id "
             f"{run_detail['run_id']}"
         )
+    dispatch_plan = call_tool(
+        "describe_latest_artifact",
+        {"run_id": run_id, "artifact_type": "agent_dispatch_plan"},
+        "artifact",
+    )
+    if dispatch_plan["artifact"]["artifact_type"] != "agent_dispatch_plan":
+        fail(
+            "stateful MCP smoke failed: expected latest agent dispatch artifact, got "
+            f"{dispatch_plan['artifact']['artifact_type']}"
+        )
+    dispatch_manifest = dispatch_plan["manifest"]
+    if dispatch_manifest["default_agent"] != "openhands":
+        fail(
+            "stateful MCP smoke failed: expected default_agent=openhands in agent dispatch "
+            f"plan, got {dispatch_manifest['default_agent']}"
+        )
+    dispatch_agents = {bucket["agent"] for bucket in dispatch_manifest["agents"]}
+    if {"codex", "openhands"} - dispatch_agents:
+        fail(
+            "stateful MCP smoke failed: expected codex and openhands buckets in agent dispatch "
+            f"plan, got {sorted(dispatch_agents)}"
+        )
+    if not any(task.get("assigned_agent") == "codex" for task in dispatch_manifest["tasks"]):
+        fail(
+            "stateful MCP smoke failed: agent dispatch plan should include at least one "
+            "codex-assigned task"
+        )
 
     log_phase("execute a single worker cycle through MCP")
     worker = call_tool("run_worker_once", {"run_id": run_id}, "worker")

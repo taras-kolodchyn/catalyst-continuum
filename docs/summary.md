@@ -101,6 +101,7 @@ That means it must:
 
 The selected pack for a task determines which external coding agent or model stack is used.
 That selection should be explicit and inspectable rather than inferred from prompt text alone: packs define supported/default agents and a default orchestrator-model hint, briefs can narrow or override within that contract, and the resolved assignment should be materialized into backlog and task state.
+The control plane should also persist a run-level `agent_dispatch_plan` artifact so OpenHands, Codex, and future MCP executors can consume the same delegation contract without reverse-engineering raw task rows.
 
 Interface boundary decision:
 

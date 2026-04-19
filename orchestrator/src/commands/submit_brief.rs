@@ -10,6 +10,7 @@ use crate::{
         task::{TaskDraft, TaskSummary},
     },
     planning::{
+        agent_dispatch::generate_agent_dispatch_plan,
         backlog::generate_initial_backlog,
         brief_validation::{ValidatedBriefSubmission, validate_brief_document},
         policy,
@@ -84,12 +85,13 @@ pub fn submit_validated_brief(
     )?;
 
     let submission = if dry_run {
-        planned.tasks.iter().fold(
-            SubmissionRecord::from_draft(&planned.draft)
-                .with_artifact(ArtifactSummary::from_draft(&planned.artifacts[0]))
-                .with_artifact(ArtifactSummary::from_draft(&planned.artifacts[1])),
-            |submission, task| submission.with_task(TaskSummary::from_draft(task)),
-        )
+        let submission = planned.artifacts.iter().fold(
+            SubmissionRecord::from_draft(&planned.draft),
+            |submission, artifact| submission.with_artifact(ArtifactSummary::from_draft(artifact)),
+        );
+        planned.tasks.iter().fold(submission, |submission, task| {
+            submission.with_task(TaskSummary::from_draft(task))
+        })
     } else {
         let database_url = database_url.context(
             "submit-brief requires --database-url or CATALYST_DATABASE_URL unless --dry-run is set",
@@ -156,6 +158,8 @@ pub(crate) fn prepare_validated_submission(
     let generated_backlog =
         generate_initial_backlog(&brief, &draft, &pack, artifact_root, !dry_run)?;
     let task_drafts = materialize_tasks(&draft, &pack, &generated_backlog.document)?;
+    let (agent_dispatch_artifact, _) =
+        generate_agent_dispatch_plan(&draft, &task_drafts, artifact_root, !dry_run)?;
     let policy_evaluation =
         policy::evaluate_submission_policy(&draft, &brief, &pack, &task_drafts, artifact_root)?;
     if !policy_evaluation.passed {
@@ -165,7 +169,11 @@ pub(crate) fn prepare_validated_submission(
     Ok(PreparedBriefSubmission {
         pack_id: pack.pack_id,
         draft,
-        artifacts: vec![generated_backlog.artifact, policy_evaluation.artifact],
+        artifacts: vec![
+            generated_backlog.artifact,
+            agent_dispatch_artifact,
+            policy_evaluation.artifact,
+        ],
         tasks: task_drafts,
     })
 }
@@ -197,6 +205,12 @@ mod tests {
         assert_eq!(
             submission.tasks[0].orchestrator_model.as_deref(),
             Some("planner-default")
+        );
+        assert!(
+            submission
+                .artifacts
+                .iter()
+                .any(|artifact| artifact.artifact_type == "agent_dispatch_plan")
         );
         assert!(
             submission
