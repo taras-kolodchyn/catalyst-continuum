@@ -105,11 +105,20 @@ jobs:
         run: ./scripts/ci-compose.sh
 
   smoke:
+    name: smoke (${{ matrix.scenario }})
     needs:
       - versions
       - shell
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario:
+          - mvp-container-service
+          - mvp-cli-tool
+          - mvp-worker-service
+          - mcp-stateful-cli-tool
     steps:
       - name: Checkout
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
@@ -128,4 +137,5 @@ jobs:
       - name: Run MVP smoke tests
         env:
           CATALYST_SKIP_WORKSPACE_BUILD: "1"
+          CI_SMOKE_SCENARIO: ${{ matrix.scenario }}
         run: ./scripts/ci-smoke.sh

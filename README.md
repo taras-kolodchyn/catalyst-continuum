@@ -159,14 +159,14 @@ For a first local OpenHands run, use `./scripts/openhands-bootstrap.sh --validat
 
 ## CI
 
-GitHub Actions runs one workflow, [`.github/workflows/ci.yml`](.github/workflows/ci.yml), with six required checks:
+GitHub Actions runs one workflow, [`.github/workflows/ci.yml`](.github/workflows/ci.yml), with these core check groups:
 
 - `versions`: validates version pins from [`versions.env`](versions.env) against the workflow, Dockerfile, Compose env file, pack image refs, and [`.actrc`](.actrc)
 - `shell`: runs ShellCheck across every script under [`scripts/`](scripts)
 - `sbom`: builds the orchestrator image, generates an SPDX SBOM, uploads the SBOM artifact, and creates a GitHub/Sigstore provenance attestation for that uploaded artifact
 - `rust`: runs `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo build --workspace --locked`, and `cargo test --workspace --locked`
 - `compose`: validates `deploy/compose/compose.yaml` with the pinned `.env.example`
-- `smoke`: exercises the bootstrap flow end to end for the `container-service`, `cli-tool`, and `worker-service` packs, including `GET /config`, a signed GitHub webhook `ping`, a signed default-branch `push`, HTTP webhook inspection, HTTP webhook action-request inspection and execution, HTTP repository-signal inspection, stale action reclaim verification, CLI webhook inspection, CLI webhook action-request inspection, CLI repository-signal inspection, CLI repository-signal submission, report/state/signal artifact verification for `sync_default_branch`, durable run-event inspection over CLI and HTTP, and then the safe stateful MCP path with `describe_instance_config`, `list_github_webhooks`, `describe_github_webhook`, `list_github_webhook_action_requests`, `describe_github_webhook_action_request`, `run_next_github_webhook_action`, `list_repository_signals`, `describe_repository_signal`, `submit_repository_signal`, `submit_brief`, `list_runs`, `describe_run`, `list_run_events`, `run_worker_once`, `evaluate_run_policy`, `evaluate_run_quality`, and `describe_artifact`
+- `smoke`: runs as a matrix so each long end-to-end scenario is isolated in its own job: `mvp-container-service`, `mvp-cli-tool`, `mvp-worker-service`, and `mcp-stateful-cli-tool`
 
 Local runs through `act` use the runner image and container architecture pinned in [`.actrc`](.actrc), with the canonical values tracked in [`versions.env`](versions.env). GitHub-only publication steps such as artifact upload and attestation are skipped under `act`, because local runs do not expose GitHub runtime tokens, OIDC tokens, or the attestations API. The underlying build and SBOM generation steps still run locally.
 Pinned version policy and update automation are documented in [VERSIONS.md](VERSIONS.md).
@@ -185,6 +185,7 @@ The core checks can be run directly without GitHub Actions:
 ./scripts/mcp-stateful-smoke.sh
 ```
 
+`./scripts/ci-smoke.sh` still runs the full smoke batch by default, and now also accepts `CI_SMOKE_SCENARIO` so CI can run one scenario per job while operators can still run the whole batch locally. Valid scenario values are `mvp-container-service`, `mvp-cli-tool`, `mvp-worker-service`, and `mcp-stateful-cli-tool`.
 `./scripts/smoke-mvp.sh` still runs a single end-to-end smoke pass, now including orchestrator HTTP liveness/readiness probes, `GET /config`, a signed GitHub webhook `ping`, a signed default-branch `push`, HTTP/CLI webhook inspection, HTTP/CLI webhook action-request inspection, HTTP/CLI repository-signal inspection, CLI repository-signal submission, stale action reclaim verification, `POST /github/webhook-actions/next`, `run-next-github-webhook-action`, `sync_default_branch` report/state/signal artifact verification, policy/quality artifact inspection, durable run-event inspection, promotion-event inspection, and the automated run quality gate, and accepts `SMOKE_BRIEF_FILE` to target a specific brief, for example `examples/briefs/minimal-container-service.yaml` or `examples/briefs/minimal-cli-tool.yaml`. `./scripts/mcp-stateful-smoke.sh` complements it by validating the agent-facing MCP stateful path, including `describe_instance_config`, `list_github_webhooks`, `describe_github_webhook`, `list_github_webhook_action_requests`, `describe_github_webhook_action_request`, `run_next_github_webhook_action`, `list_repository_signals`, `describe_repository_signal`, `submit_repository_signal`, and `list_run_events`, without publishing or opening a GitHub PR.
 
 To reproduce the workflow structure locally through `act`:
