@@ -506,6 +506,7 @@ try:
         "describe_repository_signal_payload",
         "submit_next_repository_signal",
         "submit_repository_signal",
+        "run_next_repository_automation",
         "list_runs",
         "describe_run",
         "list_run_events",
@@ -964,6 +965,33 @@ policy:
         fail(
             "stateful MCP smoke failed: describe_repository_signal should expose materialized_run_id after submission, got "
             f"{described_submitted_signal['materialized_run_id']}"
+        )
+
+    automation_idle = call_tool(
+        "run_next_repository_automation",
+        {
+            "brief_content": signal_brief_content,
+            "brief_source_path": "mcp:inline-repository-signal-brief.yaml",
+            "action": "sync_default_branch",
+            "signal_kind": "default_branch_updated",
+        },
+        "automation",
+    )
+    if automation_idle["automation_status"] != "idle":
+        fail(
+            "stateful MCP smoke failed: expected run_next_repository_automation to go idle after signal materialization, got "
+            f"{automation_idle['automation_status']}"
+        )
+    if automation_idle["webhook_action"]["outcome"] != "idle":
+        fail(
+            "stateful MCP smoke failed: expected run_next_repository_automation to report an idle webhook action step, got "
+            f"{automation_idle['webhook_action']}"
+        )
+    idle_signal_submission = automation_idle.get("signal_submission") or {}
+    if idle_signal_submission.get("outcome") != "idle":
+        fail(
+            "stateful MCP smoke failed: expected run_next_repository_automation to report idle signal submission after draining the queue, got "
+            f"{idle_signal_submission}"
         )
 
     catalog = call_tool("list_packs", {}, "catalog")

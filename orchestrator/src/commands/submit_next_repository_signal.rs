@@ -64,6 +64,10 @@ impl NextRepositorySignalSubmission {
             Self::Idle(idle) => idle.render_text(),
         }
     }
+
+    pub fn was_submitted(&self) -> bool {
+        matches!(self, Self::Submitted(_))
+    }
 }
 
 impl NoMaterializableRepositorySignal {

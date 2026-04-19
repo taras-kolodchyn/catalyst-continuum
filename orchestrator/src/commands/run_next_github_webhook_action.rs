@@ -117,6 +117,18 @@ impl NextGitHubWebhookActionExecution {
             Self::Idle(idle) => idle.render_text(),
         }
     }
+
+    pub fn was_executed(&self) -> bool {
+        matches!(self, Self::Executed(_))
+    }
+
+    pub fn executed_successfully(&self) -> bool {
+        matches!(self, Self::Executed(report) if report.execution_status == "succeeded")
+    }
+
+    pub fn should_attempt_repository_signal_submission(&self) -> bool {
+        !matches!(self, Self::Executed(report) if report.execution_status != "succeeded")
+    }
 }
 
 impl NoRunnableGitHubWebhookAction {

@@ -11,7 +11,8 @@ use crate::{
         describe_github_webhook_action_report, describe_github_webhook_receipt,
         describe_latest_artifact, describe_repository_signal_payload, evaluate_run_policy,
         evaluate_run_quality, export_pr_candidate, open_github_pr, publish_pr_export,
-        run_next_github_webhook_action, run_next_task, submit_next_repository_signal, worker,
+        run_next_github_webhook_action, run_next_repository_automation, run_next_task,
+        submit_next_repository_signal, worker,
     },
     config::InstanceConfigReport,
     models::{
@@ -150,6 +151,18 @@ struct SubmitNextRepositorySignalToolArgs {
     brief_content: String,
     #[serde(default = "default_inline_brief_source_path")]
     brief_source_path: String,
+    #[serde(default)]
+    signal_kind: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RunNextRepositoryAutomationToolArgs {
+    brief_content: String,
+    #[serde(default = "default_inline_brief_source_path")]
+    brief_source_path: String,
+    #[serde(default)]
+    action: Option<String>,
     #[serde(default)]
     signal_kind: Option<String>,
 }
@@ -542,6 +555,7 @@ impl StdioMcpServer {
             "submit_brief" => self.call_submit_brief(arguments),
             "submit_next_repository_signal" => self.call_submit_next_repository_signal(arguments),
             "submit_repository_signal" => self.call_submit_repository_signal(arguments),
+            "run_next_repository_automation" => self.call_run_next_repository_automation(arguments),
             "list_github_webhooks" => self.call_list_github_webhooks(arguments),
             "describe_github_webhook" => self.call_describe_github_webhook(arguments),
             "describe_github_webhook_receipt" => {
@@ -767,6 +781,33 @@ impl StdioMcpServer {
                 "submission",
                 structured,
                 submission.render_text()?,
+            ))
+        })
+    }
+
+    fn call_run_next_repository_automation(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: RunNextRepositoryAutomationToolArgs = parse_tool_arguments(arguments)?;
+            let database_url = self
+                .config
+                .database_url
+                .as_deref()
+                .context("run_next_repository_automation requires a configured database URL")?;
+            let report = run_next_repository_automation::run_next_repository_automation_document(
+                &args.brief_content,
+                &args.brief_source_path,
+                database_url,
+                &self.config.artifact_root,
+                args.action.as_deref(),
+                args.signal_kind.as_deref(),
+                "mcp",
+            )?;
+            let structured = serde_json::to_value(&report)
+                .context("failed to serialize repository automation report")?;
+            Ok(tool_success_with_text(
+                "automation",
+                structured,
+                report.render_text()?,
             ))
         })
     }
@@ -1381,6 +1422,25 @@ fn tool_definitions() -> Vec<Value> {
             ]),
         ),
         tool_definition(
+            "run_next_repository_automation",
+            "Execute one repository automation cycle by advancing the next pending GitHub webhook action request and then materializing the freshest matching repository signal for the repository declared in an inline YAML brief.",
+            json_schema_object(&[
+                required_string_property("brief_content", "Structured brief YAML content."),
+                optional_string_property(
+                    "brief_source_path",
+                    "Logical source path reported in automation output.",
+                ),
+                optional_string_property(
+                    "action",
+                    "Optional webhook action filter, for example sync_default_branch.",
+                ),
+                optional_string_property(
+                    "signal_kind",
+                    "Optional repository signal kind filter, for example default_branch_updated.",
+                ),
+            ]),
+        ),
+        tool_definition(
             "list_github_webhooks",
             "List recent GitHub webhook deliveries accepted by the control plane.",
             json_schema_object(&[
@@ -1699,7 +1759,7 @@ mod tests {
 
         assert_eq!(
             output[1]["result"]["tools"].as_array().map(Vec::len),
-            Some(30)
+            Some(31)
         );
         assert_eq!(output[1]["result"]["tools"][0]["name"], "list_packs");
         assert!(
@@ -1722,6 +1782,13 @@ mod tests {
                 .is_some_and(|tools| tools
                     .iter()
                     .any(|tool| tool["name"] == "submit_repository_signal"))
+        );
+        assert!(
+            output[1]["result"]["tools"]
+                .as_array()
+                .is_some_and(|tools| tools
+                    .iter()
+                    .any(|tool| tool["name"] == "run_next_repository_automation"))
         );
         assert!(
             output[1]["result"]["tools"]

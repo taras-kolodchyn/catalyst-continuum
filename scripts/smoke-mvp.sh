@@ -279,13 +279,11 @@ DEFAULT_BRANCH_STATE_CLI_FILE="$ARTIFACT_ROOT/cli-default-branch-state.json"
 REPOSITORY_SIGNAL_LIST_CLI_FILE="$ARTIFACT_ROOT/cli-repository-signals.json"
 REPOSITORY_SIGNAL_DETAIL_CLI_FILE="$ARTIFACT_ROOT/cli-repository-signal.json"
 REPOSITORY_SIGNAL_PAYLOAD_CLI_FILE="$ARTIFACT_ROOT/cli-repository-signal-payload.json"
-SECOND_WEBHOOK_ACTION_RUN_HTTP_FILE="$ARTIFACT_ROOT/http-webhook-action-run-second.json"
+REPOSITORY_AUTOMATION_CLI_FILE="$ARTIFACT_ROOT/cli-repository-automation.json"
 SECOND_WEBHOOK_ACTION_EXECUTED_CLI_FILE="$ARTIFACT_ROOT/cli-webhook-action-request-executed-second.json"
 FIRST_REPOSITORY_SIGNAL_SUPERSEDED_CLI_FILE="$ARTIFACT_ROOT/cli-repository-signal-superseded.json"
 SECOND_REPOSITORY_SIGNAL_DETAIL_CLI_FILE="$ARTIFACT_ROOT/cli-repository-signal-second.json"
 REPOSITORY_SIGNAL_BRIEF_FILE="$ARTIFACT_ROOT/repository-signal-brief.yaml"
-REPOSITORY_SIGNAL_SUBMISSION_CLI_FILE="$ARTIFACT_ROOT/cli-repository-signal-submission.json"
-REPOSITORY_SIGNAL_SUBMITTED_CLI_FILE="$ARTIFACT_ROOT/cli-repository-signal-submitted.json"
 cat >"$WEBHOOK_PAYLOAD_FILE" <<'EOF'
 {
   "zen": "Keep it logically awesome.",
@@ -742,72 +740,6 @@ curl -fsS \
   --data-binary "@$SECOND_PUSH_WEBHOOK_PAYLOAD_FILE" \
   "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/github/webhooks" >"$SECOND_PUSH_WEBHOOK_RESPONSE_FILE"
 
-curl -fsS \
-  -X POST \
-  -H "Content-Type: application/json" \
-  --data '{}' \
-  "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/github/webhook-actions/next" \
-  >"$SECOND_WEBHOOK_ACTION_RUN_HTTP_FILE"
-"$BIN" describe-github-webhook-action-request \
-  --database-url "$DATABASE_URL" \
-  --request-id "$SECOND_PUSH_WEBHOOK_ACTION_REQUEST_ID" \
-  --json >"$SECOND_WEBHOOK_ACTION_EXECUTED_CLI_FILE"
-"$BIN" describe-repository-signal \
-  --database-url "$DATABASE_URL" \
-  --signal-id "$PUSH_WEBHOOK_SIGNAL_ID" \
-  --json >"$FIRST_REPOSITORY_SIGNAL_SUPERSEDED_CLI_FILE"
-"$BIN" describe-repository-signal \
-  --database-url "$DATABASE_URL" \
-  --signal-id "$SECOND_PUSH_WEBHOOK_SIGNAL_ID" \
-  --json >"$SECOND_REPOSITORY_SIGNAL_DETAIL_CLI_FILE"
-python3 - \
-  "$SECOND_PUSH_WEBHOOK_RESPONSE_FILE" \
-  "$SECOND_WEBHOOK_ACTION_RUN_HTTP_FILE" \
-  "$SECOND_WEBHOOK_ACTION_EXECUTED_CLI_FILE" \
-  "$FIRST_REPOSITORY_SIGNAL_SUPERSEDED_CLI_FILE" \
-  "$SECOND_REPOSITORY_SIGNAL_DETAIL_CLI_FILE" \
-  "$SECOND_PUSH_WEBHOOK_ACTION_REQUEST_ID" \
-  "$SECOND_PUSH_WEBHOOK_SIGNAL_ID" \
-  "$SECOND_PUSH_WEBHOOK_AFTER_SHA" <<'PY'
-import json
-import pathlib
-import sys
-
-response = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
-run_response = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
-action_detail = json.loads(pathlib.Path(sys.argv[3]).read_text(encoding="utf-8"))
-first_signal = json.loads(pathlib.Path(sys.argv[4]).read_text(encoding="utf-8"))
-second_signal = json.loads(pathlib.Path(sys.argv[5]).read_text(encoding="utf-8"))
-request_id = sys.argv[6]
-signal_id = sys.argv[7]
-after_sha = sys.argv[8]
-
-assert response["status"] == "accepted", response
-assert response["outcome"] == "accepted", response
-assert response["event"] == "push", response
-assert response["after_sha"] == after_sha, response
-assert response["routing_status"] == "candidate", response
-assert response["routing_action"] == "sync_default_branch", response
-
-assert run_response["outcome"] == "executed", run_response
-assert run_response["execution_status"] == "succeeded", run_response
-assert run_response["request"]["request_id"] == request_id, run_response
-assert run_response["signal"]["signal_id"] == signal_id, run_response
-assert run_response["signal"]["status"] == "pending", run_response
-assert run_response["signal"]["after_sha"] == after_sha, run_response
-assert run_response["superseded_signal_count"] == 1, run_response
-
-assert action_detail["request_id"] == request_id, action_detail
-assert action_detail["status"] == "succeeded", action_detail
-assert action_detail["after_sha"] == after_sha, action_detail
-
-assert first_signal["status"] == "superseded", first_signal
-assert first_signal.get("materialized_run_id") is None, first_signal
-assert second_signal["signal_id"] == signal_id, second_signal
-assert second_signal["status"] == "pending", second_signal
-assert second_signal["after_sha"] == after_sha, second_signal
-PY
-
 cat >"$REPOSITORY_SIGNAL_BRIEF_FILE" <<'EOF'
 schema_version: v0.1
 brief_id: 55555555-5555-5555-5555-555555555555
@@ -853,36 +785,81 @@ policy:
     - restricted
 EOF
 
-"$BIN" submit-next-repository-signal \
+"$BIN" run-next-repository-automation \
   --database-url "$DATABASE_URL" \
   --artifact-root "$ARTIFACT_ROOT" \
   --file "$REPOSITORY_SIGNAL_BRIEF_FILE" \
+  --action "sync_default_branch" \
   --signal-kind "default_branch_updated" \
-  --json >"$REPOSITORY_SIGNAL_SUBMISSION_CLI_FILE"
+  --json >"$REPOSITORY_AUTOMATION_CLI_FILE"
+"$BIN" describe-github-webhook-action-request \
+  --database-url "$DATABASE_URL" \
+  --request-id "$SECOND_PUSH_WEBHOOK_ACTION_REQUEST_ID" \
+  --json >"$SECOND_WEBHOOK_ACTION_EXECUTED_CLI_FILE"
+"$BIN" describe-repository-signal \
+  --database-url "$DATABASE_URL" \
+  --signal-id "$PUSH_WEBHOOK_SIGNAL_ID" \
+  --json >"$FIRST_REPOSITORY_SIGNAL_SUPERSEDED_CLI_FILE"
 "$BIN" describe-repository-signal \
   --database-url "$DATABASE_URL" \
   --signal-id "$SECOND_PUSH_WEBHOOK_SIGNAL_ID" \
-  --json >"$REPOSITORY_SIGNAL_SUBMITTED_CLI_FILE"
+  --json >"$SECOND_REPOSITORY_SIGNAL_DETAIL_CLI_FILE"
 python3 - \
-  "$REPOSITORY_SIGNAL_SUBMISSION_CLI_FILE" \
-  "$REPOSITORY_SIGNAL_SUBMITTED_CLI_FILE" \
-  "$SECOND_PUSH_WEBHOOK_SIGNAL_ID" <<'PY'
+  "$SECOND_PUSH_WEBHOOK_RESPONSE_FILE" \
+  "$REPOSITORY_AUTOMATION_CLI_FILE" \
+  "$SECOND_WEBHOOK_ACTION_EXECUTED_CLI_FILE" \
+  "$FIRST_REPOSITORY_SIGNAL_SUPERSEDED_CLI_FILE" \
+  "$SECOND_REPOSITORY_SIGNAL_DETAIL_CLI_FILE" \
+  "$SECOND_PUSH_WEBHOOK_ACTION_REQUEST_ID" \
+  "$SECOND_PUSH_WEBHOOK_SIGNAL_ID" \
+  "$SECOND_PUSH_WEBHOOK_AFTER_SHA" <<'PY'
 import json
 import pathlib
 import sys
 
-submission = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
-signal = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
-signal_id = sys.argv[3]
+response = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+automation = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
+action_detail = json.loads(pathlib.Path(sys.argv[3]).read_text(encoding="utf-8"))
+first_signal = json.loads(pathlib.Path(sys.argv[4]).read_text(encoding="utf-8"))
+second_signal = json.loads(pathlib.Path(sys.argv[5]).read_text(encoding="utf-8"))
+request_id = sys.argv[6]
+signal_id = sys.argv[7]
+after_sha = sys.argv[8]
+signal_submission = automation["signal_submission"]
+run_id = signal_submission["submission"]["run_id"]
 
-run_id = submission["submission"]["run_id"]
-assert submission["submission"]["trigger"] == "repository_signal", submission
-assert submission["signal"]["signal_id"] == signal_id, submission
-assert submission["signal"]["status"] == "submitted", submission
-assert submission["signal"]["materialized_run_id"] == run_id, submission
-assert signal["signal_id"] == signal_id, signal
-assert signal["status"] == "submitted", signal
-assert signal["materialized_run_id"] == run_id, signal
+assert response["status"] == "accepted", response
+assert response["outcome"] == "accepted", response
+assert response["event"] == "push", response
+assert response["after_sha"] == after_sha, response
+assert response["routing_status"] == "candidate", response
+assert response["routing_action"] == "sync_default_branch", response
+
+assert automation["automation_status"] == "run_submitted", automation
+assert automation["webhook_action"]["outcome"] == "executed", automation
+assert automation["webhook_action"]["execution_status"] == "succeeded", automation
+assert automation["webhook_action"]["request"]["request_id"] == request_id, automation
+assert automation["webhook_action"]["signal"]["signal_id"] == signal_id, automation
+assert automation["webhook_action"]["signal"]["status"] == "pending", automation
+assert automation["webhook_action"]["signal"]["after_sha"] == after_sha, automation
+assert automation["webhook_action"]["superseded_signal_count"] == 1, automation
+
+assert signal_submission["outcome"] == "submitted", signal_submission
+assert signal_submission["submission"]["trigger"] == "repository_signal", signal_submission
+assert signal_submission["signal"]["signal_id"] == signal_id, signal_submission
+assert signal_submission["signal"]["status"] == "submitted", signal_submission
+assert signal_submission["signal"]["materialized_run_id"] == run_id, signal_submission
+
+assert action_detail["request_id"] == request_id, action_detail
+assert action_detail["status"] == "succeeded", action_detail
+assert action_detail["after_sha"] == after_sha, action_detail
+
+assert first_signal["status"] == "superseded", first_signal
+assert first_signal.get("materialized_run_id") is None, first_signal
+assert second_signal["signal_id"] == signal_id, second_signal
+assert second_signal["status"] == "submitted", second_signal
+assert second_signal["after_sha"] == after_sha, second_signal
+assert second_signal["materialized_run_id"] == run_id, second_signal
 PY
 
 SUBMISSION_OUTPUT="$("$BIN" submit-brief \
