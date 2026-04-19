@@ -22,6 +22,10 @@ PUSH_WEBHOOK_ACTION_REQUEST_ID="${SMOKE_PUSH_WEBHOOK_ACTION_REQUEST_ID:-github:2
 PUSH_WEBHOOK_SIGNAL_ID="${SMOKE_PUSH_WEBHOOK_SIGNAL_ID:-${PUSH_WEBHOOK_ACTION_REQUEST_ID}:default_branch_updated}"
 PUSH_WEBHOOK_BEFORE_SHA="${SMOKE_PUSH_WEBHOOK_BEFORE_SHA:-1111111111111111111111111111111111111111}"
 PUSH_WEBHOOK_AFTER_SHA="${SMOKE_PUSH_WEBHOOK_AFTER_SHA:-2222222222222222222222222222222222222222}"
+SECOND_PUSH_WEBHOOK_ACTION_REQUEST_ID="${SMOKE_SECOND_PUSH_WEBHOOK_ACTION_REQUEST_ID:-github:33333333-3333-3333-3333-333333333333:sync_default_branch}"
+SECOND_PUSH_WEBHOOK_SIGNAL_ID="${SMOKE_SECOND_PUSH_WEBHOOK_SIGNAL_ID:-${SECOND_PUSH_WEBHOOK_ACTION_REQUEST_ID}:default_branch_updated}"
+SECOND_PUSH_WEBHOOK_BEFORE_SHA="${SMOKE_SECOND_PUSH_WEBHOOK_BEFORE_SHA:-${PUSH_WEBHOOK_AFTER_SHA}}"
+SECOND_PUSH_WEBHOOK_AFTER_SHA="${SMOKE_SECOND_PUSH_WEBHOOK_AFTER_SHA:-3333333333333333333333333333333333333333}"
 POSTGRES_CONTAINER_NAME="continuum-smoke-postgres-$$"
 STARTED_POSTGRES=0
 ORCHESTRATOR_PID=""
@@ -182,6 +186,8 @@ WEBHOOK_PAYLOAD_FILE="$ARTIFACT_ROOT/github-webhook-ping.json"
 WEBHOOK_RESPONSE_FILE="$ARTIFACT_ROOT/github-webhook-response.json"
 PUSH_WEBHOOK_PAYLOAD_FILE="$ARTIFACT_ROOT/github-webhook-push.json"
 PUSH_WEBHOOK_RESPONSE_FILE="$ARTIFACT_ROOT/github-webhook-push-response.json"
+SECOND_PUSH_WEBHOOK_PAYLOAD_FILE="$ARTIFACT_ROOT/github-webhook-push-second.json"
+SECOND_PUSH_WEBHOOK_RESPONSE_FILE="$ARTIFACT_ROOT/github-webhook-push-second-response.json"
 WEBHOOK_LIST_HTTP_FILE="$ARTIFACT_ROOT/http-webhook-deliveries.json"
 WEBHOOK_PING_DETAIL_HTTP_FILE="$ARTIFACT_ROOT/http-webhook-ping-delivery.json"
 WEBHOOK_PUSH_DETAIL_HTTP_FILE="$ARTIFACT_ROOT/http-webhook-push-delivery.json"
@@ -209,6 +215,10 @@ DEFAULT_BRANCH_STATE_CLI_FILE="$ARTIFACT_ROOT/cli-default-branch-state.json"
 REPOSITORY_SIGNAL_LIST_CLI_FILE="$ARTIFACT_ROOT/cli-repository-signals.json"
 REPOSITORY_SIGNAL_DETAIL_CLI_FILE="$ARTIFACT_ROOT/cli-repository-signal.json"
 REPOSITORY_SIGNAL_PAYLOAD_CLI_FILE="$ARTIFACT_ROOT/cli-repository-signal-payload.json"
+SECOND_WEBHOOK_ACTION_RUN_HTTP_FILE="$ARTIFACT_ROOT/http-webhook-action-run-second.json"
+SECOND_WEBHOOK_ACTION_EXECUTED_CLI_FILE="$ARTIFACT_ROOT/cli-webhook-action-request-executed-second.json"
+FIRST_REPOSITORY_SIGNAL_SUPERSEDED_CLI_FILE="$ARTIFACT_ROOT/cli-repository-signal-superseded.json"
+SECOND_REPOSITORY_SIGNAL_DETAIL_CLI_FILE="$ARTIFACT_ROOT/cli-repository-signal-second.json"
 REPOSITORY_SIGNAL_BRIEF_FILE="$ARTIFACT_ROOT/repository-signal-brief.yaml"
 REPOSITORY_SIGNAL_SUBMISSION_CLI_FILE="$ARTIFACT_ROOT/cli-repository-signal-submission.json"
 REPOSITORY_SIGNAL_SUBMITTED_CLI_FILE="$ARTIFACT_ROOT/cli-repository-signal-submitted.json"
@@ -228,6 +238,21 @@ cat >"$PUSH_WEBHOOK_PAYLOAD_FILE" <<EOF
   "ref": "refs/heads/main",
   "before": "${PUSH_WEBHOOK_BEFORE_SHA}",
   "after": "${PUSH_WEBHOOK_AFTER_SHA}",
+  "repository": {
+    "full_name": "smartit/catalyst-continuum",
+    "default_branch": "main"
+  },
+  "installation": {
+    "id": ${GITHUB_APP_INSTALLATION_ID}
+  }
+}
+EOF
+
+cat >"$SECOND_PUSH_WEBHOOK_PAYLOAD_FILE" <<EOF
+{
+  "ref": "refs/heads/main",
+  "before": "${SECOND_PUSH_WEBHOOK_BEFORE_SHA}",
+  "after": "${SECOND_PUSH_WEBHOOK_AFTER_SHA}",
   "repository": {
     "full_name": "smartit/catalyst-continuum",
     "default_branch": "main"
@@ -272,6 +297,18 @@ assert response["signature_verified"] is True, response
 PY
 
 PUSH_WEBHOOK_SIGNATURE="$(python3 - "$GITHUB_WEBHOOK_SECRET" "$PUSH_WEBHOOK_PAYLOAD_FILE" <<'PY'
+import hashlib
+import hmac
+import pathlib
+import sys
+
+secret = sys.argv[1].encode("utf-8")
+payload = pathlib.Path(sys.argv[2]).read_bytes()
+print("sha256=" + hmac.new(secret, payload, hashlib.sha256).hexdigest())
+PY
+)"
+
+SECOND_PUSH_WEBHOOK_SIGNATURE="$(python3 - "$GITHUB_WEBHOOK_SECRET" "$SECOND_PUSH_WEBHOOK_PAYLOAD_FILE" <<'PY'
 import hashlib
 import hmac
 import pathlib
@@ -631,6 +668,80 @@ assert cli_signal_payload["payload"]["repository"]["after_sha"] == after_sha, cl
 assert cli_signal_payload["payload"]["automation"]["run_trigger"] == "repository_signal", cli_signal_payload
 PY
 
+curl -fsS \
+  -X POST \
+  -H "Content-Type: application/json" \
+  -H "X-GitHub-Event: push" \
+  -H "X-GitHub-Delivery: 33333333-3333-3333-3333-333333333333" \
+  -H "X-Hub-Signature-256: $SECOND_PUSH_WEBHOOK_SIGNATURE" \
+  --data-binary "@$SECOND_PUSH_WEBHOOK_PAYLOAD_FILE" \
+  "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/github/webhooks" >"$SECOND_PUSH_WEBHOOK_RESPONSE_FILE"
+
+curl -fsS \
+  -X POST \
+  -H "Content-Type: application/json" \
+  --data '{}' \
+  "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/github/webhook-actions/next" \
+  >"$SECOND_WEBHOOK_ACTION_RUN_HTTP_FILE"
+"$BIN" describe-github-webhook-action-request \
+  --database-url "$DATABASE_URL" \
+  --request-id "$SECOND_PUSH_WEBHOOK_ACTION_REQUEST_ID" \
+  --json >"$SECOND_WEBHOOK_ACTION_EXECUTED_CLI_FILE"
+"$BIN" describe-repository-signal \
+  --database-url "$DATABASE_URL" \
+  --signal-id "$PUSH_WEBHOOK_SIGNAL_ID" \
+  --json >"$FIRST_REPOSITORY_SIGNAL_SUPERSEDED_CLI_FILE"
+"$BIN" describe-repository-signal \
+  --database-url "$DATABASE_URL" \
+  --signal-id "$SECOND_PUSH_WEBHOOK_SIGNAL_ID" \
+  --json >"$SECOND_REPOSITORY_SIGNAL_DETAIL_CLI_FILE"
+python3 - \
+  "$SECOND_PUSH_WEBHOOK_RESPONSE_FILE" \
+  "$SECOND_WEBHOOK_ACTION_RUN_HTTP_FILE" \
+  "$SECOND_WEBHOOK_ACTION_EXECUTED_CLI_FILE" \
+  "$FIRST_REPOSITORY_SIGNAL_SUPERSEDED_CLI_FILE" \
+  "$SECOND_REPOSITORY_SIGNAL_DETAIL_CLI_FILE" \
+  "$SECOND_PUSH_WEBHOOK_ACTION_REQUEST_ID" \
+  "$SECOND_PUSH_WEBHOOK_SIGNAL_ID" \
+  "$SECOND_PUSH_WEBHOOK_AFTER_SHA" <<'PY'
+import json
+import pathlib
+import sys
+
+response = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+run_response = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
+action_detail = json.loads(pathlib.Path(sys.argv[3]).read_text(encoding="utf-8"))
+first_signal = json.loads(pathlib.Path(sys.argv[4]).read_text(encoding="utf-8"))
+second_signal = json.loads(pathlib.Path(sys.argv[5]).read_text(encoding="utf-8"))
+request_id = sys.argv[6]
+signal_id = sys.argv[7]
+after_sha = sys.argv[8]
+
+assert response["status"] == "accepted", response
+assert response["outcome"] == "accepted", response
+assert response["event"] == "push", response
+assert response["after_sha"] == after_sha, response
+assert response["routing_status"] == "candidate", response
+assert response["routing_action"] == "sync_default_branch", response
+
+assert run_response["outcome"] == "executed", run_response
+assert run_response["execution_status"] == "succeeded", run_response
+assert run_response["request"]["request_id"] == request_id, run_response
+assert run_response["signal"]["signal_id"] == signal_id, run_response
+assert run_response["signal"]["status"] == "pending", run_response
+assert run_response["signal"]["after_sha"] == after_sha, run_response
+
+assert action_detail["request_id"] == request_id, action_detail
+assert action_detail["status"] == "succeeded", action_detail
+assert action_detail["after_sha"] == after_sha, action_detail
+
+assert first_signal["status"] == "superseded", first_signal
+assert first_signal.get("materialized_run_id") is None, first_signal
+assert second_signal["signal_id"] == signal_id, second_signal
+assert second_signal["status"] == "pending", second_signal
+assert second_signal["after_sha"] == after_sha, second_signal
+PY
+
 cat >"$REPOSITORY_SIGNAL_BRIEF_FILE" <<'EOF'
 schema_version: v0.1
 brief_id: 55555555-5555-5555-5555-555555555555
@@ -684,12 +795,12 @@ EOF
   --json >"$REPOSITORY_SIGNAL_SUBMISSION_CLI_FILE"
 "$BIN" describe-repository-signal \
   --database-url "$DATABASE_URL" \
-  --signal-id "$PUSH_WEBHOOK_SIGNAL_ID" \
+  --signal-id "$SECOND_PUSH_WEBHOOK_SIGNAL_ID" \
   --json >"$REPOSITORY_SIGNAL_SUBMITTED_CLI_FILE"
 python3 - \
   "$REPOSITORY_SIGNAL_SUBMISSION_CLI_FILE" \
   "$REPOSITORY_SIGNAL_SUBMITTED_CLI_FILE" \
-  "$PUSH_WEBHOOK_SIGNAL_ID" <<'PY'
+  "$SECOND_PUSH_WEBHOOK_SIGNAL_ID" <<'PY'
 import json
 import pathlib
 import sys

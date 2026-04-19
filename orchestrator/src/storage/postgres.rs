@@ -1557,6 +1557,59 @@ impl PostgresRunStore {
             )
             .context("failed to upsert repository signal")?;
 
+        let superseded_message = match (
+            signal.repository_default_branch.as_deref(),
+            signal.after_sha.as_deref(),
+        ) {
+            (Some(default_branch), Some(after_sha)) => format!(
+                "repository signal superseded by {} for default branch `{}` at head `{}`",
+                signal.signal_id, default_branch, after_sha
+            ),
+            (Some(default_branch), None) => format!(
+                "repository signal superseded by {} for default branch `{}`",
+                signal.signal_id, default_branch
+            ),
+            (None, Some(after_sha)) => format!(
+                "repository signal superseded by {} at head `{}`",
+                signal.signal_id, after_sha
+            ),
+            (None, None) => format!("repository signal superseded by {}", signal.signal_id),
+        };
+        let superseded_count = transaction
+            .execute(
+                "UPDATE repository_signals
+                    SET status = 'superseded',
+                        message = $6,
+                        updated_at = NOW()
+                  WHERE provider = $1
+                    AND repository_full_name = $2
+                    AND signal_kind = $3
+                    AND proposed_run_trigger = $4
+                    AND repository_default_branch IS NOT DISTINCT FROM $5
+                    AND status = 'pending'
+                    AND signal_id <> $7",
+                &[
+                    &signal.provider,
+                    &signal.repository_full_name,
+                    &signal.signal_kind,
+                    &signal.proposed_run_trigger,
+                    &signal.repository_default_branch,
+                    &superseded_message,
+                    &signal.signal_id,
+                ],
+            )
+            .context("failed to supersede older pending repository signals")?;
+        if superseded_count > 0 {
+            tracing::info!(
+                signal_id = %signal.signal_id,
+                provider = %signal.provider,
+                repository_full_name = %signal.repository_full_name,
+                signal_kind = %signal.signal_kind,
+                superseded_count,
+                "superseded older pending repository signals after default-branch sync"
+            );
+        }
+
         transaction
             .commit()
             .context("failed to commit github webhook action completion transaction")?;
