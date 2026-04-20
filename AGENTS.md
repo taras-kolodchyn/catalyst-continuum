@@ -59,6 +59,15 @@ When the change touches agent integrations or MCP behavior, also review:
 - Prefer whole-object assertions over field-by-field assertions when the full struct, manifest, or payload can be compared directly.
 - Avoid mutating process environment in tests when explicit inputs, injected dependencies, or helper builders can model the case more deterministically.
 
+## API Surface Rules
+
+- Keep transport payload naming consistent within the surface you are editing. Follow established local conventions such as `*ToolArgs` for MCP tool inputs and `*Request` or `*Response` for HTTP payload structs; do not rename existing types just to force a new naming scheme.
+- Do not change existing external method naming conventions without an explicit compatibility reason and a matching documentation or migration update. For MCP tools, keep the current repository convention unless the task explicitly introduces a broader surface redesign.
+- Prefer simple string IDs at new external API boundaries when that keeps the contract easier to evolve, and convert them to `Uuid` or stronger internal types inside the shared command or storage layer. Do not churn existing UUID-typed boundaries unless the task explicitly includes that migration.
+- Do not change wire-field naming conventions casually. Preserve the established naming for the transport you are editing unless there is a documented compatibility or interoperability reason to do otherwise.
+- For new list-style HTTP endpoints that may grow beyond small operator-facing responses, consider cursor pagination by default with `cursor`, `limit`, `data`, and `next_cursor`. If a list endpoint stays limit-only, keep that choice intentional and bounded.
+- For new public request payloads, use `Option<...>` when omission and an explicitly empty value mean different things. Do not use `serde(default)` to silently blur that distinction unless the omission semantics are explicitly intended and documented.
+
 ## Validation Rules
 
 Before delivering, run the smallest meaningful validation set that proves the change. Use these repository-standard checks:
