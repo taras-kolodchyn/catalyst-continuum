@@ -25,6 +25,24 @@ cargo run -q -p catalyst-continuum-orchestrator -- \
   --runtime-providers-file "config/runtime-providers.yaml"
 ```
 
+## External MCP Servers
+
+Catalyst Continuum's own MCP server is separate from any third-party MCP servers an agent may also use.
+
+For `v0.1`, external MCP servers should stay agent- or operator-managed:
+
+- OpenHands, Codex, or another client can attach them directly when needed.
+- The orchestrator should not duplicate client-native MCP setup for session-local conveniences such as `git` or `filesystem`.
+- Stronger control-plane ownership only makes sense once there is a concrete reproducibility, audit, allowlist, or policy reason to centralize that capability.
+
+The near-term direction for `v0.2` is narrower than sidecar lifecycle management:
+
+- packs should be able to declare recommended external MCP servers and setup hints
+- interoperability should be checked in local and CI flows against upstream reference servers, starting with `Everything`
+- `Fetch` is the first intended recommended external MCP server because it adds useful web retrieval capability without duplicating the core coding workflow
+
+See [../v0.2-scope.md](../v0.2-scope.md) for the scoped feature plan.
+
 ## Stateless vs Stateful Tools
 
 The MCP server supports two tool classes.

@@ -3,6 +3,7 @@ Open‑source AI SDLC toolkit that turns a product brief into a working proof‑
 
 Planning context for Codex and other agents lives in [docs/summary.md](docs/summary.md).
 The current implementation cut line is tracked in [docs/v0.1-scope.md](docs/v0.1-scope.md).
+The next scoped feature batch is tracked in [docs/v0.2-scope.md](docs/v0.2-scope.md).
 Interface boundaries are documented in [docs/adr/0001-control-plane-and-agent-surface.md](docs/adr/0001-control-plane-and-agent-surface.md).
 Generic open-source agent integration notes live in [docs/mcp/open-source-client.md](docs/mcp/open-source-client.md).
 OpenHands-specific integration notes live in [docs/mcp/openhands.md](docs/mcp/openhands.md).
@@ -20,6 +21,8 @@ The rule is simple:
 - use MCP for Codex, Cursor, and other agent frameworks that need capability-scoped tool calls
 
 The Rust command/application layer remains the single source of truth underneath all three interfaces.
+
+The current external MCP server rule is intentionally narrow: in `v0.1`, third-party MCP servers remain agent- or operator-managed rather than orchestrator-managed sidecars. That keeps Catalyst Continuum from duplicating client-native MCP configuration for capabilities such as `git` or `filesystem` when the real value belongs in control-plane state, policy, reproducibility, and observability. The `v0.2` direction is to document and validate recommended external MCP servers per pack first, not to turn the orchestrator into a generic MCP sidecar launcher.
 
 The first control-plane policy slice now lives in the brief itself. It does not duplicate LiteLLM token or spend budgets. Instead, it constrains orchestration-level behavior such as planned task count, total timeout budget, bounded retry scheduling, allowed task kinds, allowed runtime providers, and allowed sandbox profiles. Every accepted submission now emits a `policy_report` artifact alongside the `backlog` and the routing-oriented `agent_dispatch_plan`.
 The same brief and pack contract now also carries explicit agent routing metadata. Packs declare an `agent_profile` with supported agents and a default orchestrator model hint, briefs can narrow that contract with `allowed_agents`, `default_agent`, and `orchestrator_model`, and the resolved routing is materialized into the backlog plus each persisted task as `assigned_agent` and `orchestrator_model`. The control plane also persists that routing as `agent_dispatch_plan`, which groups the run's tasks by assigned agent and gives OpenHands, Codex, and operators a stable handoff artifact instead of forcing them to reconstruct delegation from raw task rows.

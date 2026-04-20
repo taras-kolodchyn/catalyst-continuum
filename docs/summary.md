@@ -91,13 +91,19 @@ Security expectations:
 
 ## MCP and External Agent Strategy
 
-Catalyst Continuum should act as an MCP host.
+Catalyst Continuum should act as an MCP host for its own control-plane services and as a documented integration point for external agent tooling.
 
 That means it must:
 
-- Call external MCP servers when a task requires them.
 - Expose its own services through MCP for interoperability.
+- Allow packs and operator docs to declare when external MCP servers are recommended for a workflow.
 - Support Codex and Cursor as external coding agents through MCP-compatible integration.
+
+Immediate integration rule:
+
+- In `v0.1`, external MCP servers remain agent- or operator-managed.
+- The orchestrator should not become a generic third-party MCP sidecar launcher just to duplicate client-native MCP configuration.
+- Stronger orchestrator ownership of third-party MCP servers should come only when policy, auditability, reproducibility, or allowlist enforcement clearly require it.
 
 The selected pack for a task determines which external coding agent or model stack is used.
 That selection should be explicit and inspectable rather than inferred from prompt text alone: packs define supported/default agents and a default orchestrator-model hint, briefs can narrow or override within that contract, and the resolved assignment should be materialized into backlog and task state.
@@ -134,14 +140,15 @@ Expected outcome:
 
 ### v0.2
 
-Developer experience and structure:
+Structure, interoperability, and operator-facing contracts:
 
-- YAML product brief support
-- Artifact schemas
-- Structured event model
-- Repository packs
+- Declarative pack-level recommendations for external MCP servers without orchestrator-managed sidecar lifecycle
+- Reference MCP interoperability checks using the upstream `Everything` server
+- Documented `Fetch` integration as the first recommended external MCP server
+- Published artifact schemas and a more explicit structured event model
+- Harder-edged repository pack contracts and docs
 - Template repository for private deployments
-- GitHub App integration
+- Deeper GitHub App integration
 - Basic evaluation tests
 
 ### v0.3
