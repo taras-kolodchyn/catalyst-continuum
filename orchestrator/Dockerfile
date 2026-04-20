@@ -16,5 +16,6 @@ WORKDIR /app
 
 COPY --from=builder /workspace/target/release/catalyst-continuum-orchestrator /usr/local/bin/continuum-orchestrator
 COPY packs /app/packs
+COPY config /app/config
 
 ENTRYPOINT ["continuum-orchestrator"]

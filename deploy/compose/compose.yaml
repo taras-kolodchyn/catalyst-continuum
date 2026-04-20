@@ -119,19 +119,57 @@ services:
     environment:
       RUST_LOG: ${ORCHESTRATOR_LOG_LEVEL}
       CATALYST_BIND_ADDR: 0.0.0.0:8080
+      CATALYST_ARTIFACT_ROOT: /app/.continuum/artifacts
       CATALYST_DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      CATALYST_RUNTIME_PROVIDERS_FILE: /app/config/runtime-providers.yaml
+      CATALYST_MCP_SERVERS_FILE: /app/config/mcp-servers.yaml
       CATALYST_REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       CATALYST_OTEL_EXPORT_INTERVAL_SECONDS: ${CATALYST_OTEL_EXPORT_INTERVAL_SECONDS}
       CATALYST_SERVICE_VERSION: ${ORCHESTRATOR_IMAGE_TAG}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
       OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
       OTEL_SERVICE_NAME: catalyst-continuum-orchestrator
+    volumes:
+      - artifacts-data:/app/.continuum/artifacts
     command: ["serve", "--bind-addr", "0.0.0.0:8080"]
     ports:
       - "${ORCHESTRATOR_PORT}:8080"
+
+  worker:
+    image: catalyst-continuum-orchestrator:${ORCHESTRATOR_IMAGE_TAG}
+    build:
+      context: ../..
+      dockerfile: orchestrator/Dockerfile
+      args:
+        RUST_IMAGE_TAG: ${RUST_IMAGE_TAG}
+        RUST_IMAGE_DIGEST: ${RUST_IMAGE_DIGEST}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+    environment:
+      RUST_LOG: ${ORCHESTRATOR_LOG_LEVEL}
+      CATALYST_ARTIFACT_ROOT: /app/.continuum/artifacts
+      CATALYST_DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      CATALYST_RUNTIME_PROVIDERS_FILE: /app/config/runtime-providers.yaml
+      CATALYST_MCP_SERVERS_FILE: /app/config/mcp-servers.yaml
+      CATALYST_REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      CATALYST_OTEL_EXPORT_INTERVAL_SECONDS: ${CATALYST_OTEL_EXPORT_INTERVAL_SECONDS}
+      CATALYST_SERVICE_VERSION: ${ORCHESTRATOR_IMAGE_TAG}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_SERVICE_NAME: catalyst-continuum-worker
+    volumes:
+      - artifacts-data:/app/.continuum/artifacts
+    command: ["worker", "--idle-sleep-ms", "1000"]
 
 volumes:
   postgres18-data:
   tempo-data:
   prometheus-data:
   grafana-data:
+  artifacts-data:

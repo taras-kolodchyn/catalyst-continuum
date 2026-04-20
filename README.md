@@ -168,6 +168,8 @@ The local `v0.1` compose stack now includes an observability baseline:
 - Tempo for traces
 - Grafana with pinned datasource and dashboard provisioning
 
+That compose baseline now also runs a dedicated `worker` service beside the HTTP `orchestrator`, with a shared artifact volume and the baseline `config/runtime-providers.yaml` plus `config/mcp-servers.yaml` available inside the container image so both processes resolve the same instance contract in local Docker runs.
+
 The telemetry surface now also emits dedicated metrics for promotion steps, runtime-enforced task timeouts, stale task reclaim events, stale GitHub webhook action reclaims, and repository-signal lifecycle/materialization outcomes, so these control-plane paths can be broken out cleanly in Grafana instead of being inferred from generic command/task counters.
 
 The repository now also carries a `template-repo/` skeleton for the future
