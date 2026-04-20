@@ -7,6 +7,7 @@ The operator-facing shipped-baseline note for `v0.1` lives in [docs/v0.1-release
 The former `v0.2` contract/interoperability batch was absorbed into that final `v0.1` boundary; the next re-baselined `v0.2` scope is now tracked in [docs/v0.2-scope.md](docs/v0.2-scope.md) around Proxmox and Kubernetes runtime-provider work.
 Interface boundaries are documented in [docs/adr/0001-control-plane-and-agent-surface.md](docs/adr/0001-control-plane-and-agent-surface.md).
 External MCP capability policy is documented in [docs/adr/0002-agent-capability-policy.md](docs/adr/0002-agent-capability-policy.md).
+LiteLLM's gateway boundary is documented in [docs/adr/0003-litellm-ai-edge-gateway.md](docs/adr/0003-litellm-ai-edge-gateway.md).
 Generic open-source agent integration notes live in [docs/mcp/open-source-client.md](docs/mcp/open-source-client.md).
 OpenHands-specific integration notes live in [docs/mcp/openhands.md](docs/mcp/openhands.md).
 Pinned `Fetch` integration guidance lives in [docs/mcp/fetch.md](docs/mcp/fetch.md).
@@ -173,6 +174,7 @@ The local `v0.1` compose stack now includes an observability baseline:
 That compose baseline now also includes a pinned `LiteLLM` gateway service for local agent validation.
 The bundled gateway now uses the shared local Postgres server through a dedicated LiteLLM database, so the proxy runs with persistent Prisma-backed state instead of a stateless local-only setup.
 The bundled gateway now also exports its official LiteLLM OpenTelemetry traces and semantic log events into the local collector, so gateway activity lands in the shipped Tempo/Loki/Grafana baseline instead of staying opaque.
+The closed `v0.1` architecture now also fixes LiteLLM's role as the AI edge gateway rather than treating it as only a local proxy: model routing, cache/state, and gateway observability live there today, and future search/vector-store/RAG or A2A-compatible remote-agent edge work should extend that same boundary without taking run policy, runtime control, or PR lineage away from the Rust orchestrator.
 The repository-standard local backend policy is now explicit:
 
 - macOS Apple Silicon prefers a native `mlx-lm` HTTP server behind LiteLLM

@@ -49,15 +49,18 @@ Planned providers:
 - Proxmox provider next using linked-clone VMs and Cloud-Init.
 - Kubernetes provider later using Jobs or Pods.
 
-### LLM Gateway
+### LiteLLM AI Edge Gateway
 
-LiteLLM acts as the local LLM gateway and proxy. It should provide routing, rate limiting, caching, and cost control for multiple model providers.
+LiteLLM is the AI edge gateway, not only a thin local proxy. It provides model routing, rate limiting, caching, persistent proxy state, and gateway-level observability for multiple model providers.
 
 Implementation boundary note:
 
 - model-spend and token budgets should stay in LiteLLM
+- search, vector-store, and RAG edge features should live behind LiteLLM when adopted
+- optional future A2A-compatible remote-agent ingress should also sit behind the LiteLLM edge instead of becoming a second ad hoc service
 - orchestration-level policy should stay in the Rust control plane
 - that control-plane policy covers task/runtime/sandbox rules rather than duplicating LiteLLM accounting
+- the Rust orchestrator remains the source of truth for run/task/artifact state, runtime policy, quality gates, and draft-PR lineage
 
 Local development guidance:
 
@@ -125,6 +128,7 @@ Closed Docker-first control-plane baseline with:
 - Postgres
 - Redis
 - Docker runtime provider
+- LiteLLM AI edge gateway baseline for model routing, cache, persistent proxy state, and gateway observability
 - OpenTelemetry collector
 - Prometheus
 - Tempo
