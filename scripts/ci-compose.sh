@@ -12,6 +12,16 @@ docker compose \
   -f deploy/compose/compose.yaml \
   config --format json >"$resolved_config_json"
 
+if ! rg -n '^  callbacks:$' deploy/compose/litellm-config.yaml >/dev/null 2>&1; then
+  echo "deploy/compose/litellm-config.yaml must declare litellm callbacks" >&2
+  exit 1
+fi
+
+if ! rg -n '^    - otel$' deploy/compose/litellm-config.yaml >/dev/null 2>&1; then
+  echo "deploy/compose/litellm-config.yaml must enable the otel callback" >&2
+  exit 1
+fi
+
 python3 - "$resolved_config_json" <<'PY'
 import json
 import pathlib
@@ -95,6 +105,11 @@ for key in (
     "LITELLM_OLLAMA_API_BASE",
     "LITELLM_DATABASE_NAME",
     "LITELLM_CACHE_NAMESPACE",
+    "LITELLM_OTEL_INTEGRATION_ENABLE_EVENTS",
+    "OTEL_ENVIRONMENT_NAME",
+    "OTEL_EXPORTER_OTLP_ENDPOINT",
+    "OTEL_EXPORTER_OTLP_PROTOCOL",
+    "OTEL_SERVICE_NAME",
     "REDIS_PASSWORD",
 ):
     if not litellm_env.get(key):
@@ -126,6 +141,10 @@ if db_init_dependency.get("condition") != "service_completed_successfully":
 redis_dependency = litellm.get("depends_on", {}).get("redis", {})
 if redis_dependency.get("condition") != "service_healthy":
     raise SystemExit("litellm must depend on a healthy redis service for proxy cache state")
+
+otel_dependency = litellm.get("depends_on", {}).get("otel-collector", {})
+if otel_dependency.get("condition") != "service_started":
+    raise SystemExit("litellm must depend on the otel-collector service for OTLP export")
 
 extra_hosts = litellm.get("extra_hosts", [])
 if "host.docker.internal=host-gateway" not in extra_hosts:

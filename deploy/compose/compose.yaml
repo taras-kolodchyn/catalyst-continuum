@@ -126,6 +126,8 @@ services:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
+      otel-collector:
+        condition: service_started
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${LITELLM_DATABASE_NAME}
       ENFORCE_PRISMA_MIGRATION_CHECK: "true"
@@ -137,6 +139,11 @@ services:
       LITELLM_OLLAMA_API_BASE: ${LITELLM_OLLAMA_API_BASE}
       LITELLM_CACHE_NAMESPACE: ${LITELLM_CACHE_NAMESPACE}
       LITELLM_DATABASE_NAME: ${LITELLM_DATABASE_NAME}
+      LITELLM_OTEL_INTEGRATION_ENABLE_EVENTS: ${LITELLM_OTEL_ENABLE_EVENTS}
+      OTEL_ENVIRONMENT_NAME: ${LITELLM_OTEL_ENVIRONMENT_NAME}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_SERVICE_NAME: ${LITELLM_OTEL_SERVICE_NAME}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
     volumes:
       - ./litellm-config.yaml:/app/config.yaml:ro

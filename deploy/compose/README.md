@@ -49,6 +49,8 @@ docker compose --env-file deploy/compose/.env.example -f deploy/compose/compose.
 When a host-run local backend is already serving, remove `--skip-chat` to run a real proxy-backed chat completion.
 The smoke path also confirms that LiteLLM's bundled Prisma schema exists in the
 dedicated `LITELLM_DATABASE_NAME` database on the shared local Postgres server.
+When chat validation runs, the smoke path now also waits for LiteLLM's OTel
+semantic log records to appear in Loki through the local collector.
 
 Repository-standard backend policy:
 
@@ -95,6 +97,7 @@ ollama serve
 - The orchestrator exports OpenTelemetry traces, metrics, and logs over OTLP HTTP when the collector endpoint env vars are configured.
 - The compose stack now runs a dedicated long-lived `worker` service alongside the HTTP `orchestrator`, so background run progression works in the local stack without shelling into the container manually.
 - The compose stack now also runs a pinned `LiteLLM` gateway service. The gateway is bundled; the actual local model backend remains host-run and operator-managed through `LITELLM_MACOS_NATIVE_API_BASE` or `LITELLM_OLLAMA_API_BASE`.
+- The bundled LiteLLM gateway now enables the official `otel` callback and exports proxy traces plus semantic log events over OTLP HTTP to the local `otel-collector`, following LiteLLM's official [OpenTelemetry integration guide](https://docs.litellm.ai/docs/observability/opentelemetry_integration), so LiteLLM activity lands in the same Tempo and Loki baseline as the orchestrator.
 - A one-shot `litellm-db-init` helper now ensures the dedicated LiteLLM database exists on the shared local Postgres server before the gateway starts. This follows the official LiteLLM proxy database contract around `DATABASE_URL` and Prisma-backed proxy state from [docs.litellm.ai](https://docs.litellm.ai/).
 - `orchestrator` and `worker` now share one named `artifacts-data` volume mounted at `/app/.continuum/artifacts`, so persisted manifests, snapshots, reports, and publication artifacts stay visible to both processes.
 - The runtime image now carries the baseline `config/runtime-providers.yaml` and `config/mcp-servers.yaml`, and the compose services point at those files explicitly so containerized `serve` and `worker` execution resolve the same instance contract.

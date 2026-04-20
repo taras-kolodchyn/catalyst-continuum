@@ -116,6 +116,9 @@ LITELLM_OLLAMA_MODEL="${LITELLM_OLLAMA_MODEL:-ollama/qwen2.5-coder:7b}"
 LITELLM_OLLAMA_API_BASE="${LITELLM_OLLAMA_API_BASE:-http://host.docker.internal:11434}"
 LITELLM_CACHE_NAMESPACE="${LITELLM_CACHE_NAMESPACE:-catalyst-continuum-litellm}"
 LITELLM_DATABASE_NAME="${LITELLM_DATABASE_NAME:-litellm}"
+LITELLM_OTEL_ENABLE_EVENTS="${LITELLM_OTEL_ENABLE_EVENTS:-true}"
+LITELLM_OTEL_SERVICE_NAME="${LITELLM_OTEL_SERVICE_NAME:-catalyst-continuum-litellm}"
+LOKI_PORT="${LOKI_PORT:-3100}"
 POSTGRES_USER="${POSTGRES_USER:-continuum}"
 REDIS_PASSWORD="${REDIS_PASSWORD:-continuum-dev}"
 
@@ -217,6 +220,8 @@ while IFS= read -r model_id; do
 done <<<"$available_models"
 echo "cache_namespace: $LITELLM_CACHE_NAMESPACE"
 echo "database_name: $LITELLM_DATABASE_NAME"
+echo "otel_events_enabled: $LITELLM_OTEL_ENABLE_EVENTS"
+echo "otel_service_name: $LITELLM_OTEL_SERVICE_NAME"
 if [ -n "$backend_start_command" ]; then
   echo "backend_start: $backend_start_command"
 fi
@@ -247,6 +252,12 @@ fi
 if [ "$SKIP_CHAT" -eq 0 ]; then
   echo
   echo "running chat completion validation"
+  otel_log_query_start_ns="$(
+    python3 - <<'PY'
+import time
+print(int(time.time() * 1_000_000_000))
+PY
+  )"
   validation_output="$(
     python3 - "$base_url" "$LITELLM_MASTER_KEY" "$MODEL" "$PROMPT" <<'PY'
 import json
@@ -415,6 +426,72 @@ PY
         exit 1
         ;;
     esac
+  fi
+
+  if [ "$LITELLM_OTEL_ENABLE_EVENTS" = "true" ]; then
+    echo
+    echo "checking LiteLLM OTel logs in Loki"
+    litellm_otel_logs="$(
+      python3 - "$LOKI_PORT" "$LITELLM_OTEL_SERVICE_NAME" "$otel_log_query_start_ns" <<'PY'
+import json
+import sys
+import time
+import urllib.parse
+import urllib.request
+
+loki_port, service_name, start_ns = sys.argv[1:]
+start_ns = int(start_ns)
+deadline = time.time() + 45
+query = f'{{service_name="{service_name}"}}'
+
+while time.time() < deadline:
+    end_ns = int(time.time() * 1_000_000_000)
+    params = urllib.parse.urlencode(
+        {
+            "query": query,
+            "start": str(start_ns),
+            "end": str(end_ns),
+            "limit": "50",
+        }
+    )
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{loki_port}/loki/api/v1/query_range?{params}"
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=5) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except Exception:
+        time.sleep(1)
+        continue
+
+    results = payload.get("data", {}).get("result", [])
+    matched_records = []
+    for stream in results:
+        event_name = stream.get("stream", {}).get("event_name", "")
+        if event_name not in ("gen_ai.content.prompt", "gen_ai.content.completion"):
+            continue
+        for _, line in stream.get("values", []):
+            matched_records.append(
+                json.dumps(
+                    {
+                        "eventName": event_name,
+                        "body": line,
+                    }
+                )
+            )
+
+    if matched_records:
+        print(matched_records[0])
+        raise SystemExit(0)
+
+    time.sleep(1)
+
+raise SystemExit(
+    f"expected LiteLLM OTel semantic logs for service_name={service_name!r} in Loki"
+)
+PY
+    )"
+    echo "otel_log_sample: $litellm_otel_logs"
   fi
 fi
 

@@ -63,6 +63,9 @@ The gateway now also uses the shared local Postgres server through a dedicated
 LiteLLM database, which aligns the local stack with LiteLLM's official
 `DATABASE_URL` + Prisma-backed proxy state contract instead of running the proxy
 in stateless mode only.
+The same bundled proxy now also exports official LiteLLM OpenTelemetry traces
+and semantic log events into the local collector, so OpenHands-driven gateway
+traffic lands in the shipped Tempo/Loki baseline alongside orchestrator events.
 The repository scripts resolve the default alias this way:
 
 - `local-macos-native` on macOS Apple Silicon
@@ -111,7 +114,8 @@ To validate a real model round-trip once the host backend is already serving:
 The smoke path now also verifies that LiteLLM returns a stable cache key for
 identical requests and that the corresponding Redis-backed cache entry exists in
 the bundled compose `redis` service. It also checks that LiteLLM's Prisma
-schema is present in the dedicated local LiteLLM database.
+schema is present in the dedicated local LiteLLM database, and that LiteLLM's
+OTel semantic log records appear in Loki through the local collector.
 
 The script prints the exact OpenHands settings to use.
 For the default host-run OpenHands flow, those settings are:
