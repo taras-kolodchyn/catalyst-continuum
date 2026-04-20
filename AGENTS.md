@@ -20,6 +20,7 @@ When the change touches agent integrations or MCP behavior, also review:
 
 - `docs/mcp/open-source-client.md`
 - `docs/mcp/openhands.md`
+- `docs/mcp/fetch.md`
 
 ## Core Working Agreements
 
@@ -88,6 +89,7 @@ Before delivering, run the smallest meaningful validation set that proves the ch
 - `./scripts/ci-compose.sh` for compose or deployment changes
 - `./scripts/ci-smoke.sh` for end-to-end orchestration changes, webhook flows, repository-signal flows, draft-PR flows, or cross-surface behavior changes
 - `./scripts/mcp-smoke.sh` for stateless MCP handshake and tool discovery changes
+- `./scripts/mcp-reference-smoke.sh` for upstream MCP interoperability checks against the pinned `Everything` reference server
 - `./scripts/mcp-stateful-smoke.sh` for MCP stateful-path changes, especially OpenHands-facing flows
 
 If a change affects multiple surfaces, run all relevant checks instead of choosing only one.

@@ -9,3 +9,4 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo build --workspace --locked
 cargo test --workspace --locked
 ./scripts/mcp-smoke.sh
+./scripts/mcp-reference-smoke.sh

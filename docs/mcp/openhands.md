@@ -17,6 +17,7 @@ cargo run -q -p catalyst-continuum-orchestrator -- \
 ```
 
 This is the fastest way to validate the integration locally with OpenHands.
+If the resolved `external_mcp_contract` for a run also allows `fetch`, register the pinned upstream `Fetch` server separately in OpenHands using [fetch.md](fetch.md); Catalyst Continuum only publishes the policy contract for that server, not its lifecycle.
 
 ## First Local Run
 
@@ -199,10 +200,12 @@ Before wiring OpenHands, validate the server locally:
 
 ```bash
 ./scripts/mcp-smoke.sh
+./scripts/mcp-reference-smoke.sh
 ./scripts/mcp-stateful-smoke.sh
 ```
 
 `./scripts/mcp-smoke.sh` validates the stateless handshake and tool discovery path.
+`./scripts/mcp-reference-smoke.sh` validates that the current client/runtime can still interoperate with the pinned upstream `Everything` reference server before you blame OpenHands-specific behavior on Catalyst Continuum's MCP adapter.
 `./scripts/mcp-stateful-smoke.sh` validates the safe stateful path: GitHub webhook inspection plus receipt inspection and execution, webhook execution-report inspection, default-branch-state inspection, repository-signal inspection plus payload inspection, queue-safe repository-signal materialization through `submit_next_repository_signal`, the higher-level idle-path check for `run_next_repository_automation`, brief submission, run listing, one `run_next_task` execution for the codex-owned planning step, one `claim_next_agent_task`, `heartbeat_agent_task`, and `complete_agent_task` cycle for the OpenHands-owned step, a follow-on `run_worker_once` execution, policy evaluation, persisted policy-artifact inspection, and run-event inspection. The heavier full-run quality-gate path stays in `./scripts/smoke-mvp.sh` and `./scripts/ci-smoke.sh`, so the MCP smoke stays focused on agent-facing transport and stateful tool contracts.
 
 Then register the server in OpenHands and start a conversation with [examples/openhands/first-task.md](../../examples/openhands/first-task.md). That is the shortest path to confirming the integration end to end without publishing or opening a GitHub PR.

@@ -147,6 +147,7 @@ Structure, interoperability, and operator-facing contracts:
 - The resolved capability contract should be visible in validation output and persisted into the run-level dispatch artifact so every agent sees the same allowed/denied tool surface
 - Reference MCP interoperability checks using the upstream `Everything` server
 - Documented `Fetch` integration as the first recommended external MCP server
+- Pinned upstream MCP package versions for `Everything`, `Fetch`, and local inspector-based debugging should live in shared version metadata and stay covered by repository validation
 - Published artifact schemas and a more explicit structured event model
 - Harder-edged repository pack contracts and docs
 - Template repository for private deployments
@@ -208,6 +209,7 @@ Policy decisions:
 - Commit `Cargo.lock` for Rust services.
 - Use fully pinned Python dependency files such as `requirements.txt` with hashes or a lockfile.
 - Centralize version numbers in a shared file such as `.env` or `versions.yml`.
+- Apply the same pinning rule to external MCP reference packages and debugging tools when they become part of local or CI validation.
 - Automate update discovery through Dependabot or Renovate.
 - Review upstream release notes before upgrading critical components.
 - Document the pinning and upgrade policy in repo documentation.

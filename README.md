@@ -8,6 +8,7 @@ Interface boundaries are documented in [docs/adr/0001-control-plane-and-agent-su
 External MCP capability policy is documented in [docs/adr/0002-agent-capability-policy.md](docs/adr/0002-agent-capability-policy.md).
 Generic open-source agent integration notes live in [docs/mcp/open-source-client.md](docs/mcp/open-source-client.md).
 OpenHands-specific integration notes live in [docs/mcp/openhands.md](docs/mcp/openhands.md).
+Pinned `Fetch` integration guidance lives in [docs/mcp/fetch.md](docs/mcp/fetch.md).
 
 ## Control Plane vs MCP
 
@@ -23,7 +24,7 @@ The rule is simple:
 
 The Rust command/application layer remains the single source of truth underneath all three interfaces.
 
-The current external MCP server rule is intentionally narrow: third-party MCP servers remain agent- or operator-managed rather than orchestrator-managed sidecars. That keeps Catalyst Continuum from duplicating client-native MCP configuration for capabilities such as `git` or `filesystem` when the real value belongs in control-plane state, policy, reproducibility, and observability. The `v0.2` direction is to keep that lifecycle boundary, but make the policy contract sharper: packs recommend external MCP servers, the instance declares an allowlist by agent, and `validate_brief` plus `agent_dispatch_plan` expose the resolved per-run result with explicit `allowed`, `denied`, `disabled`, or `unknown_server` status.
+The current external MCP server rule is intentionally narrow: third-party MCP servers remain agent- or operator-managed rather than orchestrator-managed sidecars. That keeps Catalyst Continuum from duplicating client-native MCP configuration for capabilities such as `git` or `filesystem` when the real value belongs in control-plane state, policy, reproducibility, and observability. The `v0.2` direction is to keep that lifecycle boundary, but make the policy contract sharper: packs recommend external MCP servers, the instance declares an allowlist by agent, and `validate_brief` plus `agent_dispatch_plan` expose the resolved per-run result with explicit `allowed`, `denied`, `disabled`, or `unknown_server` status. The first pinned interoperability fixture for that work now lives in `./scripts/mcp-reference-smoke.sh`, which exercises the upstream `Everything` reference server, while the first recommended production-side external server remains `Fetch` as documented in [docs/mcp/fetch.md](docs/mcp/fetch.md).
 
 The first control-plane policy slice now lives in the brief itself. It does not duplicate LiteLLM token or spend budgets. Instead, it constrains orchestration-level behavior such as planned task count, total timeout budget, bounded retry scheduling, allowed task kinds, allowed runtime providers, and allowed sandbox profiles. Every accepted submission now emits a `policy_report` artifact alongside the `backlog` and the routing-oriented `agent_dispatch_plan`.
 The same brief and pack contract now also carries explicit agent routing metadata. Packs declare an `agent_profile` with supported agents and a default orchestrator model hint, briefs can narrow that contract with `allowed_agents`, `default_agent`, and `orchestrator_model`, and the resolved routing is materialized into the backlog plus each persisted task as `assigned_agent` and `orchestrator_model`. The control plane also persists that routing as `agent_dispatch_plan`, which groups the run's tasks by assigned agent and gives OpenHands, Codex, and operators a stable handoff artifact instead of forcing them to reconstruct delegation from raw task rows.
@@ -196,7 +197,7 @@ GitHub Actions runs one workflow, [`.github/workflows/ci.yml`](.github/workflows
 - `versions`: validates version pins from [`versions.env`](versions.env) against the workflow, Dockerfile, Compose env file, pack image refs, and [`.actrc`](.actrc)
 - `shell`: runs ShellCheck across every script under [`scripts/`](scripts)
 - `sbom`: builds the orchestrator image, generates an SPDX SBOM, uploads the SBOM artifact, and creates a GitHub/Sigstore provenance attestation for that uploaded artifact
-- `rust`: runs `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo build --workspace --locked`, and `cargo test --workspace --locked`
+- `rust`: runs `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo build --workspace --locked`, `cargo test --workspace --locked`, `./scripts/mcp-smoke.sh`, and `./scripts/mcp-reference-smoke.sh`
 - `compose`: validates `deploy/compose/compose.yaml` with the pinned `.env.example`
 - `smoke`: runs as a matrix so each long end-to-end scenario is isolated in its own job: `mvp-container-service`, `mvp-cli-tool`, `mvp-worker-service`, and `mcp-stateful-cli-tool`
 
@@ -215,6 +216,7 @@ The core checks can be run directly without GitHub Actions:
 ./scripts/ci-rust.sh
 ./scripts/ci-compose.sh
 ./scripts/ci-smoke.sh
+./scripts/mcp-reference-smoke.sh
 ./scripts/mcp-stateful-smoke.sh
 ```
 

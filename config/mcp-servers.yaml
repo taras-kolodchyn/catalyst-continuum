@@ -5,5 +5,5 @@ servers:
     allowed_agents:
       - openhands
       - codex
-    docs_url: https://github.com/modelcontextprotocol/servers/tree/main/src/fetch
-    setup_hint: Register the upstream Fetch MCP server in the agent client configuration when a run needs controlled web retrieval.
+    docs_url: https://github.com/modelcontextprotocol/servers/blob/main/src/fetch/README.md
+    setup_hint: Register the pinned upstream Fetch MCP server directly in the agent client configuration as documented in docs/mcp/fetch.md when a run needs controlled web retrieval.

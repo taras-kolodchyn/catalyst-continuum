@@ -82,6 +82,10 @@ declared_shellcheck_image="$(sed -nE 's/^SHELLCHECK_IMAGE=(.+)$/\1/p' versions.e
 declared_syft_image="$(sed -nE 's/^SYFT_IMAGE=(.+)$/\1/p' versions.env)"
 declared_act_runner_image="$(sed -nE 's/^ACT_RUNNER_IMAGE=(.+)$/\1/p' versions.env)"
 declared_act_container_architecture="$(sed -nE 's/^ACT_CONTAINER_ARCHITECTURE=(.+)$/\1/p' versions.env)"
+declared_mcp_everything_version="$(sed -nE 's/^MCP_EVERYTHING_NPM_VERSION=(.+)$/\1/p' versions.env)"
+declared_mcp_fetch_version="$(sed -nE 's/^MCP_FETCH_PYPI_VERSION=(.+)$/\1/p' versions.env)"
+declared_mcp_fetch_wheel_sha256="$(sed -nE 's/^MCP_FETCH_WHEEL_SHA256=(.+)$/\1/p' versions.env)"
+declared_mcp_inspector_version="$(sed -nE 's/^MCP_INSPECTOR_NPM_VERSION=(.+)$/\1/p' versions.env)"
 declared_checkout_ref="$(sed -nE 's/^ACTIONS_CHECKOUT_REF=(.+)$/\1/p' versions.env)"
 declared_rust_toolchain_action_ref="$(sed -nE 's/^RUST_TOOLCHAIN_ACTION_REF=(.+)$/\1/p' versions.env)"
 declared_rust_cache_action_ref="$(sed -nE 's/^RUST_CACHE_ACTION_REF=(.+)$/\1/p' versions.env)"
@@ -135,6 +139,22 @@ check_value "versions.env SHELLCHECK_IMAGE" "$SHELLCHECK_IMAGE" "$declared_shell
 check_value "versions.env SYFT_IMAGE" "$SYFT_IMAGE" "$declared_syft_image"
 check_value "versions.env ACT_RUNNER_IMAGE" "$ACT_RUNNER_IMAGE" "$declared_act_runner_image"
 check_value "versions.env ACT_CONTAINER_ARCHITECTURE" "$ACT_CONTAINER_ARCHITECTURE" "$declared_act_container_architecture"
+check_value \
+  "versions.env MCP_EVERYTHING_NPM_VERSION" \
+  "$MCP_EVERYTHING_NPM_VERSION" \
+  "$declared_mcp_everything_version"
+check_value \
+  "versions.env MCP_FETCH_PYPI_VERSION" \
+  "$MCP_FETCH_PYPI_VERSION" \
+  "$declared_mcp_fetch_version"
+check_value \
+  "versions.env MCP_FETCH_WHEEL_SHA256" \
+  "$MCP_FETCH_WHEEL_SHA256" \
+  "$declared_mcp_fetch_wheel_sha256"
+check_value \
+  "versions.env MCP_INSPECTOR_NPM_VERSION" \
+  "$MCP_INSPECTOR_NPM_VERSION" \
+  "$declared_mcp_inspector_version"
 check_value "versions.env ACTIONS_CHECKOUT_REF" "$ACTIONS_CHECKOUT_REF" "$declared_checkout_ref"
 check_value "versions.env RUST_TOOLCHAIN_ACTION_REF" "$RUST_TOOLCHAIN_ACTION_REF" "$declared_rust_toolchain_action_ref"
 check_value "versions.env RUST_CACHE_ACTION_REF" "$RUST_CACHE_ACTION_REF" "$declared_rust_cache_action_ref"
@@ -170,6 +190,44 @@ if ! grep -Fq "$expected_smoke_postgres" scripts/smoke-mvp.sh; then
   report_mismatch \
     "scripts/smoke-mvp.sh postgres fallback" \
     "postgres:\${POSTGRES_VERSION}@\${POSTGRES_IMAGE_DIGEST}" \
+    "hardcoded or missing"
+fi
+
+expected_everything_version_source="python3 - \"\$MCP_EVERYTHING_NPM_VERSION\""
+if ! grep -Fq "$expected_everything_version_source" scripts/mcp-reference-smoke.sh; then
+  report_mismatch \
+    "scripts/mcp-reference-smoke.sh Everything version source" \
+    "$expected_everything_version_source" \
+    "hardcoded or missing"
+fi
+
+if ! grep -Fq "@modelcontextprotocol/server-everything@" scripts/mcp-reference-smoke.sh; then
+  report_mismatch \
+    "scripts/mcp-reference-smoke.sh Everything package reference" \
+    "@modelcontextprotocol/server-everything@" \
+    "hardcoded or missing"
+fi
+
+expected_fetch_pin="mcp-server-fetch==${MCP_FETCH_PYPI_VERSION}"
+if ! grep -Fq "$expected_fetch_pin" docs/mcp/fetch.md; then
+  report_mismatch \
+    "docs/mcp/fetch.md Fetch server pin" \
+    "$expected_fetch_pin" \
+    "hardcoded or missing"
+fi
+
+if ! grep -Fq "$MCP_FETCH_WHEEL_SHA256" docs/mcp/fetch.md; then
+  report_mismatch \
+    "docs/mcp/fetch.md Fetch wheel hash pin" \
+    "$MCP_FETCH_WHEEL_SHA256" \
+    "hardcoded or missing"
+fi
+
+expected_inspector_package="@modelcontextprotocol/inspector@${MCP_INSPECTOR_NPM_VERSION}"
+if ! grep -Fq "$expected_inspector_package" docs/mcp/fetch.md; then
+  report_mismatch \
+    "docs/mcp/fetch.md inspector pin" \
+    "$expected_inspector_package" \
     "hardcoded or missing"
 fi
 

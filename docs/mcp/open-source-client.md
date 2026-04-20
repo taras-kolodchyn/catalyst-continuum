@@ -44,6 +44,8 @@ The near-term direction for `v0.2` is narrower than sidecar lifecycle management
 - interoperability should be checked in local and CI flows against upstream reference servers, starting with `Everything`
 - `Fetch` is the first intended recommended external MCP server because it adds useful web retrieval capability without duplicating the core coding workflow
 
+The pinned `Fetch` registration contract and security notes are documented in [fetch.md](fetch.md).
+
 See [../v0.2-scope.md](../v0.2-scope.md) for the scoped feature plan.
 
 ## Stateless vs Stateful Tools
@@ -136,6 +138,7 @@ Use the smoke script to validate the server lifecycle and a basic tool call:
 
 ```bash
 ./scripts/mcp-smoke.sh
+./scripts/mcp-reference-smoke.sh
 ./scripts/mcp-stateful-smoke.sh
 ```
 
@@ -145,6 +148,17 @@ The script verifies:
 - `notifications/initialized`
 - `tools/list`
 - `tools/call` against `validate_brief`
+
+The reference companion script verifies client interoperability against the pinned upstream `Everything` server:
+
+- `initialize`
+- `notifications/initialized`
+- `tools/list`
+- `resources/list`
+- `prompts/list`
+- `tools/call` against `echo`
+- `resources/read` for a dynamic text resource
+- `prompts/get` for `simple-prompt`
 
 The stateful companion script verifies:
 
@@ -180,5 +194,6 @@ For stateful sessions, `list_github_webhooks` and `describe_github_webhook` expo
 ## Notes
 
 - Start with stateless validation first. This keeps agent integration simple before wiring Postgres and runtime workers.
+- When a pack recommends `fetch` and the resolved `external_mcp_contract` allows it for the current agent, register the pinned upstream `Fetch` server directly in the client using [fetch.md](fetch.md) instead of expecting the orchestrator to launch it.
 - Prefer launching the server from the same repository root so pack discovery and artifact paths remain predictable.
 - Keep the client-side timeout reasonably generous for mutating tools, especially once worker execution is involved.

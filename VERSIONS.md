@@ -71,6 +71,21 @@ source it directly are validated by `./scripts/check-versions.sh` in CI.
 - Local `act` container architecture: `linux/amd64`
   - Declared in [versions.env](versions.env) and [`.actrc`](.actrc)
 
+### External MCP Reference Tooling
+
+- Everything reference server: `@modelcontextprotocol/server-everything@2026.1.26`
+  - Declared in [versions.env](versions.env)
+  - Exercised by [scripts/mcp-reference-smoke.sh](scripts/mcp-reference-smoke.sh)
+
+- Fetch recommended external MCP server: `mcp-server-fetch==2025.4.7`
+  - Declared in [versions.env](versions.env)
+  - Documented in [docs/mcp/fetch.md](docs/mcp/fetch.md)
+  - Current pinned wheel hash: `sha256:349b79754d9d5caeb7c3f427ef07af2a994d4c998dab33c060eb9fbeb9da8d6b`
+
+- MCP inspector for manual external-server debugging: `@modelcontextprotocol/inspector@0.21.2`
+  - Declared in [versions.env](versions.env)
+  - Referenced by [docs/mcp/fetch.md](docs/mcp/fetch.md)
+
 ## Update Policy
 
 - Cargo dependencies are updated through Dependabot PRs and validated by CI.
