@@ -35,7 +35,13 @@ docker compose --env-file deploy/compose/.env -f deploy/compose/compose.yaml up 
 docker compose --env-file deploy/compose/.env.example -f deploy/compose/compose.yaml config
 ```
 
-5. Open the local interfaces:
+5. Validate the built `orchestrator` and `worker` service contract through an isolated compose project name:
+
+```bash
+./scripts/compose-runtime-check.sh
+```
+
+6. Open the local interfaces:
 
 - Orchestrator HTTP: `http://127.0.0.1:8080`
   - Liveness: `http://127.0.0.1:8080/livez`

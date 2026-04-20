@@ -219,6 +219,7 @@ The core checks can be run directly without GitHub Actions:
 ./scripts/generate-sbom.sh
 ./scripts/ci-rust.sh
 ./scripts/ci-compose.sh
+./scripts/compose-runtime-check.sh
 ./scripts/ci-smoke.sh
 ./scripts/mcp-reference-smoke.sh
 ./scripts/mcp-stateful-smoke.sh

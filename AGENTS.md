@@ -38,6 +38,7 @@ When the change touches agent integrations or MCP behavior, also review:
 - Preserve version pinning. Do not introduce floating versions, unpinned container tags, or unreviewed dependency drift.
 - Keep generated contracts aligned. If you change pack behavior, update the relevant pack descriptors, examples, smoke coverage, and documentation in the same change.
 - Keep deployment scaffolds aligned. If you change runtime-provider config or deployment expectations, update both the main repository and `template-repo/` when applicable.
+- For local compose runtime validation, use an isolated compose project name. Prefer `./scripts/compose-runtime-check.sh` over ad hoc `docker compose down -v` against the default `COMPOSE_PROJECT_NAME`, so validation does not tear down a developer's active local stack.
 - Keep docs aligned with behavior. If commands, ports, workflows, artifacts, or operator steps change, update the relevant docs in the same change.
 - Keep tests aligned with behavior. If you add, remove, or materially change tests, smoke flows, or validation scripts, update the surrounding documentation so operators and future agents know the expected verification path.
 - Update `AGENTS.md` when working agreements change. If you introduce a new recurring engineering rule, validation expectation, delivery constraint, or documentation discipline, reflect it here in the same change instead of leaving the rule implicit.
@@ -87,6 +88,7 @@ Before delivering, run the smallest meaningful validation set that proves the ch
 - `./scripts/lint-shell.sh` for shell scripts and workflow helper changes
 - `./scripts/ci-rust.sh` for Rust logic, CLI commands, HTTP routes, MCP handlers, storage, and tests
 - `./scripts/ci-compose.sh` for compose or deployment changes
+- `./scripts/compose-runtime-check.sh` for container image layout, shared-volume wiring, or compose service-contract changes that should be proven through the actual `orchestrator` and `worker` containers
 - `./scripts/ci-smoke.sh` for end-to-end orchestration changes, webhook flows, repository-signal flows, draft-PR flows, or cross-surface behavior changes
 - `./scripts/mcp-smoke.sh` for stateless MCP handshake and tool discovery changes
 - `./scripts/mcp-reference-smoke.sh` for upstream MCP interoperability checks against the pinned `Everything` reference server
