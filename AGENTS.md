@@ -40,6 +40,22 @@ When the change touches agent integrations or MCP behavior, also review:
 - Keep tests aligned with behavior. If you add, remove, or materially change tests, smoke flows, or validation scripts, update the surrounding documentation so operators and future agents know the expected verification path.
 - Update `AGENTS.md` when working agreements change. If you introduce a new recurring engineering rule, validation expectation, delivery constraint, or documentation discipline, reflect it here in the same change instead of leaving the rule implicit.
 
+## Rust Design Rules
+
+- Install the commands the repository relies on before assuming a local validation path is unavailable.
+- Prefer self-documenting Rust APIs. Avoid bool or ambiguous `Option` parameters when an enum, named method, or newtype would make the call site clearer.
+- Prefer exhaustive `match` statements over wildcard arms when the set of cases is known and expected to stay explicit.
+- Keep crate and module boundaries intentional. Default to private modules and explicitly export the public API that should be reused.
+- When adding a new trait or extension point, include doc comments that explain its role and the expectations on implementations.
+- Avoid growing already-large modules. Prefer new modules for new functionality, aim to keep modules under roughly 500 lines when practical, and treat roughly 800 lines as the point where new behavior should usually move into a new file unless there is a strong documented reason not to.
+- When extracting code from a large module, move the related tests and nearby docs with it so the invariants stay close to the owning implementation.
+- Avoid adding small helper methods that are referenced only once unless they materially improve readability or isolate a real invariant.
+
+## Test Design Rules
+
+- Prefer whole-object assertions over field-by-field assertions when the full struct, manifest, or payload can be compared directly.
+- Avoid mutating process environment in tests when explicit inputs, injected dependencies, or helper builders can model the case more deterministically.
+
 ## Validation Rules
 
 Before delivering, run the smallest meaningful validation set that proves the change. Use these repository-standard checks:
