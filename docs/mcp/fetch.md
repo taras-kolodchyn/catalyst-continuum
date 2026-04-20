@@ -33,6 +33,9 @@ The current pinned external MCP references live in [versions.env](../../versions
 - `@modelcontextprotocol/inspector@0.21.2` for local debugging
 
 `./scripts/check-versions.sh` verifies that this document and the reference smoke script stay aligned with those pins.
+The same pin is also projected into the shipped client launch contracts in
+`config/mcp-servers.yaml`, including the OpenHands renderer path and the Codex
+registration flow in [codex.md](codex.md).
 
 ## Security Notes
 

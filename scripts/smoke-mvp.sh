@@ -266,7 +266,15 @@ fetch_server = next(
     server for server in config["external_mcp_servers"]["servers"]
     if server["server_id"] == "fetch"
 )
+codex_launch = fetch_server["client_launches"]["codex"]
 openhands_launch = fetch_server["client_launches"]["openhands"]
+assert codex_launch["transport"] == "stdio", fetch_server
+assert codex_launch["command"] == "uvx", fetch_server
+assert codex_launch["args"] == [
+    "--from",
+    f"mcp-server-fetch=={fetch_version}",
+    "mcp-server-fetch",
+], fetch_server
 assert openhands_launch["transport"] == "stdio", fetch_server
 assert openhands_launch["command"] == "uvx", fetch_server
 assert openhands_launch["args"] == [
@@ -976,7 +984,15 @@ for artifact in (cli_artifact, http_artifact):
         server for server in external_mcp_contract["servers"]
         if server["server_id"] == "fetch"
     )
+    codex_launch = fetch_server["client_launches"]["codex"]
     openhands_launch = fetch_server["client_launches"]["openhands"]
+    assert codex_launch["transport"] == "stdio", artifact
+    assert codex_launch["command"] == "uvx", artifact
+    assert codex_launch["args"] == [
+        "--from",
+        f"mcp-server-fetch=={fetch_version}",
+        "mcp-server-fetch",
+    ], artifact
     assert openhands_launch["transport"] == "stdio", artifact
     assert openhands_launch["command"] == "uvx", artifact
     assert openhands_launch["args"] == [

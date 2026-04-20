@@ -9,6 +9,7 @@ Interface boundaries are documented in [docs/adr/0001-control-plane-and-agent-su
 External MCP capability policy is documented in [docs/adr/0002-agent-capability-policy.md](docs/adr/0002-agent-capability-policy.md).
 LiteLLM's gateway boundary is documented in [docs/adr/0003-litellm-ai-edge-gateway.md](docs/adr/0003-litellm-ai-edge-gateway.md).
 Generic open-source agent integration notes live in [docs/mcp/open-source-client.md](docs/mcp/open-source-client.md).
+Codex-specific integration notes live in [docs/mcp/codex.md](docs/mcp/codex.md).
 OpenHands-specific integration notes live in [docs/mcp/openhands.md](docs/mcp/openhands.md).
 Pinned `Fetch` integration guidance lives in [docs/mcp/fetch.md](docs/mcp/fetch.md).
 Published brief, run-event, and artifact schemas live under [schemas/](schemas/), with per-artifact manifest contracts under [schemas/artifacts/](schemas/artifacts/).
@@ -210,6 +211,8 @@ That MCP surface now includes `describe_instance_config` so an agent can inspect
 `list_run_events` is the shared MCP audit path for run and task transitions, so an agent can inspect status changes, task starts/completions, and policy/quality checkpoints without inferring state from artifact timestamps alone. `claim_next_agent_task`, `heartbeat_agent_task`, and `complete_agent_task` are the agent-owned execution handoff: they let OpenHands or another external executor atomically claim the next runnable task for its assignment, refresh its reclaim lease during longer sessions, bind that work to an optional `executor_id`, and persist an `agent_task_report` artifact when the task is reported back as succeeded or failed. The claim response now also echoes the run-level `external_mcp_contract`, so the executor can see the current allowed or denied external MCP servers and pinned launch contracts without fetching `agent_dispatch_plan` first.
 Use [examples/mcp/stdio-server.example.json](examples/mcp/stdio-server.example.json) as a neutral client config starting point, `./scripts/mcp-smoke.sh` for the stateless handshake/tool-discovery path, and `./scripts/mcp-stateful-smoke.sh` for the safe stateful run path.
 If OpenHands is the target client, prefer [examples/mcp/openhands.mcp.json](examples/mcp/openhands.mcp.json) and the registration flow documented in [docs/mcp/openhands.md](docs/mcp/openhands.md).
+If Codex is the target client, prefer the registration flow documented in [docs/mcp/codex.md](docs/mcp/codex.md).
+For local Codex CLI registration, use `./scripts/codex-register-mcp.sh`.
 For local OpenHands CLI registration, use `./scripts/openhands-register-mcp.sh`.
 For a full OpenHands `mcp.json` derived from the orchestrator allowlist, use `./scripts/openhands-render-mcp-config.sh --output "$HOME/.openhands/mcp.json"`.
 For a first local OpenHands run with the bundled LiteLLM gateway, use `./scripts/openhands-bootstrap.sh --validate-litellm --validate-mcp` and then `openhands -f examples/openhands/first-task.md`.

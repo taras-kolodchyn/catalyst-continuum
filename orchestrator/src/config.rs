@@ -1228,6 +1228,13 @@ servers:
     docs_url: https://github.com/modelcontextprotocol/servers/tree/main/src/fetch
     setup_hint: Register the upstream Fetch MCP server in the agent client config when web retrieval is needed.
     client_launches:
+      codex:
+        transport: stdio
+        command: uvx
+        args:
+          - --from
+          - mcp-server-fetch==2025.4.7
+          - mcp-server-fetch
       openhands:
         transport: stdio
         command: uvx
@@ -1268,6 +1275,14 @@ servers:
         let codex = config.allowed_servers_for_agent("codex");
         assert_eq!(codex.len(), 1);
         assert_eq!(codex[0].server_id, "fetch");
+        assert_eq!(
+            codex[0]
+                .client_launches
+                .get("codex")
+                .expect("Codex launch contract should exist")
+                .command,
+            "uvx"
+        );
 
         let cursor = config.allowed_servers_for_agent("cursor");
         assert!(cursor.is_empty());

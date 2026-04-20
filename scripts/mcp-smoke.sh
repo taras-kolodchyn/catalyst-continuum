@@ -188,7 +188,18 @@ fetch_server = next(
     for server in instance_config["external_mcp_servers"]["servers"]
     if server["server_id"] == "fetch"
 )
+codex_launch = fetch_server["client_launches"]["codex"]
 openhands_launch = fetch_server["client_launches"]["openhands"]
+if codex_launch["transport"] != "stdio":
+    raise SystemExit(
+        "mcp smoke failed: expected Fetch Codex launch transport to be "
+        f"stdio, got {codex_launch['transport']!r}"
+    )
+if codex_launch["command"] != "uvx":
+    raise SystemExit(
+        "mcp smoke failed: expected Fetch Codex launch command to be "
+        f"uvx, got {codex_launch['command']!r}"
+    )
 if openhands_launch["transport"] != "stdio":
     raise SystemExit(
         "mcp smoke failed: expected Fetch OpenHands launch transport to be "
@@ -204,6 +215,11 @@ expected_fetch_args = [
     f"mcp-server-fetch=={fetch_version}",
     "mcp-server-fetch",
 ]
+if codex_launch["args"] != expected_fetch_args:
+    raise SystemExit(
+        "mcp smoke failed: expected Fetch Codex launch args "
+        f"{expected_fetch_args!r}, got {codex_launch['args']!r}"
+    )
 if openhands_launch["args"] != expected_fetch_args:
     raise SystemExit(
         "mcp smoke failed: expected Fetch OpenHands launch args "
@@ -275,7 +291,18 @@ resolved_fetch_server = next(
     for server in validation["external_mcp_contract"]["servers"]
     if server["server_id"] == "fetch"
 )
+resolved_codex_launch = resolved_fetch_server["client_launches"]["codex"]
 resolved_openhands_launch = resolved_fetch_server["client_launches"]["openhands"]
+if resolved_codex_launch["command"] != "uvx":
+    raise SystemExit(
+        "mcp smoke failed: expected resolved Fetch Codex launch command to be "
+        f"uvx, got {resolved_codex_launch['command']!r}"
+    )
+if resolved_codex_launch["args"] != expected_fetch_args:
+    raise SystemExit(
+        "mcp smoke failed: expected resolved Fetch Codex launch args "
+        f"{expected_fetch_args!r}, got {resolved_codex_launch['args']!r}"
+    )
 if resolved_openhands_launch["command"] != "uvx":
     raise SystemExit(
         "mcp smoke failed: expected resolved Fetch OpenHands launch command to be "

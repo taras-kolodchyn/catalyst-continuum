@@ -565,12 +565,28 @@ try:
         for server in instance_config["external_mcp_servers"]["servers"]
         if server["server_id"] == "fetch"
     )
+    codex_launch = fetch_server["client_launches"]["codex"]
     openhands_launch = fetch_server["client_launches"]["openhands"]
     expected_fetch_args = [
         "--from",
         f"mcp-server-fetch=={fetch_version}",
         "mcp-server-fetch",
     ]
+    if codex_launch["transport"] != "stdio":
+        fail(
+            "stateful MCP smoke failed: expected Fetch Codex launch transport "
+            f"to be stdio, got {codex_launch['transport']!r}"
+        )
+    if codex_launch["command"] != "uvx":
+        fail(
+            "stateful MCP smoke failed: expected Fetch Codex launch command "
+            f"to be uvx, got {codex_launch['command']!r}"
+        )
+    if codex_launch["args"] != expected_fetch_args:
+        fail(
+            "stateful MCP smoke failed: expected Fetch Codex launch args "
+            f"{expected_fetch_args!r}, got {codex_launch['args']!r}"
+        )
     if openhands_launch["transport"] != "stdio":
         fail(
             "stateful MCP smoke failed: expected Fetch OpenHands launch transport "
@@ -1124,7 +1140,18 @@ policy:
         for server in validation["external_mcp_contract"]["servers"]
         if server["server_id"] == "fetch"
     )
+    resolved_codex_launch = resolved_fetch_server["client_launches"]["codex"]
     resolved_openhands_launch = resolved_fetch_server["client_launches"]["openhands"]
+    if resolved_codex_launch["command"] != "uvx":
+        fail(
+            "stateful MCP smoke failed: expected resolved Fetch Codex launch "
+            f"command to be uvx, got {resolved_codex_launch['command']!r}"
+        )
+    if resolved_codex_launch["args"] != expected_fetch_args:
+        fail(
+            "stateful MCP smoke failed: expected resolved Fetch Codex launch args "
+            f"{expected_fetch_args!r}, got {resolved_codex_launch['args']!r}"
+        )
     if resolved_openhands_launch["command"] != "uvx":
         fail(
             "stateful MCP smoke failed: expected resolved Fetch OpenHands launch "

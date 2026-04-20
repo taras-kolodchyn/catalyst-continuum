@@ -2,7 +2,9 @@
 
 Catalyst Continuum exposes a generic MCP `stdio` server for agent clients.
 
-If your target client is OpenHands, use [openhands.md](openhands.md) first. This page stays intentionally client-neutral.
+If your target client is OpenHands, use [openhands.md](openhands.md) first.
+If your target client is Codex, use [codex.md](codex.md) first.
+This page stays intentionally client-neutral.
 
 This path is intentionally client-neutral. It does not assume Codex, Cursor, or any proprietary runtime. Any open-source agent that supports MCP over `stdio` can launch the orchestrator directly.
 

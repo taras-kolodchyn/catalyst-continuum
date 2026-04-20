@@ -229,6 +229,13 @@ if ! grep -Fq "$expected_fetch_pin" docs/mcp/openhands.md; then
     "hardcoded or missing"
 fi
 
+if ! grep -Fq "$expected_fetch_pin" docs/mcp/codex.md; then
+  report_mismatch \
+    "docs/mcp/codex.md Fetch server pin" \
+    "$expected_fetch_pin" \
+    "hardcoded or missing"
+fi
+
 if ! grep -Fq "$expected_fetch_pin" config/mcp-servers.yaml; then
   report_mismatch \
     "config/mcp-servers.yaml Fetch server pin" \
