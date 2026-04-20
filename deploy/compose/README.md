@@ -49,6 +49,9 @@ docker compose --env-file deploy/compose/.env.example -f deploy/compose/compose.
 When a host-run local backend is already serving, remove `--skip-chat` to run a real proxy-backed chat completion.
 The smoke path also confirms that LiteLLM's bundled Prisma schema exists in the
 dedicated `LITELLM_DATABASE_NAME` database on the shared local Postgres server.
+It also resolves the machine-readable `ai_gateway` contract through
+`describe-instance-config` and checks that the reported LiteLLM base URLs and
+default aliases still match the live local stack.
 When chat validation runs, the smoke path now also waits for LiteLLM's OTel
 semantic log records to appear in Loki through the local collector.
 

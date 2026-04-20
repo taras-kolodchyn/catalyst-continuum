@@ -115,7 +115,10 @@ The smoke path now also verifies that LiteLLM returns a stable cache key for
 identical requests and that the corresponding Redis-backed cache entry exists in
 the bundled compose `redis` service. It also checks that LiteLLM's Prisma
 schema is present in the dedicated local LiteLLM database, and that LiteLLM's
-OTel semantic log records appear in Loki through the local collector.
+OTel semantic log records appear in Loki through the local collector. The same
+smoke path now also resolves `describe_instance_config` and verifies that the
+reported `ai_gateway` contract still matches the live LiteLLM base URLs and
+default aliases exposed by the local stack.
 
 The script prints the exact OpenHands settings to use.
 For the default host-run OpenHands flow, those settings are:

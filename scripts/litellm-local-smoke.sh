@@ -142,9 +142,11 @@ fi
 base_url="http://127.0.0.1:${LITELLM_PORT}"
 models_url="${base_url}/v1/models"
 models_json="$(mktemp)"
+instance_config_json="$(mktemp)"
 
 cleanup() {
   rm -f "$models_json"
+  rm -f "$instance_config_json"
 }
 
 trap cleanup EXIT
@@ -179,6 +181,148 @@ if selected_model not in model_ids:
         f"configured model alias not found: {selected_model!r}; available: {', '.join(model_ids)}"
     )
 print("\n".join(model_ids))
+PY
+)"
+
+if ! command -v cargo >/dev/null 2>&1; then
+  echo "cargo is required to inspect the AI gateway contract" >&2
+  exit 1
+fi
+
+instance_config_env=()
+if [ -n "${CATALYST_RUNTIME_PROVIDERS_FILE:-}" ]; then
+  instance_config_env+=("CATALYST_RUNTIME_PROVIDERS_FILE=$CATALYST_RUNTIME_PROVIDERS_FILE")
+fi
+if [ -n "${CATALYST_MCP_SERVERS_FILE:-}" ]; then
+  instance_config_env+=("CATALYST_MCP_SERVERS_FILE=$CATALYST_MCP_SERVERS_FILE")
+fi
+if [ -n "${CATALYST_AI_GATEWAY_FILE:-}" ]; then
+  instance_config_env+=("CATALYST_AI_GATEWAY_FILE=$CATALYST_AI_GATEWAY_FILE")
+fi
+
+env "${instance_config_env[@]}" \
+  cargo run -q -p catalyst-continuum-orchestrator -- describe-instance-config --json >"$instance_config_json"
+
+ai_gateway_contract="$(
+  python3 - "$instance_config_json" "$base_url" "$LITELLM_PORT" "$MODEL" "$available_models" <<'PY'
+import json
+import platform
+import sys
+
+instance_config_path, host_base_url, port, selected_model, available_models = sys.argv[1:]
+instance_config = json.loads(open(instance_config_path, encoding="utf-8").read())
+ai_gateway = instance_config["ai_gateway"]
+available_model_ids = set(available_models.splitlines())
+expected_container_base_url = f"http://host.docker.internal:{port}"
+
+if ai_gateway["provider"] != "litellm":
+    raise SystemExit(
+        f"expected AI gateway provider 'litellm', got {ai_gateway['provider']!r}"
+    )
+if ai_gateway["control_plane_owner"] != "orchestrator":
+    raise SystemExit(
+        "expected AI gateway control_plane_owner to remain 'orchestrator', got "
+        f"{ai_gateway['control_plane_owner']!r}"
+    )
+if ai_gateway["host_base_url"] != host_base_url:
+    raise SystemExit(
+        "AI gateway host_base_url drifted from the local LiteLLM base URL: "
+        f"{ai_gateway['host_base_url']!r} vs {host_base_url!r}"
+    )
+if ai_gateway["container_base_url"] != expected_container_base_url:
+    raise SystemExit(
+        "AI gateway container_base_url drifted from the Docker OpenHands URL: "
+        f"{ai_gateway['container_base_url']!r} vs {expected_container_base_url!r}"
+    )
+
+default_aliases = ai_gateway["default_model_aliases"]
+macos_alias = default_aliases["macos_apple_silicon"]
+other_alias = default_aliases["other_platforms"]
+for alias_name, alias_value in (
+    ("macos_apple_silicon", macos_alias),
+    ("other_platforms", other_alias),
+):
+    if alias_value not in available_model_ids:
+        raise SystemExit(
+            f"AI gateway default alias {alias_name!r}={alias_value!r} is not exposed by LiteLLM"
+        )
+
+host_os = platform.system()
+host_arch = platform.machine()
+expected_selected_model = (
+    macos_alias if host_os == "Darwin" and host_arch == "arm64" else other_alias
+)
+if selected_model != expected_selected_model:
+    raise SystemExit(
+        "selected LiteLLM default model drifted from the AI gateway contract: "
+        f"{selected_model!r} vs {expected_selected_model!r}"
+    )
+
+capabilities = {entry["capability"]: entry["enabled"] for entry in ai_gateway["capabilities"]}
+required_enabled = ("chat_completions", "cache", "persistent_state", "telemetry")
+for capability in required_enabled:
+    if capabilities.get(capability) is not True:
+        raise SystemExit(
+            f"AI gateway capability {capability!r} must be enabled in the instance contract"
+        )
+
+print(
+    json.dumps(
+        {
+            "provider": ai_gateway["provider"],
+            "controlPlaneOwner": ai_gateway["control_plane_owner"],
+            "hostBaseUrl": ai_gateway["host_base_url"],
+            "containerBaseUrl": ai_gateway["container_base_url"],
+            "expectedSelectedModel": expected_selected_model,
+        }
+    )
+)
+PY
+)"
+
+ai_gateway_provider="$(
+  python3 - "$ai_gateway_contract" <<'PY'
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+print(payload["provider"])
+PY
+)"
+ai_gateway_control_plane_owner="$(
+  python3 - "$ai_gateway_contract" <<'PY'
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+print(payload["controlPlaneOwner"])
+PY
+)"
+ai_gateway_host_base_url="$(
+  python3 - "$ai_gateway_contract" <<'PY'
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+print(payload["hostBaseUrl"])
+PY
+)"
+ai_gateway_container_base_url="$(
+  python3 - "$ai_gateway_contract" <<'PY'
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+print(payload["containerBaseUrl"])
+PY
+)"
+ai_gateway_expected_selected_model="$(
+  python3 - "$ai_gateway_contract" <<'PY'
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+print(payload["expectedSelectedModel"])
 PY
 )"
 
@@ -222,6 +366,11 @@ echo "cache_namespace: $LITELLM_CACHE_NAMESPACE"
 echo "database_name: $LITELLM_DATABASE_NAME"
 echo "otel_events_enabled: $LITELLM_OTEL_ENABLE_EVENTS"
 echo "otel_service_name: $LITELLM_OTEL_SERVICE_NAME"
+echo "ai_gateway_provider: $ai_gateway_provider"
+echo "ai_gateway_control_plane_owner: $ai_gateway_control_plane_owner"
+echo "ai_gateway_host_base_url: $ai_gateway_host_base_url"
+echo "ai_gateway_container_base_url: $ai_gateway_container_base_url"
+echo "ai_gateway_expected_default_model: $ai_gateway_expected_selected_model"
 if [ -n "$backend_start_command" ]; then
   echo "backend_start: $backend_start_command"
 fi
