@@ -21,7 +21,7 @@ config = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
 services = config["services"]
 volumes = config.get("volumes", {})
 
-required_services = ("orchestrator", "worker", "litellm")
+required_services = ("orchestrator", "worker", "litellm", "litellm-db-init")
 for service_name in required_services:
     if service_name not in services:
         raise SystemExit(f"compose config is missing required service: {service_name}")
@@ -54,9 +54,7 @@ expected_env = {
     "CATALYST_MCP_SERVERS_FILE": "/app/config/mcp-servers.yaml",
 }
 
-for service_name in required_services:
-    if service_name == "litellm":
-        continue
+for service_name in ("orchestrator", "worker"):
     service = services[service_name]
     env = environment_map(service)
     for key, expected_value in expected_env.items():
@@ -87,12 +85,15 @@ if worker_command != ["worker", "--idle-sleep-ms", "1000"]:
 litellm = services["litellm"]
 litellm_env = environment_map(litellm)
 for key in (
+    "DATABASE_URL",
+    "ENFORCE_PRISMA_MIGRATION_CHECK",
     "LITELLM_MASTER_KEY",
     "LITELLM_MACOS_NATIVE_MODEL",
     "LITELLM_MACOS_NATIVE_API_BASE",
     "LITELLM_MACOS_NATIVE_API_KEY",
     "LITELLM_OLLAMA_MODEL",
     "LITELLM_OLLAMA_API_BASE",
+    "LITELLM_DATABASE_NAME",
     "LITELLM_CACHE_NAMESPACE",
     "REDIS_PASSWORD",
 ):
@@ -114,6 +115,14 @@ if not any(
 ):
     raise SystemExit("litellm must mount litellm-config.yaml at /app/config.yaml")
 
+postgres_dependency = litellm.get("depends_on", {}).get("postgres", {})
+if postgres_dependency.get("condition") != "service_healthy":
+    raise SystemExit("litellm must depend on a healthy postgres service for proxy state")
+
+db_init_dependency = litellm.get("depends_on", {}).get("litellm-db-init", {})
+if db_init_dependency.get("condition") != "service_completed_successfully":
+    raise SystemExit("litellm must wait for litellm-db-init to complete successfully")
+
 redis_dependency = litellm.get("depends_on", {}).get("redis", {})
 if redis_dependency.get("condition") != "service_healthy":
     raise SystemExit("litellm must depend on a healthy redis service for proxy cache state")
@@ -121,4 +130,31 @@ if redis_dependency.get("condition") != "service_healthy":
 extra_hosts = litellm.get("extra_hosts", [])
 if "host.docker.internal=host-gateway" not in extra_hosts:
     raise SystemExit("litellm must resolve host.docker.internal through host-gateway")
+
+litellm_db_init = services["litellm-db-init"]
+litellm_db_init_env = environment_map(litellm_db_init)
+for key in (
+    "POSTGRES_HOST",
+    "POSTGRES_PORT",
+    "POSTGRES_USER",
+    "PGPASSWORD",
+    "LITELLM_DATABASE_NAME",
+):
+    if not litellm_db_init_env.get(key):
+        raise SystemExit(f"litellm-db-init must set {key}")
+
+litellm_db_init_command = litellm_db_init.get("command")
+if litellm_db_init_command != ["/usr/local/bin/litellm-db-init.sh"]:
+    raise SystemExit(
+        "litellm-db-init command drifted from the v0.1 baseline: "
+        f"{litellm_db_init_command!r}"
+    )
+
+if not any(
+    mount.get("type") == "bind"
+    and pathlib.Path(mount.get("source", "")).name == "litellm-db-init.sh"
+    and mount.get("target") == "/usr/local/bin/litellm-db-init.sh"
+    for mount in litellm_db_init.get("volumes", [])
+):
+    raise SystemExit("litellm-db-init must mount litellm-db-init.sh")
 PY

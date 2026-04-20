@@ -171,6 +171,7 @@ The local `v0.1` compose stack now includes an observability baseline:
 - Grafana with pinned datasource and dashboard provisioning
 
 That compose baseline now also includes a pinned `LiteLLM` gateway service for local agent validation.
+The bundled gateway now uses the shared local Postgres server through a dedicated LiteLLM database, so the proxy runs with persistent Prisma-backed state instead of a stateless local-only setup.
 The repository-standard local backend policy is now explicit:
 
 - macOS Apple Silicon prefers a native `mlx-lm` HTTP server behind LiteLLM

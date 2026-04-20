@@ -59,6 +59,10 @@ openhands -f examples/openhands/first-task.md
 
 The local `v0.1` flow now includes a pinned `LiteLLM` proxy in the shipped compose stack.
 That keeps the model-facing contract stable for OpenHands while leaving the actual local model runtime under operator control.
+The gateway now also uses the shared local Postgres server through a dedicated
+LiteLLM database, which aligns the local stack with LiteLLM's official
+`DATABASE_URL` + Prisma-backed proxy state contract instead of running the proxy
+in stateless mode only.
 The repository scripts resolve the default alias this way:
 
 - `local-macos-native` on macOS Apple Silicon
@@ -106,7 +110,8 @@ To validate a real model round-trip once the host backend is already serving:
 
 The smoke path now also verifies that LiteLLM returns a stable cache key for
 identical requests and that the corresponding Redis-backed cache entry exists in
-the bundled compose `redis` service.
+the bundled compose `redis` service. It also checks that LiteLLM's Prisma
+schema is present in the dedicated local LiteLLM database.
 
 The script prints the exact OpenHands settings to use.
 For the default host-run OpenHands flow, those settings are:

@@ -7,6 +7,7 @@ Current services:
 - orchestrator
 - worker
 - litellm
+- litellm-db-init
 - postgres
 - redis
 - otel-collector
@@ -46,6 +47,8 @@ docker compose --env-file deploy/compose/.env.example -f deploy/compose/compose.
 ```
 
 When a host-run local backend is already serving, remove `--skip-chat` to run a real proxy-backed chat completion.
+The smoke path also confirms that LiteLLM's bundled Prisma schema exists in the
+dedicated `LITELLM_DATABASE_NAME` database on the shared local Postgres server.
 
 Repository-standard backend policy:
 
@@ -92,6 +95,7 @@ ollama serve
 - The orchestrator exports OpenTelemetry traces, metrics, and logs over OTLP HTTP when the collector endpoint env vars are configured.
 - The compose stack now runs a dedicated long-lived `worker` service alongside the HTTP `orchestrator`, so background run progression works in the local stack without shelling into the container manually.
 - The compose stack now also runs a pinned `LiteLLM` gateway service. The gateway is bundled; the actual local model backend remains host-run and operator-managed through `LITELLM_MACOS_NATIVE_API_BASE` or `LITELLM_OLLAMA_API_BASE`.
+- A one-shot `litellm-db-init` helper now ensures the dedicated LiteLLM database exists on the shared local Postgres server before the gateway starts. This follows the official LiteLLM proxy database contract around `DATABASE_URL` and Prisma-backed proxy state from [docs.litellm.ai](https://docs.litellm.ai/).
 - `orchestrator` and `worker` now share one named `artifacts-data` volume mounted at `/app/.continuum/artifacts`, so persisted manifests, snapshots, reports, and publication artifacts stay visible to both processes.
 - The runtime image now carries the baseline `config/runtime-providers.yaml` and `config/mcp-servers.yaml`, and the compose services point at those files explicitly so containerized `serve` and `worker` execution resolve the same instance contract.
 - Redis now has two active `v0.1` roles in the compose stack: promotion requests take a short-lived run-scoped lock through `CATALYST_REDIS_URL`, and LiteLLM keeps proxy-side completion cache entries in Redis under the configured `LITELLM_CACHE_NAMESPACE`.
@@ -99,7 +103,7 @@ ollama serve
 - Grafana is provisioned with Prometheus, Loki, and Tempo datasources plus a starter `Catalyst Continuum Overview` dashboard.
 - The overview dashboard now includes dedicated panels for promotion throughput/latency, runtime timeout events, stale task reclaim outcomes, and repository-signal lifecycle/materialization rates.
 - Postgres and Redis are pinned to explicit image tags for reproducible local runs.
-- LiteLLM is pinned by tag and digest through `.env.example`, and the mounted `litellm-config.yaml` keeps the local model aliases stable for OpenHands and other open-source agents even though the actual MLX-LM or Ollama backend remains operator-managed.
+- LiteLLM is pinned by tag and digest through `.env.example`, and the mounted `litellm-config.yaml` keeps the local model aliases stable for OpenHands and other open-source agents even though the actual MLX-LM or Ollama backend remains operator-managed. The same shared Postgres server now also carries a dedicated `LITELLM_DATABASE_NAME` database for LiteLLM state and migrations.
 - The repository does not pin MLX-LM or Ollama itself because those remain host-managed local backends rather than part of the shipped compose stack. If you standardize one of them in your own environment, pin that version in your operator tooling as well.
 - Postgres `18.x` expects the persistent volume to be mounted at `/var/lib/postgresql`, not `/var/lib/postgresql/data`.
 - The compose stack uses a dedicated `postgres18-data` named volume so a previous pre-18 local volume layout does not block startup.

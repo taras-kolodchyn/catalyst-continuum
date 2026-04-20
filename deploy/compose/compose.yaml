@@ -16,6 +16,22 @@ services:
       timeout: 5s
       retries: 5
 
+  litellm-db-init:
+    image: postgres:${POSTGRES_VERSION}@${POSTGRES_IMAGE_DIGEST}
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      LITELLM_DATABASE_NAME: ${LITELLM_DATABASE_NAME}
+    volumes:
+      - ../../scripts/litellm-db-init.sh:/usr/local/bin/litellm-db-init.sh:ro
+    command: ["/usr/local/bin/litellm-db-init.sh"]
+
   redis:
     image: redis:${REDIS_VERSION}@${REDIS_IMAGE_DIGEST}
     restart: unless-stopped
@@ -104,9 +120,15 @@ services:
     image: ghcr.io/berriai/litellm:${LITELLM_VERSION}@${LITELLM_IMAGE_DIGEST}
     restart: unless-stopped
     depends_on:
+      postgres:
+        condition: service_healthy
+      litellm-db-init:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
     environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${LITELLM_DATABASE_NAME}
+      ENFORCE_PRISMA_MIGRATION_CHECK: "true"
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
       LITELLM_MACOS_NATIVE_MODEL: ${LITELLM_MACOS_NATIVE_MODEL}
       LITELLM_MACOS_NATIVE_API_BASE: ${LITELLM_MACOS_NATIVE_API_BASE}
@@ -114,6 +136,7 @@ services:
       LITELLM_OLLAMA_MODEL: ${LITELLM_OLLAMA_MODEL}
       LITELLM_OLLAMA_API_BASE: ${LITELLM_OLLAMA_API_BASE}
       LITELLM_CACHE_NAMESPACE: ${LITELLM_CACHE_NAMESPACE}
+      LITELLM_DATABASE_NAME: ${LITELLM_DATABASE_NAME}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
     volumes:
       - ./litellm-config.yaml:/app/config.yaml:ro

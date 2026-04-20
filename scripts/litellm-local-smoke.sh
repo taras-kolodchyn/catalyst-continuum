@@ -115,6 +115,8 @@ LITELLM_MACOS_NATIVE_API_KEY="${LITELLM_MACOS_NATIVE_API_KEY:-local-mlx}"
 LITELLM_OLLAMA_MODEL="${LITELLM_OLLAMA_MODEL:-ollama/qwen2.5-coder:7b}"
 LITELLM_OLLAMA_API_BASE="${LITELLM_OLLAMA_API_BASE:-http://host.docker.internal:11434}"
 LITELLM_CACHE_NAMESPACE="${LITELLM_CACHE_NAMESPACE:-catalyst-continuum-litellm}"
+LITELLM_DATABASE_NAME="${LITELLM_DATABASE_NAME:-litellm}"
+POSTGRES_USER="${POSTGRES_USER:-continuum}"
 REDIS_PASSWORD="${REDIS_PASSWORD:-continuum-dev}"
 
 if [ -z "$MODEL" ]; then
@@ -214,8 +216,32 @@ while IFS= read -r model_id; do
   echo "  - $model_id"
 done <<<"$available_models"
 echo "cache_namespace: $LITELLM_CACHE_NAMESPACE"
+echo "database_name: $LITELLM_DATABASE_NAME"
 if [ -n "$backend_start_command" ]; then
   echo "backend_start: $backend_start_command"
+fi
+
+if command -v docker >/dev/null 2>&1; then
+  litellm_schema_ready="$(
+    docker compose \
+      --env-file "$ENV_FILE" \
+      -f deploy/compose/compose.yaml \
+      exec -T postgres \
+      psql \
+        -U "$POSTGRES_USER" \
+        -d "$LITELLM_DATABASE_NAME" \
+        -Atqc "SELECT to_regclass('public._prisma_migrations') IS NOT NULL" \
+        2>/dev/null || true
+  )"
+  case "$litellm_schema_ready" in
+    t)
+      echo "litellm_database_schema: ready"
+      ;;
+    *)
+      echo "expected LiteLLM prisma schema in database ${LITELLM_DATABASE_NAME}" >&2
+      exit 1
+      ;;
+  esac
 fi
 
 if [ "$SKIP_CHAT" -eq 0 ]; then
