@@ -68,6 +68,13 @@ When the change touches agent integrations or MCP behavior, also review:
 - For new list-style HTTP endpoints that may grow beyond small operator-facing responses, consider cursor pagination by default with `cursor`, `limit`, `data`, and `next_cursor`. If a list endpoint stays limit-only, keep that choice intentional and bounded.
 - For new public request payloads, use `Option<...>` when omission and an explicitly empty value mean different things. Do not use `serde(default)` to silently blur that distinction unless the omission semantics are explicitly intended and documented.
 
+## MCP Rules
+
+- For STDIO-based MCP servers, treat stdout as protocol-only. Never write logs, debug prints, or incidental output to stdout; send diagnostics to stderr or file-backed logging instead. Keep this rule aligned with the official MCP Rust server guidance: <https://modelcontextprotocol.io/docs/develop/build-server#rust>
+- Keep advertised MCP capabilities minimal and truthful. Only expose tools, resources, prompts, or other capabilities that the server actually implements and validates.
+- For new Rust MCP handlers and tool interfaces, prefer typed request structs and explicit validation over ad hoc unstructured payload handling when practical.
+- When MCP behavior changes, update the matching tool definitions, handler validation, docs, and MCP smoke coverage in the same change so the transport contract stays inspectable and reproducible.
+
 ## Validation Rules
 
 Before delivering, run the smallest meaningful validation set that proves the change. Use these repository-standard checks:
