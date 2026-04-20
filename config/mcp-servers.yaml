@@ -1,0 +1,9 @@
+servers:
+  - server_id: fetch
+    display_name: Fetch
+    enabled: true
+    allowed_agents:
+      - openhands
+      - codex
+    docs_url: https://github.com/modelcontextprotocol/servers/tree/main/src/fetch
+    setup_hint: Register the upstream Fetch MCP server in the agent client configuration when a run needs controlled web retrieval.

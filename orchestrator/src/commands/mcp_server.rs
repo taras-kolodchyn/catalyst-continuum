@@ -360,7 +360,10 @@ struct EvaluateRunPolicyToolArgs {
 
 impl StdioMcpServer {
     fn new(args: McpServerArgs) -> anyhow::Result<Self> {
-        let instance_config = InstanceConfigReport::load(args.runtime_providers_file.as_deref())?;
+        let instance_config = InstanceConfigReport::load(
+            args.runtime_providers_file.as_deref(),
+            args.mcp_servers_file.as_deref(),
+        )?;
 
         Ok(Self {
             config: McpServerConfig {
@@ -1888,6 +1891,7 @@ mod tests {
             database_url: None,
             artifact_root: std::path::PathBuf::from(".continuum/artifacts"),
             runtime_providers_file: None,
+            mcp_servers_file: None,
         })
         .expect("server should initialize");
         let input = concat!(
@@ -1909,6 +1913,7 @@ mod tests {
             database_url: None,
             artifact_root: std::path::PathBuf::from(".continuum/artifacts"),
             runtime_providers_file: None,
+            mcp_servers_file: None,
         })
         .expect("server should initialize");
         let input = concat!(
@@ -2049,6 +2054,7 @@ mod tests {
             database_url: None,
             artifact_root: std::path::PathBuf::from(".continuum/artifacts"),
             runtime_providers_file: None,
+            mcp_servers_file: None,
         })
         .expect("server should initialize");
         let input = concat!(
@@ -2074,6 +2080,7 @@ mod tests {
             database_url: None,
             artifact_root: std::path::PathBuf::from(".continuum/artifacts"),
             runtime_providers_file: None,
+            mcp_servers_file: None,
         })
         .expect("server should initialize");
         let brief = sample_brief().replace('\n', "\\n");

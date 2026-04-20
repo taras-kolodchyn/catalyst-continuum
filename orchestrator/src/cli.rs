@@ -115,6 +115,9 @@ pub struct ServeArgs {
 
     #[arg(long, env = "CATALYST_RUNTIME_PROVIDERS_FILE")]
     pub runtime_providers_file: Option<PathBuf>,
+
+    #[arg(long, env = "CATALYST_MCP_SERVERS_FILE")]
+    pub mcp_servers_file: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -131,6 +134,9 @@ pub struct McpServerArgs {
 
     #[arg(long, env = "CATALYST_RUNTIME_PROVIDERS_FILE")]
     pub runtime_providers_file: Option<PathBuf>,
+
+    #[arg(long, env = "CATALYST_MCP_SERVERS_FILE")]
+    pub mcp_servers_file: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -210,6 +216,9 @@ pub struct CompleteAgentTaskArgs {
 pub struct DescribeInstanceConfigArgs {
     #[arg(long, env = "CATALYST_RUNTIME_PROVIDERS_FILE")]
     pub runtime_providers_file: Option<PathBuf>,
+
+    #[arg(long, env = "CATALYST_MCP_SERVERS_FILE")]
+    pub mcp_servers_file: Option<PathBuf>,
 
     #[arg(long)]
     pub json: bool,
@@ -577,6 +586,9 @@ pub struct RunNextTaskArgs {
     #[arg(long, env = "CATALYST_RUNTIME_PROVIDERS_FILE")]
     pub runtime_providers_file: Option<PathBuf>,
 
+    #[arg(long, env = "CATALYST_MCP_SERVERS_FILE")]
+    pub mcp_servers_file: Option<PathBuf>,
+
     #[arg(long)]
     pub run_id: Option<Uuid>,
 
@@ -617,6 +629,9 @@ pub struct WorkerArgs {
 
     #[arg(long, env = "CATALYST_RUNTIME_PROVIDERS_FILE")]
     pub runtime_providers_file: Option<PathBuf>,
+
+    #[arg(long, env = "CATALYST_MCP_SERVERS_FILE")]
+    pub mcp_servers_file: Option<PathBuf>,
 
     #[arg(long)]
     pub run_id: Option<Uuid>,

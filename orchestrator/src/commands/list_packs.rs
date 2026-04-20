@@ -43,6 +43,16 @@ fn render_text(
             item.backlog_template_count
         )
         .context("failed to render pack catalog")?;
+        writeln!(
+            &mut output,
+            "  recommended_external_mcp_servers: {}",
+            item.recommended_external_mcp_servers
+                .iter()
+                .map(|server| server.server_id.as_str())
+                .collect::<Vec<_>>()
+                .join(",")
+        )
+        .context("failed to render pack catalog")?;
         writeln!(&mut output, "  task_kinds: {}", item.task_kinds.join(","))
             .context("failed to render pack catalog")?;
     }

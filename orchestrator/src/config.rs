@@ -6,6 +6,7 @@ use std::{
 use anyhow::{Context, Result, anyhow, ensure};
 use serde::{Deserialize, Serialize};
 
+const MCP_SERVERS_FILE_ENV: &str = "CATALYST_MCP_SERVERS_FILE";
 const RUNTIME_PROVIDERS_FILE_ENV: &str = "CATALYST_RUNTIME_PROVIDERS_FILE";
 const CATALYST_GITHUB_APP_ID_ENV: &str = "CATALYST_GITHUB_APP_ID";
 const CATALYST_GITHUB_APP_INSTALLATION_ID_ENV: &str = "CATALYST_GITHUB_APP_INSTALLATION_ID";
@@ -20,18 +21,24 @@ const GITHUB_APP_PRIVATE_KEY_PATH_ENV: &str = "GITHUB_APP_PRIVATE_KEY_PATH";
 pub struct InstanceConfigReport {
     pub runtime_providers: RuntimeProvidersConfig,
     pub runtime_provider_statuses: Vec<RuntimeProviderStatus>,
+    pub external_mcp_servers: ExternalMcpServersConfig,
     pub github_app: GitHubAppConfig,
 }
 
 impl InstanceConfigReport {
-    pub fn load(runtime_providers_file: Option<&Path>) -> Result<Self> {
+    pub fn load(
+        runtime_providers_file: Option<&Path>,
+        mcp_servers_file: Option<&Path>,
+    ) -> Result<Self> {
         let runtime_providers = RuntimeProvidersConfig::load(runtime_providers_file)?;
         let runtime_provider_statuses = runtime_providers.provider_statuses();
+        let external_mcp_servers = ExternalMcpServersConfig::load(mcp_servers_file)?;
         let github_app = GitHubAppConfig::from_env_snapshot(GitHubAppEnv::capture())?;
 
         Ok(Self {
             runtime_providers,
             runtime_provider_statuses,
+            external_mcp_servers,
             github_app,
         })
     }
@@ -212,6 +219,151 @@ pub struct RuntimeProviderStatus {
     pub issue: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct ExternalMcpServersConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_path: Option<String>,
+    pub servers: Vec<ExternalMcpServerConfig>,
+}
+
+impl ExternalMcpServersConfig {
+    pub fn load(mcp_servers_file: Option<&Path>) -> Result<Self> {
+        match resolve_mcp_servers_file(mcp_servers_file)? {
+            Some(path) => Self::from_file(&path),
+            None => Ok(Self::default_config()),
+        }
+    }
+
+    pub fn allowed_servers_for_agent(&self, agent: &str) -> Vec<&ExternalMcpServerConfig> {
+        self.servers
+            .iter()
+            .filter(|server| server.is_allowed_for_agent(agent))
+            .collect()
+    }
+
+    pub fn known_agents(&self) -> Vec<String> {
+        self.servers
+            .iter()
+            .flat_map(|server| server.allowed_agents.iter().cloned())
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect()
+    }
+
+    fn from_file(path: &Path) -> Result<Self> {
+        let raw = fs::read_to_string(path).with_context(|| {
+            format!(
+                "failed to read external MCP servers config: {}",
+                path.display()
+            )
+        })?;
+        let parsed: ExternalMcpServersConfigFile =
+            serde_yaml::from_str(&raw).with_context(|| {
+                format!(
+                    "failed to parse external MCP servers config YAML: {}",
+                    path.display()
+                )
+            })?;
+        let config = Self {
+            source_path: Some(path.display().to_string()),
+            servers: parsed.servers,
+        };
+        config.validate()?;
+        Ok(config)
+    }
+
+    fn default_config() -> Self {
+        Self {
+            source_path: None,
+            servers: Vec::new(),
+        }
+    }
+
+    fn validate(&self) -> Result<()> {
+        let mut seen_ids = std::collections::BTreeSet::new();
+        for server in &self.servers {
+            server.validate()?;
+            ensure!(
+                seen_ids.insert(server.server_id.clone()),
+                "external MCP servers config contains duplicate server_id `{}`",
+                server.server_id
+            );
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ExternalMcpServerConfig {
+    pub server_id: String,
+    pub display_name: String,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub allowed_agents: Vec<String>,
+    #[serde(default)]
+    pub docs_url: Option<String>,
+    #[serde(default)]
+    pub setup_hint: Option<String>,
+}
+
+impl ExternalMcpServerConfig {
+    pub fn is_allowed_for_agent(&self, agent: &str) -> bool {
+        self.enabled && self.allowed_agents.iter().any(|allowed| allowed == agent)
+    }
+
+    fn validate(&self) -> Result<()> {
+        ensure!(
+            !self.server_id.trim().is_empty(),
+            "external MCP server server_id must not be empty"
+        );
+        ensure!(
+            !self.display_name.trim().is_empty(),
+            "external MCP server `{}` display_name must not be empty",
+            self.server_id
+        );
+        if self.enabled {
+            ensure!(
+                !self.allowed_agents.is_empty(),
+                "external MCP server `{}` must declare at least one allowed_agents entry when enabled",
+                self.server_id
+            );
+        }
+        let mut seen_agents = std::collections::BTreeSet::new();
+        for agent in &self.allowed_agents {
+            ensure!(
+                !agent.trim().is_empty(),
+                "external MCP server `{}` allowed_agents must not contain empty strings",
+                self.server_id
+            );
+            ensure!(
+                seen_agents.insert(agent.clone()),
+                "external MCP server `{}` contains duplicate allowed_agents entry `{}`",
+                self.server_id,
+                agent
+            );
+        }
+        if let Some(docs_url) = &self.docs_url {
+            ensure!(
+                !docs_url.trim().is_empty(),
+                "external MCP server `{}` docs_url must not be empty when set",
+                self.server_id
+            );
+        }
+        if let Some(setup_hint) = &self.setup_hint {
+            ensure!(
+                !setup_hint.trim().is_empty(),
+                "external MCP server `{}` setup_hint must not be empty when set",
+                self.server_id
+            );
+        }
+
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct RuntimeProviderSet {
@@ -370,6 +522,13 @@ struct RuntimeProvidersConfigFile {
     providers: RuntimeProviderSet,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ExternalMcpServersConfigFile {
+    #[serde(default)]
+    servers: Vec<ExternalMcpServerConfig>,
+}
+
 fn resolve_runtime_providers_file(explicit_path: Option<&Path>) -> Result<Option<PathBuf>> {
     if let Some(path) = explicit_path {
         return ensure_runtime_providers_file(path, true);
@@ -393,15 +552,39 @@ fn resolve_runtime_providers_file(explicit_path: Option<&Path>) -> Result<Option
     Ok(None)
 }
 
+fn resolve_mcp_servers_file(explicit_path: Option<&Path>) -> Result<Option<PathBuf>> {
+    if let Some(path) = explicit_path {
+        return ensure_named_config_file(path, true, "external MCP servers config");
+    }
+
+    if let Some(path) = std::env::var_os(MCP_SERVERS_FILE_ENV).map(PathBuf::from) {
+        return ensure_named_config_file(&path, true, "external MCP servers config");
+    }
+
+    let cwd_relative = PathBuf::from("config/mcp-servers.yaml");
+    if cwd_relative.exists() {
+        return Ok(Some(cwd_relative));
+    }
+
+    let manifest_relative =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../config/mcp-servers.yaml");
+    if manifest_relative.exists() {
+        return Ok(Some(manifest_relative));
+    }
+
+    Ok(None)
+}
+
 fn ensure_runtime_providers_file(path: &Path, explicit: bool) -> Result<Option<PathBuf>> {
+    ensure_named_config_file(path, explicit, "runtime providers config")
+}
+
+fn ensure_named_config_file(path: &Path, explicit: bool, label: &str) -> Result<Option<PathBuf>> {
     if path.exists() {
         return Ok(Some(path.to_path_buf()));
     }
     if explicit {
-        return Err(anyhow!(
-            "runtime providers config file not found: {}",
-            path.display()
-        ));
+        return Err(anyhow!("{label} file not found: {}", path.display()));
     }
 
     Ok(None)
@@ -417,6 +600,10 @@ fn runtime_provider_is_implemented(provider: &str) -> bool {
 
 fn default_runtime_provider() -> String {
     "docker".to_string()
+}
+
+fn default_true() -> bool {
+    true
 }
 
 fn first_present<T>(primary: Option<T>, fallback: Option<T>) -> Option<T> {
@@ -514,6 +701,88 @@ providers:
         );
 
         let _ = fs::remove_dir_all(temp_root);
+    }
+
+    #[test]
+    fn falls_back_to_default_external_mcp_server_config_when_file_is_absent() {
+        let config = ExternalMcpServersConfig::default_config();
+
+        assert_eq!(config.source_path, None);
+        assert!(config.servers.is_empty());
+        assert!(config.allowed_servers_for_agent("openhands").is_empty());
+    }
+
+    #[test]
+    fn loads_external_mcp_server_config_and_filters_allowed_agents() {
+        let temp_root =
+            std::env::temp_dir().join(format!("continuum-mcp-config-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&temp_root).expect("temp mcp config dir should be created");
+        let config_path = temp_root.join("mcp-servers.yaml");
+        fs::write(
+            &config_path,
+            r#"
+servers:
+  - server_id: fetch
+    display_name: Fetch
+    enabled: true
+    allowed_agents:
+      - openhands
+      - codex
+    docs_url: https://github.com/modelcontextprotocol/servers/tree/main/src/fetch
+    setup_hint: Register the upstream Fetch MCP server in the agent client config when web retrieval is needed.
+  - server_id: memory
+    display_name: Memory
+    enabled: false
+    allowed_agents:
+      - openhands
+"#,
+        )
+        .expect("mcp config should be written");
+
+        let config = ExternalMcpServersConfig::from_file(&config_path)
+            .expect("external MCP servers config should load");
+        let expected_source_path = config_path.display().to_string();
+        assert_eq!(
+            config.source_path.as_deref(),
+            Some(expected_source_path.as_str())
+        );
+        assert_eq!(config.servers.len(), 2);
+
+        let openhands = config.allowed_servers_for_agent("openhands");
+        assert_eq!(openhands.len(), 1);
+        assert_eq!(openhands[0].server_id, "fetch");
+
+        let codex = config.allowed_servers_for_agent("codex");
+        assert_eq!(codex.len(), 1);
+        assert_eq!(codex[0].server_id, "fetch");
+
+        let cursor = config.allowed_servers_for_agent("cursor");
+        assert!(cursor.is_empty());
+
+        let _ = fs::remove_dir_all(temp_root);
+    }
+
+    #[test]
+    fn rejects_enabled_external_mcp_server_without_allowed_agents() {
+        let error = ExternalMcpServersConfig {
+            source_path: None,
+            servers: vec![ExternalMcpServerConfig {
+                server_id: "fetch".to_string(),
+                display_name: "Fetch".to_string(),
+                enabled: true,
+                allowed_agents: Vec::new(),
+                docs_url: None,
+                setup_hint: None,
+            }],
+        }
+        .validate()
+        .expect_err("enabled external MCP server without allowed agents should fail");
+
+        assert!(
+            error
+                .to_string()
+                .contains("must declare at least one allowed_agents entry")
+        );
     }
 
     #[test]

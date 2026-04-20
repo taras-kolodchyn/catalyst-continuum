@@ -133,6 +133,25 @@ impl BriefValidationReport {
             self.pack_selection.resolved_pack.display_name
         )
         .context("failed to render brief validation")?;
+        if !self
+            .pack_selection
+            .resolved_pack
+            .recommended_external_mcp_servers
+            .is_empty()
+        {
+            writeln!(
+                &mut output,
+                "recommended_external_mcp_servers: {}",
+                self.pack_selection
+                    .resolved_pack
+                    .recommended_external_mcp_servers
+                    .iter()
+                    .map(|server| server.server_id.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+            .context("failed to render brief validation")?;
+        }
         writeln!(
             &mut output,
             "used_default_pack: {}",

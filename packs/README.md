@@ -4,6 +4,7 @@ Repository packs define opinionated scaffolding and task templates for different
 The orchestrator can expose the available pack catalog through `list-packs` and `GET /packs`,
 while `describe-pack` and `GET /packs/{pack_id}` return per-pack detail.
 Brief preflight without run creation is available through `validate-brief` and `POST /briefs/validate`.
+Packs can also declare `recommended_external_mcp_servers` by `server_id`, so agents can intersect pack-level recommendations with the instance-level allowlist from `config/mcp-servers.yaml` and `describe-instance-config`.
 
 Initial target:
 

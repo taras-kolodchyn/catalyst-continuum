@@ -26,7 +26,10 @@ use crate::{
 pub fn execute(args: RunNextTaskArgs) -> anyhow::Result<()> {
     let mut store = PostgresRunStore::connect(&args.database_url)?;
     store.ensure_schema()?;
-    let instance_config = InstanceConfigReport::load(args.runtime_providers_file.as_deref())?;
+    let instance_config = InstanceConfigReport::load(
+        args.runtime_providers_file.as_deref(),
+        args.mcp_servers_file.as_deref(),
+    )?;
     let runtime_registry =
         RuntimeRegistry::from_runtime_providers_config(&instance_config.runtime_providers);
 

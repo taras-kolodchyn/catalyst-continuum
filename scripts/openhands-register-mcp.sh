@@ -35,6 +35,13 @@ if [ -n "${CATALYST_RUNTIME_PROVIDERS_FILE:-}" ]; then
   )
 fi
 
+if [ -n "${CATALYST_MCP_SERVERS_FILE:-}" ]; then
+  command_args+=(
+    --env
+    "CATALYST_MCP_SERVERS_FILE=${CATALYST_MCP_SERVERS_FILE}"
+  )
+fi
+
 command_args+=(
   cargo
   --
@@ -52,6 +59,13 @@ if [ -n "${CATALYST_RUNTIME_PROVIDERS_FILE:-}" ]; then
   command_args+=(
     --runtime-providers-file
     "$CATALYST_RUNTIME_PROVIDERS_FILE"
+  )
+fi
+
+if [ -n "${CATALYST_MCP_SERVERS_FILE:-}" ]; then
+  command_args+=(
+    --mcp-servers-file
+    "$CATALYST_MCP_SERVERS_FILE"
   )
 fi
 

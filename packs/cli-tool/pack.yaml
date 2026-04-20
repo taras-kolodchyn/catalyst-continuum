@@ -9,6 +9,9 @@ agent_profile:
     - openhands
     - codex
   default_orchestrator_model: planner-default
+recommended_external_mcp_servers:
+  - server_id: fetch
+    purpose: Retrieve CLI, SDK, and platform documentation when the cli-tool brief depends on external references.
 policy_profile:
   require_explicit_policy: false
   max_task_timeout_seconds: 60

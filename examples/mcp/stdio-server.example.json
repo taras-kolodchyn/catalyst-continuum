@@ -13,11 +13,14 @@
         "--artifact-root",
         ".continuum/artifacts",
         "--runtime-providers-file",
-        "config/runtime-providers.yaml"
+        "config/runtime-providers.yaml",
+        "--mcp-servers-file",
+        "config/mcp-servers.yaml"
       ],
       "env": {
         "CATALYST_DATABASE_URL": "postgres://postgres:postgres@127.0.0.1:5432/catalyst_continuum",
-        "CATALYST_RUNTIME_PROVIDERS_FILE": "config/runtime-providers.yaml"
+        "CATALYST_RUNTIME_PROVIDERS_FILE": "config/runtime-providers.yaml",
+        "CATALYST_MCP_SERVERS_FILE": "config/mcp-servers.yaml"
       }
     }
   }

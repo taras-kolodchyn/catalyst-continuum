@@ -3,7 +3,10 @@ use anyhow::Context;
 use crate::{cli::DescribeInstanceConfigArgs, config::InstanceConfigReport};
 
 pub fn execute(args: DescribeInstanceConfigArgs) -> anyhow::Result<()> {
-    let report = InstanceConfigReport::load(args.runtime_providers_file.as_deref())?;
+    let report = InstanceConfigReport::load(
+        args.runtime_providers_file.as_deref(),
+        args.mcp_servers_file.as_deref(),
+    )?;
 
     if args.json {
         println!("{}", serde_json::to_string_pretty(&report)?);
@@ -34,6 +37,22 @@ fn render_text(report: &InstanceConfigReport) -> anyhow::Result<String> {
         report.runtime_providers.default_provider
     )
     .context("failed to render instance config")?;
+    writeln!(
+        &mut output,
+        "external_mcp_servers_source_path: {}",
+        report
+            .external_mcp_servers
+            .source_path
+            .as_deref()
+            .unwrap_or("default_empty")
+    )
+    .context("failed to render instance config")?;
+    writeln!(
+        &mut output,
+        "external_mcp_server_count: {}",
+        report.external_mcp_servers.servers.len()
+    )
+    .context("failed to render instance config")?;
 
     for status in &report.runtime_provider_statuses {
         writeln!(&mut output, "runtime_provider:").context("failed to render instance config")?;
@@ -49,6 +68,52 @@ fn render_text(report: &InstanceConfigReport) -> anyhow::Result<String> {
             writeln!(&mut output, "  issue: {}", issue)
                 .context("failed to render instance config")?;
         }
+    }
+
+    for server in &report.external_mcp_servers.servers {
+        writeln!(&mut output, "external_mcp_server:")
+            .context("failed to render instance config")?;
+        writeln!(&mut output, "  server_id: {}", server.server_id)
+            .context("failed to render instance config")?;
+        writeln!(&mut output, "  display_name: {}", server.display_name)
+            .context("failed to render instance config")?;
+        writeln!(&mut output, "  enabled: {}", yes_no(server.enabled))
+            .context("failed to render instance config")?;
+        writeln!(
+            &mut output,
+            "  allowed_agents: {}",
+            server.allowed_agents.join(", ")
+        )
+        .context("failed to render instance config")?;
+        if let Some(docs_url) = &server.docs_url {
+            writeln!(&mut output, "  docs_url: {docs_url}")
+                .context("failed to render instance config")?;
+        }
+        if let Some(setup_hint) = &server.setup_hint {
+            writeln!(&mut output, "  setup_hint: {setup_hint}")
+                .context("failed to render instance config")?;
+        }
+    }
+
+    for agent in report.external_mcp_servers.known_agents() {
+        let allowed_servers = report
+            .external_mcp_servers
+            .allowed_servers_for_agent(&agent);
+        writeln!(&mut output, "external_mcp_server_allowance:")
+            .context("failed to render instance config")?;
+        writeln!(&mut output, "  agent: {agent}").context("failed to render instance config")?;
+        writeln!(&mut output, "  server_count: {}", allowed_servers.len())
+            .context("failed to render instance config")?;
+        writeln!(
+            &mut output,
+            "  servers: {}",
+            allowed_servers
+                .iter()
+                .map(|server| server.server_id.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+        .context("failed to render instance config")?;
     }
 
     writeln!(
@@ -106,9 +171,10 @@ fn yes_no(value: bool) -> &'static str {
 mod tests {
     use super::render_text;
     use crate::config::{
-        DockerRuntimeProviderConfig, GitHubAppConfig, InstanceConfigReport,
-        KubernetesRuntimeProviderConfig, ProxmoxRuntimeProviderConfig, RuntimeProviderSet,
-        RuntimeProviderStatus, RuntimeProvidersConfig,
+        DockerRuntimeProviderConfig, ExternalMcpServerConfig, ExternalMcpServersConfig,
+        GitHubAppConfig, InstanceConfigReport, KubernetesRuntimeProviderConfig,
+        ProxmoxRuntimeProviderConfig, RuntimeProviderSet, RuntimeProviderStatus,
+        RuntimeProvidersConfig,
     };
 
     #[test]
@@ -146,6 +212,22 @@ mod tests {
                     ),
                 },
             ],
+            external_mcp_servers: ExternalMcpServersConfig {
+                source_path: Some("/tmp/mcp-servers.yaml".to_string()),
+                servers: vec![ExternalMcpServerConfig {
+                    server_id: "fetch".to_string(),
+                    display_name: "Fetch".to_string(),
+                    enabled: true,
+                    allowed_agents: vec!["openhands".to_string(), "codex".to_string()],
+                    docs_url: Some(
+                        "https://github.com/modelcontextprotocol/servers/tree/main/src/fetch"
+                            .to_string(),
+                    ),
+                    setup_hint: Some(
+                        "Register the upstream Fetch MCP server in the client config.".to_string(),
+                    ),
+                }],
+            },
             github_app: GitHubAppConfig {
                 app_id: Some(123),
                 installation_id: Some(456),
@@ -161,6 +243,13 @@ mod tests {
 
         assert!(rendered.contains("runtime_providers_source_path: /tmp/runtime-providers.yaml"));
         assert!(rendered.contains("default_runtime_provider: docker"));
+        assert!(rendered.contains("external_mcp_servers_source_path: /tmp/mcp-servers.yaml"));
+        assert!(rendered.contains("external_mcp_server_count: 1"));
+        assert!(rendered.contains("server_id: fetch"));
+        assert!(rendered.contains("allowed_agents: openhands, codex"));
+        assert!(rendered.contains("agent: openhands"));
+        assert!(rendered.contains("agent: codex"));
+        assert!(rendered.contains("servers: fetch"));
         assert!(rendered.contains("provider: docker"));
         assert!(rendered.contains("registered: yes"));
         assert!(rendered.contains("provider: proxmox"));

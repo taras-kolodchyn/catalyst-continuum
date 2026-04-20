@@ -4,8 +4,8 @@ use anyhow::{Result, anyhow};
 use serde::Serialize;
 
 use crate::planning::packs::{
-    DEFAULT_PACK_ID, PackAgentProfile, PackDefinition, PackGeneratedRepositoryContract,
-    PackPolicyProfile, PackQualityProfile,
+    DEFAULT_PACK_ID, PackAgentProfile, PackDefinition, PackExternalMcpServerRecommendation,
+    PackGeneratedRepositoryContract, PackPolicyProfile, PackQualityProfile,
 };
 
 #[derive(Debug, Clone, Serialize)]
@@ -24,6 +24,7 @@ pub struct PackCatalogEntry {
     pub default_runtime_provider: String,
     pub default_sandbox_profile: Option<String>,
     pub agent_profile: PackAgentProfile,
+    pub recommended_external_mcp_servers: Vec<PackExternalMcpServerRecommendation>,
     pub policy_profile: PackPolicyProfile,
     pub quality_profile: PackQualityProfile,
     pub backlog_template_count: usize,
@@ -104,6 +105,7 @@ impl PackCatalogEntry {
             default_runtime_provider: pack.default_runtime_provider.clone(),
             default_sandbox_profile: pack.default_sandbox_profile.clone(),
             agent_profile: pack.agent_profile.clone(),
+            recommended_external_mcp_servers: pack.recommended_external_mcp_servers.clone(),
             policy_profile: pack.policy_profile.clone(),
             quality_profile: pack.quality_profile.clone(),
             backlog_template_count: pack.backlog_templates.len(),
@@ -158,6 +160,11 @@ mod tests {
         assert_eq!(
             cli_tool.agent_profile.default_orchestrator_model.as_deref(),
             Some("planner-default")
+        );
+        assert_eq!(cli_tool.recommended_external_mcp_servers.len(), 1);
+        assert_eq!(
+            cli_tool.recommended_external_mcp_servers[0].server_id,
+            "fetch"
         );
         assert!(cli_tool.generated_repository.is_some());
         assert!(

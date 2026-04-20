@@ -41,7 +41,10 @@ const DEFAULT_REPOSITORY_SIGNAL_LIST_LIMIT: usize = 20;
 pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
     let mut store = PostgresRunStore::connect(&args.database_url)?;
     store.ensure_schema()?;
-    let instance_config = InstanceConfigReport::load(args.runtime_providers_file.as_deref())?;
+    let instance_config = InstanceConfigReport::load(
+        args.runtime_providers_file.as_deref(),
+        args.mcp_servers_file.as_deref(),
+    )?;
     let runtime_registry =
         RuntimeRegistry::from_runtime_providers_config(&instance_config.runtime_providers);
     let github_webhook_secret = load_github_app_webhook_secret();

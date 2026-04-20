@@ -20,6 +20,8 @@ pub struct PackDefinition {
     pub default_sandbox_profile: Option<String>,
     #[serde(default, skip_serializing_if = "PackAgentProfile::is_empty")]
     pub agent_profile: PackAgentProfile,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub recommended_external_mcp_servers: Vec<PackExternalMcpServerRecommendation>,
     #[serde(default, skip_serializing_if = "PackPolicyProfile::is_empty")]
     pub policy_profile: PackPolicyProfile,
     #[serde(default, skip_serializing_if = "PackQualityProfile::is_empty")]
@@ -110,6 +112,7 @@ impl PackDefinition {
             "pack default_runtime_provider must not be empty"
         );
         self.agent_profile.validate()?;
+        validate_recommended_external_mcp_servers(&self.recommended_external_mcp_servers)?;
         self.policy_profile.validate()?;
         self.quality_profile.validate()?;
         if let Some(generated_repository) = &self.generated_repository {
@@ -126,6 +129,40 @@ impl PackDefinition {
 
         Ok(())
     }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PackExternalMcpServerRecommendation {
+    pub server_id: String,
+    #[serde(default)]
+    pub purpose: Option<String>,
+}
+
+fn validate_recommended_external_mcp_servers(
+    recommendations: &[PackExternalMcpServerRecommendation],
+) -> Result<()> {
+    let mut seen_ids = std::collections::BTreeSet::new();
+    for recommendation in recommendations {
+        ensure!(
+            !recommendation.server_id.trim().is_empty(),
+            "recommended_external_mcp_servers.server_id must not be empty"
+        );
+        ensure!(
+            seen_ids.insert(recommendation.server_id.clone()),
+            "recommended_external_mcp_servers contains duplicate server_id `{}`",
+            recommendation.server_id
+        );
+        if let Some(purpose) = &recommendation.purpose {
+            ensure!(
+                !purpose.trim().is_empty(),
+                "recommended_external_mcp_servers `{}` purpose must not be empty when set",
+                recommendation.server_id
+            );
+        }
+    }
+
+    Ok(())
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -663,6 +700,11 @@ mod tests {
             pack.generated_repository.is_some(),
             "default pack should declare a generated repository contract"
         );
+        assert_eq!(pack.recommended_external_mcp_servers.len(), 1);
+        assert_eq!(
+            pack.recommended_external_mcp_servers[0].server_id,
+            "fetch".to_string()
+        );
         assert_eq!(pack.backlog_templates.len(), 5);
         assert_eq!(
             pack.backlog_templates[1].dependencies.required_kinds,
@@ -722,6 +764,11 @@ mod tests {
             vec!["backlog".to_string(), "policy_report".to_string()]
         );
         assert_eq!(pack.quality_profile.minimum_test_task_count, Some(1));
+        assert_eq!(pack.recommended_external_mcp_servers.len(), 1);
+        assert_eq!(
+            pack.recommended_external_mcp_servers[0].server_id,
+            "fetch".to_string()
+        );
         assert_eq!(pack.backlog_templates.len(), 5);
         match &pack
             .generated_repository
@@ -771,6 +818,11 @@ mod tests {
             vec!["backlog".to_string(), "policy_report".to_string()]
         );
         assert_eq!(pack.quality_profile.minimum_test_task_count, Some(1));
+        assert_eq!(pack.recommended_external_mcp_servers.len(), 1);
+        assert_eq!(
+            pack.recommended_external_mcp_servers[0].server_id,
+            "fetch".to_string()
+        );
         assert_eq!(pack.backlog_templates.len(), 5);
         match &pack
             .generated_repository

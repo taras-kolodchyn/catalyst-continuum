@@ -65,6 +65,22 @@ fn render_text(pack: &PackDefinition) -> anyhow::Result<String> {
     }
     writeln!(
         &mut output,
+        "recommended_external_mcp_server_count: {}",
+        pack.recommended_external_mcp_servers.len()
+    )
+    .context("failed to render pack report")?;
+    for server in &pack.recommended_external_mcp_servers {
+        writeln!(&mut output, "recommended_external_mcp_server:")
+            .context("failed to render pack report")?;
+        writeln!(&mut output, "  server_id: {}", server.server_id)
+            .context("failed to render pack report")?;
+        if let Some(purpose) = &server.purpose {
+            writeln!(&mut output, "  purpose: {purpose}")
+                .context("failed to render pack report")?;
+        }
+    }
+    writeln!(
+        &mut output,
         "policy_profile_contract: {}",
         if pack.policy_profile.is_empty() {
             "absent"
