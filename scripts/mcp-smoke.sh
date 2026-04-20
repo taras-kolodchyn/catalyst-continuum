@@ -147,6 +147,25 @@ if instance_config["runtime_providers"]["default_provider"] != "docker":
         f"as the default runtime provider, got "
         f"{instance_config['runtime_providers']['default_provider']}"
     )
+if instance_config["ai_gateway"]["provider"] != "litellm":
+    raise SystemExit(
+        "mcp smoke failed: expected describe_instance_config to report "
+        f"litellm as the AI gateway provider, got "
+        f"{instance_config['ai_gateway']['provider']}"
+    )
+if instance_config["ai_gateway"]["control_plane_owner"] != "orchestrator":
+    raise SystemExit(
+        "mcp smoke failed: expected orchestrator to remain the AI gateway "
+        f"control-plane owner, got "
+        f"{instance_config['ai_gateway']['control_plane_owner']}"
+    )
+if not any(
+    capability["capability"] == "chat_completions" and capability["enabled"] is True
+    for capability in instance_config["ai_gateway"]["capabilities"]
+):
+    raise SystemExit(
+        "mcp smoke failed: expected AI gateway chat_completions capability to be enabled"
+    )
 
 validation = validate_brief_response["result"]["structuredContent"]["validation"]
 if validation["valid"] is not True:

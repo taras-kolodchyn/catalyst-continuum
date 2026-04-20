@@ -53,6 +53,70 @@ fn render_text(report: &InstanceConfigReport) -> anyhow::Result<String> {
         report.external_mcp_servers.servers.len()
     )
     .context("failed to render instance config")?;
+    writeln!(
+        &mut output,
+        "ai_gateway_source_path: {}",
+        report
+            .ai_gateway
+            .source_path
+            .as_deref()
+            .unwrap_or("default_embedded")
+    )
+    .context("failed to render instance config")?;
+    writeln!(
+        &mut output,
+        "ai_gateway_provider: {}",
+        report.ai_gateway.provider
+    )
+    .context("failed to render instance config")?;
+    writeln!(
+        &mut output,
+        "ai_gateway_deployment_mode: {}",
+        report.ai_gateway.deployment_mode
+    )
+    .context("failed to render instance config")?;
+    writeln!(
+        &mut output,
+        "ai_gateway_control_plane_owner: {}",
+        report.ai_gateway.control_plane_owner
+    )
+    .context("failed to render instance config")?;
+    writeln!(
+        &mut output,
+        "ai_gateway_api_format: {}",
+        report.ai_gateway.api_format
+    )
+    .context("failed to render instance config")?;
+    writeln!(
+        &mut output,
+        "ai_gateway_host_base_url: {}",
+        report.ai_gateway.host_base_url
+    )
+    .context("failed to render instance config")?;
+    writeln!(
+        &mut output,
+        "ai_gateway_container_base_url: {}",
+        report.ai_gateway.container_base_url
+    )
+    .context("failed to render instance config")?;
+    writeln!(
+        &mut output,
+        "ai_gateway_default_model_alias_macos_apple_silicon: {}",
+        report.ai_gateway.default_model_aliases.macos_apple_silicon
+    )
+    .context("failed to render instance config")?;
+    writeln!(
+        &mut output,
+        "ai_gateway_default_model_alias_other_platforms: {}",
+        report.ai_gateway.default_model_aliases.other_platforms
+    )
+    .context("failed to render instance config")?;
+    writeln!(
+        &mut output,
+        "ai_gateway_capability_count: {}",
+        report.ai_gateway.capabilities.len()
+    )
+    .context("failed to render instance config")?;
 
     for status in &report.runtime_provider_statuses {
         writeln!(&mut output, "runtime_provider:").context("failed to render instance config")?;
@@ -114,6 +178,18 @@ fn render_text(report: &InstanceConfigReport) -> anyhow::Result<String> {
                 .join(", ")
         )
         .context("failed to render instance config")?;
+    }
+
+    for capability in &report.ai_gateway.capabilities {
+        writeln!(&mut output, "ai_gateway_capability:")
+            .context("failed to render instance config")?;
+        writeln!(&mut output, "  capability: {}", capability.capability)
+            .context("failed to render instance config")?;
+        writeln!(&mut output, "  enabled: {}", yes_no(capability.enabled))
+            .context("failed to render instance config")?;
+        if let Some(note) = &capability.note {
+            writeln!(&mut output, "  note: {note}").context("failed to render instance config")?;
+        }
     }
 
     writeln!(
@@ -187,6 +263,7 @@ fn yes_no(value: bool) -> &'static str {
 mod tests {
     use super::render_text;
     use crate::config::{
+        AiGatewayCapabilityConfig, AiGatewayConfig, AiGatewayDefaultModelAliases,
         DockerRuntimeProviderConfig, ExternalMcpServerConfig, ExternalMcpServersConfig,
         GitHubAppConfig, InstanceConfigReport, KubernetesRuntimeProviderConfig,
         ProxmoxRuntimeProviderConfig, RuntimeProviderSet, RuntimeProviderStatus,
@@ -244,6 +321,36 @@ mod tests {
                     ),
                 }],
             },
+            ai_gateway: AiGatewayConfig {
+                source_path: Some("/tmp/ai-gateway.yaml".to_string()),
+                provider: "litellm".to_string(),
+                deployment_mode: "bundled".to_string(),
+                control_plane_owner: "orchestrator".to_string(),
+                api_format: "openai_compatible".to_string(),
+                host_base_url: "http://127.0.0.1:4000".to_string(),
+                container_base_url: "http://host.docker.internal:4000".to_string(),
+                default_model_aliases: AiGatewayDefaultModelAliases {
+                    macos_apple_silicon: "local-macos-native".to_string(),
+                    other_platforms: "local-ollama-coder".to_string(),
+                },
+                capabilities: vec![
+                    AiGatewayCapabilityConfig {
+                        capability: "chat_completions".to_string(),
+                        enabled: true,
+                        note: Some(
+                            "OpenAI-compatible chat completions are enabled through LiteLLM."
+                                .to_string(),
+                        ),
+                    },
+                    AiGatewayCapabilityConfig {
+                        capability: "search".to_string(),
+                        enabled: false,
+                        note: Some(
+                            "Reserved for future retrieval-edge work behind LiteLLM.".to_string(),
+                        ),
+                    },
+                ],
+            },
             github_app: GitHubAppConfig {
                 app_id: Some(123),
                 installation_id: Some(456),
@@ -263,6 +370,19 @@ mod tests {
         assert!(rendered.contains("default_runtime_provider: docker"));
         assert!(rendered.contains("external_mcp_servers_source_path: /tmp/mcp-servers.yaml"));
         assert!(rendered.contains("external_mcp_server_count: 1"));
+        assert!(rendered.contains("ai_gateway_source_path: /tmp/ai-gateway.yaml"));
+        assert!(rendered.contains("ai_gateway_provider: litellm"));
+        assert!(rendered.contains("ai_gateway_control_plane_owner: orchestrator"));
+        assert!(
+            rendered
+                .contains("ai_gateway_default_model_alias_macos_apple_silicon: local-macos-native")
+        );
+        assert!(
+            rendered.contains("ai_gateway_default_model_alias_other_platforms: local-ollama-coder")
+        );
+        assert!(rendered.contains("ai_gateway_capability_count: 2"));
+        assert!(rendered.contains("capability: chat_completions"));
+        assert!(rendered.contains("capability: search"));
         assert!(rendered.contains("server_id: fetch"));
         assert!(rendered.contains("allowed_agents: openhands, codex"));
         assert!(rendered.contains("agent: openhands"));

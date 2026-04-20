@@ -537,6 +537,26 @@ try:
             f"docker as the default runtime provider, got "
             f"{instance_config['runtime_providers']['default_provider']}"
         )
+    if instance_config["ai_gateway"]["provider"] != "litellm":
+        fail(
+            "stateful MCP smoke failed: expected describe_instance_config to report "
+            f"litellm as the AI gateway provider, got "
+            f"{instance_config['ai_gateway']['provider']}"
+        )
+    if instance_config["ai_gateway"]["control_plane_owner"] != "orchestrator":
+        fail(
+            "stateful MCP smoke failed: expected orchestrator to remain the AI "
+            f"gateway control-plane owner, got "
+            f"{instance_config['ai_gateway']['control_plane_owner']}"
+        )
+    if not any(
+        capability["capability"] == "chat_completions"
+        and capability["enabled"] is True
+        for capability in instance_config["ai_gateway"]["capabilities"]
+    ):
+        fail(
+            "stateful MCP smoke failed: expected AI gateway chat_completions capability to be enabled"
+        )
 
     deliveries = call_tool(
         "list_github_webhooks",

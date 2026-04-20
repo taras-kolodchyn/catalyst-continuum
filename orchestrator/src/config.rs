@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 const MCP_SERVERS_FILE_ENV: &str = "CATALYST_MCP_SERVERS_FILE";
 const RUNTIME_PROVIDERS_FILE_ENV: &str = "CATALYST_RUNTIME_PROVIDERS_FILE";
+const AI_GATEWAY_FILE_ENV: &str = "CATALYST_AI_GATEWAY_FILE";
 const CATALYST_GITHUB_APP_ID_ENV: &str = "CATALYST_GITHUB_APP_ID";
 const CATALYST_GITHUB_APP_INSTALLATION_ID_ENV: &str = "CATALYST_GITHUB_APP_INSTALLATION_ID";
 const CATALYST_GITHUB_APP_WEBHOOK_SECRET_ENV: &str = "CATALYST_GITHUB_APP_WEBHOOK_SECRET";
@@ -22,6 +23,7 @@ pub struct InstanceConfigReport {
     pub runtime_providers: RuntimeProvidersConfig,
     pub runtime_provider_statuses: Vec<RuntimeProviderStatus>,
     pub external_mcp_servers: ExternalMcpServersConfig,
+    pub ai_gateway: AiGatewayConfig,
     pub github_app: GitHubAppConfig,
 }
 
@@ -33,14 +35,226 @@ impl InstanceConfigReport {
         let runtime_providers = RuntimeProvidersConfig::load(runtime_providers_file)?;
         let runtime_provider_statuses = runtime_providers.provider_statuses();
         let external_mcp_servers = ExternalMcpServersConfig::load(mcp_servers_file)?;
+        let ai_gateway = AiGatewayConfig::load()?;
         let github_app = GitHubAppConfig::from_env_snapshot(GitHubAppEnv::capture())?;
 
         Ok(Self {
             runtime_providers,
             runtime_provider_statuses,
             external_mcp_servers,
+            ai_gateway,
             github_app,
         })
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AiGatewayConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_path: Option<String>,
+    pub provider: String,
+    pub deployment_mode: String,
+    pub control_plane_owner: String,
+    pub api_format: String,
+    pub host_base_url: String,
+    pub container_base_url: String,
+    pub default_model_aliases: AiGatewayDefaultModelAliases,
+    pub capabilities: Vec<AiGatewayCapabilityConfig>,
+}
+
+impl AiGatewayConfig {
+    pub fn load() -> Result<Self> {
+        match resolve_ai_gateway_file()? {
+            Some(path) => Self::from_file(&path),
+            None => Ok(Self::default_config()),
+        }
+    }
+
+    fn from_file(path: &Path) -> Result<Self> {
+        let raw = fs::read_to_string(path)
+            .with_context(|| format!("failed to read AI gateway config: {}", path.display()))?;
+        let parsed: AiGatewayConfigFile = serde_yaml::from_str(&raw).with_context(|| {
+            format!("failed to parse AI gateway config YAML: {}", path.display())
+        })?;
+        let config = Self {
+            source_path: Some(path.display().to_string()),
+            provider: parsed.provider,
+            deployment_mode: parsed.deployment_mode,
+            control_plane_owner: parsed.control_plane_owner,
+            api_format: parsed.api_format,
+            host_base_url: parsed.host_base_url,
+            container_base_url: parsed.container_base_url,
+            default_model_aliases: parsed.default_model_aliases,
+            capabilities: parsed.capabilities,
+        };
+        config.validate()?;
+        Ok(config)
+    }
+
+    fn default_config() -> Self {
+        Self {
+            source_path: None,
+            provider: "litellm".to_string(),
+            deployment_mode: "bundled".to_string(),
+            control_plane_owner: "orchestrator".to_string(),
+            api_format: "openai_compatible".to_string(),
+            host_base_url: "http://127.0.0.1:4000".to_string(),
+            container_base_url: "http://host.docker.internal:4000".to_string(),
+            default_model_aliases: AiGatewayDefaultModelAliases {
+                macos_apple_silicon: "local-macos-native".to_string(),
+                other_platforms: "local-ollama-coder".to_string(),
+            },
+            capabilities: vec![
+                AiGatewayCapabilityConfig {
+                    capability: "chat_completions".to_string(),
+                    enabled: true,
+                    note: Some(
+                        "OpenAI-compatible chat completions are enabled through LiteLLM."
+                            .to_string(),
+                    ),
+                },
+                AiGatewayCapabilityConfig {
+                    capability: "cache".to_string(),
+                    enabled: true,
+                    note: Some("Redis-backed proxy caching is enabled in the local stack.".to_string()),
+                },
+                AiGatewayCapabilityConfig {
+                    capability: "persistent_state".to_string(),
+                    enabled: true,
+                    note: Some(
+                        "LiteLLM persists Prisma-backed proxy state in the shared Postgres server."
+                            .to_string(),
+                    ),
+                },
+                AiGatewayCapabilityConfig {
+                    capability: "telemetry".to_string(),
+                    enabled: true,
+                    note: Some(
+                        "LiteLLM exports traces and semantic log events through the local collector."
+                            .to_string(),
+                    ),
+                },
+                AiGatewayCapabilityConfig {
+                    capability: "search".to_string(),
+                    enabled: false,
+                    note: Some(
+                        "Reserved for future retrieval-edge work behind LiteLLM.".to_string(),
+                    ),
+                },
+                AiGatewayCapabilityConfig {
+                    capability: "vector_stores".to_string(),
+                    enabled: false,
+                    note: Some(
+                        "Reserved for future retrieval-edge work behind LiteLLM.".to_string(),
+                    ),
+                },
+                AiGatewayCapabilityConfig {
+                    capability: "rag_query".to_string(),
+                    enabled: false,
+                    note: Some(
+                        "Reserved for future retrieval-edge work behind LiteLLM.".to_string(),
+                    ),
+                },
+                AiGatewayCapabilityConfig {
+                    capability: "a2a_remote_agents".to_string(),
+                    enabled: false,
+                    note: Some(
+                        "Reserved for future remote-agent edge work; the orchestrator remains the control plane."
+                            .to_string(),
+                    ),
+                },
+            ],
+        }
+    }
+
+    fn validate(&self) -> Result<()> {
+        ensure!(
+            !self.provider.trim().is_empty(),
+            "AI gateway provider must not be empty"
+        );
+        ensure!(
+            !self.deployment_mode.trim().is_empty(),
+            "AI gateway deployment_mode must not be empty"
+        );
+        ensure!(
+            !self.control_plane_owner.trim().is_empty(),
+            "AI gateway control_plane_owner must not be empty"
+        );
+        ensure!(
+            !self.api_format.trim().is_empty(),
+            "AI gateway api_format must not be empty"
+        );
+        ensure!(
+            !self.host_base_url.trim().is_empty(),
+            "AI gateway host_base_url must not be empty"
+        );
+        ensure!(
+            !self.container_base_url.trim().is_empty(),
+            "AI gateway container_base_url must not be empty"
+        );
+        self.default_model_aliases.validate()?;
+
+        let mut seen_capabilities = std::collections::BTreeSet::new();
+        for capability in &self.capabilities {
+            capability.validate()?;
+            ensure!(
+                seen_capabilities.insert(capability.capability.clone()),
+                "AI gateway config contains duplicate capability `{}`",
+                capability.capability
+            );
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct AiGatewayDefaultModelAliases {
+    pub macos_apple_silicon: String,
+    pub other_platforms: String,
+}
+
+impl AiGatewayDefaultModelAliases {
+    fn validate(&self) -> Result<()> {
+        ensure!(
+            !self.macos_apple_silicon.trim().is_empty(),
+            "AI gateway default_model_aliases.macos_apple_silicon must not be empty"
+        );
+        ensure!(
+            !self.other_platforms.trim().is_empty(),
+            "AI gateway default_model_aliases.other_platforms must not be empty"
+        );
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct AiGatewayCapabilityConfig {
+    pub capability: String,
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+impl AiGatewayCapabilityConfig {
+    fn validate(&self) -> Result<()> {
+        ensure!(
+            !self.capability.trim().is_empty(),
+            "AI gateway capability name must not be empty"
+        );
+        if let Some(note) = &self.note {
+            ensure!(
+                !note.trim().is_empty(),
+                "AI gateway capability `{}` note must not be empty when set",
+                self.capability
+            );
+        }
+
+        Ok(())
     }
 }
 
@@ -605,6 +819,20 @@ struct ExternalMcpServersConfigFile {
     servers: Vec<ExternalMcpServerConfig>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AiGatewayConfigFile {
+    provider: String,
+    deployment_mode: String,
+    control_plane_owner: String,
+    api_format: String,
+    host_base_url: String,
+    container_base_url: String,
+    default_model_aliases: AiGatewayDefaultModelAliases,
+    #[serde(default)]
+    capabilities: Vec<AiGatewayCapabilityConfig>,
+}
+
 fn resolve_runtime_providers_file(explicit_path: Option<&Path>) -> Result<Option<PathBuf>> {
     if let Some(path) = explicit_path {
         return ensure_runtime_providers_file(path, true);
@@ -644,6 +872,24 @@ fn resolve_mcp_servers_file(explicit_path: Option<&Path>) -> Result<Option<PathB
 
     let manifest_relative =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../config/mcp-servers.yaml");
+    if manifest_relative.exists() {
+        return Ok(Some(manifest_relative));
+    }
+
+    Ok(None)
+}
+
+fn resolve_ai_gateway_file() -> Result<Option<PathBuf>> {
+    if let Some(path) = std::env::var_os(AI_GATEWAY_FILE_ENV).map(PathBuf::from) {
+        return ensure_named_config_file(&path, true, "AI gateway config");
+    }
+
+    let cwd_relative = PathBuf::from("config/ai-gateway.yaml");
+    if cwd_relative.exists() {
+        return Ok(Some(cwd_relative));
+    }
+
+    let manifest_relative = Path::new(env!("CARGO_MANIFEST_DIR")).join("../config/ai-gateway.yaml");
     if manifest_relative.exists() {
         return Ok(Some(manifest_relative));
     }
@@ -786,6 +1032,83 @@ providers:
         assert_eq!(config.source_path, None);
         assert!(config.servers.is_empty());
         assert!(config.allowed_servers_for_agent("openhands").is_empty());
+    }
+
+    #[test]
+    fn falls_back_to_default_ai_gateway_config_when_file_is_absent() {
+        let config = AiGatewayConfig::default_config();
+
+        assert_eq!(config.source_path, None);
+        assert_eq!(config.provider, "litellm");
+        assert_eq!(config.control_plane_owner, "orchestrator");
+        assert_eq!(
+            config.default_model_aliases.macos_apple_silicon,
+            "local-macos-native"
+        );
+        assert_eq!(
+            config.default_model_aliases.other_platforms,
+            "local-ollama-coder"
+        );
+        assert!(
+            config
+                .capabilities
+                .iter()
+                .any(|capability| capability.capability == "chat_completions" && capability.enabled)
+        );
+    }
+
+    #[test]
+    fn loads_ai_gateway_config_file() {
+        let temp_root =
+            std::env::temp_dir().join(format!("continuum-ai-gateway-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&temp_root).expect("temp AI gateway dir should be created");
+        let config_path = temp_root.join("ai-gateway.yaml");
+        fs::write(
+            &config_path,
+            r#"
+provider: litellm
+deployment_mode: bundled
+control_plane_owner: orchestrator
+api_format: openai_compatible
+host_base_url: http://127.0.0.1:4000
+container_base_url: http://host.docker.internal:4000
+default_model_aliases:
+  macos_apple_silicon: local-macos-native
+  other_platforms: local-ollama-coder
+capabilities:
+  - capability: chat_completions
+    enabled: true
+    note: OpenAI-compatible chat completions are enabled through LiteLLM.
+  - capability: search
+    enabled: false
+    note: Reserved for future retrieval-edge work behind LiteLLM.
+"#,
+        )
+        .expect("AI gateway config should be written");
+
+        let config =
+            AiGatewayConfig::from_file(&config_path).expect("AI gateway config should load");
+        let expected_source_path = config_path.display().to_string();
+        assert_eq!(
+            config.source_path.as_deref(),
+            Some(expected_source_path.as_str())
+        );
+        assert_eq!(config.provider, "litellm");
+        assert_eq!(config.capabilities.len(), 2);
+        assert!(
+            config
+                .capabilities
+                .iter()
+                .any(|capability| capability.capability == "chat_completions" && capability.enabled)
+        );
+        assert!(
+            config
+                .capabilities
+                .iter()
+                .any(|capability| capability.capability == "search" && !capability.enabled)
+        );
+
+        let _ = fs::remove_dir_all(temp_root);
     }
 
     #[test]

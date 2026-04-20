@@ -1,0 +1,43 @@
+provider: litellm
+deployment_mode: bundled
+control_plane_owner: orchestrator
+api_format: openai_compatible
+host_base_url: http://127.0.0.1:4000
+container_base_url: http://host.docker.internal:4000
+
+default_model_aliases:
+  macos_apple_silicon: local-macos-native
+  other_platforms: local-ollama-coder
+
+capabilities:
+  - capability: chat_completions
+    enabled: true
+    note: OpenAI-compatible chat completions are enabled through the bundled LiteLLM gateway.
+
+  - capability: cache
+    enabled: true
+    note: Redis-backed proxy caching is enabled in the local v0.1 stack.
+
+  - capability: persistent_state
+    enabled: true
+    note: LiteLLM persists Prisma-backed proxy state in the dedicated Postgres database.
+
+  - capability: telemetry
+    enabled: true
+    note: LiteLLM exports traces and semantic log events through the local OpenTelemetry collector.
+
+  - capability: search
+    enabled: false
+    note: Reserved for future retrieval-edge work behind LiteLLM.
+
+  - capability: vector_stores
+    enabled: false
+    note: Reserved for future retrieval-edge work behind LiteLLM.
+
+  - capability: rag_query
+    enabled: false
+    note: Reserved for future retrieval-edge work behind LiteLLM.
+
+  - capability: a2a_remote_agents
+    enabled: false
+    note: Reserved for future remote-agent edge work; the orchestrator remains the control plane.

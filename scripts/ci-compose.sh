@@ -62,6 +62,7 @@ expected_env = {
     "CATALYST_ARTIFACT_ROOT": "/app/.continuum/artifacts",
     "CATALYST_RUNTIME_PROVIDERS_FILE": "/app/config/runtime-providers.yaml",
     "CATALYST_MCP_SERVERS_FILE": "/app/config/mcp-servers.yaml",
+    "CATALYST_AI_GATEWAY_FILE": "/app/config/ai-gateway.yaml",
 }
 
 for service_name in ("orchestrator", "worker"):

@@ -42,17 +42,23 @@ import sys
 
 EXPECTED_RUNTIME_CONFIG = "/app/config/runtime-providers.yaml"
 EXPECTED_MCP_CONFIG = "/app/config/mcp-servers.yaml"
+EXPECTED_AI_GATEWAY_CONFIG = "/app/config/ai-gateway.yaml"
 
 for path in sys.argv[1:]:
     payload = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
     runtime_config = payload["runtime_providers"]["source_path"]
     mcp_config = payload["external_mcp_servers"]["source_path"]
+    ai_gateway_config = payload["ai_gateway"]["source_path"]
     if runtime_config != EXPECTED_RUNTIME_CONFIG:
         raise SystemExit(
             f"unexpected runtime providers config path: {runtime_config!r}"
         )
     if mcp_config != EXPECTED_MCP_CONFIG:
         raise SystemExit(f"unexpected MCP config path: {mcp_config!r}")
+    if ai_gateway_config != EXPECTED_AI_GATEWAY_CONFIG:
+        raise SystemExit(
+            f"unexpected AI gateway config path: {ai_gateway_config!r}"
+        )
 
 print("compose runtime check OK")
 PY

@@ -117,6 +117,7 @@ Interface boundary decision:
 - HTTP remains the narrow control-plane API for webhooks, health, UI/backend integration, and simple automation.
 - MCP is the preferred agent-facing surface for Codex, Cursor, and other MCP-capable clients.
 - CLI, HTTP, and MCP should all reuse the same Rust orchestration functions instead of reimplementing behavior per transport.
+- The instance contract should stay explicit: runtime-provider config, external MCP allowlist, and LiteLLM AI gateway config should all be inspectable rather than hidden in deployment-only files.
 
 ## Release Roadmap
 

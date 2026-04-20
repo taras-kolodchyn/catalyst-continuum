@@ -137,6 +137,7 @@ openhands mcp add catalyst-continuum \
   --env "CATALYST_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/catalyst_continuum" \
   --env "CATALYST_RUNTIME_PROVIDERS_FILE=config/runtime-providers.yaml" \
   --env "CATALYST_MCP_SERVERS_FILE=config/mcp-servers.yaml" \
+  --env "CATALYST_AI_GATEWAY_FILE=config/ai-gateway.yaml" \
   cargo -- run -q -p catalyst-continuum-orchestrator -- mcp-server --artifact-root .continuum/artifacts --runtime-providers-file config/runtime-providers.yaml --mcp-servers-file config/mcp-servers.yaml
 ```
 
@@ -156,6 +157,7 @@ The helper script:
 - reads `CATALYST_DATABASE_URL` when you want stateful tools
 - reads `CATALYST_RUNTIME_PROVIDERS_FILE` when you want OpenHands pinned to a specific instance config path
 - reads `CATALYST_MCP_SERVERS_FILE` when you want OpenHands pinned to a specific external MCP allowlist
+- reads `CATALYST_AI_GATEWAY_FILE` when you want OpenHands pinned to a specific LiteLLM AI gateway contract file
 - defaults the server name to `catalyst-continuum`
 - can be renamed with `OPENHANDS_MCP_SERVER_NAME`
 
@@ -189,7 +191,8 @@ The config matches the OpenHands MCP file format:
       "env": {
         "CATALYST_DATABASE_URL": "postgres://postgres:postgres@127.0.0.1:5432/catalyst_continuum",
         "CATALYST_RUNTIME_PROVIDERS_FILE": "config/runtime-providers.yaml",
-        "CATALYST_MCP_SERVERS_FILE": "config/mcp-servers.yaml"
+        "CATALYST_MCP_SERVERS_FILE": "config/mcp-servers.yaml",
+        "CATALYST_AI_GATEWAY_FILE": "config/ai-gateway.yaml"
       }
     }
   }
@@ -240,7 +243,7 @@ Stateful tools need `CATALYST_DATABASE_URL`:
 - `publish_pr_export`
 - `open_github_pr`
 
-`describe_instance_config` is the first inspection tool for OpenHands when it needs to understand whether the current instance is still Docker-only, whether future Proxmox or Kubernetes placeholders are enabled but unimplemented, which external MCP servers are enabled and allowed for OpenHands or Codex, and whether GitHub App credentials are complete enough for remote PR publication.
+`describe_instance_config` is the first inspection tool for OpenHands when it needs to understand whether the current instance is still Docker-only, whether future Proxmox or Kubernetes placeholders are enabled but unimplemented, which external MCP servers are enabled and allowed for OpenHands or Codex, which LiteLLM AI gateway contract and default model aliases the instance expects it to use, and whether GitHub App credentials are complete enough for remote PR publication.
 `list_github_webhooks` and `describe_github_webhook` give OpenHands direct MCP visibility into accepted GitHub App deliveries, including whether the control plane currently ignores that delivery or classifies it as a safe automation candidate such as `sync_default_branch`.
 `describe_github_webhook_receipt` lets OpenHands inspect the persisted signed ingress receipt behind one accepted delivery, including headers and normalized payload fields, without scraping `receipt_path` from the delivery summary.
 `list_github_webhook_action_requests` and `describe_github_webhook_action_request` let OpenHands inspect the durable control-plane requests materialized from those candidate deliveries.

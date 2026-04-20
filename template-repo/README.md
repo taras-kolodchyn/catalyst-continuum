@@ -19,6 +19,7 @@ choices into the open-source root.
 - `.github/CODEOWNERS` for private review ownership
 - `config/runtime-providers.yaml` for Docker, Proxmox, and Kubernetes placeholders
 - `config/mcp-servers.yaml` for the instance-level external MCP allowlist
+- `config/ai-gateway.yaml` for the LiteLLM AI edge-gateway contract
 - `deploy/compose/.env.example` for private compose overlays
 - `deploy/compose/litellm-config.yaml` for private LiteLLM model alias wiring
 - `deploy/github-app/app-manifest.template.json` for GitHub App registration
@@ -28,6 +29,7 @@ choices into the open-source root.
 
 - These files are scaffolds, not an active integration.
 - The LiteLLM scaffold keeps the OpenHands or Codex-facing model aliases stable while letting each private instance point those aliases at its preferred host-managed backend.
+- The AI gateway scaffold keeps the LiteLLM ownership boundary explicit: model-facing and retrieval-facing concerns belong in the gateway config, while run policy, runtime control, and publication state still belong in the orchestrator.
 - The upstream repository defaults to native `mlx-lm` on macOS Apple Silicon and Ollama everywhere else, but the private template can override that through `LITELLM_DEFAULT_MODEL` and the backend-specific env vars in `deploy/compose/.env.example`.
 - The upstream macOS-native example uses a coding-tuned MLX model and enables Redis-backed LiteLLM cache entries by default, so private instances inherit a code-oriented local validation path instead of a general chat model.
 - The private compose scaffold now also carries `LITELLM_DATABASE_NAME`, because the upstream local stack expects LiteLLM to persist its Prisma-backed proxy state in a dedicated database on the shared Postgres server.
