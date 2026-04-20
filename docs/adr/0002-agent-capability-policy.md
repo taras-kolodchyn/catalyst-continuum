@@ -63,7 +63,7 @@ This gives the orchestrator real control-plane value without duplicating agent-n
 
 This decision does not change the sidecar-lifecycle boundary.
 
-The orchestrator will not, in `v0.2`:
+The orchestrator will not, in the closed `v0.1` baseline:
 
 - launch arbitrary third-party MCP servers
 - supervise their processes
@@ -85,7 +85,8 @@ Tradeoffs:
 
 ## Follow-up
 
-The immediate follow-up for `v0.2` is:
+This policy batch is now part of the closed `v0.1` cut.
+The immediate follow-up beyond that boundary is:
 
 1. keep the policy matrix under strong tests, including partial agent matches and disabled or unknown servers
 2. add interoperability checks against upstream MCP reference servers such as `Everything`

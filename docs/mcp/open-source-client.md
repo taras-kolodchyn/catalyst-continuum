@@ -38,7 +38,7 @@ For `v0.1`, external MCP servers should stay agent- or operator-managed:
 - The orchestrator should not duplicate client-native MCP setup for session-local conveniences such as `git` or `filesystem`.
 - Stronger control-plane ownership only makes sense once there is a concrete reproducibility, audit, allowlist, or policy reason to centralize that capability.
 
-The near-term direction for `v0.2` is narrower than sidecar lifecycle management:
+The closed `v0.1` cut already includes the first contract/interoperability hardening in this area:
 
 - packs should be able to declare recommended external MCP servers and setup hints
 - interoperability should be checked in local and CI flows against upstream reference servers, starting with `Everything`
@@ -46,7 +46,7 @@ The near-term direction for `v0.2` is narrower than sidecar lifecycle management
 
 The pinned `Fetch` registration contract and security notes are documented in [fetch.md](fetch.md).
 
-See [../v0.2-scope.md](../v0.2-scope.md) for the scoped feature plan.
+See [../v0.1-scope.md](../v0.1-scope.md) for the closed release boundary and [../v0.2-scope.md](../v0.2-scope.md) for the next runtime-provider expansion scope.
 
 ## Stateless vs Stateful Tools
 

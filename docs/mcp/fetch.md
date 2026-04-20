@@ -42,7 +42,7 @@ Treat `Fetch` as a higher-trust external capability than a pure local helper:
 - upstream documentation warns that it may also reach local or internal IP ranges if you allow it
 - it can obey or ignore `robots.txt` depending on how it is configured
 
-For Catalyst Continuum `v0.2`, the safe default is:
+For Catalyst Continuum's closed `v0.1` baseline, the safe default is:
 
 - keep `Fetch` disabled unless a pack really benefits from web retrieval
 - scope it only to the agents that need it in `config/mcp-servers.yaml`

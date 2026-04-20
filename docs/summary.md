@@ -119,66 +119,46 @@ Interface boundary decision:
 
 ### v0.1
 
-Docker Compose MVP with:
+Closed Docker-first control-plane baseline with:
 
 - API/orchestrator
 - Postgres
 - Redis
-- LiteLLM gateway
-- Worker manager
+- Docker runtime provider
 - OpenTelemetry collector
+- Prometheus
+- Tempo
+- Loki
 - Grafana
-- Mock LLM or Ollama
-- One container-service pack
+- MCP `stdio` server for OpenHands and other open-source clients
+- Initial service, CLI, and worker repository packs
+- GitHub webhook, repository-signal, quality-gate, and draft-PR publication flows
+- Former contract/interoperability/operator-ergonomics items originally planned for `v0.2`
+  - external MCP allowlist resolution and per-run capability contracts
+  - reference MCP interoperability checks using the upstream `Everything` server
+  - documented `Fetch` integration as the first recommended external MCP server
+  - published artifact schemas and structured run-event hardening
+  - template-repo scaffolding and basic evaluation coverage
 
 Expected outcome:
 
 - Accept a brief
-- Generate a backlog
+- Generate a backlog, dispatch, and policy artifact set
 - Scaffold a repository
-- Open a draft pull request
+- Execute bounded tasks in disposable Docker sandboxes
+- Open a draft pull request with durable lineage and run-event history
 
 ### v0.2
 
-Structure, interoperability, and operator-facing contracts:
+Runtime-provider expansion and execution hardening:
 
-- Declarative pack-level recommendations for external MCP servers without orchestrator-managed sidecar lifecycle
-- Instance-level external MCP allowlists owned by the orchestrator and resolved per-run against the selected agent routing
-- The resolved capability contract should be visible in validation output and persisted into the run-level dispatch artifact so every agent sees the same allowed/denied tool surface
-- Reference MCP interoperability checks using the upstream `Everything` server
-- Documented `Fetch` integration as the first recommended external MCP server
-- Pinned upstream MCP package versions for `Everything`, `Fetch`, and local inspector-based debugging should live in shared version metadata and stay covered by repository validation
-- Published artifact schemas and a more explicit structured event model
-- Harder-edged repository pack contracts and docs
-- Template repository for private deployments
-- Deeper GitHub App integration
-- Basic evaluation tests
+- Proxmox runtime-provider support, including disposable linked-clone VMs, Cloud-Init templates, and rootless container hardening
+- Kubernetes runtime-provider support with Jobs or Pods, local validation via `kind`, and provider-neutral control-plane contracts
+- Further execution isolation hardening as the system expands beyond the Docker-first baseline
 
-### v0.3
+## Later Candidate Directions
 
-Isolation hardening and Proxmox support:
-
-- Proxmox runtime provider
-- Disposable linked-clone VMs
-- Cloud-Init templates
-- Rootless container hardening
-
-### v0.4
-
-Kubernetes execution:
-
-- Kubernetes provider with Jobs or Pods
-- `kind` for local validation
-- Blue/Green and Canary flows via Argo
-
-### v0.5
-
-Agent ecosystem expansion:
-
-- Full MCP support
-- Dynamic Codex/Cursor task allocation
-- Expanded repository packs for web apps, APIs, workers, and IoT
-- Packaged CLI and UI experiences
+- Broader agent ecosystem work, including fuller MCP expansion, dynamic Codex/Cursor allocation, expanded repository packs, and packaged CLI or UI experiences
 
 ## Naming Decision
 
