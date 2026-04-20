@@ -208,6 +208,8 @@ mod tests {
             private_key_path: Some("/tmp/github-app.pem".to_string()),
             private_key_exists: true,
             webhook_secret_configured: true,
+            publication_ready: true,
+            publication_missing_fields: Vec::new(),
             ready: true,
             missing_fields: Vec::new(),
         }

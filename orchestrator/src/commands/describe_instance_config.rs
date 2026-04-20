@@ -122,6 +122,12 @@ fn render_text(report: &InstanceConfigReport) -> anyhow::Result<String> {
         yes_no(report.github_app.ready)
     )
     .context("failed to render instance config")?;
+    writeln!(
+        &mut output,
+        "github_app_publication_ready: {}",
+        yes_no(report.github_app.publication_ready)
+    )
+    .context("failed to render instance config")?;
     if let Some(app_id) = report.github_app.app_id {
         writeln!(&mut output, "github_app_id: {app_id}")
             .context("failed to render instance config")?;
@@ -149,6 +155,16 @@ fn render_text(report: &InstanceConfigReport) -> anyhow::Result<String> {
         yes_no(report.github_app.webhook_secret_configured)
     )
     .context("failed to render instance config")?;
+    writeln!(
+        &mut output,
+        "github_app_publication_missing_field_count: {}",
+        report.github_app.publication_missing_fields.len()
+    )
+    .context("failed to render instance config")?;
+    for field in &report.github_app.publication_missing_fields {
+        writeln!(&mut output, "github_app_publication_missing_field: {field}")
+            .context("failed to render instance config")?;
+    }
     writeln!(
         &mut output,
         "github_app_missing_field_count: {}",
@@ -234,6 +250,8 @@ mod tests {
                 private_key_path: Some("/tmp/github-app.pem".to_string()),
                 private_key_exists: true,
                 webhook_secret_configured: false,
+                publication_ready: true,
+                publication_missing_fields: Vec::new(),
                 ready: false,
                 missing_fields: vec!["webhook_secret".to_string()],
             },
@@ -254,10 +272,12 @@ mod tests {
         assert!(rendered.contains("registered: yes"));
         assert!(rendered.contains("provider: proxmox"));
         assert!(rendered.contains("github_app_ready: no"));
+        assert!(rendered.contains("github_app_publication_ready: yes"));
         assert!(rendered.contains("github_app_id: 123"));
         assert!(rendered.contains("github_app_installation_id: 456"));
         assert!(rendered.contains("github_app_private_key_exists: yes"));
         assert!(rendered.contains("github_app_webhook_secret_configured: no"));
+        assert!(rendered.contains("github_app_publication_missing_field_count: 0"));
         assert!(rendered.contains("github_app_missing_field: webhook_secret"));
     }
 }

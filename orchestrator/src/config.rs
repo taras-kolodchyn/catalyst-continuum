@@ -49,6 +49,35 @@ pub fn load_github_app_webhook_secret() -> Option<String> {
     first_present_non_empty(env.catalyst_webhook_secret, env.github_webhook_secret)
 }
 
+pub fn load_github_app_publication_credentials() -> Result<Option<GitHubAppPublicationCredentials>>
+{
+    let snapshot = GitHubAppEnv::capture();
+    let publication = resolve_github_app_publication(&snapshot)?;
+    if !publication.publication_env_present {
+        return Ok(None);
+    }
+
+    ensure!(
+        publication.publication_ready,
+        "GitHub App publication is partially configured: missing {}",
+        publication.publication_missing_fields.join(", ")
+    );
+
+    let private_key_path = publication
+        .private_key_path
+        .with_context(|| "GitHub App publication requires private_key_path".to_string())?;
+
+    Ok(Some(GitHubAppPublicationCredentials {
+        app_id: publication
+            .app_id
+            .with_context(|| "GitHub App publication requires app_id".to_string())?,
+        installation_id: publication
+            .installation_id
+            .with_context(|| "GitHub App publication requires installation_id".to_string())?,
+        private_key_path,
+    }))
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct RuntimeProvidersConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -428,60 +457,48 @@ pub struct GitHubAppConfig {
     pub private_key_path: Option<String>,
     pub private_key_exists: bool,
     pub webhook_secret_configured: bool,
+    pub publication_ready: bool,
+    pub publication_missing_fields: Vec<String>,
     pub ready: bool,
     pub missing_fields: Vec<String>,
 }
 
 impl GitHubAppConfig {
     fn from_env_snapshot(snapshot: GitHubAppEnv) -> Result<Self> {
-        let app_id = parse_optional_u64(
-            first_present(snapshot.catalyst_app_id, snapshot.github_app_id),
-            "GitHub App app_id",
-        )?;
-        let installation_id = parse_optional_u64(
-            first_present(
-                snapshot.catalyst_installation_id,
-                snapshot.github_installation_id,
-            ),
-            "GitHub App installation_id",
-        )?;
-        let private_key_path = first_present_path(
-            snapshot.catalyst_private_key_path,
-            snapshot.github_private_key_path,
-        );
-        let private_key_exists = private_key_path.as_ref().is_some_and(|path| path.is_file());
+        let publication = resolve_github_app_publication(&snapshot)?;
         let webhook_secret_configured = first_present_non_empty(
             snapshot.catalyst_webhook_secret,
             snapshot.github_webhook_secret,
         )
         .is_some();
 
-        let mut missing_fields = Vec::new();
-        if app_id.is_none() {
-            missing_fields.push("app_id".to_string());
-        }
-        if installation_id.is_none() {
-            missing_fields.push("installation_id".to_string());
-        }
-        if private_key_path.is_none() {
-            missing_fields.push("private_key_path".to_string());
-        } else if !private_key_exists {
-            missing_fields.push("private_key_file".to_string());
-        }
+        let mut missing_fields = publication.publication_missing_fields.clone();
         if !webhook_secret_configured {
             missing_fields.push("webhook_secret".to_string());
         }
 
         Ok(Self {
-            app_id,
-            installation_id,
-            private_key_path: private_key_path.map(|path| path.display().to_string()),
-            private_key_exists,
+            app_id: publication.app_id,
+            installation_id: publication.installation_id,
+            private_key_path: publication
+                .private_key_path
+                .as_ref()
+                .map(|path| path.display().to_string()),
+            private_key_exists: publication.private_key_exists,
             webhook_secret_configured,
+            publication_ready: publication.publication_ready,
+            publication_missing_fields: publication.publication_missing_fields,
             ready: missing_fields.is_empty(),
             missing_fields,
         })
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct GitHubAppPublicationCredentials {
+    pub app_id: u64,
+    pub installation_id: u64,
+    pub private_key_path: PathBuf,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -511,6 +528,65 @@ impl GitHubAppEnv {
                 .map(PathBuf::from),
         }
     }
+}
+
+#[derive(Debug, Clone)]
+struct GitHubAppPublicationResolution {
+    app_id: Option<u64>,
+    installation_id: Option<u64>,
+    private_key_path: Option<PathBuf>,
+    private_key_exists: bool,
+    publication_ready: bool,
+    publication_missing_fields: Vec<String>,
+    publication_env_present: bool,
+}
+
+fn resolve_github_app_publication(
+    snapshot: &GitHubAppEnv,
+) -> Result<GitHubAppPublicationResolution> {
+    let app_id_value = first_present_non_empty(
+        snapshot.catalyst_app_id.clone(),
+        snapshot.github_app_id.clone(),
+    );
+    let installation_id_value = first_present_non_empty(
+        snapshot.catalyst_installation_id.clone(),
+        snapshot.github_installation_id.clone(),
+    );
+    let private_key_path = first_present_path(
+        snapshot.catalyst_private_key_path.clone(),
+        snapshot.github_private_key_path.clone(),
+    )
+    .filter(|path| !path.as_os_str().is_empty());
+    let publication_env_present =
+        app_id_value.is_some() || installation_id_value.is_some() || private_key_path.is_some();
+    let private_key_exists = private_key_path.as_ref().is_some_and(|path| path.is_file());
+
+    let app_id = parse_optional_u64(app_id_value.clone(), "GitHub App app_id")?;
+    let installation_id =
+        parse_optional_u64(installation_id_value.clone(), "GitHub App installation_id")?;
+
+    let mut publication_missing_fields = Vec::new();
+    if app_id.is_none() {
+        publication_missing_fields.push("app_id".to_string());
+    }
+    if installation_id.is_none() {
+        publication_missing_fields.push("installation_id".to_string());
+    }
+    if private_key_path.is_none() {
+        publication_missing_fields.push("private_key_path".to_string());
+    } else if !private_key_exists {
+        publication_missing_fields.push("private_key_file".to_string());
+    }
+
+    Ok(GitHubAppPublicationResolution {
+        app_id,
+        installation_id,
+        private_key_path,
+        private_key_exists,
+        publication_ready: publication_missing_fields.is_empty(),
+        publication_missing_fields,
+        publication_env_present,
+    })
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -815,8 +891,73 @@ servers:
         );
         assert!(config.private_key_exists);
         assert!(config.webhook_secret_configured);
+        assert!(config.publication_ready);
+        assert!(config.publication_missing_fields.is_empty());
         assert!(config.ready);
         assert!(config.missing_fields.is_empty());
+
+        let _ = fs::remove_dir_all(temp_root);
+    }
+
+    #[test]
+    fn publication_credentials_are_ready_without_webhook_secret() {
+        let temp_root =
+            std::env::temp_dir().join(format!("continuum-github-app-pub-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&temp_root).expect("temp github-app dir should be created");
+        let key_path = temp_root.join("github-app.pem");
+        fs::write(&key_path, "-----BEGIN PRIVATE KEY-----\nexample\n")
+            .expect("private key placeholder should be written");
+
+        let config = GitHubAppConfig::from_env_snapshot(GitHubAppEnv {
+            catalyst_app_id: Some("123".to_string()),
+            catalyst_installation_id: Some("456".to_string()),
+            catalyst_webhook_secret: None,
+            catalyst_private_key_path: Some(key_path.clone()),
+            github_app_id: None,
+            github_installation_id: None,
+            github_webhook_secret: None,
+            github_private_key_path: None,
+        })
+        .expect("github app config should load");
+
+        assert!(config.publication_ready);
+        assert!(!config.ready);
+        assert!(config.publication_missing_fields.is_empty());
+        assert_eq!(config.missing_fields, vec!["webhook_secret".to_string()]);
+
+        let _ = fs::remove_dir_all(temp_root);
+    }
+
+    #[test]
+    fn partial_publication_config_is_not_ready() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "continuum-github-app-partial-pub-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&temp_root).expect("temp github-app dir should be created");
+        let key_path = temp_root.join("github-app.pem");
+        fs::write(&key_path, "-----BEGIN PRIVATE KEY-----\nexample\n")
+            .expect("private key placeholder should be written");
+
+        let config = GitHubAppConfig::from_env_snapshot(GitHubAppEnv {
+            catalyst_app_id: Some("123".to_string()),
+            catalyst_installation_id: None,
+            catalyst_webhook_secret: Some("super-secret".to_string()),
+            catalyst_private_key_path: Some(key_path.clone()),
+            github_app_id: None,
+            github_installation_id: None,
+            github_webhook_secret: None,
+            github_private_key_path: None,
+        })
+        .expect("github app config should load");
+
+        assert!(!config.publication_ready);
+        assert_eq!(
+            config.publication_missing_fields,
+            vec!["installation_id".to_string()]
+        );
+        assert!(!config.ready);
+        assert_eq!(config.missing_fields, vec!["installation_id".to_string()]);
 
         let _ = fs::remove_dir_all(temp_root);
     }

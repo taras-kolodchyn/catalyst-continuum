@@ -16,10 +16,18 @@ use crate::models::{
     artifact::{ArtifactDraft, ArtifactSummary},
     run::RunContext,
 };
+use crate::{
+    config::{GitHubAppPublicationCredentials, load_github_app_publication_credentials},
+    github_app::{
+        self, DraftGitHubPullRequestRequest, GITHUB_APP_API_TRANSPORT, GitHubRepositoryRef,
+        ResolvedGitHubPullRequest,
+    },
+};
 
 use super::pr_publication::PR_PUBLICATION_ARTIFACT_TYPE;
 
 pub const GITHUB_PULL_REQUEST_ARTIFACT_TYPE: &str = "github_pull_request";
+const GH_CLI_TRANSPORT: &str = "gh_cli";
 
 pub fn open_github_pull_request(
     run: &RunContext,
@@ -27,12 +35,54 @@ pub fn open_github_pull_request(
     source_quality_report_artifact_id: Uuid,
     artifact_root: &Path,
 ) -> Result<ArtifactDraft> {
-    open_github_pull_request_with_cli(
+    match load_github_app_publication_credentials()? {
+        Some(credentials) => open_github_pull_request_with_github_app_api(
+            run,
+            pr_publication,
+            source_quality_report_artifact_id,
+            artifact_root,
+            &credentials,
+        ),
+        None => open_github_pull_request_with_cli(
+            run,
+            pr_publication,
+            source_quality_report_artifact_id,
+            artifact_root,
+            Path::new("gh"),
+        ),
+    }
+}
+
+fn open_github_pull_request_with_github_app_api(
+    run: &RunContext,
+    pr_publication: &ArtifactSummary,
+    source_quality_report_artifact_id: Uuid,
+    artifact_root: &Path,
+    credentials: &GitHubAppPublicationCredentials,
+) -> Result<ArtifactDraft> {
+    let context = prepare_pull_request_context(pr_publication, source_quality_report_artifact_id)?;
+    let (resolution, pull_request) = github_app::open_or_find_draft_pull_request(
+        credentials,
+        GitHubRepositoryRef {
+            owner: &context.request.repository.owner,
+            name: &context.request.repository.name,
+        },
+        DraftGitHubPullRequestRequest {
+            head_branch: &context.request.pull_request.head,
+            base_branch: &context.request.pull_request.base,
+            title: &context.request.pull_request.title,
+            body: &context.body,
+        },
+    )?;
+
+    persist_github_pull_request_artifact(
         run,
         pr_publication,
-        source_quality_report_artifact_id,
         artifact_root,
-        Path::new("gh"),
+        &context,
+        resolution,
+        GITHUB_APP_API_TRANSPORT,
+        pull_request,
     )
 }
 
@@ -43,6 +93,51 @@ fn open_github_pull_request_with_cli(
     artifact_root: &Path,
     gh_cli: &Path,
 ) -> Result<ArtifactDraft> {
+    let context = prepare_pull_request_context(pr_publication, source_quality_report_artifact_id)?;
+
+    ensure_gh_authenticated(gh_cli, &context.repository_root)?;
+
+    let (resolution, pull_request) = match find_existing_pull_request(
+        gh_cli,
+        &context.repository_root,
+        &context.repository_slug,
+        &context.request.pull_request.head,
+        &context.request.pull_request.base,
+    )? {
+        Some(existing) => ("existing".to_string(), existing.into_resolved()),
+        None => {
+            let created_url = create_draft_pull_request(
+                gh_cli,
+                &context.repository_root,
+                &context.repository_slug,
+                &context.request.pull_request,
+                &context.body_path,
+            )?;
+            let details = view_pull_request(
+                gh_cli,
+                &context.repository_root,
+                &context.repository_slug,
+                &created_url,
+            )?;
+            ("created".to_string(), details.into_resolved())
+        }
+    };
+
+    persist_github_pull_request_artifact(
+        run,
+        pr_publication,
+        artifact_root,
+        &context,
+        resolution,
+        GH_CLI_TRANSPORT,
+        pull_request,
+    )
+}
+
+fn prepare_pull_request_context(
+    pr_publication: &ArtifactSummary,
+    source_quality_report_artifact_id: Uuid,
+) -> Result<PreparedGitHubPullRequestContext> {
     validate_pr_publication(pr_publication)?;
 
     let publication_root = PathBuf::from(&pr_publication.location_value)
@@ -89,6 +184,12 @@ fn open_github_pull_request_with_cli(
             )
         })?)
         .context("failed to deserialize PR publication request")?;
+    let body = fs::read_to_string(&body_path).with_context(|| {
+        format!(
+            "failed to read PR publication body: {}",
+            body_path.display()
+        )
+    })?;
 
     ensure!(
         publication_manifest.push_status == "pushed",
@@ -111,7 +212,6 @@ fn open_github_pull_request_with_cli(
         source_quality_report_artifact_id
     );
 
-    let repository_slug = format!("{}/{}", request.repository.owner, request.repository.name);
     let repository_root = PathBuf::from(&publication_manifest.export_repository_path)
         .canonicalize()
         .with_context(|| {
@@ -120,31 +220,27 @@ fn open_github_pull_request_with_cli(
                 publication_manifest.export_repository_path
             )
         })?;
+    let repository_slug = format!("{}/{}", request.repository.owner, request.repository.name);
 
-    ensure_gh_authenticated(gh_cli, &repository_root)?;
+    Ok(PreparedGitHubPullRequestContext {
+        publication_manifest,
+        request,
+        body_path,
+        body,
+        repository_slug,
+        repository_root,
+    })
+}
 
-    let (resolution, pull_request) = match find_existing_pull_request(
-        gh_cli,
-        &repository_root,
-        &repository_slug,
-        &request.pull_request.head,
-        &request.pull_request.base,
-    )? {
-        Some(existing) => ("existing".to_string(), existing),
-        None => {
-            let created_url = create_draft_pull_request(
-                gh_cli,
-                &repository_root,
-                &repository_slug,
-                &request.pull_request,
-                &body_path,
-            )?;
-            let details =
-                view_pull_request(gh_cli, &repository_root, &repository_slug, &created_url)?;
-            ("created".to_string(), details)
-        }
-    };
-
+fn persist_github_pull_request_artifact(
+    run: &RunContext,
+    pr_publication: &ArtifactSummary,
+    artifact_root: &Path,
+    context: &PreparedGitHubPullRequestContext,
+    resolution: String,
+    transport: &str,
+    pull_request: ResolvedGitHubPullRequest,
+) -> Result<ArtifactDraft> {
     let github_pr_root = artifact_root
         .join("runs")
         .join(run.run_id.to_string())
@@ -179,9 +275,9 @@ fn open_github_pull_request_with_cli(
         schema_version: "v0.1".to_string(),
         artifact_type: GITHUB_PULL_REQUEST_ARTIFACT_TYPE.to_string(),
         run_id: run.run_id,
-        repository_slug: repository_slug.clone(),
-        repository_owner: request.repository.owner.clone(),
-        repository_name: request.repository.name.clone(),
+        repository_slug: context.repository_slug.clone(),
+        repository_owner: context.request.repository.owner.clone(),
+        repository_name: context.request.repository.name.clone(),
         number: pull_request.number,
         url: pull_request.url.clone(),
         state: pull_request.state.clone(),
@@ -190,9 +286,12 @@ fn open_github_pull_request_with_cli(
         head_branch: pull_request.head_ref_name.clone(),
         base_branch: pull_request.base_ref_name.clone(),
         resolution: resolution.clone(),
+        transport: transport.to_string(),
         source_pr_publication_artifact_id: pr_publication.artifact_id,
-        source_pr_export_artifact_id: publication_manifest.source_pr_export_artifact_id,
-        source_quality_report_artifact_id,
+        source_pr_export_artifact_id: context.publication_manifest.source_pr_export_artifact_id,
+        source_quality_report_artifact_id: context
+            .publication_manifest
+            .source_quality_report_artifact_id,
     };
     let manifest_path = github_pr_root.join("manifest.json");
     let serialized_manifest =
@@ -224,6 +323,7 @@ fn open_github_pull_request_with_cli(
             "manifest_path": manifest_path.display().to_string(),
             "response_path": response_path.display().to_string(),
             "resolution": manifest.resolution,
+            "transport": manifest.transport,
             "pr_number": manifest.number,
             "pr_url": manifest.url,
             "pr_state": manifest.state,
@@ -233,7 +333,7 @@ fn open_github_pull_request_with_cli(
             "base_branch": manifest.base_branch,
             "source_pr_publication_artifact_id": pr_publication.artifact_id,
             "source_pr_export_artifact_id": manifest.source_pr_export_artifact_id,
-            "source_quality_report_artifact_id": source_quality_report_artifact_id,
+            "source_quality_report_artifact_id": context.publication_manifest.source_quality_report_artifact_id,
         }),
     })
 }
@@ -469,6 +569,20 @@ struct GitHubPullRequest {
     base_ref_name: String,
 }
 
+impl GitHubPullRequest {
+    fn into_resolved(self) -> ResolvedGitHubPullRequest {
+        ResolvedGitHubPullRequest {
+            number: self.number,
+            url: self.url,
+            state: self.state,
+            is_draft: self.is_draft,
+            title: self.title,
+            head_ref_name: self.head_ref_name,
+            base_ref_name: self.base_ref_name,
+        }
+    }
+}
+
 #[derive(Debug, Serialize)]
 struct GitHubPullRequestManifest {
     schema_version: String,
@@ -485,9 +599,19 @@ struct GitHubPullRequestManifest {
     head_branch: String,
     base_branch: String,
     resolution: String,
+    transport: String,
     source_pr_publication_artifact_id: Uuid,
     source_pr_export_artifact_id: Uuid,
     source_quality_report_artifact_id: Uuid,
+}
+
+struct PreparedGitHubPullRequestContext {
+    publication_manifest: PrPublicationSourceManifest,
+    request: DraftPullRequestEnvelope,
+    body_path: PathBuf,
+    body: String,
+    repository_slug: String,
+    repository_root: PathBuf,
 }
 
 #[cfg(test)]

@@ -3,6 +3,7 @@ mod cli;
 mod commands;
 mod config;
 mod coordination;
+mod github_app;
 mod github_webhook_routing;
 mod github_webhooks;
 mod models;
