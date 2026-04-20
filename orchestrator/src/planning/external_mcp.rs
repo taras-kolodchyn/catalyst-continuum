@@ -1,6 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::{
     config::{ExternalMcpClientLaunchConfig, ExternalMcpServerConfig, ExternalMcpServersConfig},
@@ -69,6 +71,18 @@ impl ResolvedExternalMcpContract {
             .filter(|server| server.status == "allowed")
             .count()
     }
+}
+
+pub fn external_mcp_contract_from_run_metadata(
+    metadata: &Value,
+) -> anyhow::Result<Option<ResolvedExternalMcpContract>> {
+    metadata
+        .get("external_mcp_contract")
+        .cloned()
+        .filter(|value| !value.is_null())
+        .map(serde_json::from_value::<ResolvedExternalMcpContract>)
+        .transpose()
+        .context("failed to deserialize external MCP contract from run metadata")
 }
 
 fn resolve_requested_run_agents(agent_routing: &ResolvedAgentRouting) -> Vec<String> {
@@ -225,6 +239,7 @@ mod tests {
         models::brief::Brief,
         planning::{agent_routing::resolve_agent_routing, packs::PackDefinition},
     };
+    use serde_json::json;
     use std::collections::BTreeMap;
 
     #[test]
@@ -354,6 +369,51 @@ mod tests {
                 .as_deref()
                 .is_some_and(|reason| reason.contains("missing"))
         );
+    }
+
+    #[test]
+    fn deserializes_external_mcp_contract_from_run_metadata() {
+        let metadata = json!({
+            "external_mcp_contract": {
+                "requested_run_agents": ["openhands"],
+                "servers": [{
+                    "server_id": "fetch",
+                    "status": "allowed",
+                    "allowed_for_this_run_agents": ["openhands"],
+                    "client_launches": {
+                        "openhands": {
+                            "transport": "stdio",
+                            "command": "uvx",
+                            "args": ["--from", "mcp-server-fetch==2025.4.7", "mcp-server-fetch"]
+                        }
+                    }
+                }]
+            }
+        });
+
+        let contract = external_mcp_contract_from_run_metadata(&metadata)
+            .expect("run metadata contract should deserialize")
+            .expect("external MCP contract should exist");
+
+        assert_eq!(contract.requested_run_agents, vec!["openhands".to_string()]);
+        assert_eq!(contract.servers.len(), 1);
+        assert_eq!(contract.servers[0].server_id, "fetch");
+        assert_eq!(
+            contract.servers[0].client_launches["openhands"].command,
+            "uvx"
+        );
+    }
+
+    #[test]
+    fn ignores_missing_external_mcp_contract_in_run_metadata() {
+        let contract = external_mcp_contract_from_run_metadata(&json!({
+            "agent_routing": {
+                "default_agent": "openhands"
+            }
+        }))
+        .expect("missing run metadata contract should not fail");
+
+        assert!(contract.is_none());
     }
 
     fn sample_brief(execution_preferences: Option<&str>) -> Brief {

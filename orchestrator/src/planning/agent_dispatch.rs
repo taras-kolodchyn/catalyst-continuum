@@ -8,7 +8,9 @@ use uuid::Uuid;
 
 use crate::{
     models::{artifact::ArtifactDraft, run::RunDraft, task::TaskDraft},
-    planning::external_mcp::ResolvedExternalMcpContract,
+    planning::external_mcp::{
+        ResolvedExternalMcpContract, external_mcp_contract_from_run_metadata,
+    },
 };
 
 pub const AGENT_DISPATCH_PLAN_ARTIFACT_TYPE: &str = "agent_dispatch_plan";
@@ -88,14 +90,7 @@ pub fn generate_agent_dispatch_plan(
         .get("agent_routing")
         .cloned()
         .unwrap_or(serde_json::Value::Null);
-    let external_mcp_contract = run
-        .metadata
-        .get("external_mcp_contract")
-        .cloned()
-        .filter(|value| !value.is_null())
-        .map(serde_json::from_value::<ResolvedExternalMcpContract>)
-        .transpose()
-        .context("failed to deserialize external MCP contract from run metadata")?;
+    let external_mcp_contract = external_mcp_contract_from_run_metadata(&run.metadata)?;
 
     let document = AgentDispatchPlanDocument {
         schema_version: "v0.1".to_string(),

@@ -1232,6 +1232,28 @@ policy:
         )
     if not claimed_task.get("lease_expires_at"):
         fail("stateful MCP smoke failed: claimed task should expose lease_expires_at")
+    claim_external_mcp_contract = claim.get("external_mcp_contract") or {}
+    claim_fetch_server = next(
+        server
+        for server in claim_external_mcp_contract["servers"]
+        if server["server_id"] == "fetch"
+    )
+    claim_openhands_launch = claim_fetch_server["client_launches"]["openhands"]
+    if claim_fetch_server["status"] != "allowed":
+        fail(
+            "stateful MCP smoke failed: expected claimed Fetch contract status to be allowed, "
+            f"got {claim_fetch_server['status']!r}"
+        )
+    if claim_openhands_launch["command"] != "uvx":
+        fail(
+            "stateful MCP smoke failed: expected claimed Fetch OpenHands launch command "
+            f"to be uvx, got {claim_openhands_launch['command']!r}"
+        )
+    if claim_openhands_launch["args"] != expected_fetch_args:
+        fail(
+            "stateful MCP smoke failed: expected claimed Fetch OpenHands launch args "
+            f"{expected_fetch_args!r}, got {claim_openhands_launch['args']!r}"
+        )
 
     heartbeat = call_tool(
         "heartbeat_agent_task",

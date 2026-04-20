@@ -1045,6 +1045,10 @@ printf '%s\n' "$CLAIM_OUTPUT" | grep -q '^task_claimed: yes$'
 CLAIMED_TASK_ID="$(printf '%s\n' "$CLAIM_OUTPUT" | awk '/^task_id:/ {print $2; exit}')"
 test -n "$CLAIMED_TASK_ID"
 printf '%s\n' "$CLAIM_OUTPUT" | grep -q '^lease_expires_at: '
+printf '%s\n' "$CLAIM_OUTPUT" | grep -q '^external_mcp_server_count: 1$'
+printf '%s\n' "$CLAIM_OUTPUT" | grep -q '^external_mcp_allowed_server_count: 1$'
+printf '%s\n' "$CLAIM_OUTPUT" | grep -q '^external_mcp_server: fetch (allowed)$'
+printf '%s\n' "$CLAIM_OUTPUT" | grep -q '^external_mcp_launch: openhands -> uvx$'
 
 HEARTBEAT_OUTPUT="$("$BIN" heartbeat-agent-task \
   --database-url "$DATABASE_URL" \
