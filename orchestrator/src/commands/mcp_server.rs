@@ -9,7 +9,7 @@ use crate::{
     commands::{
         claim_next_agent_task,
         complete_agent_task::{self, AgentTaskCompletionRequest},
-        describe_artifact, describe_github_default_branch_state,
+        describe_ai_gateway_status, describe_artifact, describe_github_default_branch_state,
         describe_github_webhook_action_report, describe_github_webhook_receipt,
         describe_latest_artifact, describe_repository_signal_payload, evaluate_run_policy,
         evaluate_run_quality, export_pr_candidate, heartbeat_agent_task, open_github_pr,
@@ -590,6 +590,7 @@ impl StdioMcpServer {
         let result = match params.name.as_str() {
             "list_packs" => self.call_list_packs(arguments),
             "describe_pack" => self.call_describe_pack(arguments),
+            "describe_ai_gateway_status" => self.call_describe_ai_gateway_status(arguments),
             "describe_instance_config" => self.call_describe_instance_config(arguments),
             "describe_artifact" => self.call_describe_artifact(arguments),
             "describe_latest_artifact" => self.call_describe_latest_artifact(arguments),
@@ -685,6 +686,25 @@ impl StdioMcpServer {
             let content =
                 serde_json::to_value(&pack).context("failed to serialize pack definition")?;
             Ok(tool_success_object("pack", content))
+        })
+    }
+
+    fn call_describe_ai_gateway_status(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let _args: EmptyToolArgs = parse_tool_arguments(arguments)?;
+            let api_key = describe_ai_gateway_status::gateway_api_key_from_env();
+            let status = describe_ai_gateway_status::describe_ai_gateway_status(
+                &self.config.instance_config.ai_gateway,
+                2_000,
+                api_key.as_deref(),
+            );
+            let structured = serde_json::to_value(&status)
+                .context("failed to serialize AI gateway status report")?;
+            Ok(tool_success_with_text(
+                "ai_gateway_status",
+                structured,
+                describe_ai_gateway_status::render_text(&status)?,
+            ))
         })
     }
 
@@ -1483,6 +1503,11 @@ fn tool_definitions() -> Vec<Value> {
             json_schema_object(&[]),
         ),
         tool_definition(
+            "describe_ai_gateway_status",
+            "Inspect the live LiteLLM AI gateway status, including reachability and configured default model alias drift.",
+            json_schema_object(&[]),
+        ),
+        tool_definition(
             "describe_artifact",
             "Fetch one orchestrator artifact with metadata and a safe manifest/text inspection when available.",
             json_schema_object(&[required_string_property("artifact_id", "Artifact UUID.")]),
@@ -1946,9 +1971,16 @@ mod tests {
 
         assert_eq!(
             output[1]["result"]["tools"].as_array().map(Vec::len),
-            Some(34)
+            Some(35)
         );
         assert_eq!(output[1]["result"]["tools"][0]["name"], "list_packs");
+        assert!(
+            output[1]["result"]["tools"]
+                .as_array()
+                .is_some_and(|tools| tools
+                    .iter()
+                    .any(|tool| tool["name"] == "describe_ai_gateway_status"))
+        );
         assert!(
             output[1]["result"]["tools"]
                 .as_array()

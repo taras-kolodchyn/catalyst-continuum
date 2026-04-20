@@ -117,9 +117,10 @@ identical requests and that the corresponding Redis-backed cache entry exists in
 the bundled compose `redis` service. It also checks that LiteLLM's Prisma
 schema is present in the dedicated local LiteLLM database, and that LiteLLM's
 OTel semantic log records appear in Loki through the local collector. The same
-smoke path now also resolves `describe_instance_config` and verifies that the
-reported `ai_gateway` contract still matches the live LiteLLM base URLs and
-default aliases exposed by the local stack.
+smoke path now also resolves `describe_instance_config`, then runs
+`describe-ai-gateway-status` so the control plane itself verifies the live
+LiteLLM `/v1/models` reachability, latency, and default-alias exposure instead
+of treating the gateway contract as config-only.
 
 The script prints the exact OpenHands settings to use.
 For the default host-run OpenHands flow, those settings are:
@@ -250,6 +251,7 @@ Stateful tools need `CATALYST_DATABASE_URL`:
 - `open_github_pr`
 
 `describe_instance_config` is the first inspection tool for OpenHands when it needs to understand whether the current instance is still Docker-only, whether future Proxmox or Kubernetes placeholders are enabled but unimplemented, which external MCP servers are enabled and allowed for OpenHands or Codex, which LiteLLM AI gateway contract and default model aliases the instance expects it to use, and whether GitHub App credentials are complete enough for remote PR publication.
+`describe_ai_gateway_status` is the live follow-up when OpenHands needs to confirm that the configured LiteLLM gateway is actually reachable, that auth is available for probing it, and that the configured default aliases are exposed by the running `/v1/models` surface before it starts a longer coding loop.
 `list_github_webhooks` and `describe_github_webhook` give OpenHands direct MCP visibility into accepted GitHub App deliveries, including whether the control plane currently ignores that delivery or classifies it as a safe automation candidate such as `sync_default_branch`.
 `describe_github_webhook_receipt` lets OpenHands inspect the persisted signed ingress receipt behind one accepted delivery, including headers and normalized payload fields, without scraping `receipt_path` from the delivery summary.
 `list_github_webhook_action_requests` and `describe_github_webhook_action_request` let OpenHands inspect the durable control-plane requests materialized from those candidate deliveries.

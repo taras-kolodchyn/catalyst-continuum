@@ -154,10 +154,12 @@ base_url="http://127.0.0.1:${LITELLM_PORT}"
 models_url="${base_url}/v1/models"
 models_json="$(mktemp)"
 instance_config_json="$(mktemp)"
+ai_gateway_status_json="$(mktemp)"
 
 cleanup() {
   rm -f "$models_json"
   rm -f "$instance_config_json"
+  rm -f "$ai_gateway_status_json"
 }
 
 trap cleanup EXIT
@@ -213,6 +215,13 @@ fi
 
 env "${instance_config_env[@]}" \
   cargo run -q -p catalyst-continuum-orchestrator -- describe-instance-config --json >"$instance_config_json"
+
+env "${instance_config_env[@]}" \
+  "CATALYST_AI_GATEWAY_API_KEY=${LITELLM_MASTER_KEY}" \
+  cargo run -q -p catalyst-continuum-orchestrator -- \
+    describe-ai-gateway-status \
+    --timeout-ms 5000 \
+    --json >"$ai_gateway_status_json"
 
 ai_gateway_contract="$(
   python3 - "$instance_config_json" "$base_url" "$LITELLM_PORT" "$MODEL" "$available_models" <<'PY'
@@ -291,6 +300,48 @@ print(
 PY
 )"
 
+ai_gateway_live_status="$(
+  python3 - "$ai_gateway_status_json" "$MODEL" <<'PY'
+import json
+import sys
+
+status_path, selected_model = sys.argv[1:]
+payload = json.loads(open(status_path, encoding="utf-8").read())
+
+if payload["status"] != "ready":
+    raise SystemExit(
+        "describe-ai-gateway-status did not report ready gateway status: "
+        f"{payload['status']!r}"
+    )
+if payload["ready"] is not True:
+    raise SystemExit("describe-ai-gateway-status returned ready=false")
+if payload["current_host_default_model_alias"] != selected_model:
+    raise SystemExit(
+        "describe-ai-gateway-status current_host_default_model_alias drifted from "
+        f"selected model: {payload['current_host_default_model_alias']!r} vs {selected_model!r}"
+    )
+if payload["missing_default_model_aliases"]:
+    raise SystemExit(
+        "describe-ai-gateway-status reported missing default aliases: "
+        f"{payload['missing_default_model_aliases']!r}"
+    )
+if payload["available_model_count"] < 1:
+    raise SystemExit(
+        "describe-ai-gateway-status reported no available models"
+    )
+
+print(
+    json.dumps(
+        {
+            "status": payload["status"],
+            "probeUrl": payload["probe_url"],
+            "currentHostDefaultModelAlias": payload["current_host_default_model_alias"],
+        }
+    )
+)
+PY
+)"
+
 ai_gateway_provider="$(
   python3 - "$ai_gateway_contract" <<'PY'
 import json
@@ -334,6 +385,24 @@ import sys
 
 payload = json.loads(sys.argv[1])
 print(payload["expectedSelectedModel"])
+PY
+)"
+ai_gateway_live_probe_url="$(
+  python3 - "$ai_gateway_live_status" <<'PY'
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+print(payload["probeUrl"])
+PY
+)"
+ai_gateway_live_status_value="$(
+  python3 - "$ai_gateway_live_status" <<'PY'
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+print(payload["status"])
 PY
 )"
 
@@ -382,6 +451,8 @@ echo "ai_gateway_control_plane_owner: $ai_gateway_control_plane_owner"
 echo "ai_gateway_host_base_url: $ai_gateway_host_base_url"
 echo "ai_gateway_container_base_url: $ai_gateway_container_base_url"
 echo "ai_gateway_expected_default_model: $ai_gateway_expected_selected_model"
+echo "ai_gateway_live_status: $ai_gateway_live_status_value"
+echo "ai_gateway_live_probe_url: $ai_gateway_live_probe_url"
 if [ -n "$backend_start_command" ]; then
   echo "backend_start: $backend_start_command"
 fi

@@ -105,6 +105,10 @@ for service_name in ("orchestrator", "worker"):
         raise SystemExit(
             f"{service_name} must mount artifacts-data at /app/.continuum/artifacts"
         )
+    if not env.get("CATALYST_AI_GATEWAY_API_KEY"):
+        raise SystemExit(
+            f"{service_name} must set CATALYST_AI_GATEWAY_API_KEY for live AI gateway inspection"
+        )
 
 orchestrator_command = services["orchestrator"].get("command")
 if orchestrator_command != ["serve", "--bind-addr", "0.0.0.0:8080"]:

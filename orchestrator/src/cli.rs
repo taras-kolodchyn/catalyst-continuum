@@ -20,6 +20,7 @@ pub enum Command {
     ClaimNextAgentTask(ClaimNextAgentTaskArgs),
     HeartbeatAgentTask(HeartbeatAgentTaskArgs),
     CompleteAgentTask(CompleteAgentTaskArgs),
+    DescribeAiGatewayStatus(DescribeAiGatewayStatusArgs),
     DescribeInstanceConfig(DescribeInstanceConfigArgs),
     DescribePack(DescribePackArgs),
     DescribeArtifact(DescribeArtifactArgs),
@@ -62,6 +63,7 @@ impl Command {
             Self::ClaimNextAgentTask(_) => "claim-next-agent-task",
             Self::HeartbeatAgentTask(_) => "heartbeat-agent-task",
             Self::CompleteAgentTask(_) => "complete-agent-task",
+            Self::DescribeAiGatewayStatus(_) => "describe-ai-gateway-status",
             Self::DescribeInstanceConfig(_) => "describe-instance-config",
             Self::DescribePack(_) => "describe-pack",
             Self::DescribeArtifact(_) => "describe-artifact",
@@ -228,6 +230,18 @@ pub struct DescribeInstanceConfigArgs {
 
     #[arg(long, env = "CATALYST_AI_GATEWAY_FILE")]
     pub ai_gateway_file: Option<PathBuf>,
+
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct DescribeAiGatewayStatusArgs {
+    #[arg(long, env = "CATALYST_AI_GATEWAY_FILE")]
+    pub ai_gateway_file: Option<PathBuf>,
+
+    #[arg(long, default_value_t = 2_000)]
+    pub timeout_ms: u64,
 
     #[arg(long)]
     pub json: bool,

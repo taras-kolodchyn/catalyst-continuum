@@ -113,6 +113,7 @@ tool_names = {
 expected_tools = {
     "list_packs",
     "describe_pack",
+    "describe_ai_gateway_status",
     "describe_instance_config",
     "describe_artifact",
     "describe_latest_artifact",

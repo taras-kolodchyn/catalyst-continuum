@@ -1,8 +1,8 @@
 use crate::{
     cli::{Cli, Command},
     commands::{
-        claim_next_agent_task, complete_agent_task, create_draft_pr, describe_artifact,
-        describe_github_default_branch_state, describe_github_webhook,
+        claim_next_agent_task, complete_agent_task, create_draft_pr, describe_ai_gateway_status,
+        describe_artifact, describe_github_default_branch_state, describe_github_webhook,
         describe_github_webhook_action_report, describe_github_webhook_action_request,
         describe_github_webhook_receipt, describe_instance_config, describe_latest_artifact,
         describe_pack, describe_repository_signal, describe_repository_signal_payload,
@@ -28,6 +28,7 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
         Command::ClaimNextAgentTask(args) => claim_next_agent_task::execute(args),
         Command::HeartbeatAgentTask(args) => heartbeat_agent_task::execute(args),
         Command::CompleteAgentTask(args) => complete_agent_task::execute(args),
+        Command::DescribeAiGatewayStatus(args) => describe_ai_gateway_status::execute(args),
         Command::DescribeInstanceConfig(args) => describe_instance_config::execute(args),
         Command::DescribePack(args) => describe_pack::execute(args),
         Command::DescribeArtifact(args) => describe_artifact::execute(args),

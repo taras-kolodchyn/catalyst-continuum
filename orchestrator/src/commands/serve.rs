@@ -7,12 +7,12 @@ use uuid::Uuid;
 use crate::{
     cli::ServeArgs,
     commands::{
-        create_draft_pr, describe_artifact, describe_github_default_branch_state,
-        describe_github_webhook_action_report, describe_github_webhook_receipt,
-        describe_latest_artifact, describe_repository_signal_payload, evaluate_run_policy,
-        evaluate_run_quality, export_pr_candidate, publish_pr_export,
-        run_next_github_webhook_action, run_next_task, submit_brief::submit_validated_brief,
-        worker,
+        create_draft_pr, describe_ai_gateway_status, describe_artifact,
+        describe_github_default_branch_state, describe_github_webhook_action_report,
+        describe_github_webhook_receipt, describe_latest_artifact,
+        describe_repository_signal_payload, evaluate_run_policy, evaluate_run_quality,
+        export_pr_candidate, publish_pr_export, run_next_github_webhook_action, run_next_task,
+        submit_brief::submit_validated_brief, worker,
     },
     config::{InstanceConfigReport, load_github_app_webhook_secret},
     coordination,
@@ -85,6 +85,7 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                         "/healthz",
                         "/readyz",
                         "/config",
+                        "/ai-gateway/status",
                         "/github/webhooks",
                         "/github/webhooks/{delivery_id}",
                         "/github/webhooks/{delivery_id}/receipt",
@@ -138,6 +139,22 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                 ),
             },
             ("GET", "/config") => json_response(StatusCode(200), &instance_config),
+            ("GET", "/ai-gateway/status") => {
+                let api_key = describe_ai_gateway_status::gateway_api_key_from_env();
+                let report = describe_ai_gateway_status::describe_ai_gateway_status(
+                    &instance_config.ai_gateway,
+                    2_000,
+                    api_key.as_deref(),
+                );
+                json_response(
+                    if report.ready {
+                        StatusCode(200)
+                    } else {
+                        StatusCode(503)
+                    },
+                    &report,
+                )
+            }
             ("GET", "/github/webhooks") => match parse_list_github_webhooks_request(query) {
                 Ok(list_request) => match store
                     .list_github_webhook_deliveries(list_request.limit, &list_request.filters)
@@ -1629,6 +1646,7 @@ fn route_label(method: &str, path: &str) -> &'static str {
         ("GET", "/healthz") => "/healthz",
         ("GET", "/readyz") => "/readyz",
         ("GET", "/config") => "/config",
+        ("GET", "/ai-gateway/status") => "/ai-gateway/status",
         ("GET", "/github/webhooks") => "/github/webhooks",
         ("GET", "/github/webhook-actions") => "/github/webhook-actions",
         ("GET", _) if github_webhook_receipt_path_delivery_id(path).is_some() => {
@@ -1907,6 +1925,10 @@ mod tests {
         assert_eq!(route_label("GET", "/healthz"), "/healthz");
         assert_eq!(route_label("GET", "/readyz"), "/readyz");
         assert_eq!(route_label("GET", "/config"), "/config");
+        assert_eq!(
+            route_label("GET", "/ai-gateway/status"),
+            "/ai-gateway/status"
+        );
         assert_eq!(route_label("GET", "/github/webhooks"), "/github/webhooks");
         assert_eq!(
             route_label("GET", "/github/webhook-actions"),

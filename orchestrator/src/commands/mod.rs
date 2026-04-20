@@ -1,6 +1,7 @@
 pub mod claim_next_agent_task;
 pub mod complete_agent_task;
 pub mod create_draft_pr;
+pub mod describe_ai_gateway_status;
 pub mod describe_artifact;
 pub mod describe_github_default_branch_state;
 pub mod describe_github_webhook;
