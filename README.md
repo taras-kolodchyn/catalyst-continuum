@@ -3,6 +3,7 @@ Open‑source AI SDLC toolkit that turns a product brief into a working proof‑
 
 Planning context for Codex and other agents lives in [docs/summary.md](docs/summary.md).
 The closed `v0.1` implementation cut line is tracked in [docs/v0.1-scope.md](docs/v0.1-scope.md).
+The operator-facing shipped-baseline note for `v0.1` lives in [docs/v0.1-release.md](docs/v0.1-release.md).
 The former `v0.2` contract/interoperability batch was absorbed into that final `v0.1` boundary; the next re-baselined `v0.2` scope is now tracked in [docs/v0.2-scope.md](docs/v0.2-scope.md) around Proxmox and Kubernetes runtime-provider work.
 Interface boundaries are documented in [docs/adr/0001-control-plane-and-agent-surface.md](docs/adr/0001-control-plane-and-agent-surface.md).
 External MCP capability policy is documented in [docs/adr/0002-agent-capability-policy.md](docs/adr/0002-agent-capability-policy.md).
