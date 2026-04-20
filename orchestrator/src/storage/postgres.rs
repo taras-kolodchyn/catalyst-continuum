@@ -11,7 +11,10 @@ use crate::models::{
     },
     run::{RunContext, RunDetail, RunDraft, RunSummary, RunTaskCounts, SubmissionRecord},
     run_event::{RunEventDraft, RunEventSummary},
-    task::{TaskDraft, TaskExecutionSpec, TaskSummary},
+    task::{
+        AgentTaskExecutionState, TaskDraft, TaskExecutionSpec, TaskSummary,
+        metadata_with_agent_execution_state,
+    },
     webhook::{
         GitHubWebhookActionRequestDraft, GitHubWebhookActionRequestListFilters,
         GitHubWebhookActionRequestSummary, GitHubWebhookDeliveryDraft,
@@ -328,6 +331,209 @@ impl PostgresRunStore {
         Ok(None)
     }
 
+    pub fn fetch_task(&mut self, task_id: Uuid) -> Result<Option<TaskSummary>> {
+        let row = self
+            .client
+            .query_opt(
+                &format!(
+                    "SELECT
+                        task_id,
+                        run_id,
+                        backlog_item_id,
+                        kind,
+                        priority,
+                        title,
+                        description,
+                        status,
+                        execution,
+                        dependency_task_ids,
+                        source_refs,
+                        assigned_pack,
+                        assigned_agent,
+                        orchestrator_model,
+                        approval_required,
+                        metadata,
+                        to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
+                        CASE
+                            WHEN started_at IS NULL THEN NULL
+                            ELSE to_char(started_at AT TIME ZONE 'UTC', '{RFC3339_SQL}')
+                        END AS started_at,
+                        CASE
+                            WHEN completed_at IS NULL THEN NULL
+                            ELSE to_char(completed_at AT TIME ZONE 'UTC', '{RFC3339_SQL}')
+                        END AS completed_at,
+                        failure_reason
+                    FROM tasks
+                    WHERE task_id = $1"
+                ),
+                &[&task_id],
+            )
+            .with_context(|| format!("failed to fetch task: {task_id}"))?;
+
+        Ok(row.as_ref().map(row_to_task_summary))
+    }
+
+    pub fn claim_next_runnable_task_for_agent(
+        &mut self,
+        run_id: Option<Uuid>,
+        agent: &str,
+        executor_id: Option<&str>,
+    ) -> Result<Option<TaskSummary>> {
+        let mut transaction = self
+            .client
+            .transaction()
+            .context("failed to start agent task claim transaction")?;
+
+        let candidate = transaction
+            .query_opt(
+                &format!(
+                    "SELECT
+                        task_id,
+                        run_id,
+                        backlog_item_id,
+                        kind,
+                        priority,
+                        title,
+                        description,
+                        status,
+                        execution,
+                        dependency_task_ids,
+                        source_refs,
+                        assigned_pack,
+                        assigned_agent,
+                        orchestrator_model,
+                        approval_required,
+                        metadata,
+                        to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
+                        CASE
+                            WHEN started_at IS NULL THEN NULL
+                            ELSE to_char(started_at AT TIME ZONE 'UTC', '{RFC3339_SQL}')
+                        END AS started_at,
+                        CASE
+                            WHEN completed_at IS NULL THEN NULL
+                            ELSE to_char(completed_at AT TIME ZONE 'UTC', '{RFC3339_SQL}')
+                        END AS completed_at,
+                        failure_reason
+                    FROM tasks
+                    WHERE task_id = (
+                        SELECT t.task_id
+                        FROM tasks t
+                        WHERE t.status = 'queued'
+                          AND ($1::uuid IS NULL OR t.run_id = $1)
+                          AND t.assigned_agent = $2
+                          AND NOT EXISTS (
+                              SELECT 1
+                              FROM jsonb_array_elements_text(t.dependency_task_ids) AS dependency(task_id)
+                              JOIN tasks dependency_task
+                                ON dependency_task.task_id = dependency.task_id::uuid
+                              WHERE dependency_task.status <> 'succeeded'
+                          )
+                        ORDER BY t.created_at ASC, t.backlog_item_id ASC
+                        LIMIT 1
+                        FOR UPDATE SKIP LOCKED
+                    )
+                    FOR UPDATE"
+                ),
+                &[&run_id, &agent],
+            )
+            .with_context(|| format!("failed to claim next runnable task for agent `{agent}`"))?;
+
+        let Some(candidate) = candidate else {
+            transaction
+                .commit()
+                .context("failed to finalize idle agent task claim transaction")?;
+            return Ok(None);
+        };
+
+        let candidate_task = row_to_task_summary(&candidate);
+        let next_agent_execution_state = candidate_task
+            .agent_execution
+            .as_ref()
+            .map(|state| state.after_claim(executor_id.map(str::to_string)))
+            .unwrap_or_else(|| {
+                AgentTaskExecutionState::new_claim(
+                    agent.to_string(),
+                    executor_id.map(str::to_string),
+                )
+            });
+        let updated_metadata = metadata_with_agent_execution_state(
+            &candidate_task.metadata,
+            &next_agent_execution_state,
+        );
+
+        let row = transaction
+            .query_one(
+                &format!(
+                    "UPDATE tasks
+                    SET status = 'running',
+                        started_at = NOW(),
+                        failure_reason = NULL,
+                        metadata = $2
+                    WHERE task_id = $1
+                      AND status = 'queued'
+                    RETURNING
+                        task_id,
+                        run_id,
+                        backlog_item_id,
+                        kind,
+                        priority,
+                        title,
+                        description,
+                        status,
+                        execution,
+                        dependency_task_ids,
+                        source_refs,
+                        assigned_pack,
+                        assigned_agent,
+                        orchestrator_model,
+                        approval_required,
+                        metadata,
+                        to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
+                        CASE
+                            WHEN started_at IS NULL THEN NULL
+                            ELSE to_char(started_at AT TIME ZONE 'UTC', '{RFC3339_SQL}')
+                        END AS started_at,
+                        CASE
+                            WHEN completed_at IS NULL THEN NULL
+                            ELSE to_char(completed_at AT TIME ZONE 'UTC', '{RFC3339_SQL}')
+                        END AS completed_at,
+                        failure_reason"
+                ),
+                &[&candidate_task.task_id, &updated_metadata],
+            )
+            .with_context(|| {
+                format!(
+                    "failed to mark claimed task `{}` running for agent `{agent}`",
+                    candidate_task.task_id
+                )
+            })?;
+
+        let task = row_to_task_summary(&row);
+        let event = RunEventDraft::for_task(
+            task.run_id,
+            task.task_id,
+            "task_started",
+            Some(task.status.clone()),
+            format!("task {} claimed by agent {}", task.backlog_item_id, agent),
+            serde_json::json!({
+                "backlog_item_id": task.backlog_item_id,
+                "kind": task.kind,
+                "priority": task.priority,
+                "title": task.title,
+                "assigned_agent": task.assigned_agent,
+                "orchestrator_model": task.orchestrator_model,
+                "execution_mode": "external_agent",
+                "executor_id": executor_id,
+            }),
+        );
+        let _ = insert_run_event_record(&mut transaction, &event)?;
+        transaction
+            .commit()
+            .context("failed to commit agent task claim transaction")?;
+
+        Ok(Some(task))
+    }
+
     pub fn list_reclaimable_running_tasks(
         &mut self,
         run_id: Option<Uuid>,
@@ -449,6 +655,8 @@ impl PostgresRunStore {
                 "priority": task.priority,
                 "title": task.title,
                 "provider": task.execution.provider,
+                "assigned_agent": task.assigned_agent,
+                "orchestrator_model": task.orchestrator_model,
             }),
         );
         let _ = insert_run_event_record(&mut transaction, &event)?;
@@ -530,6 +738,9 @@ impl PostgresRunStore {
                 "title": task.title,
                 "failure_reason": task.failure_reason,
                 "retry_state": task.retry_state,
+                "assigned_agent": task.assigned_agent,
+                "orchestrator_model": task.orchestrator_model,
+                "agent_execution": task.agent_execution,
             }),
         );
         let _ = insert_run_event_record(&mut transaction, &event)?;
@@ -606,6 +817,9 @@ impl PostgresRunStore {
                 "title": task.title,
                 "failure_reason": task.failure_reason,
                 "retry_state": task.retry_state,
+                "assigned_agent": task.assigned_agent,
+                "orchestrator_model": task.orchestrator_model,
+                "agent_execution": task.agent_execution,
             }),
         );
         let _ = insert_run_event_record(&mut transaction, &event)?;
@@ -2369,6 +2583,7 @@ fn row_to_task_summary(row: &postgres::Row) -> TaskSummary {
         assigned_agent: row.get("assigned_agent"),
         orchestrator_model: row.get("orchestrator_model"),
         approval_required: row.get("approval_required"),
+        agent_execution: crate::models::task::agent_execution_state_from_metadata(&metadata),
         retry_state: crate::models::task::retry_state_from_metadata(&metadata),
         metadata,
         created_at: row.get("created_at"),

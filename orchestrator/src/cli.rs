@@ -17,6 +17,8 @@ pub struct Cli {
 pub enum Command {
     Serve(ServeArgs),
     McpServer(McpServerArgs),
+    ClaimNextAgentTask(ClaimNextAgentTaskArgs),
+    CompleteAgentTask(CompleteAgentTaskArgs),
     DescribeInstanceConfig(DescribeInstanceConfigArgs),
     DescribePack(DescribePackArgs),
     DescribeArtifact(DescribeArtifactArgs),
@@ -56,6 +58,8 @@ impl Command {
         match self {
             Self::Serve(_) => "serve",
             Self::McpServer(_) => "mcp-server",
+            Self::ClaimNextAgentTask(_) => "claim-next-agent-task",
+            Self::CompleteAgentTask(_) => "complete-agent-task",
             Self::DescribeInstanceConfig(_) => "describe-instance-config",
             Self::DescribePack(_) => "describe-pack",
             Self::DescribeArtifact(_) => "describe-artifact",
@@ -125,6 +129,61 @@ pub struct McpServerArgs {
 
     #[arg(long, env = "CATALYST_RUNTIME_PROVIDERS_FILE")]
     pub runtime_providers_file: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
+pub struct ClaimNextAgentTaskArgs {
+    #[arg(long, env = "CATALYST_DATABASE_URL")]
+    pub database_url: String,
+
+    #[arg(long)]
+    pub agent: String,
+
+    #[arg(long)]
+    pub run_id: Option<Uuid>,
+
+    #[arg(long)]
+    pub executor_id: Option<String>,
+
+    #[arg(long)]
+    pub pretty: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct CompleteAgentTaskArgs {
+    #[arg(long, env = "CATALYST_DATABASE_URL")]
+    pub database_url: String,
+
+    #[arg(
+        long,
+        env = "CATALYST_ARTIFACT_ROOT",
+        default_value = ".continuum/artifacts"
+    )]
+    pub artifact_root: PathBuf,
+
+    #[arg(long)]
+    pub task_id: Uuid,
+
+    #[arg(long)]
+    pub agent: String,
+
+    #[arg(long)]
+    pub status: String,
+
+    #[arg(long)]
+    pub summary: String,
+
+    #[arg(long)]
+    pub details: Option<String>,
+
+    #[arg(long)]
+    pub executor_id: Option<String>,
+
+    #[arg(long)]
+    pub retryable: bool,
+
+    #[arg(long)]
+    pub pretty: bool,
 }
 
 #[derive(Debug, Args)]

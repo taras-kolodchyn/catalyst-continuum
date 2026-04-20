@@ -273,6 +273,7 @@ mod tests {
             assigned_agent: None,
             orchestrator_model: None,
             approval_required: false,
+            agent_execution: None,
             retry_state: None,
             metadata: json!({}),
             created_at: None,

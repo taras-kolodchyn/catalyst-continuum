@@ -1,3 +1,5 @@
+pub mod claim_next_agent_task;
+pub mod complete_agent_task;
 pub mod create_draft_pr;
 pub mod describe_artifact;
 pub mod describe_github_default_branch_state;
@@ -30,5 +32,6 @@ pub mod serve;
 pub mod submit_brief;
 pub mod submit_next_repository_signal;
 pub mod submit_repository_signal;
+pub mod task_completion;
 pub mod validate_brief;
 pub mod worker;

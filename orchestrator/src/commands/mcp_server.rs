@@ -7,6 +7,8 @@ use serde_json::{Map, Value, json};
 use crate::{
     cli::McpServerArgs,
     commands::{
+        claim_next_agent_task,
+        complete_agent_task::{self, AgentTaskCompletionRequest},
         describe_artifact, describe_github_default_branch_state,
         describe_github_webhook_action_report, describe_github_webhook_receipt,
         describe_latest_artifact, describe_repository_signal_payload, evaluate_run_policy,
@@ -277,6 +279,31 @@ struct DescribeGithubDefaultBranchStateToolArgs {
 #[serde(deny_unknown_fields)]
 struct RunScopedToolArgs {
     run_id: Option<uuid::Uuid>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ClaimNextAgentTaskToolArgs {
+    agent: String,
+    #[serde(default)]
+    run_id: Option<uuid::Uuid>,
+    #[serde(default)]
+    executor_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CompleteAgentTaskToolArgs {
+    task_id: uuid::Uuid,
+    agent: String,
+    status: String,
+    summary: String,
+    #[serde(default)]
+    details: Option<String>,
+    #[serde(default)]
+    executor_id: Option<String>,
+    #[serde(default)]
+    retryable: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -581,6 +608,8 @@ impl StdioMcpServer {
             "list_runs" => self.call_list_runs(arguments),
             "describe_run" => self.call_describe_run(arguments),
             "list_run_events" => self.call_list_run_events(arguments),
+            "claim_next_agent_task" => self.call_claim_next_agent_task(arguments),
+            "complete_agent_task" => self.call_complete_agent_task(arguments),
             "run_next_github_webhook_action" => self.call_run_next_github_webhook_action(arguments),
             "run_next_task" => self.call_run_next_task(arguments),
             "run_worker_once" => self.call_run_worker_once(arguments),
@@ -1039,6 +1068,54 @@ impl StdioMcpServer {
             let structured =
                 serde_json::to_value(&events).context("failed to serialize run event list")?;
             Ok(tool_success_object("events", structured))
+        })
+    }
+
+    fn call_claim_next_agent_task(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: ClaimNextAgentTaskToolArgs = parse_tool_arguments(arguments)?;
+            let mut store = self.open_store()?;
+            let claim = claim_next_agent_task::claim_next_agent_task(
+                &mut store,
+                args.run_id,
+                &args.agent,
+                args.executor_id.as_deref(),
+            )?;
+            let structured =
+                serde_json::to_value(&claim).context("failed to serialize agent task claim")?;
+            Ok(tool_success_with_text(
+                "claim",
+                structured,
+                claim.render_text()?,
+            ))
+        })
+    }
+
+    fn call_complete_agent_task(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: CompleteAgentTaskToolArgs = parse_tool_arguments(arguments)?;
+            let request = AgentTaskCompletionRequest {
+                task_id: args.task_id,
+                agent: args.agent,
+                executor_id: args.executor_id,
+                status: args.status,
+                summary: args.summary,
+                details: args.details,
+                retryable: args.retryable,
+            };
+            let mut store = self.open_store()?;
+            let report = complete_agent_task::complete_agent_task(
+                &mut store,
+                &self.config.artifact_root,
+                &request,
+            )?;
+            let structured = serde_json::to_value(&report)
+                .context("failed to serialize agent task completion")?;
+            Ok(tool_success_with_text(
+                "completion",
+                structured,
+                report.render_text()?,
+            ))
         })
     }
 
@@ -1581,6 +1658,46 @@ fn tool_definitions() -> Vec<Value> {
             ]),
         ),
         tool_definition(
+            "claim_next_agent_task",
+            "Atomically claim the next runnable task assigned to one external agent.",
+            json_schema_object(&[
+                required_string_property(
+                    "agent",
+                    "Assigned agent identifier, for example openhands.",
+                ),
+                optional_string_property("run_id", "Optional run UUID."),
+                optional_string_property(
+                    "executor_id",
+                    "Optional external executor identifier used to bind later completion.",
+                ),
+            ]),
+        ),
+        tool_definition(
+            "complete_agent_task",
+            "Complete one externally claimed task and persist an agent_task_report artifact.",
+            json_schema_object(&[
+                required_string_property("task_id", "Task UUID."),
+                required_string_property(
+                    "agent",
+                    "Assigned agent identifier, for example openhands.",
+                ),
+                required_string_property("status", "Completion status: succeeded or failed."),
+                required_string_property("summary", "Short execution summary or failure reason."),
+                optional_string_property(
+                    "details",
+                    "Optional longer execution details persisted in the report artifact.",
+                ),
+                optional_string_property(
+                    "executor_id",
+                    "Optional external executor identifier. Required when the claim recorded one.",
+                ),
+                optional_boolean_property(
+                    "retryable",
+                    "When true and status is failed, allow the orchestrator retry policy to requeue the task.",
+                ),
+            ]),
+        ),
+        tool_definition(
             "run_next_github_webhook_action",
             "Execute the next pending GitHub webhook action request.",
             json_schema_object(&[optional_string_property(
@@ -1759,7 +1876,7 @@ mod tests {
 
         assert_eq!(
             output[1]["result"]["tools"].as_array().map(Vec::len),
-            Some(31)
+            Some(33)
         );
         assert_eq!(output[1]["result"]["tools"][0]["name"], "list_packs");
         assert!(
@@ -1768,6 +1885,20 @@ mod tests {
                 .is_some_and(|tools| tools
                     .iter()
                     .any(|tool| tool["name"] == "describe_instance_config"))
+        );
+        assert!(
+            output[1]["result"]["tools"]
+                .as_array()
+                .is_some_and(|tools| tools
+                    .iter()
+                    .any(|tool| tool["name"] == "claim_next_agent_task"))
+        );
+        assert!(
+            output[1]["result"]["tools"]
+                .as_array()
+                .is_some_and(|tools| tools
+                    .iter()
+                    .any(|tool| tool["name"] == "complete_agent_task"))
         );
         assert!(
             output[1]["result"]["tools"]

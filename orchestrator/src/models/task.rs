@@ -4,6 +4,7 @@ use serde_json::{Map, Value};
 use uuid::Uuid;
 
 const RETRY_METADATA_KEY: &str = "retry";
+const AGENT_EXECUTION_METADATA_KEY: &str = "agent_execution";
 
 #[derive(Debug, Clone)]
 pub struct TaskDraft {
@@ -34,6 +35,16 @@ pub struct TaskRetryState {
     pub last_failure_reason: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AgentTaskExecutionState {
+    pub agent: String,
+    pub mode: String,
+    pub executor_id: Option<String>,
+    pub claim_count: u32,
+    pub last_status: String,
+    pub last_report_artifact_id: Option<Uuid>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct TaskSummary {
     pub task_id: Uuid,
@@ -51,6 +62,8 @@ pub struct TaskSummary {
     pub assigned_agent: Option<String>,
     pub orchestrator_model: Option<String>,
     pub approval_required: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_execution: Option<AgentTaskExecutionState>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub retry_state: Option<TaskRetryState>,
     #[serde(skip_serializing)]
@@ -80,6 +93,7 @@ impl TaskSummary {
             assigned_agent: draft.assigned_agent.clone(),
             orchestrator_model: draft.orchestrator_model.clone(),
             approval_required: draft.approval_required,
+            agent_execution: agent_execution_state_from_metadata(&draft.metadata),
             retry_state: retry_state_from_metadata(&draft.metadata),
             metadata: draft.metadata.clone(),
             created_at: None,
@@ -120,6 +134,38 @@ impl TaskSummary {
         if let Some(orchestrator_model) = &self.orchestrator_model {
             writeln!(&mut output, "orchestrator_model: {}", orchestrator_model)
                 .context("failed to render task")?;
+        }
+        if let Some(agent_execution) = &self.agent_execution {
+            writeln!(
+                &mut output,
+                "agent_execution_mode: {}",
+                agent_execution.mode
+            )
+            .context("failed to render task")?;
+            writeln!(
+                &mut output,
+                "agent_execution_status: {}",
+                agent_execution.last_status
+            )
+            .context("failed to render task")?;
+            writeln!(
+                &mut output,
+                "agent_claim_count: {}",
+                agent_execution.claim_count
+            )
+            .context("failed to render task")?;
+            if let Some(executor_id) = &agent_execution.executor_id {
+                writeln!(&mut output, "agent_executor_id: {}", executor_id)
+                    .context("failed to render task")?;
+            }
+            if let Some(report_artifact_id) = agent_execution.last_report_artifact_id {
+                writeln!(
+                    &mut output,
+                    "agent_report_artifact_id: {}",
+                    report_artifact_id
+                )
+                .context("failed to render task")?;
+            }
         }
         if let Some(image) = &self.execution.image {
             writeln!(&mut output, "image: {}", image).context("failed to render task")?;
@@ -223,9 +269,54 @@ impl TaskRetryState {
     }
 }
 
+impl AgentTaskExecutionState {
+    pub fn new_claim(agent: impl Into<String>, executor_id: Option<String>) -> Self {
+        Self {
+            agent: agent.into(),
+            mode: "external_agent".to_string(),
+            executor_id,
+            claim_count: 1,
+            last_status: "claimed".to_string(),
+            last_report_artifact_id: None,
+        }
+    }
+
+    pub fn after_claim(&self, executor_id: Option<String>) -> Self {
+        Self {
+            agent: self.agent.clone(),
+            mode: self.mode.clone(),
+            executor_id,
+            claim_count: self.claim_count + 1,
+            last_status: "claimed".to_string(),
+            last_report_artifact_id: self.last_report_artifact_id,
+        }
+    }
+
+    pub fn after_completion(
+        &self,
+        status: impl Into<String>,
+        executor_id: Option<String>,
+        report_artifact_id: Option<Uuid>,
+    ) -> Self {
+        Self {
+            agent: self.agent.clone(),
+            mode: self.mode.clone(),
+            executor_id: executor_id.or_else(|| self.executor_id.clone()),
+            claim_count: self.claim_count,
+            last_status: status.into(),
+            last_report_artifact_id: report_artifact_id.or(self.last_report_artifact_id),
+        }
+    }
+}
+
 pub fn retry_state_from_metadata(metadata: &Value) -> Option<TaskRetryState> {
     let retry_value = metadata.get(RETRY_METADATA_KEY)?.clone();
     serde_json::from_value(retry_value).ok()
+}
+
+pub fn agent_execution_state_from_metadata(metadata: &Value) -> Option<AgentTaskExecutionState> {
+    let agent_execution_value = metadata.get(AGENT_EXECUTION_METADATA_KEY)?.clone();
+    serde_json::from_value(agent_execution_value).ok()
 }
 
 pub fn metadata_with_retry_state(metadata: &Value, retry_state: &TaskRetryState) -> Value {
@@ -233,6 +324,18 @@ pub fn metadata_with_retry_state(metadata: &Value, retry_state: &TaskRetryState)
     object.insert(
         RETRY_METADATA_KEY.to_string(),
         serde_json::to_value(retry_state).unwrap_or(Value::Null),
+    );
+    Value::Object(object)
+}
+
+pub fn metadata_with_agent_execution_state(
+    metadata: &Value,
+    agent_execution_state: &AgentTaskExecutionState,
+) -> Value {
+    let mut object = metadata.as_object().cloned().unwrap_or_else(Map::new);
+    object.insert(
+        AGENT_EXECUTION_METADATA_KEY.to_string(),
+        serde_json::to_value(agent_execution_state).unwrap_or(Value::Null),
     );
     Value::Object(object)
 }

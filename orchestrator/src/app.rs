@@ -1,12 +1,12 @@
 use crate::{
     cli::{Cli, Command},
     commands::{
-        create_draft_pr, describe_artifact, describe_github_default_branch_state,
-        describe_github_webhook, describe_github_webhook_action_report,
-        describe_github_webhook_action_request, describe_github_webhook_receipt,
-        describe_instance_config, describe_latest_artifact, describe_pack,
-        describe_repository_signal, describe_repository_signal_payload, describe_run,
-        evaluate_run_policy, evaluate_run_quality, export_pr_candidate,
+        claim_next_agent_task, complete_agent_task, create_draft_pr, describe_artifact,
+        describe_github_default_branch_state, describe_github_webhook,
+        describe_github_webhook_action_report, describe_github_webhook_action_request,
+        describe_github_webhook_receipt, describe_instance_config, describe_latest_artifact,
+        describe_pack, describe_repository_signal, describe_repository_signal_payload,
+        describe_run, evaluate_run_policy, evaluate_run_quality, export_pr_candidate,
         list_github_webhook_action_requests, list_github_webhooks, list_packs,
         list_repository_signals, list_run_events, list_runs, mcp_server, open_github_pr,
         publish_pr_export, run_next_github_webhook_action, run_next_repository_automation,
@@ -25,6 +25,8 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
     let result = match cli.command {
         Command::Serve(args) => serve::execute(args),
         Command::McpServer(args) => mcp_server::execute(args),
+        Command::ClaimNextAgentTask(args) => claim_next_agent_task::execute(args),
+        Command::CompleteAgentTask(args) => complete_agent_task::execute(args),
         Command::DescribeInstanceConfig(args) => describe_instance_config::execute(args),
         Command::DescribePack(args) => describe_pack::execute(args),
         Command::DescribeArtifact(args) => describe_artifact::execute(args),

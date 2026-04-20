@@ -510,6 +510,8 @@ try:
         "list_runs",
         "describe_run",
         "list_run_events",
+        "claim_next_agent_task",
+        "complete_agent_task",
         "run_next_task",
         "run_worker_once",
         "evaluate_run_policy",
@@ -1060,6 +1062,100 @@ policy:
             "codex-assigned task"
         )
 
+    log_phase("execute the initial codex planning task through MCP")
+    planner_execution = call_tool("run_next_task", {"run_id": run_id}, "execution")
+    if planner_execution["outcome"] != "executed":
+        fail(
+            "stateful MCP smoke failed: expected run_next_task to execute a task, got "
+            f"{planner_execution}"
+        )
+    planner_task = planner_execution.get("task") or {}
+    first_task_id = planner_task.get("task_id")
+    if not first_task_id:
+        fail("stateful MCP smoke failed: run_next_task did not expose task_id")
+    if planner_execution.get("execution_status") != "succeeded":
+        fail(
+            "stateful MCP smoke failed: expected run_next_task to succeed, got "
+            f"{planner_execution.get('execution_status')}"
+        )
+
+    log_phase("claim and complete one external-agent task through MCP")
+    claim = call_tool(
+        "claim_next_agent_task",
+        {
+            "run_id": run_id,
+            "agent": "openhands",
+            "executor_id": "mcp-stateful-smoke",
+        },
+        "claim",
+    )
+    if claim["outcome"] != "claimed":
+        fail(
+            "stateful MCP smoke failed: expected claim_next_agent_task to claim a task, got "
+            f"{claim}"
+        )
+    claimed_task = claim.get("task") or {}
+    claimed_task_id = claimed_task.get("task_id")
+    if not claimed_task_id:
+        fail("stateful MCP smoke failed: claimed task did not expose task_id")
+    if claimed_task.get("status") != "running":
+        fail(
+            "stateful MCP smoke failed: expected claimed task to be running, got "
+            f"{claimed_task.get('status')}"
+        )
+    if claimed_task.get("assigned_agent") != "openhands":
+        fail(
+            "stateful MCP smoke failed: expected claimed task assigned_agent=openhands, got "
+            f"{claimed_task.get('assigned_agent')}"
+        )
+
+    completion = call_tool(
+        "complete_agent_task",
+        {
+            "task_id": claimed_task_id,
+            "agent": "openhands",
+            "executor_id": "mcp-stateful-smoke",
+            "status": "succeeded",
+            "summary": "stateful smoke external-agent handoff completed",
+        },
+        "completion",
+    )
+    if completion["reported_status"] != "succeeded":
+        fail(
+            "stateful MCP smoke failed: expected complete_agent_task reported_status=succeeded, "
+            f"got {completion['reported_status']}"
+        )
+    if completion["task_status"] != "succeeded":
+        fail(
+            "stateful MCP smoke failed: expected complete_agent_task task_status=succeeded, "
+            f"got {completion['task_status']}"
+        )
+    report_artifact = completion.get("artifact") or {}
+    report_artifact_id = report_artifact.get("artifact_id")
+    if not report_artifact_id:
+        fail("stateful MCP smoke failed: complete_agent_task did not return a report artifact")
+
+    report_detail = call_tool(
+        "describe_artifact",
+        {"artifact_id": report_artifact_id},
+        "artifact",
+    )
+    if report_detail["artifact"]["artifact_type"] != "agent_task_report":
+        fail(
+            "stateful MCP smoke failed: expected agent_task_report artifact, got "
+            f"{report_detail['artifact']['artifact_type']}"
+        )
+    if report_detail["manifest"]["task_id"] != claimed_task_id:
+        fail(
+            "stateful MCP smoke failed: agent task report manifest returned wrong task_id "
+            f"{report_detail['manifest']['task_id']}"
+        )
+    if report_detail["manifest"]["assigned_agent"] != "openhands":
+        fail(
+            "stateful MCP smoke failed: expected report assigned_agent=openhands, got "
+            f"{report_detail['manifest']['assigned_agent']}"
+        )
+
     log_phase("execute a single worker cycle through MCP")
     worker = call_tool("run_worker_once", {"run_id": run_id}, "worker")
     if worker["worker_status"] != "executed":
@@ -1071,8 +1167,8 @@ policy:
     if not last_execution:
         fail("stateful MCP smoke failed: run_worker_once should return last_execution details")
     executed_task = last_execution.get("task") or {}
-    first_task_id = executed_task.get("task_id")
-    if not first_task_id:
+    worker_task_id = executed_task.get("task_id")
+    if not worker_task_id:
         fail("stateful MCP smoke failed: executed worker cycle did not expose task_id")
     if executed_task.get("status") != "succeeded":
         fail(
@@ -1088,10 +1184,27 @@ policy:
         )
     if not run_detail["tasks"]:
         fail("stateful MCP smoke failed: describe_run should return tasks after execution starts")
-    if not any(task["task_id"] == first_task_id for task in run_detail["tasks"]):
+    if not any(task["task_id"] == claimed_task_id for task in run_detail["tasks"]):
         fail(
-            "stateful MCP smoke failed: describe_run should include the executed task "
-            f"{first_task_id}"
+            "stateful MCP smoke failed: describe_run should include the externally completed task "
+            f"{claimed_task_id}"
+        )
+    claimed_task_detail = next(
+        (task for task in run_detail["tasks"] if task["task_id"] == claimed_task_id),
+        None,
+    )
+    if claimed_task_detail is None:
+        fail(
+            "stateful MCP smoke failed: claimed task missing from describe_run "
+            f"{claimed_task_id}"
+        )
+    if (
+        (claimed_task_detail.get("agent_execution") or {}).get("last_report_artifact_id")
+        != report_artifact_id
+    ):
+        fail(
+            "stateful MCP smoke failed: describe_run should expose the latest agent task report "
+            f"artifact id {report_artifact_id}"
         )
 
     log_phase("evaluate policy and inspect persisted artifacts through MCP")
@@ -1136,18 +1249,24 @@ policy:
 
     task_events = call_tool(
         "list_run_events",
-        {"run_id": run_id, "task_id": first_task_id, "limit": 20},
+        {"run_id": run_id, "task_id": claimed_task_id, "limit": 20},
         "events",
     )
     if not task_events:
         fail(
             "stateful MCP smoke failed: expected task-scoped events for "
-            f"task {first_task_id}"
+            f"task {claimed_task_id}"
         )
-    if any(event.get("task_id") != first_task_id for event in task_events):
+    if any(event.get("task_id") != claimed_task_id for event in task_events):
         fail(
             "stateful MCP smoke failed: task-scoped list_run_events returned mismatched task ids "
             f"{task_events}"
+        )
+    task_event_types = {event["event_type"] for event in task_events}
+    if {"task_started", "task_succeeded"} - task_event_types:
+        fail(
+            "stateful MCP smoke failed: claimed task is missing task_started/task_succeeded "
+            f"events: {sorted(task_event_types)}"
         )
 
     succeeded_task_events = call_tool(

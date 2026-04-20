@@ -1,0 +1,381 @@
+use anyhow::{Context, ensure};
+use serde::Serialize;
+use sha2::{Digest, Sha256};
+use std::{fs, path::Path};
+
+use crate::{
+    cli::CompleteAgentTaskArgs,
+    commands::task_completion::plan_reported_completion,
+    models::{
+        artifact::{ArtifactDraft, ArtifactSummary},
+        task::{TaskSummary, metadata_with_agent_execution_state},
+    },
+    planning::{materialization, packs::PackDefinition, pr_candidate, workspace_snapshot},
+    storage::postgres::PostgresRunStore,
+};
+
+pub const AGENT_TASK_REPORT_ARTIFACT_TYPE: &str = "agent_task_report";
+
+#[derive(Debug, Clone)]
+pub(crate) struct AgentTaskCompletionRequest {
+    pub(crate) task_id: uuid::Uuid,
+    pub(crate) agent: String,
+    pub(crate) executor_id: Option<String>,
+    pub(crate) status: String,
+    pub(crate) summary: String,
+    pub(crate) details: Option<String>,
+    pub(crate) retryable: bool,
+}
+
+pub fn execute(args: CompleteAgentTaskArgs) -> anyhow::Result<()> {
+    let mut store = PostgresRunStore::connect(&args.database_url)?;
+    store.ensure_schema()?;
+    let request = AgentTaskCompletionRequest {
+        task_id: args.task_id,
+        agent: args.agent,
+        executor_id: args.executor_id,
+        status: args.status,
+        summary: args.summary,
+        details: args.details,
+        retryable: args.retryable,
+    };
+    let report = complete_agent_task(&mut store, &args.artifact_root, &request)?;
+
+    if args.pretty {
+        print!("{}", serde_yaml::to_string(&report)?);
+    } else {
+        println!("{}", report.render_text()?);
+    }
+
+    Ok(())
+}
+
+#[derive(Debug, Serialize)]
+pub struct CompleteAgentTaskReport {
+    run_id: uuid::Uuid,
+    run_status: String,
+    agent: String,
+    executor_id: Option<String>,
+    reported_status: String,
+    task_status: String,
+    retry_scheduled: bool,
+    task: TaskSummary,
+    artifact: ArtifactSummary,
+}
+
+#[derive(Debug, Serialize)]
+struct AgentTaskReportManifest {
+    artifact_type: String,
+    run_id: uuid::Uuid,
+    task_id: uuid::Uuid,
+    backlog_item_id: String,
+    kind: String,
+    assigned_agent: String,
+    executor_id: Option<String>,
+    claim_count: u32,
+    reported_status: String,
+    task_status: String,
+    retry_scheduled: bool,
+    summary: String,
+    details: Option<String>,
+    failure_reason: Option<String>,
+}
+
+pub(crate) fn complete_agent_task(
+    store: &mut PostgresRunStore,
+    artifact_root: &Path,
+    request: &AgentTaskCompletionRequest,
+) -> anyhow::Result<CompleteAgentTaskReport> {
+    let task_id = request.task_id;
+    let agent = request.agent.as_str();
+    let executor_id = request.executor_id.as_deref();
+    let status = request.status.as_str();
+    let summary = request.summary.as_str();
+    let details = request.details.as_deref();
+    let retryable = request.retryable;
+
+    ensure!(
+        matches!(status, "succeeded" | "failed"),
+        "agent task completion status must be succeeded or failed, received {}",
+        status
+    );
+
+    let task = store
+        .fetch_task(task_id)?
+        .with_context(|| format!("task not found: {task_id}"))?;
+    ensure!(
+        task.status == "running",
+        "agent task completion requires a running task, current status is {}",
+        task.status
+    );
+
+    let assigned_agent = task.assigned_agent.as_deref().with_context(|| {
+        format!(
+            "task {} is not assigned to an external agent",
+            task.backlog_item_id
+        )
+    })?;
+    ensure!(
+        assigned_agent == agent,
+        "task {} is assigned to agent {}, not {}",
+        task.backlog_item_id,
+        assigned_agent,
+        agent
+    );
+
+    let agent_execution = task.agent_execution.as_ref().with_context(|| {
+        format!(
+            "task {} is missing agent execution state and cannot be completed by an external agent",
+            task.backlog_item_id
+        )
+    })?;
+    ensure!(
+        agent_execution.mode == "external_agent",
+        "task {} is not running in external_agent mode",
+        task.backlog_item_id
+    );
+    ensure!(
+        agent_execution.agent == agent,
+        "task {} was claimed for agent {}, not {}",
+        task.backlog_item_id,
+        agent_execution.agent,
+        agent
+    );
+    if let Some(expected_executor_id) = agent_execution.executor_id.as_deref() {
+        ensure!(
+            executor_id == Some(expected_executor_id),
+            "task {} is currently claimed by executor {}, not {}",
+            task.backlog_item_id,
+            expected_executor_id,
+            executor_id.unwrap_or("unspecified")
+        );
+    }
+
+    let run_context = store.fetch_run_context(task.run_id)?;
+    let mut effective_status = status.to_string();
+    let mut effective_failure_reason = match status {
+        "succeeded" => None,
+        _ => Some(summary.to_string()),
+    };
+    let mut effective_retryable = retryable;
+
+    if status == "succeeded"
+        && let Err(error) = persist_success_artifacts(store, &task, &run_context, artifact_root)
+    {
+        effective_status = "failed".to_string();
+        effective_failure_reason = Some(format!("agent task post-processing failed: {error:#}"));
+        effective_retryable = false;
+    }
+
+    let completion_plan = plan_reported_completion(
+        &run_context,
+        &task,
+        &effective_status,
+        effective_failure_reason.clone(),
+        effective_retryable,
+    );
+    let report_artifact_id = uuid::Uuid::new_v4();
+    let report_status = if completion_plan.retry_scheduled {
+        "retry_scheduled"
+    } else {
+        completion_plan.status.as_str()
+    };
+    let next_agent_execution_state = agent_execution.after_completion(
+        report_status,
+        executor_id.map(str::to_string),
+        Some(report_artifact_id),
+    );
+    let metadata =
+        metadata_with_agent_execution_state(&completion_plan.metadata, &next_agent_execution_state);
+
+    let report_manifest = AgentTaskReportManifest {
+        artifact_type: AGENT_TASK_REPORT_ARTIFACT_TYPE.to_string(),
+        run_id: task.run_id,
+        task_id: task.task_id,
+        backlog_item_id: task.backlog_item_id.clone(),
+        kind: task.kind.clone(),
+        assigned_agent: agent.to_string(),
+        executor_id: next_agent_execution_state.executor_id.clone(),
+        claim_count: next_agent_execution_state.claim_count,
+        reported_status: status.to_string(),
+        task_status: completion_plan.status.clone(),
+        retry_scheduled: completion_plan.retry_scheduled,
+        summary: summary.to_string(),
+        details: details.map(str::to_string),
+        failure_reason: completion_plan.failure_reason.clone(),
+    };
+    let report_artifact =
+        persist_agent_task_report(artifact_root, &task, report_artifact_id, &report_manifest)?;
+    let artifact = store.insert_artifact(&report_artifact)?;
+
+    let task = if completion_plan.retry_scheduled {
+        store.requeue_task(
+            task.task_id,
+            completion_plan.failure_reason.as_deref(),
+            &metadata,
+        )?
+    } else {
+        store.mark_task_finished(
+            task.task_id,
+            &completion_plan.status,
+            completion_plan.failure_reason.as_deref(),
+            &metadata,
+        )?
+    };
+    let run_status = store.refresh_run_status(task.run_id)?;
+
+    Ok(CompleteAgentTaskReport {
+        run_id: task.run_id,
+        run_status,
+        agent: agent.to_string(),
+        executor_id: next_agent_execution_state.executor_id.clone(),
+        reported_status: status.to_string(),
+        task_status: task.status.clone(),
+        retry_scheduled: completion_plan.retry_scheduled,
+        task,
+        artifact,
+    })
+}
+
+impl CompleteAgentTaskReport {
+    pub fn render_text(&self) -> anyhow::Result<String> {
+        let mut output = String::new();
+
+        use std::fmt::Write as _;
+
+        writeln!(&mut output, "run_id: {}", self.run_id)
+            .context("failed to render completed agent task")?;
+        writeln!(&mut output, "run_status: {}", self.run_status)
+            .context("failed to render completed agent task")?;
+        writeln!(&mut output, "agent: {}", self.agent)
+            .context("failed to render completed agent task")?;
+        if let Some(executor_id) = &self.executor_id {
+            writeln!(&mut output, "executor_id: {}", executor_id)
+                .context("failed to render completed agent task")?;
+        }
+        writeln!(&mut output, "reported_status: {}", self.reported_status)
+            .context("failed to render completed agent task")?;
+        writeln!(&mut output, "task_status: {}", self.task_status)
+            .context("failed to render completed agent task")?;
+        writeln!(
+            &mut output,
+            "retry_scheduled: {}",
+            if self.retry_scheduled { "yes" } else { "no" }
+        )
+        .context("failed to render completed agent task")?;
+        writeln!(&mut output, "task:").context("failed to render completed agent task")?;
+        writeln!(&mut output, "{}", self.task.render_text()?)
+            .context("failed to render completed agent task")?;
+        writeln!(&mut output, "artifact:").context("failed to render completed agent task")?;
+        writeln!(&mut output, "{}", self.artifact.render_text()?)
+            .context("failed to render completed agent task")?;
+
+        Ok(output)
+    }
+}
+
+fn persist_agent_task_report(
+    artifact_root: &Path,
+    task: &TaskSummary,
+    artifact_id: uuid::Uuid,
+    manifest: &AgentTaskReportManifest,
+) -> anyhow::Result<ArtifactDraft> {
+    let report_root = artifact_root
+        .join("runs")
+        .join(task.run_id.to_string())
+        .join("agent-task-reports")
+        .join(task.task_id.to_string());
+    fs::create_dir_all(&report_root).with_context(|| {
+        format!(
+            "failed to create agent task report directory: {}",
+            report_root.display()
+        )
+    })?;
+
+    let report_path = report_root.join(format!("{artifact_id}.json"));
+    let serialized = serde_json::to_vec_pretty(manifest)
+        .context("failed to serialize agent task report manifest")?;
+    fs::write(&report_path, &serialized).with_context(|| {
+        format!(
+            "failed to write agent task report manifest: {}",
+            report_path.display()
+        )
+    })?;
+
+    Ok(ArtifactDraft {
+        artifact_id,
+        run_id: task.run_id,
+        artifact_type: AGENT_TASK_REPORT_ARTIFACT_TYPE.to_string(),
+        format: "json".to_string(),
+        location_kind: "path".to_string(),
+        location_value: report_path.display().to_string(),
+        content_digest: format!("sha256:{:x}", Sha256::digest(&serialized)),
+        labels: serde_json::json!({
+            "task_id": task.task_id,
+            "backlog_item_id": &task.backlog_item_id,
+            "assigned_agent": task.assigned_agent.as_deref(),
+        }),
+        metadata: serde_json::json!({
+            "task_id": task.task_id,
+            "backlog_item_id": &task.backlog_item_id,
+            "assigned_agent": &manifest.assigned_agent,
+            "executor_id": &manifest.executor_id,
+            "reported_status": &manifest.reported_status,
+            "task_status": &manifest.task_status,
+            "retry_scheduled": manifest.retry_scheduled,
+            "summary": &manifest.summary,
+        }),
+    })
+}
+
+fn persist_success_artifacts(
+    store: &mut PostgresRunStore,
+    task: &TaskSummary,
+    run_context: &crate::models::run::RunContext,
+    artifact_root: &Path,
+) -> anyhow::Result<()> {
+    let selected_pack = task
+        .assigned_pack
+        .clone()
+        .or(run_context.selected_pack.clone());
+    let pack = PackDefinition::load(selected_pack.as_deref())?;
+    let task_artifacts =
+        materialization::generate_task_artifacts(task, run_context, &pack, artifact_root)?;
+    let mut persisted_artifacts = task_artifacts
+        .iter()
+        .map(|artifact| store.insert_artifact(artifact))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+
+    if workspace_snapshot::should_refresh_workspace_snapshot(&persisted_artifacts) {
+        let source_artifacts =
+            store.list_run_artifacts(task.run_id, workspace_snapshot::SOURCE_ARTIFACT_TYPES)?;
+        let snapshot = workspace_snapshot::compose_workspace_snapshot(
+            run_context,
+            &source_artifacts,
+            artifact_root,
+        )?;
+        let persisted_snapshot = store.upsert_artifact(&snapshot)?;
+        persisted_artifacts.push(persisted_snapshot);
+    }
+
+    if pr_candidate::should_refresh_pr_candidate(&persisted_artifacts) {
+        let latest_snapshot = store
+            .find_latest_run_artifact(task.run_id, workspace_snapshot::SNAPSHOT_ARTIFACT_TYPE)?;
+        let patch_artifacts =
+            store.list_run_artifacts(task.run_id, &[workspace_snapshot::PATCH_ARTIFACT_TYPE])?;
+
+        if let Some(latest_snapshot) = latest_snapshot
+            && !patch_artifacts.is_empty()
+        {
+            let candidate = pr_candidate::compose_pr_candidate(
+                run_context,
+                &latest_snapshot,
+                &patch_artifacts,
+                artifact_root,
+            )?;
+            let _ = store.upsert_artifact(&candidate)?;
+        }
+    }
+
+    Ok(())
+}

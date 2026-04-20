@@ -960,6 +960,60 @@ assert artifact["artifact"]["artifact_type"] == "policy_report", artifact
 assert artifact["metadata"]["passed"] is True, artifact
 PY
 
+PLAN_OUTPUT="$("$BIN" run-next-task \
+  --database-url "$DATABASE_URL" \
+  --artifact-root "$ARTIFACT_ROOT" \
+  --run-id "$RUN_ID")"
+printf '%s\n' "$PLAN_OUTPUT"
+printf '%s\n' "$PLAN_OUTPUT" | grep -q '^execution_status: succeeded$'
+
+CLAIM_OUTPUT="$("$BIN" claim-next-agent-task \
+  --database-url "$DATABASE_URL" \
+  --run-id "$RUN_ID" \
+  --agent openhands \
+  --executor-id smoke-mvp)"
+printf '%s\n' "$CLAIM_OUTPUT"
+printf '%s\n' "$CLAIM_OUTPUT" | grep -q '^task_claimed: yes$'
+CLAIMED_TASK_ID="$(printf '%s\n' "$CLAIM_OUTPUT" | awk '/^task_id:/ {print $2; exit}')"
+test -n "$CLAIMED_TASK_ID"
+
+COMPLETE_OUTPUT="$("$BIN" complete-agent-task \
+  --database-url "$DATABASE_URL" \
+  --artifact-root "$ARTIFACT_ROOT" \
+  --task-id "$CLAIMED_TASK_ID" \
+  --agent openhands \
+  --executor-id smoke-mvp \
+  --status succeeded \
+  --summary "smoke external-agent handoff completed")"
+printf '%s\n' "$COMPLETE_OUTPUT"
+printf '%s\n' "$COMPLETE_OUTPUT" | grep -q '^reported_status: succeeded$'
+printf '%s\n' "$COMPLETE_OUTPUT" | grep -q '^task_status: succeeded$'
+AGENT_REPORT_ARTIFACT_ID="$(printf '%s\n' "$COMPLETE_OUTPUT" | awk '/^artifact_id:/ {print $2; exit}')"
+test -n "$AGENT_REPORT_ARTIFACT_ID"
+AGENT_REPORT_ARTIFACT_FILE="$ARTIFACT_ROOT/agent-task-report-artifact.json"
+"$BIN" describe-artifact \
+  --database-url "$DATABASE_URL" \
+  --artifact-id "$AGENT_REPORT_ARTIFACT_ID" \
+  --json >"$AGENT_REPORT_ARTIFACT_FILE"
+python3 - "$AGENT_REPORT_ARTIFACT_FILE" "$CLAIMED_TASK_ID" <<'PY'
+import json
+import pathlib
+import sys
+
+artifact = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+task_id = sys.argv[2]
+
+assert artifact["artifact"]["artifact_type"] == "agent_task_report", artifact
+assert artifact["metadata"]["task_id"] == task_id, artifact
+assert artifact["metadata"]["assigned_agent"] == "openhands", artifact
+assert artifact["metadata"]["reported_status"] == "succeeded", artifact
+assert artifact["manifest"]["task_id"] == task_id, artifact
+assert artifact["manifest"]["assigned_agent"] == "openhands", artifact
+assert artifact["manifest"]["reported_status"] == "succeeded", artifact
+assert artifact["manifest"]["task_status"] == "succeeded", artifact
+assert artifact["manifest"]["retry_scheduled"] is False, artifact
+PY
+
 WORKER_OUTPUT="$("$BIN" worker \
   --database-url "$DATABASE_URL" \
   --artifact-root "$ARTIFACT_ROOT" \

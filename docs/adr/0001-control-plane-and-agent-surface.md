@@ -45,6 +45,7 @@ MCP is the preferred interface for agent-driven orchestration:
 
 - submit and validate briefs
 - inspect packs, runs, tasks, and artifacts
+- claim and complete agent-owned tasks
 - execute worker/control actions
 - publish PR exports and open GitHub PRs
 - enforce capability-scoped access to orchestrator actions
@@ -62,6 +63,8 @@ The first MCP slice should expose a minimal, high-value tool set:
 - `submit_brief`
 - `list_runs`
 - `describe_run`
+- `claim_next_agent_task`
+- `complete_agent_task`
 - `run_next_task`
 - `run_worker_once`
 - `export_pr_candidate`

@@ -1,17 +1,15 @@
 use anyhow::Context;
 use serde::Serialize;
-use serde_json::Value;
 use std::time::Instant;
 use std::{collections::HashMap, path::Path};
 
 use crate::{
     cli::RunNextTaskArgs,
-    config::InstanceConfigReport,
-    models::{
-        artifact::ArtifactSummary,
-        run::RunContext,
-        task::{TaskRetryState, TaskSummary, metadata_with_retry_state},
+    commands::task_completion::{
+        max_task_retry_count, plan_execution_completion, plan_failure_completion,
     },
+    config::InstanceConfigReport,
+    models::{artifact::ArtifactSummary, run::RunContext, task::TaskSummary},
     planning::{materialization, packs::PackDefinition, policy, pr_candidate, workspace_snapshot},
     runtime::{RuntimeRegistry, TaskExecutionContext, TaskExecutionResult, TaskWorkspace},
     storage::postgres::PostgresRunStore,
@@ -69,14 +67,6 @@ pub struct TaskExecutionReport {
 pub enum NextTaskExecution {
     Executed(Box<TaskExecutionReport>),
     Idle(NoRunnableTask),
-}
-
-#[derive(Debug)]
-struct TaskCompletionPlan {
-    status: String,
-    failure_reason: Option<String>,
-    metadata: Value,
-    retry_scheduled: bool,
 }
 
 impl TaskExecutionReport {
@@ -249,7 +239,7 @@ pub fn execute_next_task(
             artifact_root,
         );
     }
-    let completion_plan = plan_task_completion(&run_context, &running_task, &execution);
+    let completion_plan = plan_execution_completion(&run_context, &running_task, &execution);
     let finished_task = if completion_plan.retry_scheduled {
         tracing::warn!(
             run_id = %running_task.run_id,
@@ -301,34 +291,6 @@ pub fn execute_next_task(
         image: running_task.execution.image,
         exit_code: execution.exit_code,
     })))
-}
-
-fn plan_task_completion(
-    run_context: &RunContext,
-    task: &TaskSummary,
-    execution: &TaskExecutionResult,
-) -> TaskCompletionPlan {
-    match execution.task_status.as_str() {
-        "succeeded" => {
-            let metadata = task_retry_state(run_context, task)
-                .as_ref()
-                .map(|state| metadata_with_retry_state(&task.metadata, &state.after_success()))
-                .unwrap_or_else(|| task.metadata.clone());
-            TaskCompletionPlan {
-                status: "succeeded".to_string(),
-                failure_reason: None,
-                metadata,
-                retry_scheduled: false,
-            }
-        }
-        _ => {
-            let failure_reason = execution
-                .failure_reason
-                .clone()
-                .unwrap_or_else(|| "task execution failed".to_string());
-            plan_failure_completion(run_context, task, failure_reason, execution.retryable)
-        }
-    }
 }
 
 fn reclaim_stale_running_tasks(
@@ -410,53 +372,6 @@ fn reclaim_stale_running_tasks(
     Ok(reclaimed_tasks)
 }
 
-fn task_retry_state(run_context: &RunContext, task: &TaskSummary) -> Option<TaskRetryState> {
-    task.retry_state
-        .clone()
-        .or_else(|| max_task_retry_count(run_context).map(TaskRetryState::new))
-}
-
-fn plan_failure_completion(
-    run_context: &RunContext,
-    task: &TaskSummary,
-    failure_reason: String,
-    retryable: bool,
-) -> TaskCompletionPlan {
-    let retry_state = task_retry_state(run_context, task);
-
-    if retryable
-        && retry_state
-            .as_ref()
-            .is_some_and(TaskRetryState::can_schedule_retry)
-    {
-        let next_retry_state = retry_state
-            .expect("retry state should exist when retry is allowed")
-            .after_requeue(failure_reason.clone());
-        TaskCompletionPlan {
-            status: "queued".to_string(),
-            failure_reason: Some(failure_reason),
-            metadata: metadata_with_retry_state(&task.metadata, &next_retry_state),
-            retry_scheduled: true,
-        }
-    } else {
-        let metadata = retry_state
-            .as_ref()
-            .map(|state| {
-                metadata_with_retry_state(
-                    &task.metadata,
-                    &state.after_terminal_failure(failure_reason.clone()),
-                )
-            })
-            .unwrap_or_else(|| task.metadata.clone());
-        TaskCompletionPlan {
-            status: "failed".to_string(),
-            failure_reason: Some(failure_reason),
-            metadata,
-            retry_scheduled: false,
-        }
-    }
-}
-
 fn stale_task_failure_reason(task: &TaskSummary) -> String {
     format!(
         "task execution exceeded reclaim lease after {}s",
@@ -469,16 +384,6 @@ fn stale_task_reclaim_deadline_seconds(task: &TaskSummary) -> u64 {
         .timeout_seconds
         .unwrap_or(DEFAULT_TASK_RECLAIM_TIMEOUT_SECONDS)
         .saturating_add(TASK_RECLAIM_GRACE_SECONDS)
-}
-
-fn max_task_retry_count(run_context: &RunContext) -> Option<u32> {
-    run_context
-        .metadata
-        .get("policy")
-        .and_then(|policy| policy.get("max_task_retry_count"))
-        .and_then(Value::as_u64)
-        .and_then(|value| u32::try_from(value).ok())
-        .filter(|value| *value > 0)
 }
 
 fn build_execution_context(
@@ -662,7 +567,7 @@ fn refresh_pr_candidate(
 #[cfg(test)]
 mod tests {
     use super::{
-        max_task_retry_count, plan_failure_completion, plan_task_completion,
+        max_task_retry_count, plan_execution_completion, plan_failure_completion,
         stale_task_failure_reason, stale_task_reclaim_deadline_seconds,
     };
     use crate::{
@@ -681,7 +586,7 @@ mod tests {
         let task = sample_task(None);
         let execution = TaskExecutionResult::retryable_failure("transient docker failure");
 
-        let plan = plan_task_completion(&run_context, &task, &execution);
+        let plan = plan_execution_completion(&run_context, &task, &execution);
 
         assert_eq!(plan.status, "queued");
         assert!(plan.retry_scheduled);
@@ -709,7 +614,7 @@ mod tests {
         }));
         let execution = TaskExecutionResult::retryable_failure("second failure");
 
-        let plan = plan_task_completion(&run_context, &task, &execution);
+        let plan = plan_execution_completion(&run_context, &task, &execution);
 
         assert_eq!(plan.status, "failed");
         assert!(!plan.retry_scheduled);
@@ -742,7 +647,7 @@ mod tests {
             retryable: false,
         };
 
-        let plan = plan_task_completion(&run_context, &task, &execution);
+        let plan = plan_execution_completion(&run_context, &task, &execution);
 
         assert_eq!(plan.status, "succeeded");
         assert!(!plan.retry_scheduled);
@@ -874,6 +779,7 @@ mod tests {
             assigned_agent: Some("openhands".to_string()),
             orchestrator_model: Some("planner-default".to_string()),
             approval_required: false,
+            agent_execution: None,
             retry_state,
             metadata,
             created_at: None,
