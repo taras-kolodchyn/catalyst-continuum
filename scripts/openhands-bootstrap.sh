@@ -175,7 +175,7 @@ echo
 echo "recommended local backend:"
 case "$LITELLM_MODEL" in
   local-macos-native)
-    native_model="${LITELLM_MACOS_NATIVE_MODEL:-openai/mlx-community/Llama-3.2-3B-Instruct-4bit}"
+    native_model="${LITELLM_MACOS_NATIVE_MODEL:-openai/mlx-community/Qwen2.5-Coder-3B-Instruct-4bit}"
     echo "  macOS Apple Silicon native MLX-LM"
     echo "  mlx_lm.server --model ${native_model#openai/}"
     ;;

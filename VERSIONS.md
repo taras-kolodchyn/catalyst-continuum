@@ -95,7 +95,7 @@ source it directly are validated by `./scripts/check-versions.sh` in CI.
 - GitHub Actions dependencies are updated through Dependabot PRs and reviewed before merge.
 - GitHub Actions workflow refs are pinned to full commit SHAs instead of moving tags.
 - Dockerfile and Docker Compose image references should be updated together with their digests.
-- LiteLLM image updates should keep the `main-stable` tag and digest pin aligned with the mounted `deploy/compose/litellm-config.yaml` aliases and the corresponding template-repo scaffold.
+- LiteLLM image updates should keep the `main-stable` tag and digest pin aligned with the mounted `deploy/compose/litellm-config.yaml` aliases, Redis cache contract, and the corresponding template-repo scaffold.
 - Observability stack images for OpenTelemetry Collector, Loki, Tempo, Prometheus, and Grafana are pinned by tag and digest in the same way as application dependencies.
 - Local `act` runner image and architecture should be updated together with [`.actrc`](.actrc) and validated by `./scripts/check-versions.sh`.
 - Host-managed local model backends such as MLX-LM on macOS Apple Silicon or Ollama on other platforms are intentionally outside the repository pin set because they are not shipped inside the compose baseline. If you standardize them for your team, pin them in your own operator environment as well.

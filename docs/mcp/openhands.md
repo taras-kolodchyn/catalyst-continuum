@@ -75,10 +75,13 @@ Recommended macOS Apple Silicon native backend:
 
 ```bash
 pip install mlx-lm
-mlx_lm.server --model mlx-community/Llama-3.2-3B-Instruct-4bit
+mlx_lm.server --model mlx-community/Qwen2.5-Coder-3B-Instruct-4bit
 ```
 
 That follows the official [`mlx-lm` install guide](https://github.com/ml-explore/mlx-lm) plus the official [`mlx_lm.server` HTTP server docs](https://github.com/ml-explore/mlx-lm/blob/main/mlx_lm/SERVER.md).
+The default macOS-native example now also points at the published coding model
+card for [`mlx-community/Qwen2.5-Coder-3B-Instruct-4bit`](https://huggingface.co/mlx-community/Qwen2.5-Coder-3B-Instruct-4bit),
+so the first local OpenHands validation uses a code-oriented backend by default.
 
 Recommended non-macOS backend:
 
@@ -100,6 +103,10 @@ To validate a real model round-trip once the host backend is already serving:
 ./scripts/litellm-local-smoke.sh --model local-macos-native
 ./scripts/litellm-local-smoke.sh --model local-ollama-coder
 ```
+
+The smoke path now also verifies that LiteLLM returns a stable cache key for
+identical requests and that the corresponding Redis-backed cache entry exists in
+the bundled compose `redis` service.
 
 The script prints the exact OpenHands settings to use.
 For the default host-run OpenHands flow, those settings are:

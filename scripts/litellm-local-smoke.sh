@@ -109,11 +109,13 @@ source "$ENV_FILE"
 LITELLM_PORT="${LITELLM_PORT:-4000}"
 LITELLM_MASTER_KEY="${LITELLM_MASTER_KEY:-sk-continuum-dev}"
 LITELLM_DEFAULT_MODEL="${LITELLM_DEFAULT_MODEL:-}"
-LITELLM_MACOS_NATIVE_MODEL="${LITELLM_MACOS_NATIVE_MODEL:-openai/mlx-community/Llama-3.2-3B-Instruct-4bit}"
+LITELLM_MACOS_NATIVE_MODEL="${LITELLM_MACOS_NATIVE_MODEL:-openai/mlx-community/Qwen2.5-Coder-3B-Instruct-4bit}"
 LITELLM_MACOS_NATIVE_API_BASE="${LITELLM_MACOS_NATIVE_API_BASE:-http://host.docker.internal:8080/v1}"
 LITELLM_MACOS_NATIVE_API_KEY="${LITELLM_MACOS_NATIVE_API_KEY:-local-mlx}"
 LITELLM_OLLAMA_MODEL="${LITELLM_OLLAMA_MODEL:-ollama/qwen2.5-coder:7b}"
 LITELLM_OLLAMA_API_BASE="${LITELLM_OLLAMA_API_BASE:-http://host.docker.internal:11434}"
+LITELLM_CACHE_NAMESPACE="${LITELLM_CACHE_NAMESPACE:-catalyst-continuum-litellm}"
+REDIS_PASSWORD="${REDIS_PASSWORD:-continuum-dev}"
 
 if [ -z "$MODEL" ]; then
   MODEL="$("$ROOT_DIR/scripts/litellm-default-model.sh" --env-file "$ENV_FILE")"
@@ -211,6 +213,7 @@ echo "configured_models:"
 while IFS= read -r model_id; do
   echo "  - $model_id"
 done <<<"$available_models"
+echo "cache_namespace: $LITELLM_CACHE_NAMESPACE"
 if [ -n "$backend_start_command" ]; then
   echo "backend_start: $backend_start_command"
 fi
@@ -218,7 +221,7 @@ fi
 if [ "$SKIP_CHAT" -eq 0 ]; then
   echo
   echo "running chat completion validation"
-  chat_output="$(
+  validation_output="$(
     python3 - "$base_url" "$LITELLM_MASTER_KEY" "$MODEL" "$PROMPT" <<'PY'
 import json
 import sys
@@ -242,18 +245,29 @@ request = urllib.request.Request(
     method="POST",
 )
 
-try:
-    with urllib.request.urlopen(request, timeout=60) as response:
-        payload = json.loads(response.read().decode("utf-8"))
-except urllib.error.HTTPError as exc:
-    body = exc.read().decode("utf-8", errors="replace")
-    raise SystemExit(
-        f"LiteLLM chat validation failed with HTTP {exc.code}: {body}"
-    ) from exc
-except urllib.error.URLError as exc:
-    raise SystemExit(f"LiteLLM chat validation failed: {exc}") from exc
+def invoke() -> tuple[dict, str, str, str]:
+    try:
+        with urllib.request.urlopen(request, timeout=120) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+            return (
+                payload,
+                response.headers.get("x-litellm-cache-key", ""),
+                response.headers.get("x-litellm-response-duration-ms", ""),
+                response.headers.get("x-litellm-model-id", ""),
+            )
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        raise SystemExit(
+            f"LiteLLM chat validation failed with HTTP {exc.code}: {body}"
+        ) from exc
+    except urllib.error.URLError as exc:
+        raise SystemExit(f"LiteLLM chat validation failed: {exc}") from exc
 
-choices = payload.get("choices", [])
+first_payload, first_cache_key, first_duration_ms, first_model_id = invoke()
+second_payload, second_cache_key, second_duration_ms, second_model_id = invoke()
+third_payload, third_cache_key, third_duration_ms, _ = invoke()
+
+choices = first_payload.get("choices", [])
 if not choices:
     raise SystemExit("LiteLLM chat validation returned no choices")
 message = choices[0].get("message", {})
@@ -264,10 +278,118 @@ if isinstance(content, list):
     )
 if not content:
     raise SystemExit("LiteLLM chat validation returned an empty message")
-print(content.strip())
+
+if not second_cache_key:
+    raise SystemExit("LiteLLM did not return x-litellm-cache-key after warm-up request")
+if third_cache_key != second_cache_key:
+    raise SystemExit(
+        "LiteLLM cache key drifted between identical requests: "
+        f"{second_cache_key!r} vs {third_cache_key!r}"
+    )
+
+print(
+    json.dumps(
+        {
+            "content": content.strip(),
+            "cacheKey": second_cache_key,
+            "firstDurationMs": first_duration_ms,
+            "secondDurationMs": second_duration_ms,
+            "thirdDurationMs": third_duration_ms,
+            "modelId": second_model_id or first_model_id,
+        }
+    )
+)
 PY
   )"
+
+  chat_output="$(
+    python3 - "$validation_output" <<'PY'
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+print(payload["content"])
+PY
+  )"
+  cache_key="$(
+    python3 - "$validation_output" <<'PY'
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+print(payload["cacheKey"])
+PY
+  )"
+  first_duration_ms="$(
+    python3 - "$validation_output" <<'PY'
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+print(payload["firstDurationMs"])
+PY
+  )"
+  second_duration_ms="$(
+    python3 - "$validation_output" <<'PY'
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+print(payload["secondDurationMs"])
+PY
+  )"
+  third_duration_ms="$(
+    python3 - "$validation_output" <<'PY'
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+print(payload["thirdDurationMs"])
+PY
+  )"
+  model_id="$(
+    python3 - "$validation_output" <<'PY'
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+print(payload["modelId"])
+PY
+  )"
+
   echo "chat_response: ${chat_output}"
+  echo "cache_key: ${cache_key}"
+  if [ -n "$model_id" ]; then
+    echo "model_id: ${model_id}"
+  fi
+  if [ -n "$first_duration_ms" ]; then
+    echo "first_duration_ms: ${first_duration_ms}"
+  fi
+  if [ -n "$second_duration_ms" ]; then
+    echo "second_duration_ms: ${second_duration_ms}"
+  fi
+  if [ -n "$third_duration_ms" ]; then
+    echo "third_duration_ms: ${third_duration_ms}"
+  fi
+
+  if command -v docker >/dev/null 2>&1; then
+    redis_key_exists="$(
+      docker compose \
+        --env-file "$ENV_FILE" \
+        -f deploy/compose/compose.yaml \
+        exec -T redis \
+        redis-cli -a "$REDIS_PASSWORD" exists "$cache_key" 2>/dev/null || true
+    )"
+    case "$redis_key_exists" in
+      1)
+        echo "redis_cache_entry: present"
+        ;;
+      *)
+        echo "expected redis cache entry for $cache_key was not found" >&2
+        exit 1
+        ;;
+    esac
+  fi
 fi
 
 echo

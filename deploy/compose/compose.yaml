@@ -103,6 +103,9 @@ services:
   litellm:
     image: ghcr.io/berriai/litellm:${LITELLM_VERSION}@${LITELLM_IMAGE_DIGEST}
     restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
     environment:
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
       LITELLM_MACOS_NATIVE_MODEL: ${LITELLM_MACOS_NATIVE_MODEL}
@@ -110,6 +113,8 @@ services:
       LITELLM_MACOS_NATIVE_API_KEY: ${LITELLM_MACOS_NATIVE_API_KEY}
       LITELLM_OLLAMA_MODEL: ${LITELLM_OLLAMA_MODEL}
       LITELLM_OLLAMA_API_BASE: ${LITELLM_OLLAMA_API_BASE}
+      LITELLM_CACHE_NAMESPACE: ${LITELLM_CACHE_NAMESPACE}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
     volumes:
       - ./litellm-config.yaml:/app/config.yaml:ro
     extra_hosts:

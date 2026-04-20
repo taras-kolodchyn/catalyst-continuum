@@ -93,6 +93,8 @@ for key in (
     "LITELLM_MACOS_NATIVE_API_KEY",
     "LITELLM_OLLAMA_MODEL",
     "LITELLM_OLLAMA_API_BASE",
+    "LITELLM_CACHE_NAMESPACE",
+    "REDIS_PASSWORD",
 ):
     if not litellm_env.get(key):
         raise SystemExit(f"litellm must set {key}")
@@ -111,6 +113,10 @@ if not any(
     for mount in litellm.get("volumes", [])
 ):
     raise SystemExit("litellm must mount litellm-config.yaml at /app/config.yaml")
+
+redis_dependency = litellm.get("depends_on", {}).get("redis", {})
+if redis_dependency.get("condition") != "service_healthy":
+    raise SystemExit("litellm must depend on a healthy redis service for proxy cache state")
 
 extra_hosts = litellm.get("extra_hosts", [])
 if "host.docker.internal=host-gateway" not in extra_hosts:
