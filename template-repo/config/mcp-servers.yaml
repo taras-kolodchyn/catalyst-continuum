@@ -7,3 +7,11 @@ servers:
       - codex
     docs_url: https://github.com/modelcontextprotocol/servers/blob/main/src/fetch/README.md
     setup_hint: Register the pinned upstream Fetch MCP server directly in the agent client configuration when a run needs controlled web retrieval.
+    client_launches:
+      openhands:
+        transport: stdio
+        command: uvx
+        args:
+          - --from
+          - mcp-server-fetch==2025.4.7
+          - mcp-server-fetch

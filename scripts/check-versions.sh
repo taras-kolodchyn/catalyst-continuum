@@ -229,17 +229,17 @@ if ! grep -Fq "$expected_fetch_pin" docs/mcp/openhands.md; then
     "hardcoded or missing"
 fi
 
-if ! grep -Fq 'mcp-server-fetch==' scripts/openhands-render-mcp-config.sh; then
+if ! grep -Fq "$expected_fetch_pin" config/mcp-servers.yaml; then
   report_mismatch \
-    "scripts/openhands-render-mcp-config.sh Fetch server package reference" \
-    "mcp-server-fetch==" \
+    "config/mcp-servers.yaml Fetch server pin" \
+    "$expected_fetch_pin" \
     "hardcoded or missing"
 fi
 
-if ! grep -Fq 'MCP_FETCH_PYPI_VERSION' scripts/openhands-render-mcp-config.sh; then
+if ! grep -Fq "$expected_fetch_pin" template-repo/config/mcp-servers.yaml; then
   report_mismatch \
-    "scripts/openhands-render-mcp-config.sh Fetch version source" \
-    'MCP_FETCH_PYPI_VERSION' \
+    "template-repo/config/mcp-servers.yaml Fetch server pin" \
+    "$expected_fetch_pin" \
     "hardcoded or missing"
 fi
 

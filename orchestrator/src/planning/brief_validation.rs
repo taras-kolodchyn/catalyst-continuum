@@ -194,6 +194,20 @@ impl BriefValidationReport {
                     writeln!(&mut output, "    reason: {reason}")
                         .context("failed to render brief validation")?;
                 }
+                for (client, launch) in &server.client_launches {
+                    writeln!(&mut output, "    client_launch:")
+                        .context("failed to render brief validation")?;
+                    writeln!(&mut output, "      client: {client}")
+                        .context("failed to render brief validation")?;
+                    writeln!(&mut output, "      transport: {}", launch.transport)
+                        .context("failed to render brief validation")?;
+                    writeln!(&mut output, "      command: {}", launch.command)
+                        .context("failed to render brief validation")?;
+                    if !launch.args.is_empty() {
+                        writeln!(&mut output, "      args: {}", launch.args.join(", "))
+                            .context("failed to render brief validation")?;
+                    }
+                }
             }
         }
         writeln!(

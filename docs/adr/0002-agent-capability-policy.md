@@ -58,6 +58,7 @@ This gives the orchestrator real control-plane value without duplicating agent-n
 - agents can inspect their allowed tools before work starts instead of discovering policy failures mid-run
 - pack authors can recommend useful capabilities without assuming they are always available in every deployment
 - operators can audit policy from the same artifacts they already use for routing and promotion review
+- pinned client launch contracts can live beside the allowlist in `config/mcp-servers.yaml` without making the orchestrator a third-party sidecar manager
 
 ## Non-Goals
 

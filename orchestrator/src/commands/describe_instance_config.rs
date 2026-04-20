@@ -158,6 +158,24 @@ fn render_text(report: &InstanceConfigReport) -> anyhow::Result<String> {
             writeln!(&mut output, "  setup_hint: {setup_hint}")
                 .context("failed to render instance config")?;
         }
+        for (client, launch) in &server.client_launches {
+            writeln!(&mut output, "  client_launch:")
+                .context("failed to render instance config")?;
+            writeln!(&mut output, "    client: {client}")
+                .context("failed to render instance config")?;
+            writeln!(&mut output, "    transport: {}", launch.transport)
+                .context("failed to render instance config")?;
+            writeln!(&mut output, "    command: {}", launch.command)
+                .context("failed to render instance config")?;
+            if !launch.args.is_empty() {
+                writeln!(&mut output, "    args: {}", launch.args.join(", "))
+                    .context("failed to render instance config")?;
+            }
+            for (key, value) in &launch.env {
+                writeln!(&mut output, "    env: {key}={value}")
+                    .context("failed to render instance config")?;
+            }
+        }
     }
 
     for agent in report.external_mcp_servers.known_agents() {
@@ -265,11 +283,12 @@ mod tests {
     use super::render_text;
     use crate::config::{
         AiGatewayCapabilityConfig, AiGatewayConfig, AiGatewayDefaultModelAliases,
-        DockerRuntimeProviderConfig, ExternalMcpServerConfig, ExternalMcpServersConfig,
-        GitHubAppConfig, InstanceConfigReport, KubernetesRuntimeProviderConfig,
-        ProxmoxRuntimeProviderConfig, RuntimeProviderSet, RuntimeProviderStatus,
-        RuntimeProvidersConfig,
+        DockerRuntimeProviderConfig, ExternalMcpClientLaunchConfig, ExternalMcpServerConfig,
+        ExternalMcpServersConfig, GitHubAppConfig, InstanceConfigReport,
+        KubernetesRuntimeProviderConfig, ProxmoxRuntimeProviderConfig, RuntimeProviderSet,
+        RuntimeProviderStatus, RuntimeProvidersConfig,
     };
+    use std::collections::BTreeMap;
 
     #[test]
     fn renders_instance_config_report_as_text() {
@@ -320,6 +339,19 @@ mod tests {
                     setup_hint: Some(
                         "Register the upstream Fetch MCP server in the client config.".to_string(),
                     ),
+                    client_launches: BTreeMap::from([(
+                        "openhands".to_string(),
+                        ExternalMcpClientLaunchConfig {
+                            transport: "stdio".to_string(),
+                            command: "uvx".to_string(),
+                            args: vec![
+                                "--from".to_string(),
+                                "mcp-server-fetch==2025.4.7".to_string(),
+                                "mcp-server-fetch".to_string(),
+                            ],
+                            env: BTreeMap::new(),
+                        },
+                    )]),
                 }],
             },
             ai_gateway: AiGatewayConfig {
@@ -386,6 +418,9 @@ mod tests {
         assert!(rendered.contains("capability: search"));
         assert!(rendered.contains("server_id: fetch"));
         assert!(rendered.contains("allowed_agents: openhands, codex"));
+        assert!(rendered.contains("client: openhands"));
+        assert!(rendered.contains("command: uvx"));
+        assert!(rendered.contains("args: --from, mcp-server-fetch==2025.4.7, mcp-server-fetch"));
         assert!(rendered.contains("agent: openhands"));
         assert!(rendered.contains("agent: codex"));
         assert!(rendered.contains("servers: fetch"));

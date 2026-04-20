@@ -1,9 +1,9 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    config::{ExternalMcpServerConfig, ExternalMcpServersConfig},
+    config::{ExternalMcpClientLaunchConfig, ExternalMcpServerConfig, ExternalMcpServersConfig},
     planning::{
         agent_routing::ResolvedAgentRouting,
         packs::{PackDefinition, PackExternalMcpServerRecommendation},
@@ -29,6 +29,8 @@ pub struct ResolvedExternalMcpServer {
     pub docs_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub setup_hint: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub client_launches: BTreeMap<String, ExternalMcpClientLaunchConfig>,
     pub status: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub allowed_for_this_run_agents: Vec<String>,
@@ -106,6 +108,7 @@ fn resolve_recommended_server(
             purpose: recommendation.purpose.clone(),
             docs_url: None,
             setup_hint: None,
+            client_launches: BTreeMap::new(),
             status: "unknown_server".to_string(),
             allowed_for_this_run_agents: Vec::new(),
             denied_for_this_run_agents: requested_run_agents.to_vec(),
@@ -179,6 +182,7 @@ fn resolve_known_server(
         purpose: recommendation.purpose.clone(),
         docs_url: server.docs_url.clone(),
         setup_hint: server.setup_hint.clone(),
+        client_launches: resolved_client_launches(server, &allowed_for_this_run_agents),
         status: status.to_string(),
         allowed_for_this_run_agents,
         denied_for_this_run_agents: if server.enabled {
@@ -191,14 +195,37 @@ fn resolve_known_server(
     }
 }
 
+fn resolved_client_launches(
+    server: &ExternalMcpServerConfig,
+    allowed_for_this_run_agents: &[String],
+) -> BTreeMap<String, ExternalMcpClientLaunchConfig> {
+    if !server.enabled {
+        return BTreeMap::new();
+    }
+
+    allowed_for_this_run_agents
+        .iter()
+        .filter_map(|agent| {
+            server
+                .client_launches
+                .get(agent)
+                .cloned()
+                .map(|launch| (agent.clone(), launch))
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{
-        config::{ExternalMcpServerConfig, ExternalMcpServersConfig},
+        config::{
+            ExternalMcpClientLaunchConfig, ExternalMcpServerConfig, ExternalMcpServersConfig,
+        },
         models::brief::Brief,
         planning::{agent_routing::resolve_agent_routing, packs::PackDefinition},
     };
+    use std::collections::BTreeMap;
 
     #[test]
     fn resolves_allowed_external_mcp_server_for_run_agents() {
@@ -220,6 +247,11 @@ mod tests {
             vec!["codex".to_string(), "openhands".to_string()]
         );
         assert!(contract.servers[0].denied_for_this_run_agents.is_empty());
+        assert!(
+            contract.servers[0]
+                .client_launches
+                .contains_key("openhands")
+        );
     }
 
     #[test]
@@ -265,6 +297,14 @@ mod tests {
             contract.servers[0].denied_for_this_run_agents,
             vec!["openhands".to_string()]
         );
+        assert_eq!(
+            contract.servers[0]
+                .client_launches
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>(),
+            vec!["codex".to_string()]
+        );
     }
 
     #[test]
@@ -287,6 +327,7 @@ mod tests {
             contract.servers[0].denied_for_this_run_agents,
             vec!["codex".to_string(), "openhands".to_string()]
         );
+        assert!(contract.servers[0].client_launches.is_empty());
     }
 
     #[test]
@@ -367,6 +408,30 @@ execution_preferences:
                 allowed_agents,
                 docs_url: None,
                 setup_hint: None,
+                client_launches: BTreeMap::from([
+                    (
+                        "openhands".to_string(),
+                        ExternalMcpClientLaunchConfig {
+                            transport: "stdio".to_string(),
+                            command: "uvx".to_string(),
+                            args: vec![
+                                "--from".to_string(),
+                                "mcp-server-fetch==2025.4.7".to_string(),
+                                "mcp-server-fetch".to_string(),
+                            ],
+                            env: BTreeMap::new(),
+                        },
+                    ),
+                    (
+                        "codex".to_string(),
+                        ExternalMcpClientLaunchConfig {
+                            transport: "stdio".to_string(),
+                            command: "npx".to_string(),
+                            args: vec!["@modelcontextprotocol/server-fetch".to_string()],
+                            env: BTreeMap::new(),
+                        },
+                    ),
+                ]),
             }],
         }
     }

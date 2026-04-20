@@ -234,7 +234,7 @@ AI_GATEWAY_STATUS_CODE="$(
     "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/ai-gateway/status"
 )"
 
-python3 - "$LIVENESS_FILE" "$READINESS_FILE" "$HEALTH_FILE" "$CONFIG_FILE" "$AI_GATEWAY_STATUS_FILE" "$AI_GATEWAY_STATUS_CODE" <<'PY'
+python3 - "$LIVENESS_FILE" "$READINESS_FILE" "$HEALTH_FILE" "$CONFIG_FILE" "$AI_GATEWAY_STATUS_FILE" "$AI_GATEWAY_STATUS_CODE" "$MCP_FETCH_PYPI_VERSION" <<'PY'
 import json
 import pathlib
 import sys
@@ -245,6 +245,7 @@ healthz = json.loads(pathlib.Path(sys.argv[3]).read_text(encoding="utf-8"))
 config = json.loads(pathlib.Path(sys.argv[4]).read_text(encoding="utf-8"))
 ai_gateway_status = json.loads(pathlib.Path(sys.argv[5]).read_text(encoding="utf-8"))
 ai_gateway_http_code = int(sys.argv[6])
+fetch_version = sys.argv[7]
 
 assert livez["status"] == "ok", livez
 assert livez["database"] == "not_checked", livez
@@ -261,6 +262,18 @@ statuses = {
 }
 assert statuses["docker"]["registered"] is True, config
 assert isinstance(config["github_app"]["missing_fields"], list), config
+fetch_server = next(
+    server for server in config["external_mcp_servers"]["servers"]
+    if server["server_id"] == "fetch"
+)
+openhands_launch = fetch_server["client_launches"]["openhands"]
+assert openhands_launch["transport"] == "stdio", fetch_server
+assert openhands_launch["command"] == "uvx", fetch_server
+assert openhands_launch["args"] == [
+    "--from",
+    f"mcp-server-fetch=={fetch_version}",
+    "mcp-server-fetch",
+], fetch_server
 assert ai_gateway_http_code in (200, 503), ai_gateway_http_code
 assert ai_gateway_status["provider"] == "litellm", ai_gateway_status
 assert ai_gateway_status["control_plane_owner"] == "orchestrator", ai_gateway_status
@@ -939,7 +952,7 @@ PY
   --json >"$AGENT_DISPATCH_ARTIFACT_FILE"
 curl -fsS "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/runs/${RUN_ID}/artifacts/latest/agent_dispatch_plan" \
   >"$AGENT_DISPATCH_ARTIFACT_HTTP_FILE"
-python3 - "$AGENT_DISPATCH_ARTIFACT_FILE" "$AGENT_DISPATCH_ARTIFACT_HTTP_FILE" "$RUN_ID" <<'PY'
+python3 - "$AGENT_DISPATCH_ARTIFACT_FILE" "$AGENT_DISPATCH_ARTIFACT_HTTP_FILE" "$RUN_ID" "$MCP_FETCH_PYPI_VERSION" <<'PY'
 import json
 import pathlib
 import sys
@@ -947,6 +960,7 @@ import sys
 cli_artifact = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
 http_artifact = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
 run_id = sys.argv[3]
+fetch_version = sys.argv[4]
 
 for artifact in (cli_artifact, http_artifact):
     assert artifact["run_id"] == run_id, artifact
@@ -957,6 +971,19 @@ for artifact in (cli_artifact, http_artifact):
     dispatch_agents = {bucket["agent"] for bucket in artifact["manifest"]["agents"]}
     assert "codex" in dispatch_agents, artifact
     assert "openhands" in dispatch_agents, artifact
+    external_mcp_contract = artifact["manifest"]["external_mcp_contract"]
+    fetch_server = next(
+        server for server in external_mcp_contract["servers"]
+        if server["server_id"] == "fetch"
+    )
+    openhands_launch = fetch_server["client_launches"]["openhands"]
+    assert openhands_launch["transport"] == "stdio", artifact
+    assert openhands_launch["command"] == "uvx", artifact
+    assert openhands_launch["args"] == [
+        "--from",
+        f"mcp-server-fetch=={fetch_version}",
+        "mcp-server-fetch",
+    ], artifact
 PY
 
 POLICY_OUTPUT="$("$BIN" evaluate-run-policy \

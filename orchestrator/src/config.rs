@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
 };
@@ -558,6 +559,19 @@ pub struct ExternalMcpServerConfig {
     pub docs_url: Option<String>,
     #[serde(default)]
     pub setup_hint: Option<String>,
+    #[serde(default)]
+    pub client_launches: BTreeMap<String, ExternalMcpClientLaunchConfig>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ExternalMcpClientLaunchConfig {
+    pub transport: String,
+    pub command: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
 }
 
 impl ExternalMcpServerConfig {
@@ -608,6 +622,51 @@ impl ExternalMcpServerConfig {
                 !setup_hint.trim().is_empty(),
                 "external MCP server `{}` setup_hint must not be empty when set",
                 self.server_id
+            );
+        }
+        for (client, launch) in &self.client_launches {
+            ensure!(
+                !client.trim().is_empty(),
+                "external MCP server `{}` client_launches must not contain empty client names",
+                self.server_id
+            );
+            ensure!(
+                self.allowed_agents.iter().any(|allowed| allowed == client),
+                "external MCP server `{}` client launch `{}` must also appear in allowed_agents",
+                self.server_id,
+                client
+            );
+            launch.validate(&self.server_id, client)?;
+        }
+
+        Ok(())
+    }
+}
+
+impl ExternalMcpClientLaunchConfig {
+    fn validate(&self, server_id: &str, client: &str) -> Result<()> {
+        ensure!(
+            !self.transport.trim().is_empty(),
+            "external MCP server `{server_id}` client launch `{client}` transport must not be empty"
+        );
+        ensure!(
+            !self.command.trim().is_empty(),
+            "external MCP server `{server_id}` client launch `{client}` command must not be empty"
+        );
+        for arg in &self.args {
+            ensure!(
+                !arg.trim().is_empty(),
+                "external MCP server `{server_id}` client launch `{client}` args must not contain empty strings"
+            );
+        }
+        for (key, value) in &self.env {
+            ensure!(
+                !key.trim().is_empty(),
+                "external MCP server `{server_id}` client launch `{client}` env must not contain empty variable names"
+            );
+            ensure!(
+                !value.trim().is_empty(),
+                "external MCP server `{server_id}` client launch `{client}` env `{key}` must not be empty"
             );
         }
 
@@ -1168,6 +1227,14 @@ servers:
       - codex
     docs_url: https://github.com/modelcontextprotocol/servers/tree/main/src/fetch
     setup_hint: Register the upstream Fetch MCP server in the agent client config when web retrieval is needed.
+    client_launches:
+      openhands:
+        transport: stdio
+        command: uvx
+        args:
+          - --from
+          - mcp-server-fetch==2025.4.7
+          - mcp-server-fetch
   - server_id: memory
     display_name: Memory
     enabled: false
@@ -1189,6 +1256,14 @@ servers:
         let openhands = config.allowed_servers_for_agent("openhands");
         assert_eq!(openhands.len(), 1);
         assert_eq!(openhands[0].server_id, "fetch");
+        assert_eq!(
+            openhands[0]
+                .client_launches
+                .get("openhands")
+                .expect("OpenHands launch contract should exist")
+                .command,
+            "uvx"
+        );
 
         let codex = config.allowed_servers_for_agent("codex");
         assert_eq!(codex.len(), 1);
@@ -1211,6 +1286,7 @@ servers:
                 allowed_agents: Vec::new(),
                 docs_url: None,
                 setup_hint: None,
+                client_launches: BTreeMap::new(),
             }],
         }
         .validate()
@@ -1220,6 +1296,38 @@ servers:
             error
                 .to_string()
                 .contains("must declare at least one allowed_agents entry")
+        );
+    }
+
+    #[test]
+    fn rejects_external_mcp_client_launch_for_disallowed_agent() {
+        let error = ExternalMcpServersConfig {
+            source_path: None,
+            servers: vec![ExternalMcpServerConfig {
+                server_id: "fetch".to_string(),
+                display_name: "Fetch".to_string(),
+                enabled: true,
+                allowed_agents: vec!["codex".to_string()],
+                docs_url: None,
+                setup_hint: None,
+                client_launches: BTreeMap::from([(
+                    "openhands".to_string(),
+                    ExternalMcpClientLaunchConfig {
+                        transport: "stdio".to_string(),
+                        command: "uvx".to_string(),
+                        args: vec!["mcp-server-fetch".to_string()],
+                        env: BTreeMap::new(),
+                    },
+                )]),
+            }],
+        }
+        .validate()
+        .expect_err("external MCP client launch for disallowed agent should fail");
+
+        assert!(
+            error
+                .to_string()
+                .contains("must also appear in allowed_agents")
         );
     }
 

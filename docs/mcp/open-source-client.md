@@ -36,7 +36,7 @@ Catalyst Continuum's own MCP server is separate from any third-party MCP servers
 For `v0.1`, external MCP servers should stay agent- or operator-managed:
 
 - OpenHands, Codex, or another client can attach them directly when needed.
-- The control plane can still publish a unified allowlist and per-agent policy through `config/mcp-servers.yaml` plus `describe_instance_config`, even though it does not launch those third-party servers itself yet.
+- The control plane can still publish a unified allowlist, pinned per-client launch contracts, and per-agent policy through `config/mcp-servers.yaml` plus `describe_instance_config`, even though it does not launch those third-party servers itself yet.
 - The same `describe_instance_config` surface now also publishes the LiteLLM AI edge-gateway contract from `config/ai-gateway.yaml`, including gateway ownership, base URLs, default local model aliases, and which LiteLLM-side capabilities are enabled now versus only reserved for later.
 - The orchestrator should not duplicate client-native MCP setup for session-local conveniences such as `git` or `filesystem`.
 - Stronger control-plane ownership only makes sense once there is a concrete reproducibility, audit, allowlist, or policy reason to centralize that capability.

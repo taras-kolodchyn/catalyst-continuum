@@ -306,6 +306,13 @@ mod tests {
                     "servers": [{
                         "server_id": "fetch",
                         "display_name": "Fetch",
+                        "client_launches": {
+                            "codex": {
+                                "transport": "stdio",
+                                "command": "npx",
+                                "args": ["@modelcontextprotocol/server-fetch"]
+                            }
+                        },
                         "status": "allowed",
                         "allowed_for_this_run_agents": ["codex"],
                         "denied_for_this_run_agents": ["openhands"],
@@ -338,6 +345,15 @@ mod tests {
                 .and_then(|contract| contract.servers.first())
                 .map(|server| server.allowed_for_this_run_agents.clone()),
             Some(vec!["codex".to_string()])
+        );
+        assert_eq!(
+            document
+                .external_mcp_contract
+                .as_ref()
+                .and_then(|contract| contract.servers.first())
+                .and_then(|server| server.client_launches.get("codex"))
+                .map(|launch| launch.command.clone()),
+            Some("npx".to_string())
         );
     }
 

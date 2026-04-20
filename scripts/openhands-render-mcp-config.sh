@@ -4,9 +4,6 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-# shellcheck disable=SC1091
-source "$ROOT_DIR/versions.env"
-
 SERVER_NAME="${OPENHANDS_MCP_SERVER_NAME:-catalyst-continuum}"
 OUTPUT_FILE=""
 ARTIFACT_ROOT="${CATALYST_ARTIFACT_ROOT:-$ROOT_DIR/.continuum/artifacts}"
@@ -130,8 +127,7 @@ rendered_config="$(
     "$RUNTIME_PROVIDERS_FILE" \
     "$MCP_SERVERS_FILE" \
     "$AI_GATEWAY_FILE" \
-    "$DATABASE_URL" \
-    "$MCP_FETCH_PYPI_VERSION" <<'PY'
+    "$DATABASE_URL" <<'PY'
 import json
 import pathlib
 import sys
@@ -144,7 +140,6 @@ runtime_providers_file = str(pathlib.Path(sys.argv[5]).resolve())
 mcp_servers_file = str(pathlib.Path(sys.argv[6]).resolve())
 ai_gateway_file = str(pathlib.Path(sys.argv[7]).resolve())
 database_url = sys.argv[8]
-fetch_version = sys.argv[9]
 
 instance_config = json.loads(instance_config_path.read_text(encoding="utf-8"))
 
@@ -182,7 +177,6 @@ mcp_servers = {
     }
 }
 
-unsupported_servers = []
 for server in instance_config["external_mcp_servers"]["servers"]:
     if not server.get("enabled", False):
         continue
@@ -190,25 +184,21 @@ for server in instance_config["external_mcp_servers"]["servers"]:
         continue
 
     server_id = server["server_id"]
-    if server_id == "fetch":
-        mcp_servers[server_id] = {
-            "transport": "stdio",
-            "command": "uvx",
-            "args": [
-                "--from",
-                f"mcp-server-fetch=={fetch_version}",
-                "mcp-server-fetch",
-            ],
-        }
-        continue
+    launch = server.get("client_launches", {}).get("openhands")
+    if launch is None:
+        raise SystemExit(
+            f"OpenHands launch contract is missing for allowed external MCP server {server_id!r}"
+        )
 
-    unsupported_servers.append(server_id)
+    rendered_launch = {
+        "transport": launch["transport"],
+        "command": launch["command"],
+        "args": launch.get("args", []),
+    }
+    if launch.get("env"):
+        rendered_launch["env"] = launch["env"]
 
-if unsupported_servers:
-    raise SystemExit(
-        "unsupported OpenHands external MCP server renderer(s): "
-        + ", ".join(sorted(unsupported_servers))
-    )
+    mcp_servers[server_id] = rendered_launch
 
 print(json.dumps({"mcpServers": mcp_servers}, indent=2))
 PY

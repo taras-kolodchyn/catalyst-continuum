@@ -2177,6 +2177,14 @@ servers:
     allowed_agents:
       - openhands
       - codex
+    client_launches:
+      openhands:
+        transport: stdio
+        command: uvx
+        args:
+          - --from
+          - mcp-server-fetch==2025.4.7
+          - mcp-server-fetch
 "#,
         );
         let mut server = StdioMcpServer::new(McpServerArgs {
@@ -2207,6 +2215,10 @@ servers:
         assert_eq!(
             validation["external_mcp_contract"]["servers"][0]["allowed_for_this_run_agents"],
             json!(["codex", "openhands"])
+        );
+        assert_eq!(
+            validation["external_mcp_contract"]["servers"][0]["client_launches"]["openhands"]["command"],
+            "uvx"
         );
 
         let _ = fs::remove_file(mcp_servers_file);

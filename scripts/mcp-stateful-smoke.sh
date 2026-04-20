@@ -306,7 +306,7 @@ assert response["routing_action"] == "sync_default_branch", response
 assert response["persisted"] is True, response
 PY
 
-python3 - "$BIN" "$DATABASE_URL" "$ARTIFACT_ROOT" "$BRIEF_FILE" "$WEBHOOK_DELIVERY_ID" "$PUSH_WEBHOOK_DELIVERY_ID" "$PUSH_WEBHOOK_ACTION_REQUEST_ID" "$PUSH_WEBHOOK_SIGNAL_ID" "$PUSH_WEBHOOK_AFTER_SHA" <<'PY'
+MCP_FETCH_PYPI_VERSION="$MCP_FETCH_PYPI_VERSION" python3 - "$BIN" "$DATABASE_URL" "$ARTIFACT_ROOT" "$BRIEF_FILE" "$WEBHOOK_DELIVERY_ID" "$PUSH_WEBHOOK_DELIVERY_ID" "$PUSH_WEBHOOK_ACTION_REQUEST_ID" "$PUSH_WEBHOOK_SIGNAL_ID" "$PUSH_WEBHOOK_AFTER_SHA" <<'PY'
 import json
 import os
 import pathlib
@@ -326,6 +326,7 @@ push_webhook_delivery_id = sys.argv[6]
 push_webhook_action_request_id = sys.argv[7]
 push_webhook_signal_id = sys.argv[8]
 push_webhook_after_sha = sys.argv[9]
+fetch_version = os.environ["MCP_FETCH_PYPI_VERSION"]
 root = pathlib.Path.cwd()
 try:
     brief_source_path = str(brief_path.relative_to(root))
@@ -558,6 +559,32 @@ try:
     ):
         fail(
             "stateful MCP smoke failed: expected AI gateway chat_completions capability to be enabled"
+        )
+    fetch_server = next(
+        server
+        for server in instance_config["external_mcp_servers"]["servers"]
+        if server["server_id"] == "fetch"
+    )
+    openhands_launch = fetch_server["client_launches"]["openhands"]
+    expected_fetch_args = [
+        "--from",
+        f"mcp-server-fetch=={fetch_version}",
+        "mcp-server-fetch",
+    ]
+    if openhands_launch["transport"] != "stdio":
+        fail(
+            "stateful MCP smoke failed: expected Fetch OpenHands launch transport "
+            f"to be stdio, got {openhands_launch['transport']!r}"
+        )
+    if openhands_launch["command"] != "uvx":
+        fail(
+            "stateful MCP smoke failed: expected Fetch OpenHands launch command "
+            f"to be uvx, got {openhands_launch['command']!r}"
+        )
+    if openhands_launch["args"] != expected_fetch_args:
+        fail(
+            "stateful MCP smoke failed: expected Fetch OpenHands launch args "
+            f"{expected_fetch_args!r}, got {openhands_launch['args']!r}"
         )
     ai_gateway_status = call_tool(
         "describe_ai_gateway_status",
@@ -1092,6 +1119,22 @@ policy:
     )
     if validation["valid"] is not True:
         fail("stateful MCP smoke failed: validate_brief returned valid=false")
+    resolved_fetch_server = next(
+        server
+        for server in validation["external_mcp_contract"]["servers"]
+        if server["server_id"] == "fetch"
+    )
+    resolved_openhands_launch = resolved_fetch_server["client_launches"]["openhands"]
+    if resolved_openhands_launch["command"] != "uvx":
+        fail(
+            "stateful MCP smoke failed: expected resolved Fetch OpenHands launch "
+            f"command to be uvx, got {resolved_openhands_launch['command']!r}"
+        )
+    if resolved_openhands_launch["args"] != expected_fetch_args:
+        fail(
+            "stateful MCP smoke failed: expected resolved Fetch OpenHands launch args "
+            f"{expected_fetch_args!r}, got {resolved_openhands_launch['args']!r}"
+        )
 
     submission = call_tool(
         "submit_brief",

@@ -81,7 +81,7 @@ The orchestrator does not launch or supervise `Fetch`.
 Instead it owns the policy contract around `Fetch`:
 
 - packs recommend `fetch` through `recommended_external_mcp_servers`
-- the instance allowlist lives in [config/mcp-servers.yaml](../../config/mcp-servers.yaml)
+- the instance allowlist and pinned client launch contracts live in [config/mcp-servers.yaml](../../config/mcp-servers.yaml)
 - `validate_brief` resolves whether `fetch` is `allowed`, `denied`, `disabled`, or `unknown_server` for the current run
 - the same resolved result is persisted into `agent_dispatch_plan`
 

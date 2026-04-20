@@ -99,6 +99,10 @@ $defs:
       setup_hint:
         type: string
         minLength: 1
+      client_launches:
+        type: object
+        additionalProperties:
+          $ref: "#/$defs/external_mcp_client_launch"
       status:
         type: string
         enum:
@@ -115,6 +119,26 @@ $defs:
       reason:
         type: string
         minLength: 1
+  external_mcp_client_launch:
+    type: object
+    additionalProperties: false
+    required:
+      - transport
+      - command
+    properties:
+      transport:
+        type: string
+        minLength: 1
+      command:
+        type: string
+        minLength: 1
+      args:
+        $ref: "#/$defs/string_array"
+      env:
+        type: object
+        additionalProperties:
+          type: string
+          minLength: 1
   agent_bucket:
     type: object
     additionalProperties: false

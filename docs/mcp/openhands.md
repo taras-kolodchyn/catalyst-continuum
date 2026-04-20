@@ -177,7 +177,7 @@ That renderer:
 - uses `cargo --manifest-path <repo>/Cargo.toml` for the orchestrator command
 - carries over `CATALYST_DATABASE_URL` when you export it before rendering
 - includes the OpenHands-allowed external MCP servers from `config/mcp-servers.yaml`
-- materializes pinned launch arguments for known servers such as `Fetch`
+- materializes the pinned launch arguments declared in `config/mcp-servers.yaml` for those servers, for example the shipped `Fetch` contract
 
 Use [examples/mcp/openhands.mcp.json](../../examples/mcp/openhands.mcp.json) only as a minimal shape reference when you want to hand-edit the file yourself.
 

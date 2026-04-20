@@ -4,13 +4,18 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-python3 - <<'PY'
+# shellcheck disable=SC1091
+source "$ROOT_DIR/versions.env"
+
+MCP_FETCH_PYPI_VERSION="$MCP_FETCH_PYPI_VERSION" python3 - <<'PY'
 import json
+import os
 import pathlib
 import platform
 import subprocess
 
 root = pathlib.Path.cwd()
+fetch_version = os.environ["MCP_FETCH_PYPI_VERSION"]
 brief_path = root / "examples" / "briefs" / "minimal-cli-tool.yaml"
 
 messages = [
@@ -178,6 +183,32 @@ if not any(
     raise SystemExit(
         "mcp smoke failed: expected AI gateway chat_completions capability to be enabled"
     )
+fetch_server = next(
+    server
+    for server in instance_config["external_mcp_servers"]["servers"]
+    if server["server_id"] == "fetch"
+)
+openhands_launch = fetch_server["client_launches"]["openhands"]
+if openhands_launch["transport"] != "stdio":
+    raise SystemExit(
+        "mcp smoke failed: expected Fetch OpenHands launch transport to be "
+        f"stdio, got {openhands_launch['transport']!r}"
+    )
+if openhands_launch["command"] != "uvx":
+    raise SystemExit(
+        "mcp smoke failed: expected Fetch OpenHands launch command to be "
+        f"uvx, got {openhands_launch['command']!r}"
+    )
+expected_fetch_args = [
+    "--from",
+    f"mcp-server-fetch=={fetch_version}",
+    "mcp-server-fetch",
+]
+if openhands_launch["args"] != expected_fetch_args:
+    raise SystemExit(
+        "mcp smoke failed: expected Fetch OpenHands launch args "
+        f"{expected_fetch_args!r}, got {openhands_launch['args']!r}"
+    )
 
 ai_gateway_status = ai_gateway_status_response["result"]["structuredContent"]["ai_gateway_status"]
 if ai_gateway_status["provider"] != "litellm":
@@ -238,6 +269,22 @@ if validation["valid"] is not True:
 if validation["pack_selection"]["resolved_pack_id"] != "cli-tool":
     raise SystemExit(
         "mcp smoke failed: expected validate_brief to resolve cli-tool pack"
+    )
+resolved_fetch_server = next(
+    server
+    for server in validation["external_mcp_contract"]["servers"]
+    if server["server_id"] == "fetch"
+)
+resolved_openhands_launch = resolved_fetch_server["client_launches"]["openhands"]
+if resolved_openhands_launch["command"] != "uvx":
+    raise SystemExit(
+        "mcp smoke failed: expected resolved Fetch OpenHands launch command to be "
+        f"uvx, got {resolved_openhands_launch['command']!r}"
+    )
+if resolved_openhands_launch["args"] != expected_fetch_args:
+    raise SystemExit(
+        "mcp smoke failed: expected resolved Fetch OpenHands launch args "
+        f"{expected_fetch_args!r}, got {resolved_openhands_launch['args']!r}"
     )
 
 print("mcp smoke passed")
