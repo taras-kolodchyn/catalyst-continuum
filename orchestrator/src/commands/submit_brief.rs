@@ -4,6 +4,7 @@ use std::time::Instant;
 
 use crate::{
     cli::SubmitBriefArgs,
+    config::ExternalMcpServersConfig,
     models::{
         artifact::{ArtifactDraft, ArtifactSummary},
         run::{RunDraft, SubmissionRecord},
@@ -12,7 +13,9 @@ use crate::{
     planning::{
         agent_dispatch::generate_agent_dispatch_plan,
         backlog::generate_initial_backlog,
-        brief_validation::{ValidatedBriefSubmission, validate_brief_document},
+        brief_validation::{
+            ValidatedBriefSubmission, validate_brief_document_with_external_mcp_servers,
+        },
         policy,
         tasks::materialize_tasks,
     },
@@ -30,10 +33,12 @@ pub(crate) struct PreparedBriefSubmission {
 pub fn execute(args: SubmitBriefArgs) -> anyhow::Result<()> {
     let raw_brief = std::fs::read_to_string(&args.file)
         .with_context(|| format!("failed to read brief file: {}", args.file.display()))?;
+    let external_mcp_servers = ExternalMcpServersConfig::load(args.mcp_servers_file.as_deref())?;
     let submission = submit_brief_document(
         &raw_brief,
         &args.file.display().to_string(),
         args.database_url.as_deref(),
+        &external_mcp_servers,
         &args.artifact_root,
         args.dry_run,
         "cli",
@@ -52,11 +57,16 @@ pub fn submit_brief_document(
     raw_brief: &str,
     brief_source_path: &str,
     database_url: Option<&str>,
+    external_mcp_servers: &ExternalMcpServersConfig,
     artifact_root: &Path,
     dry_run: bool,
     trigger: &str,
 ) -> anyhow::Result<SubmissionRecord> {
-    let validated = validate_brief_document(raw_brief, brief_source_path)?;
+    let validated = validate_brief_document_with_external_mcp_servers(
+        raw_brief,
+        brief_source_path,
+        external_mcp_servers,
+    )?;
     submit_validated_brief(
         validated,
         brief_source_path,
@@ -152,6 +162,11 @@ pub(crate) fn prepare_validated_submission(
             serde_json::to_value(&report.agent_routing)
                 .context("failed to serialize agent routing metadata")?,
         );
+        metadata.insert(
+            "external_mcp_contract".to_string(),
+            serde_json::to_value(&report.external_mcp_contract)
+                .context("failed to serialize external MCP contract metadata")?,
+        );
     }
     draft.selected_pack = Some(pack.pack_id.clone());
 
@@ -190,6 +205,7 @@ mod tests {
             sample_brief_without_repo_pack(),
             "examples/briefs/default-pack.yaml",
             None,
+            &empty_external_mcp_servers(),
             Path::new(".tmp"),
             true,
             "test",
@@ -227,6 +243,7 @@ mod tests {
             &brief,
             "examples/briefs/unknown-pack.yaml",
             None,
+            &empty_external_mcp_servers(),
             Path::new(".tmp"),
             true,
             "test",
@@ -245,6 +262,7 @@ mod tests {
             &sample_brief_with_task_kind_policy("plan"),
             "examples/briefs/policy-reject.yaml",
             None,
+            &empty_external_mcp_servers(),
             Path::new(".tmp"),
             true,
             "test",
@@ -286,6 +304,13 @@ execution_preferences:
     - openhands
     - codex
 "#
+    }
+
+    fn empty_external_mcp_servers() -> ExternalMcpServersConfig {
+        ExternalMcpServersConfig {
+            source_path: None,
+            servers: Vec::new(),
+        }
     }
 
     fn sample_brief_with_repo_pack(pack_id: &str) -> String {

@@ -24,8 +24,8 @@ use crate::{
         GitHubWebhookDeliverySummary, GitHubWebhookListFilters,
     },
     planning::{
-        brief_validation::validate_brief_document, pack_catalog::build_pack_catalog,
-        packs::PackDefinition, pr_candidate,
+        brief_validation::validate_brief_document_with_external_mcp_servers,
+        pack_catalog::build_pack_catalog, packs::PackDefinition, pr_candidate,
     },
     runtime::RuntimeRegistry,
     storage::postgres::{DatabaseReadiness, PostgresRunStore, RunEventListFilters, RunListFilters},
@@ -774,7 +774,11 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                 }
             }
             ("POST", "/briefs/validate") => match read_request_body(&mut request) {
-                Ok(body) => match validate_brief_document(&body, "http:POST /briefs/validate") {
+                Ok(body) => match validate_brief_document_with_external_mcp_servers(
+                    &body,
+                    "http:POST /briefs/validate",
+                    &instance_config.external_mcp_servers,
+                ) {
                     Ok(validated) => json_response(StatusCode(200), &validated.report),
                     Err(error) => json_response(
                         StatusCode(400),
@@ -791,7 +795,11 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                 ),
             },
             ("POST", "/briefs/submit") => match read_request_body(&mut request) {
-                Ok(body) => match validate_brief_document(&body, "http:POST /briefs/submit") {
+                Ok(body) => match validate_brief_document_with_external_mcp_servers(
+                    &body,
+                    "http:POST /briefs/submit",
+                    &instance_config.external_mcp_servers,
+                ) {
                     Ok(validated) => match submit_validated_brief(
                         validated,
                         "http:POST /briefs/submit",

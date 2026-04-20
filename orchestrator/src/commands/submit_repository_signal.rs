@@ -8,12 +8,13 @@ use crate::{
     cli::SubmitRepositorySignalArgs,
     commands::describe_github_default_branch_state,
     commands::submit_brief::prepare_validated_submission,
+    config::ExternalMcpServersConfig,
     models::{
         brief::{Brief, RepositoryHost},
         repository_signal::RepositorySignalSummary,
         run::{RunDraft, SubmissionRecord},
     },
-    planning::brief_validation::validate_brief_document,
+    planning::brief_validation::validate_brief_document_with_external_mcp_servers,
     storage::postgres::PostgresRunStore,
     telemetry,
 };
@@ -21,11 +22,16 @@ use crate::{
 pub fn execute(args: SubmitRepositorySignalArgs) -> anyhow::Result<()> {
     let raw_brief = std::fs::read_to_string(&args.file)
         .with_context(|| format!("failed to read brief file: {}", args.file.display()))?;
+    let external_mcp_servers = ExternalMcpServersConfig::load(args.mcp_servers_file.as_deref())?;
+    let context = BriefSubmissionContext {
+        external_mcp_servers: &external_mcp_servers,
+        artifact_root: &args.artifact_root,
+    };
     let submission = submit_repository_signal_document(
         &raw_brief,
         &args.file.display().to_string(),
         &args.database_url,
-        &args.artifact_root,
+        context,
         &args.signal_id,
         "named",
         "cli",
@@ -46,6 +52,12 @@ pub fn execute(args: SubmitRepositorySignalArgs) -> anyhow::Result<()> {
 pub struct RepositorySignalSubmission {
     pub signal: RepositorySignalSummary,
     pub submission: SubmissionRecord,
+}
+
+#[derive(Clone, Copy)]
+pub struct BriefSubmissionContext<'a> {
+    pub external_mcp_servers: &'a ExternalMcpServersConfig,
+    pub artifact_root: &'a Path,
 }
 
 impl RepositorySignalSubmission {
@@ -69,7 +81,7 @@ pub fn submit_repository_signal_document(
     raw_brief: &str,
     brief_source_path: &str,
     database_url: &str,
-    artifact_root: &Path,
+    context: BriefSubmissionContext<'_>,
     signal_id: &str,
     submission_mode: &str,
     invoked_via: &str,
@@ -83,9 +95,13 @@ pub fn submit_repository_signal_document(
         .with_context(|| format!("repository signal not found: {signal_id}"))?;
     ensure_signal_ready_for_submission(&signal)?;
 
-    let validated = validate_brief_document(raw_brief, brief_source_path)?;
+    let validated = validate_brief_document_with_external_mcp_servers(
+        raw_brief,
+        brief_source_path,
+        context.external_mcp_servers,
+    )?;
     ensure_brief_matches_signal(&validated.brief, &signal)?;
-    if let Some(reason) = repository_signal_staleness_reason(artifact_root, &signal)? {
+    if let Some(reason) = repository_signal_staleness_reason(context.artifact_root, &signal)? {
         telemetry::record_repository_signal_submission(
             submission_mode,
             invoked_via,
@@ -99,7 +115,7 @@ pub fn submit_repository_signal_document(
     let mut planned = prepare_validated_submission(
         validated,
         brief_source_path,
-        artifact_root,
+        context.artifact_root,
         "repository_signal",
         false,
     )?;

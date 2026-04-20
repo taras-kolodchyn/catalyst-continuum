@@ -1,16 +1,19 @@
-use std::{path::Path, time::Instant};
+use std::time::Instant;
 
 use anyhow::{Context, Result};
 use serde::Serialize;
 
 use crate::{
     cli::SubmitNextRepositorySignalArgs,
-    commands::submit_repository_signal::{self, RepositorySignalSubmission},
+    commands::submit_repository_signal::{
+        self, BriefSubmissionContext, RepositorySignalSubmission,
+    },
+    config::ExternalMcpServersConfig,
     models::{
         brief::{Brief, RepositoryHost},
         repository_signal::RepositorySignalListFilters,
     },
-    planning::brief_validation::validate_brief_document,
+    planning::brief_validation::validate_brief_document_with_external_mcp_servers,
     storage::postgres::PostgresRunStore,
     telemetry,
 };
@@ -20,11 +23,16 @@ const DEFAULT_PENDING_SIGNAL_SCAN_LIMIT: usize = 20;
 pub fn execute(args: SubmitNextRepositorySignalArgs) -> anyhow::Result<()> {
     let raw_brief = std::fs::read_to_string(&args.file)
         .with_context(|| format!("failed to read brief file: {}", args.file.display()))?;
+    let external_mcp_servers = ExternalMcpServersConfig::load(args.mcp_servers_file.as_deref())?;
+    let context = BriefSubmissionContext {
+        external_mcp_servers: &external_mcp_servers,
+        artifact_root: &args.artifact_root,
+    };
     let submission = submit_next_repository_signal_document(
         &raw_brief,
         &args.file.display().to_string(),
         &args.database_url,
-        &args.artifact_root,
+        context,
         args.signal_kind.as_deref(),
         "cli",
     )?;
@@ -111,7 +119,7 @@ pub fn submit_next_repository_signal_document(
     raw_brief: &str,
     brief_source_path: &str,
     database_url: &str,
-    artifact_root: &Path,
+    context: BriefSubmissionContext<'_>,
     signal_kind: Option<&str>,
     invoked_via: &str,
 ) -> anyhow::Result<NextRepositorySignalSubmission> {
@@ -119,7 +127,11 @@ pub fn submit_next_repository_signal_document(
     let mut store = PostgresRunStore::connect(database_url)?;
     store.ensure_schema()?;
 
-    let validated = validate_brief_document(raw_brief, brief_source_path)?;
+    let validated = validate_brief_document_with_external_mcp_servers(
+        raw_brief,
+        brief_source_path,
+        context.external_mcp_servers,
+    )?;
     let target = RepositorySignalSubmissionTarget::from_brief(&validated.brief)?;
     let filters = RepositorySignalListFilters::from_inputs(
         Some("pending"),
@@ -156,9 +168,10 @@ pub fn submit_next_repository_signal_document(
             latest_signal_id = Some(signal.signal_id.clone());
         }
 
-        if let Some(reason) =
-            submit_repository_signal::repository_signal_staleness_reason(artifact_root, &signal)?
-        {
+        if let Some(reason) = submit_repository_signal::repository_signal_staleness_reason(
+            context.artifact_root,
+            &signal,
+        )? {
             if stale_reason.is_none() {
                 stale_reason = Some(reason.clone());
             }
@@ -184,7 +197,7 @@ pub fn submit_next_repository_signal_document(
             raw_brief,
             brief_source_path,
             database_url,
-            artifact_root,
+            context,
             &signal.signal_id,
             "next",
             invoked_via,

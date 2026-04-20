@@ -143,6 +143,8 @@ Expected outcome:
 Structure, interoperability, and operator-facing contracts:
 
 - Declarative pack-level recommendations for external MCP servers without orchestrator-managed sidecar lifecycle
+- Instance-level external MCP allowlists owned by the orchestrator and resolved per-run against the selected agent routing
+- The resolved capability contract should be visible in validation output and persisted into the run-level dispatch artifact so every agent sees the same allowed/denied tool surface
 - Reference MCP interoperability checks using the upstream `Everything` server
 - Documented `Fetch` integration as the first recommended external MCP server
 - Published artifact schemas and a more explicit structured event model

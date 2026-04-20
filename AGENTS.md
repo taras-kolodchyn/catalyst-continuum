@@ -14,6 +14,7 @@ Before modifying behavior, review the project context that defines the current c
 - `docs/summary.md`
 - `docs/v0.1-scope.md`
 - `docs/adr/0001-control-plane-and-agent-surface.md`
+- `docs/adr/0002-agent-capability-policy.md`
 
 When the change touches agent integrations or MCP behavior, also review:
 

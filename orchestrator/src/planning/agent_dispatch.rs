@@ -6,7 +6,10 @@ use serde_json::json;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
-use crate::models::{artifact::ArtifactDraft, run::RunDraft, task::TaskDraft};
+use crate::{
+    models::{artifact::ArtifactDraft, run::RunDraft, task::TaskDraft},
+    planning::external_mcp::ResolvedExternalMcpContract,
+};
 
 pub const AGENT_DISPATCH_PLAN_ARTIFACT_TYPE: &str = "agent_dispatch_plan";
 
@@ -25,6 +28,8 @@ pub struct AgentDispatchPlanDocument {
     pub allowed_agents: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub supported_agents: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub external_mcp_contract: Option<ResolvedExternalMcpContract>,
     pub agents: Vec<AgentDispatchBucket>,
     pub tasks: Vec<AgentDispatchTask>,
 }
@@ -83,6 +88,14 @@ pub fn generate_agent_dispatch_plan(
         .get("agent_routing")
         .cloned()
         .unwrap_or(serde_json::Value::Null);
+    let external_mcp_contract = run
+        .metadata
+        .get("external_mcp_contract")
+        .cloned()
+        .filter(|value| !value.is_null())
+        .map(serde_json::from_value::<ResolvedExternalMcpContract>)
+        .transpose()
+        .context("failed to deserialize external MCP contract from run metadata")?;
 
     let document = AgentDispatchPlanDocument {
         schema_version: "v0.1".to_string(),
@@ -116,6 +129,7 @@ pub fn generate_agent_dispatch_plan(
                 .or_else(|| execution_preferences.get("allowed_agents")),
         ),
         supported_agents: json_array_strings(routing.get("supported_agents")),
+        external_mcp_contract: external_mcp_contract.clone(),
         agents,
         tasks,
     };
@@ -148,6 +162,12 @@ pub fn generate_agent_dispatch_plan(
                 "agent_count": document.agents.len(),
                 "default_agent": document.default_agent,
                 "orchestrator_model": document.orchestrator_model,
+                "external_mcp_server_count": external_mcp_contract
+                    .as_ref()
+                    .map_or(0, |contract| contract.servers.len()),
+                "allowed_external_mcp_server_count": external_mcp_contract
+                    .as_ref()
+                    .map_or(0, ResolvedExternalMcpContract::allowed_server_count),
             }),
         },
         document,
@@ -254,6 +274,7 @@ mod tests {
             document.allowed_agents,
             vec!["openhands".to_string(), "codex".to_string()]
         );
+        assert!(document.external_mcp_contract.is_none());
         assert!(document.agents.iter().any(|bucket| {
             bucket.agent == "codex"
                 && bucket.task_count == 1
@@ -270,6 +291,53 @@ mod tests {
                 && bucket.task_kinds.iter().any(|kind| kind == "code")
                 && bucket.task_kinds.iter().any(|kind| kind == "test")
         }));
+    }
+
+    #[test]
+    fn includes_external_mcp_contract_from_run_metadata() {
+        let brief = sample_brief();
+        let mut run = RunDraft::from_brief(&brief, "examples/brief.yaml".to_string());
+        if let Some(metadata) = run.metadata.as_object_mut() {
+            metadata.insert(
+                "external_mcp_contract".to_string(),
+                json!({
+                    "requested_run_agents": ["codex", "openhands"],
+                    "servers": [{
+                        "server_id": "fetch",
+                        "display_name": "Fetch",
+                        "status": "allowed",
+                        "allowed_for_this_run_agents": ["codex"],
+                        "denied_for_this_run_agents": ["openhands"],
+                        "allowed_by_instance_agents": ["codex"],
+                        "reason": "server `fetch` is only allowed for a subset of the run's assigned agents"
+                    }]
+                }),
+            );
+        }
+        let pack = PackDefinition::load(Some("cli-tool")).expect("cli-tool pack should load");
+        let backlog = generate_initial_backlog(&brief, &run, &pack, Path::new(".tmp"), false)
+            .expect("backlog should generate");
+        let tasks =
+            materialize_tasks(&run, &pack, &backlog.document).expect("tasks should materialize");
+
+        let (_, document) = generate_agent_dispatch_plan(&run, &tasks, Path::new(".tmp"), false)
+            .expect("dispatch plan should generate");
+
+        assert_eq!(
+            document
+                .external_mcp_contract
+                .as_ref()
+                .map(|contract| contract.requested_run_agents.clone()),
+            Some(vec!["codex".to_string(), "openhands".to_string()])
+        );
+        assert_eq!(
+            document
+                .external_mcp_contract
+                .as_ref()
+                .and_then(|contract| contract.servers.first())
+                .map(|server| server.allowed_for_this_run_agents.clone()),
+            Some(vec!["codex".to_string()])
+        );
     }
 
     fn sample_brief() -> Brief {

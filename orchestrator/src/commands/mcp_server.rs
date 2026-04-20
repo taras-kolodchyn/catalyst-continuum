@@ -14,7 +14,9 @@ use crate::{
         describe_latest_artifact, describe_repository_signal_payload, evaluate_run_policy,
         evaluate_run_quality, export_pr_candidate, heartbeat_agent_task, open_github_pr,
         publish_pr_export, run_next_github_webhook_action, run_next_repository_automation,
-        run_next_task, submit_next_repository_signal, worker,
+        run_next_task, submit_next_repository_signal,
+        submit_repository_signal::BriefSubmissionContext,
+        worker,
     },
     config::InstanceConfigReport,
     models::{
@@ -22,8 +24,8 @@ use crate::{
         webhook::{GitHubWebhookActionRequestListFilters, GitHubWebhookListFilters},
     },
     planning::{
-        brief_validation::validate_brief_document, pack_catalog::build_pack_catalog,
-        packs::PackDefinition,
+        brief_validation::validate_brief_document_with_external_mcp_servers,
+        pack_catalog::build_pack_catalog, packs::PackDefinition,
     },
     runtime::RuntimeRegistry,
     storage::postgres::{PostgresRunStore, RunEventListFilters, RunListFilters},
@@ -741,7 +743,11 @@ impl StdioMcpServer {
     fn call_validate_brief(&self, arguments: Value) -> Value {
         call_tool(|| {
             let args: ValidateBriefToolArgs = parse_tool_arguments(arguments)?;
-            let validated = validate_brief_document(&args.brief_content, &args.brief_source_path)?;
+            let validated = validate_brief_document_with_external_mcp_servers(
+                &args.brief_content,
+                &args.brief_source_path,
+                &self.config.instance_config.external_mcp_servers,
+            )?;
             let structured = serde_json::to_value(&validated.report)
                 .context("failed to serialize brief validation report")?;
             Ok(tool_success_with_text(
@@ -759,6 +765,7 @@ impl StdioMcpServer {
                 &args.brief_content,
                 &args.brief_source_path,
                 self.config.database_url.as_deref(),
+                &self.config.instance_config.external_mcp_servers,
                 &self.config.artifact_root,
                 args.dry_run,
                 "mcp",
@@ -786,7 +793,10 @@ impl StdioMcpServer {
                     &args.brief_content,
                     &args.brief_source_path,
                     database_url,
-                    &self.config.artifact_root,
+                    BriefSubmissionContext {
+                        external_mcp_servers: &self.config.instance_config.external_mcp_servers,
+                        artifact_root: &self.config.artifact_root,
+                    },
                     &args.signal_id,
                     "named",
                     "mcp",
@@ -813,7 +823,10 @@ impl StdioMcpServer {
                 &args.brief_content,
                 &args.brief_source_path,
                 database_url,
-                &self.config.artifact_root,
+                BriefSubmissionContext {
+                    external_mcp_servers: &self.config.instance_config.external_mcp_servers,
+                    artifact_root: &self.config.artifact_root,
+                },
                 args.signal_kind.as_deref(),
                 "mcp",
             )?;
@@ -839,7 +852,10 @@ impl StdioMcpServer {
                 &args.brief_content,
                 &args.brief_source_path,
                 database_url,
-                &self.config.artifact_root,
+                BriefSubmissionContext {
+                    external_mcp_servers: &self.config.instance_config.external_mcp_servers,
+                    artifact_root: &self.config.artifact_root,
+                },
                 args.action.as_deref(),
                 args.signal_kind.as_deref(),
                 "mcp",
@@ -1884,6 +1900,7 @@ fn optional_integer_property<'a>(name: &'a str, description: &'a str) -> Propert
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{fs, path::PathBuf};
 
     #[test]
     fn negotiates_supported_protocol_version() {
@@ -2100,6 +2117,61 @@ mod tests {
             output[1]["result"]["structuredContent"]["validation"]["pack_selection"]["resolved_pack_id"],
             "container-service"
         );
+        assert_eq!(
+            output[1]["result"]["structuredContent"]["validation"]["external_mcp_contract"]["servers"]
+                [0]["status"],
+            "allowed"
+        );
+        assert!(
+            output[1]["result"]["content"][0]["text"]
+                .as_str()
+                .is_some_and(|text| text.contains("external_mcp_servers:"))
+        );
+    }
+
+    #[test]
+    fn validates_brief_with_resolved_external_mcp_policy_from_instance_config() {
+        let mcp_servers_file = write_temp_mcp_servers_file(
+            r#"
+servers:
+  - server_id: fetch
+    display_name: Fetch
+    enabled: true
+    allowed_agents:
+      - openhands
+      - codex
+"#,
+        );
+        let mut server = StdioMcpServer::new(McpServerArgs {
+            database_url: None,
+            artifact_root: PathBuf::from(".continuum/artifacts"),
+            runtime_providers_file: None,
+            mcp_servers_file: Some(mcp_servers_file.clone()),
+        })
+        .expect("server should initialize");
+        let brief = sample_brief().replace('\n', "\\n");
+        let input = format!(
+            concat!(
+                "{{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{{}},\"clientInfo\":{{\"name\":\"test-client\",\"version\":\"0.1.0\"}}}}}}\n",
+                "{{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}}\n",
+                "{{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{{\"name\":\"validate_brief\",\"arguments\":{{\"brief_content\":\"{}\",\"brief_source_path\":\"examples/briefs/mcp-test.yaml\"}}}}}}\n"
+            ),
+            brief
+        );
+
+        let output = run_session(&mut server, &input);
+        let validation = &output[1]["result"]["structuredContent"]["validation"];
+
+        assert_eq!(
+            validation["external_mcp_contract"]["servers"][0]["status"],
+            "allowed"
+        );
+        assert_eq!(
+            validation["external_mcp_contract"]["servers"][0]["allowed_for_this_run_agents"],
+            json!(["codex", "openhands"])
+        );
+
+        let _ = fs::remove_file(mcp_servers_file);
     }
 
     fn run_session(server: &mut StdioMcpServer, input: &str) -> Vec<Value> {
@@ -2141,5 +2213,14 @@ repository:
   default_branch: main
   visibility: private
 "#
+    }
+
+    fn write_temp_mcp_servers_file(contents: &str) -> PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "catalyst-continuum-mcp-servers-{}.yaml",
+            uuid::Uuid::new_v4()
+        ));
+        fs::write(&path, contents).expect("temp MCP servers file should be written");
+        path
     }
 }

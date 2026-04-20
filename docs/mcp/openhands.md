@@ -125,7 +125,7 @@ Stateless tools work even without Postgres:
 - `describe_pack`
 - `validate_brief`
 
-That stateless path is also the first routing checkpoint for OpenHands: `describe_pack` exposes the selected pack's `agent_profile` plus `recommended_external_mcp_servers`, and `validate_brief` resolves the brief's `agent_routing` so OpenHands can see whether the run expects `openhands`, `codex`, or another supported agent before any stateful execution starts. After a run exists, the same routing contract is also persisted as `agent_dispatch_plan`, which gives OpenHands a stable run-level delegation document instead of forcing it to infer agent ownership from raw task rows.
+That stateless path is also the first routing checkpoint for OpenHands: `describe_pack` exposes the selected pack's `agent_profile` plus `recommended_external_mcp_servers`, and `validate_brief` resolves the brief's `agent_routing` plus `external_mcp_contract` so OpenHands can see whether the run expects `openhands`, `codex`, or another supported agent and whether the instance actually allows the recommended external MCP servers for those assigned agents before any stateful execution starts. After a run exists, the same routing and capability contract is also persisted as `agent_dispatch_plan`, which gives OpenHands a stable run-level delegation document instead of forcing it to infer agent ownership or allowed external tools from raw task rows.
 
 Stateful tools need `CATALYST_DATABASE_URL`:
 

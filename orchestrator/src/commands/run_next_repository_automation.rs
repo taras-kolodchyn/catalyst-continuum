@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use anyhow::Context;
 use serde::Serialize;
 
@@ -8,19 +6,26 @@ use crate::{
     commands::{
         run_next_github_webhook_action::{self, NextGitHubWebhookActionExecution},
         submit_next_repository_signal::{self, NextRepositorySignalSubmission},
+        submit_repository_signal::BriefSubmissionContext,
     },
-    planning::brief_validation::validate_brief_document,
+    config::ExternalMcpServersConfig,
+    planning::brief_validation::validate_brief_document_with_external_mcp_servers,
     storage::postgres::PostgresRunStore,
 };
 
 pub fn execute(args: RunNextRepositoryAutomationArgs) -> anyhow::Result<()> {
     let raw_brief = std::fs::read_to_string(&args.file)
         .with_context(|| format!("failed to read brief file: {}", args.file.display()))?;
+    let external_mcp_servers = ExternalMcpServersConfig::load(args.mcp_servers_file.as_deref())?;
+    let context = BriefSubmissionContext {
+        external_mcp_servers: &external_mcp_servers,
+        artifact_root: &args.artifact_root,
+    };
     let report = run_next_repository_automation_document(
         &raw_brief,
         &args.file.display().to_string(),
         &args.database_url,
-        &args.artifact_root,
+        context,
         args.action.as_deref(),
         args.signal_kind.as_deref(),
         "cli",
@@ -73,19 +78,23 @@ pub fn run_next_repository_automation_document(
     raw_brief: &str,
     brief_source_path: &str,
     database_url: &str,
-    artifact_root: &Path,
+    context: BriefSubmissionContext<'_>,
     action_filter: Option<&str>,
     signal_kind: Option<&str>,
     invoked_via: &str,
 ) -> anyhow::Result<RepositoryAutomationReport> {
-    validate_brief_document(raw_brief, brief_source_path)?;
+    validate_brief_document_with_external_mcp_servers(
+        raw_brief,
+        brief_source_path,
+        context.external_mcp_servers,
+    )?;
 
     let mut store = PostgresRunStore::connect(database_url)?;
     store.ensure_schema()?;
 
     let webhook_action = run_next_github_webhook_action::execute_next_github_webhook_action(
         &mut store,
-        artifact_root,
+        context.artifact_root,
         action_filter,
     )?;
 
@@ -95,7 +104,7 @@ pub fn run_next_repository_automation_document(
                 raw_brief,
                 brief_source_path,
                 database_url,
-                artifact_root,
+                context,
                 signal_kind,
                 invoked_via,
             )?,

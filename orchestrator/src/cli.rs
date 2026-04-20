@@ -383,6 +383,9 @@ pub struct ValidateBriefArgs {
     #[arg(long, short = 'f')]
     pub file: PathBuf,
 
+    #[arg(long, env = "CATALYST_MCP_SERVERS_FILE")]
+    pub mcp_servers_file: Option<PathBuf>,
+
     #[arg(long)]
     pub json: bool,
 }
@@ -401,6 +404,9 @@ pub struct SubmitBriefArgs {
         default_value = ".continuum/artifacts"
     )]
     pub artifact_root: PathBuf,
+
+    #[arg(long, env = "CATALYST_MCP_SERVERS_FILE")]
+    pub mcp_servers_file: Option<PathBuf>,
 
     #[arg(long)]
     pub dry_run: bool,
@@ -427,6 +433,9 @@ pub struct SubmitRepositorySignalArgs {
     )]
     pub artifact_root: PathBuf,
 
+    #[arg(long, env = "CATALYST_MCP_SERVERS_FILE")]
+    pub mcp_servers_file: Option<PathBuf>,
+
     #[arg(long)]
     pub json: bool,
 
@@ -448,6 +457,9 @@ pub struct SubmitNextRepositorySignalArgs {
         default_value = ".continuum/artifacts"
     )]
     pub artifact_root: PathBuf,
+
+    #[arg(long, env = "CATALYST_MCP_SERVERS_FILE")]
+    pub mcp_servers_file: Option<PathBuf>,
 
     #[arg(long)]
     pub signal_kind: Option<String>,
@@ -473,6 +485,9 @@ pub struct RunNextRepositoryAutomationArgs {
         default_value = ".continuum/artifacts"
     )]
     pub artifact_root: PathBuf,
+
+    #[arg(long, env = "CATALYST_MCP_SERVERS_FILE")]
+    pub mcp_servers_file: Option<PathBuf>,
 
     #[arg(long)]
     pub action: Option<String>,

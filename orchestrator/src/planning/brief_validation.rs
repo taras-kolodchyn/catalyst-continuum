@@ -2,9 +2,11 @@ use anyhow::{Context, Result, ensure};
 use serde::Serialize;
 
 use crate::{
+    config::ExternalMcpServersConfig,
     models::brief::{Brief, RepositoryTarget},
     planning::{
         agent_routing::{ResolvedAgentRouting, resolve_agent_routing},
+        external_mcp::{ResolvedExternalMcpContract, resolve_external_mcp_contract},
         pack_catalog::{PackCatalogEntry, resolve_pack_selection},
         packs::PackDefinition,
     },
@@ -35,6 +37,7 @@ pub struct BriefValidationReport {
     pub acceptance_criteria_count: usize,
     pub pack_selection: BriefPackSelectionReport,
     pub agent_routing: ResolvedAgentRouting,
+    pub external_mcp_contract: ResolvedExternalMcpContract,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -46,9 +49,10 @@ pub struct BriefPackSelectionReport {
     pub resolved_pack: PackCatalogEntry,
 }
 
-pub fn validate_brief_document(
+pub fn validate_brief_document_with_external_mcp_servers(
     raw_brief: &str,
     brief_source_path: &str,
+    instance_external_mcp_servers: &ExternalMcpServersConfig,
 ) -> Result<ValidatedBriefSubmission> {
     let brief: Brief = serde_yaml::from_str(raw_brief)
         .with_context(|| format!("failed to parse brief YAML: {brief_source_path}"))?;
@@ -67,6 +71,11 @@ pub fn validate_brief_document(
             .and_then(|prefs| prefs.repo_pack.as_deref()),
     )?;
     let agent_routing = resolve_agent_routing(&brief, &selection.pack)?;
+    let external_mcp_contract = resolve_external_mcp_contract(
+        &selection.pack,
+        &agent_routing,
+        instance_external_mcp_servers,
+    );
     let resolved_pack = PackCatalogEntry::from_pack(&selection.pack);
 
     Ok(ValidatedBriefSubmission {
@@ -95,6 +104,7 @@ pub fn validate_brief_document(
                 resolved_pack,
             },
             agent_routing,
+            external_mcp_contract,
         },
     })
 }
@@ -151,6 +161,40 @@ impl BriefValidationReport {
                     .join(", ")
             )
             .context("failed to render brief validation")?;
+        }
+        if !self.external_mcp_contract.servers.is_empty() {
+            writeln!(&mut output, "external_mcp_servers:")
+                .context("failed to render brief validation")?;
+            for server in &self.external_mcp_contract.servers {
+                writeln!(&mut output, "  - server_id: {}", server.server_id)
+                    .context("failed to render brief validation")?;
+                writeln!(&mut output, "    status: {}", server.status)
+                    .context("failed to render brief validation")?;
+                if let Some(display_name) = &server.display_name {
+                    writeln!(&mut output, "    display_name: {display_name}")
+                        .context("failed to render brief validation")?;
+                }
+                if !server.allowed_for_this_run_agents.is_empty() {
+                    writeln!(
+                        &mut output,
+                        "    allowed_for_this_run_agents: {}",
+                        server.allowed_for_this_run_agents.join(", ")
+                    )
+                    .context("failed to render brief validation")?;
+                }
+                if !server.denied_for_this_run_agents.is_empty() {
+                    writeln!(
+                        &mut output,
+                        "    denied_for_this_run_agents: {}",
+                        server.denied_for_this_run_agents.join(", ")
+                    )
+                    .context("failed to render brief validation")?;
+                }
+                if let Some(reason) = &server.reason {
+                    writeln!(&mut output, "    reason: {reason}")
+                        .context("failed to render brief validation")?;
+                }
+            }
         }
         writeln!(
             &mut output,
@@ -209,9 +253,10 @@ mod tests {
 
     #[test]
     fn validates_brief_preflight_with_default_pack_resolution() {
-        let validated = validate_brief_document(
+        let validated = validate_brief_document_with_external_mcp_servers(
             sample_brief_without_repo_pack(),
             "examples/briefs/default-pack.yaml",
+            &empty_external_mcp_servers(),
         )
         .expect("validation should succeed");
 
@@ -226,6 +271,30 @@ mod tests {
             validated.report.agent_routing.default_agent.as_deref(),
             Some("openhands")
         );
+        assert_eq!(validated.report.external_mcp_contract.servers.len(), 1);
+        assert_eq!(
+            validated.report.external_mcp_contract.servers[0].status,
+            "unknown_server"
+        );
+    }
+
+    #[test]
+    fn renders_external_mcp_contract_in_text_report() {
+        let validated = validate_brief_document_with_external_mcp_servers(
+            sample_brief_without_repo_pack(),
+            "examples/briefs/default-pack.yaml",
+            &empty_external_mcp_servers(),
+        )
+        .expect("validation should succeed");
+
+        let rendered = validated
+            .report
+            .render_text()
+            .expect("brief validation should render");
+
+        assert!(rendered.contains("external_mcp_servers:"));
+        assert!(rendered.contains("server_id: fetch"));
+        assert!(rendered.contains("status: unknown_server"));
     }
 
     fn sample_brief_without_repo_pack() -> &'static str {
@@ -254,5 +323,12 @@ repository:
   default_branch: main
   visibility: private
 "#
+    }
+
+    fn empty_external_mcp_servers() -> ExternalMcpServersConfig {
+        ExternalMcpServersConfig {
+            source_path: None,
+            servers: Vec::new(),
+        }
     }
 }
