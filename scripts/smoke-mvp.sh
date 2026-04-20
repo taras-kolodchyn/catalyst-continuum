@@ -25,6 +25,7 @@ resolve_cargo_target_root() {
 ORCHESTRATOR_TARGET_ROOT="$(resolve_cargo_target_root)"
 ARTIFACT_ROOT="${CATALYST_ARTIFACT_ROOT:-$ROOT_DIR/.continuum/ci-artifacts}"
 BRIEF_FILE="${SMOKE_BRIEF_FILE:-$ROOT_DIR/examples/briefs/minimal-container-service.yaml}"
+EVAL_REPORT_FILE="${SMOKE_EVAL_REPORT_FILE:-}"
 BIN="${ORCHESTRATOR_TARGET_ROOT}/debug/catalyst-continuum-orchestrator"
 POSTGRES_IMAGE="${SMOKE_POSTGRES_IMAGE:-postgres:${POSTGRES_VERSION}@${POSTGRES_IMAGE_DIGEST}}"
 POSTGRES_DB="${SMOKE_POSTGRES_DB:-continuum}"
@@ -185,6 +186,15 @@ fi
 
 rm -rf "$ARTIFACT_ROOT"
 mkdir -p "$ARTIFACT_ROOT"
+
+BRIEF_VALIDATION_FILE="$ARTIFACT_ROOT/brief-validation.json"
+SUBMISSION_OUTPUT_FILE="$ARTIFACT_ROOT/submission-output.yaml"
+PREMATURE_EXPORT_LOG="$ARTIFACT_ROOT/pre-promotion-rejection.log"
+POLICY_OUTPUT_FILE="$ARTIFACT_ROOT/policy-output.yaml"
+QUALITY_OUTPUT_FILE="$ARTIFACT_ROOT/quality-output.yaml"
+PUBLICATION_OUTPUT_FILE="$ARTIFACT_ROOT/publication-output.yaml"
+
+"$BIN" validate-brief --file "$BRIEF_FILE" --json >"$BRIEF_VALIDATION_FILE"
 
 ORCHESTRATOR_HTTP_PORT="${SMOKE_HTTP_PORT:-$(allocate_loopback_port)}"
 ORCHESTRATOR_LOG="$ARTIFACT_ROOT/orchestrator-http.log"
@@ -866,11 +876,22 @@ SUBMISSION_OUTPUT="$("$BIN" submit-brief \
   --database-url "$DATABASE_URL" \
   --artifact-root "$ARTIFACT_ROOT" \
   --file "$BRIEF_FILE")"
+printf '%s\n' "$SUBMISSION_OUTPUT" >"$SUBMISSION_OUTPUT_FILE"
 RUN_ID="$(printf '%s\n' "$SUBMISSION_OUTPUT" | awk '/^run_id:/ {print $2; exit}')"
 PACK_ID="$(printf '%s\n' "$SUBMISSION_OUTPUT" | awk '/^target_pack:/ {print $2; exit}')"
 
 test -n "$RUN_ID"
 test -n "$PACK_ID"
+
+if "$BIN" export-pr-candidate \
+  --database-url "$DATABASE_URL" \
+  --artifact-root "$ARTIFACT_ROOT" \
+  --run-id "$RUN_ID" >"$PREMATURE_EXPORT_LOG" 2>&1; then
+  cat "$PREMATURE_EXPORT_LOG" >&2
+  echo "premature PR export unexpectedly succeeded" >&2
+  exit 1
+fi
+grep -q 'PR export requires a succeeded run' "$PREMATURE_EXPORT_LOG"
 
 RUNS_HTTP_FILE="$ARTIFACT_ROOT/http-runs.json"
 RUN_DETAIL_HTTP_FILE="$ARTIFACT_ROOT/http-run-detail.json"
@@ -923,6 +944,7 @@ POLICY_OUTPUT="$("$BIN" evaluate-run-policy \
   --database-url "$DATABASE_URL" \
   --artifact-root "$ARTIFACT_ROOT" \
   --run-id "$RUN_ID")"
+printf '%s\n' "$POLICY_OUTPUT" >"$POLICY_OUTPUT_FILE"
 printf '%s\n' "$POLICY_OUTPUT"
 printf '%s\n' "$POLICY_OUTPUT" | grep -q '^passed: true$'
 POLICY_ARTIFACT_ID="$(printf '%s\n' "$POLICY_OUTPUT" | awk '/^artifact_id:/ {print $2; exit}')"
@@ -1038,6 +1060,7 @@ QUALITY_OUTPUT="$("$BIN" evaluate-run-quality \
   --database-url "$DATABASE_URL" \
   --artifact-root "$ARTIFACT_ROOT" \
   --run-id "$RUN_ID")"
+printf '%s\n' "$QUALITY_OUTPUT" >"$QUALITY_OUTPUT_FILE"
 printf '%s\n' "$QUALITY_OUTPUT"
 printf '%s\n' "$QUALITY_OUTPUT" | grep -q '^passed: true$'
 QUALITY_ARTIFACT_ID="$(printf '%s\n' "$QUALITY_OUTPUT" | awk '/^artifact_id:/ {print $2; exit}')"
@@ -1123,6 +1146,7 @@ PUBLICATION_OUTPUT="$("$BIN" publish-pr-export \
   --remote-url "$REMOTE_URL" \
   --push \
   --pretty)"
+printf '%s\n' "$PUBLICATION_OUTPUT" >"$PUBLICATION_OUTPUT_FILE"
 printf '%s\n' "$PUBLICATION_OUTPUT"
 printf '%s\n' "$PUBLICATION_OUTPUT" | grep -q '^push_status: pushed$'
 
@@ -1339,4 +1363,147 @@ fi
 test -d "$EXPORT_ROOT/repository/.git"
 test -f "$EXPORT_ROOT/manifest.json"
 test -f "$ARTIFACT_ROOT/runs/$RUN_ID/pr-candidate/current/manifest.json"
+test -f "$ARTIFACT_ROOT/runs/$RUN_ID/pr-publication/current/manifest.json"
 git --git-dir "$REMOTE_URL" show-ref --verify --quiet "refs/heads/$BRANCH_NAME"
+
+if [ -n "$EVAL_REPORT_FILE" ]; then
+  mkdir -p "$(dirname "$EVAL_REPORT_FILE")"
+  python3 - \
+    "$EVAL_REPORT_FILE" \
+    "$BRIEF_FILE" \
+    "$BRIEF_VALIDATION_FILE" \
+    "$PACK_DESCRIPTOR_FILE" \
+    "$POLICY_ARTIFACT_FILE" \
+    "$QUALITY_ARTIFACT_FILE" \
+    "$PREMATURE_EXPORT_LOG" \
+    "$ARTIFACT_ROOT/runs/$RUN_ID/pr-candidate/current/manifest.json" \
+    "$ARTIFACT_ROOT/runs/$RUN_ID/pr-publication/current/manifest.json" \
+    "$RUN_ID" \
+    "$PACK_ID" \
+    "$GENERATED_SMOKE_KIND" \
+    "$HEALTH_OUTPUT" \
+    "$SUMMARY_OUTPUT" <<'PY'
+import json
+import pathlib
+import sys
+
+report_path = pathlib.Path(sys.argv[1])
+brief_file = sys.argv[2]
+brief_validation = json.loads(pathlib.Path(sys.argv[3]).read_text(encoding="utf-8"))
+pack = json.loads(pathlib.Path(sys.argv[4]).read_text(encoding="utf-8"))
+policy_artifact = json.loads(pathlib.Path(sys.argv[5]).read_text(encoding="utf-8"))
+quality_artifact = json.loads(pathlib.Path(sys.argv[6]).read_text(encoding="utf-8"))
+premature_export_log = pathlib.Path(sys.argv[7]).read_text(encoding="utf-8").strip()
+pr_candidate_manifest = json.loads(pathlib.Path(sys.argv[8]).read_text(encoding="utf-8"))
+pr_publication_manifest = json.loads(pathlib.Path(sys.argv[9]).read_text(encoding="utf-8"))
+run_id = sys.argv[10]
+pack_id = sys.argv[11]
+generated_smoke_kind = sys.argv[12]
+health_output_path = pathlib.Path(sys.argv[13])
+summary_output_path = pathlib.Path(sys.argv[14])
+
+brief_validation_passed = (
+    brief_validation["valid"] is True
+    and brief_validation["pack_selection"]["resolved_pack_id"] == pack_id
+)
+pack_resolution_passed = (
+    brief_validation["pack_selection"]["resolved_pack_id"] == pack["pack_id"] == pack_id
+    and not brief_validation["pack_selection"]["used_default"]
+)
+artifact_generation_passed = (
+    policy_artifact["metadata"]["passed"] is True
+    and quality_artifact["metadata"]["passed"] is True
+    and pr_candidate_manifest["artifact_type"] == "pr_candidate"
+    and pr_publication_manifest["artifact_type"] == "pr_publication"
+)
+premature_export_rejected = "PR export requires a succeeded run" in premature_export_log
+promotion_readiness_passed = (
+    premature_export_rejected
+    and pr_publication_manifest["push_status"] == "pushed"
+    and pr_publication_manifest["source_quality_report_artifact_id"]
+    == quality_artifact["artifact"]["artifact_id"]
+)
+
+generated_repository_smoke = {
+    "passed": False,
+    "kind": generated_smoke_kind,
+}
+if generated_smoke_kind == "http_json" and health_output_path.is_file():
+    health = json.loads(health_output_path.read_text(encoding="utf-8"))
+    generated_repository_smoke = {
+        "passed": health.get("status") == "ok",
+        "kind": generated_smoke_kind,
+        "health": health,
+    }
+elif generated_smoke_kind == "cli_json" and summary_output_path.is_file():
+    summary = json.loads(summary_output_path.read_text(encoding="utf-8"))
+    generated_repository_smoke = {
+        "passed": summary.get("pack") == pack_id,
+        "kind": generated_smoke_kind,
+        "summary": summary,
+    }
+
+report = {
+    "schema_version": "v0.1",
+    "evaluation_type": "baseline_smoke",
+    "passed": all(
+        (
+            brief_validation_passed,
+            pack_resolution_passed,
+            artifact_generation_passed,
+            promotion_readiness_passed,
+            generated_repository_smoke["passed"],
+        )
+    ),
+    "brief": {
+        "source_path": brief_file,
+        "brief_id": brief_validation["brief_id"],
+        "title": brief_validation["title"],
+    },
+    "run": {
+        "run_id": run_id,
+        "pack_id": pack_id,
+    },
+    "brief_validation": {
+        "passed": brief_validation_passed,
+        "resolved_pack_id": brief_validation["pack_selection"]["resolved_pack_id"],
+        "requested_pack_id": brief_validation["pack_selection"]["requested_pack_id"],
+        "default_agent": brief_validation["agent_routing"]["default_agent"],
+        "allowed_agents": brief_validation["agent_routing"]["allowed_agents"],
+    },
+    "pack_resolution": {
+        "passed": pack_resolution_passed,
+        "expected_pack_id": pack["pack_id"],
+        "resolved_pack_id": brief_validation["pack_selection"]["resolved_pack_id"],
+        "generated_runtime_kind": (pack.get("generated_repository") or {})
+        .get("runtime", {})
+        .get("kind"),
+        "generated_smoke_kind": generated_smoke_kind,
+    },
+    "artifact_generation": {
+        "passed": artifact_generation_passed,
+        "artifacts_present": [
+            "policy_report",
+            "quality_report",
+            "pr_candidate",
+            "pr_publication",
+        ],
+        "policy_artifact_id": policy_artifact["artifact"]["artifact_id"],
+        "quality_artifact_id": quality_artifact["artifact"]["artifact_id"],
+        "policy_report_passed": policy_artifact["metadata"]["passed"],
+        "quality_report_passed": quality_artifact["metadata"]["passed"],
+    },
+    "promotion_readiness": {
+        "passed": promotion_readiness_passed,
+        "premature_export_rejected": premature_export_rejected,
+        "rejection_reason": premature_export_log,
+        "push_status": pr_publication_manifest["push_status"],
+        "head_branch": pr_publication_manifest["head_branch"],
+        "published_ref": pr_publication_manifest["published_ref"],
+    },
+    "generated_repository_smoke": generated_repository_smoke,
+}
+
+report_path.write_text(f"{json.dumps(report, indent=2)}\n", encoding="utf-8")
+PY
+fi

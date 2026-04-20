@@ -89,6 +89,7 @@ Before delivering, run the smallest meaningful validation set that proves the ch
 - `./scripts/ci-rust.sh` for Rust logic, CLI commands, HTTP routes, MCP handlers, storage, and tests
 - `./scripts/ci-compose.sh` for compose or deployment changes
 - `./scripts/compose-runtime-check.sh` for container image layout, shared-volume wiring, or compose service-contract changes that should be proven through the actual `orchestrator` and `worker` containers
+- `./scripts/eval-baseline.sh` for brief-validation, pack-selection, artifact-lineage, and promotion-readiness contract changes that should keep the release-evaluation baseline explicit
 - `./scripts/ci-smoke.sh` for end-to-end orchestration changes, webhook flows, repository-signal flows, draft-PR flows, or cross-surface behavior changes
 - `./scripts/mcp-smoke.sh` for stateless MCP handshake and tool discovery changes
 - `./scripts/mcp-reference-smoke.sh` for upstream MCP interoperability checks against the pinned `Everything` reference server
