@@ -43,6 +43,9 @@ When the change touches agent integrations or MCP behavior, also review:
 ## Rust Design Rules
 
 - Install the commands the repository relies on before assuming a local validation path is unavailable.
+- Collapse `if` statements when Rust Clippy's `collapsible_if` guidance applies.
+- Inline `format!` arguments when Rust Clippy's `uninlined_format_args` guidance applies.
+- Prefer method references over equivalent closures when Rust Clippy's `redundant_closure_for_method_calls` guidance applies.
 - Prefer self-documenting Rust APIs. Avoid bool or ambiguous `Option` parameters when an enum, named method, or newtype would make the call site clearer.
 - Prefer exhaustive `match` statements over wildcard arms when the set of cases is known and expected to stay explicit.
 - Keep crate and module boundaries intentional. Default to private modules and explicitly export the public API that should be reused.
