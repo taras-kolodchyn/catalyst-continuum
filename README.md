@@ -202,7 +202,7 @@ GitHub Actions runs one workflow, [`.github/workflows/ci.yml`](.github/workflows
 - `shell`: runs ShellCheck across every script under [`scripts/`](scripts)
 - `sbom`: builds the orchestrator image, generates an SPDX SBOM, uploads the SBOM artifact, and creates a GitHub/Sigstore provenance attestation for that uploaded artifact
 - `rust`: runs `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo build --workspace --locked`, `cargo test --workspace --locked`, `./scripts/mcp-smoke.sh`, and `./scripts/mcp-reference-smoke.sh`
-- `compose`: validates `deploy/compose/compose.yaml` with the pinned `.env.example`
+- `compose`: validates `deploy/compose/compose.yaml` with the pinned `.env.example`, including the `orchestrator`/`worker` shared-artifact and explicit in-container config contract for the shipped `v0.1` stack
 - `smoke`: runs as a matrix so each long end-to-end scenario is isolated in its own job: `mvp-container-service`, `mvp-cli-tool`, `mvp-worker-service`, and `mcp-stateful-cli-tool`
 
 Local runs through `act` use the runner image and container architecture pinned in [`.actrc`](.actrc), with the canonical values tracked in [`versions.env`](versions.env). `./scripts/ci-act.sh` now follows that pinned container architecture by default instead of silently switching to the host architecture, and still lets operators override it explicitly through `ACT_CONTAINER_ARCHITECTURE` when they need to debug a local runner quirk. GitHub-only publication steps such as artifact upload and attestation are skipped under `act`, because local runs do not expose GitHub runtime tokens, OIDC tokens, or the attestations API. The underlying build and SBOM generation steps still run locally.
