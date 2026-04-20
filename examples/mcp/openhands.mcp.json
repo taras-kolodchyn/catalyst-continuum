@@ -1,6 +1,7 @@
 {
   "mcpServers": {
     "catalyst-continuum": {
+      "transport": "stdio",
       "command": "cargo",
       "args": [
         "run",

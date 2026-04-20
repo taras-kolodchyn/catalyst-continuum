@@ -211,6 +211,7 @@ That MCP surface now includes `describe_instance_config` so an agent can inspect
 Use [examples/mcp/stdio-server.example.json](examples/mcp/stdio-server.example.json) as a neutral client config starting point, `./scripts/mcp-smoke.sh` for the stateless handshake/tool-discovery path, and `./scripts/mcp-stateful-smoke.sh` for the safe stateful run path.
 If OpenHands is the target client, prefer [examples/mcp/openhands.mcp.json](examples/mcp/openhands.mcp.json) and the registration flow documented in [docs/mcp/openhands.md](docs/mcp/openhands.md).
 For local OpenHands CLI registration, use `./scripts/openhands-register-mcp.sh`.
+For a full OpenHands `mcp.json` derived from the orchestrator allowlist, use `./scripts/openhands-render-mcp-config.sh --output "$HOME/.openhands/mcp.json"`.
 For a first local OpenHands run with the bundled LiteLLM gateway, use `./scripts/openhands-bootstrap.sh --validate-litellm --validate-mcp` and then `openhands -f examples/openhands/first-task.md`.
 
 ## CI

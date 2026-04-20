@@ -106,10 +106,10 @@ If the server is started without a database URL, stateful tools return MCP tool 
 Many open-source agents use slightly different configuration formats, but the transport contract is always the same:
 
 - command: `cargo` or the built orchestrator binary
-- args: `run -q -p catalyst-continuum-orchestrator -- mcp-server ...`
+- args: `run -q --manifest-path /absolute/path/to/Cargo.toml -p catalyst-continuum-orchestrator -- mcp-server ...`
 - env: optional `CATALYST_DATABASE_URL`, `CATALYST_RUNTIME_PROVIDERS_FILE`, `CATALYST_MCP_SERVERS_FILE`, and `CATALYST_AI_GATEWAY_FILE`
 
-Use `--runtime-providers-file` when the agent should target a non-default runtime-provider config path, `--mcp-servers-file` when the same session should use an explicit external MCP server allowlist, and `--ai-gateway-file` or `CATALYST_AI_GATEWAY_FILE` when the session should pin a non-default LiteLLM AI gateway contract file. That keeps MCP, HTTP, and local worker execution aligned to the same instance contract during validation.
+Prefer absolute paths for `--manifest-path`, `--artifact-root`, and the config files when the client persists its MCP registration separately from the repository working directory. Use `--runtime-providers-file` when the agent should target a non-default runtime-provider config path, `--mcp-servers-file` when the same session should use an explicit external MCP server allowlist, and `--ai-gateway-file` or `CATALYST_AI_GATEWAY_FILE` when the session should pin a non-default LiteLLM AI gateway contract file. That keeps MCP, HTTP, and local worker execution aligned to the same instance contract during validation.
 
 A neutral example config is available at [examples/mcp/stdio-server.example.json](../../examples/mcp/stdio-server.example.json).
 
@@ -198,5 +198,5 @@ For stateful sessions, `list_github_webhooks` and `describe_github_webhook` expo
 
 - Start with stateless validation first. This keeps agent integration simple before wiring Postgres and runtime workers.
 - When a pack recommends `fetch` and the resolved `external_mcp_contract` allows it for the current agent, register the pinned upstream `Fetch` server directly in the client using [fetch.md](fetch.md) instead of expecting the orchestrator to launch it.
-- Prefer launching the server from the same repository root so pack discovery and artifact paths remain predictable.
+- Prefer absolute paths over cwd-sensitive relative paths when the client persists its MCP registration.
 - Keep the client-side timeout reasonably generous for mutating tools, especially once worker execution is involved.

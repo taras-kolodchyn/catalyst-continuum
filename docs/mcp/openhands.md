@@ -137,19 +137,12 @@ If OpenHands itself runs inside Docker instead of on the host, use `http://host.
 OpenHands can register MCP servers from the CLI:
 
 ```bash
-openhands mcp add catalyst-continuum \
-  --transport stdio \
-  --env "CATALYST_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/catalyst_continuum" \
-  --env "CATALYST_RUNTIME_PROVIDERS_FILE=config/runtime-providers.yaml" \
-  --env "CATALYST_MCP_SERVERS_FILE=config/mcp-servers.yaml" \
-  --env "CATALYST_AI_GATEWAY_FILE=config/ai-gateway.yaml" \
-  cargo -- run -q -p catalyst-continuum-orchestrator -- mcp-server --artifact-root .continuum/artifacts --runtime-providers-file config/runtime-providers.yaml --mcp-servers-file config/mcp-servers.yaml --ai-gateway-file config/ai-gateway.yaml
+./scripts/openhands-register-mcp.sh
 ```
 
 Then verify the registration:
 
 ```bash
-./scripts/openhands-register-mcp.sh
 openhands mcp list
 openhands mcp get catalyst-continuum
 ```
@@ -159,18 +152,34 @@ Inside a conversation, OpenHands can show MCP status via `/mcp`.
 The helper script:
 
 - uses the official `openhands mcp add` CLI flow
+- uses `cargo --manifest-path <repo>/Cargo.toml` instead of relying on the current working directory
 - reads `CATALYST_DATABASE_URL` when you want stateful tools
 - reads `CATALYST_RUNTIME_PROVIDERS_FILE` when you want OpenHands pinned to a specific instance config path
 - reads `CATALYST_MCP_SERVERS_FILE` when you want OpenHands pinned to a specific external MCP allowlist
 - reads `CATALYST_AI_GATEWAY_FILE` when you want OpenHands pinned to a specific LiteLLM AI gateway contract file
 - defaults the server name to `catalyst-continuum`
 - can be renamed with `OPENHANDS_MCP_SERVER_NAME`
+- defaults to absolute repository paths for the artifact root and config files so the stored OpenHands command does not depend on launching from the repo root later
 
 ## Manual OpenHands Config
 
 OpenHands also supports manual configuration in `~/.openhands/mcp.json`.
 
-Use [examples/mcp/openhands.mcp.json](../../examples/mcp/openhands.mcp.json) as the starting point.
+For a full instance-derived config, prefer:
+
+```bash
+./scripts/openhands-render-mcp-config.sh --output "$HOME/.openhands/mcp.json"
+```
+
+That renderer:
+
+- emits absolute artifact and config paths
+- uses `cargo --manifest-path <repo>/Cargo.toml` for the orchestrator command
+- carries over `CATALYST_DATABASE_URL` when you export it before rendering
+- includes the OpenHands-allowed external MCP servers from `config/mcp-servers.yaml`
+- materializes pinned launch arguments for known servers such as `Fetch`
+
+Use [examples/mcp/openhands.mcp.json](../../examples/mcp/openhands.mcp.json) only as a minimal shape reference when you want to hand-edit the file yourself.
 
 The config matches the OpenHands MCP file format:
 
@@ -178,28 +187,40 @@ The config matches the OpenHands MCP file format:
 {
   "mcpServers": {
     "catalyst-continuum": {
+      "transport": "stdio",
       "command": "cargo",
       "args": [
         "run",
         "-q",
+        "--manifest-path",
+        "/absolute/path/to/catalyst-continuum/Cargo.toml",
         "-p",
         "catalyst-continuum-orchestrator",
         "--",
         "mcp-server",
         "--artifact-root",
-        ".continuum/artifacts",
+        "/absolute/path/to/catalyst-continuum/.continuum/artifacts",
         "--runtime-providers-file",
-        "config/runtime-providers.yaml",
+        "/absolute/path/to/catalyst-continuum/config/runtime-providers.yaml",
         "--mcp-servers-file",
-        "config/mcp-servers.yaml",
+        "/absolute/path/to/catalyst-continuum/config/mcp-servers.yaml",
         "--ai-gateway-file",
-        "config/ai-gateway.yaml"
+        "/absolute/path/to/catalyst-continuum/config/ai-gateway.yaml"
       ],
       "env": {
         "CATALYST_DATABASE_URL": "postgres://postgres:postgres@127.0.0.1:5432/catalyst_continuum",
-        "CATALYST_RUNTIME_PROVIDERS_FILE": "config/runtime-providers.yaml",
-        "CATALYST_MCP_SERVERS_FILE": "config/mcp-servers.yaml",
-        "CATALYST_AI_GATEWAY_FILE": "config/ai-gateway.yaml"
+        "CATALYST_RUNTIME_PROVIDERS_FILE": "/absolute/path/to/catalyst-continuum/config/runtime-providers.yaml",
+        "CATALYST_MCP_SERVERS_FILE": "/absolute/path/to/catalyst-continuum/config/mcp-servers.yaml",
+        "CATALYST_AI_GATEWAY_FILE": "/absolute/path/to/catalyst-continuum/config/ai-gateway.yaml"
+      }
+    },
+    "fetch": {
+      "transport": "stdio",
+      "command": "uvx",
+      "args": [
+        "--from",
+        "mcp-server-fetch==2025.4.7",
+        "mcp-server-fetch"
       }
     }
   }

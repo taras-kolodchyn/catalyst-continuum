@@ -222,6 +222,27 @@ if ! grep -Fq "$expected_fetch_pin" docs/mcp/fetch.md; then
     "hardcoded or missing"
 fi
 
+if ! grep -Fq "$expected_fetch_pin" docs/mcp/openhands.md; then
+  report_mismatch \
+    "docs/mcp/openhands.md Fetch server pin" \
+    "$expected_fetch_pin" \
+    "hardcoded or missing"
+fi
+
+if ! grep -Fq 'mcp-server-fetch==' scripts/openhands-render-mcp-config.sh; then
+  report_mismatch \
+    "scripts/openhands-render-mcp-config.sh Fetch server package reference" \
+    "mcp-server-fetch==" \
+    "hardcoded or missing"
+fi
+
+if ! grep -Fq 'MCP_FETCH_PYPI_VERSION' scripts/openhands-render-mcp-config.sh; then
+  report_mismatch \
+    "scripts/openhands-render-mcp-config.sh Fetch version source" \
+    'MCP_FETCH_PYPI_VERSION' \
+    "hardcoded or missing"
+fi
+
 if ! grep -Fq "$MCP_FETCH_WHEEL_SHA256" docs/mcp/fetch.md; then
   report_mismatch \
     "docs/mcp/fetch.md Fetch wheel hash pin" \

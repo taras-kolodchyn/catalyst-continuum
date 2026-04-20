@@ -185,6 +185,7 @@ echo "  ./scripts/litellm-local-smoke.sh --model '$LITELLM_MODEL'"
 echo "  ./scripts/mcp-smoke.sh"
 echo "  ./scripts/mcp-stateful-smoke.sh"
 echo "  ./scripts/openhands-register-mcp.sh"
+echo "  ./scripts/openhands-render-mcp-config.sh --output \"\$HOME/.openhands/mcp.json\""
 echo "  openhands -f examples/openhands/first-task.md"
 echo
 echo "recommended local backend:"
