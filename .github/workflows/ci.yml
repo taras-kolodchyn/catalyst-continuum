@@ -105,6 +105,9 @@ jobs:
       - name: Validate Docker Compose configuration
         run: ./scripts/ci-compose.sh
 
+      - name: Validate compose runtime contract
+        run: ./scripts/compose-runtime-check.sh
+
   smoke:
     name: smoke (${{ matrix.scenario }})
     needs:
