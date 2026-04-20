@@ -26,6 +26,16 @@ pub fn assert_json_file_matches_schema(schema_relative_path: &str, json_path: &P
     );
 }
 
+pub fn assert_serialized_matches_schema<T>(schema_relative_path: &str, label: &str, value: &T)
+where
+    T: serde::Serialize,
+{
+    let instance = serde_json::to_value(value).unwrap_or_else(|error| {
+        panic!("failed to serialize `{label}` for schema validation: {error}")
+    });
+    assert_value_matches_schema(schema_relative_path, label.to_string(), &instance);
+}
+
 fn assert_value_matches_schema(
     schema_relative_path: &str,
     label: String,

@@ -13,6 +13,7 @@ required:
   - summary
   - payload
   - created_at
+  - persisted
 properties:
   schema_version:
     type: string
@@ -24,8 +25,10 @@ properties:
     type: string
     format: uuid
   task_id:
-    type: string
-    format: uuid
+    anyOf:
+      - type: string
+        format: uuid
+      - type: "null"
   scope:
     type: string
     enum:
@@ -35,12 +38,18 @@ properties:
     type: string
     minLength: 1
   status:
-    type: string
+    anyOf:
+      - type: string
+      - type: "null"
   summary:
     type: string
     minLength: 1
   payload:
     type: object
   created_at:
-    type: string
-    format: date-time
+    anyOf:
+      - type: string
+        format: date-time
+      - type: "null"
+  persisted:
+    type: boolean

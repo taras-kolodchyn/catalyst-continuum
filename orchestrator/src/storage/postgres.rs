@@ -2470,6 +2470,7 @@ fn row_to_task_summary(row: &postgres::Row) -> TaskSummary {
 fn row_to_run_event_summary(row: &postgres::Row) -> RunEventSummary {
     RunEventSummary {
         event_id: row.get("event_id"),
+        schema_version: row.get("schema_version"),
         run_id: row.get("run_id"),
         task_id: row.get("task_id"),
         scope: row.get("scope"),
@@ -2553,6 +2554,7 @@ fn insert_run_event_record(
                 )
                 RETURNING
                     event_id,
+                    schema_version,
                     run_id,
                     task_id,
                     scope,
@@ -2938,6 +2940,7 @@ fn run_event_summary_query(where_clause: &str, limit_placeholder: &str) -> Strin
     format!(
         "SELECT
             event_id,
+            schema_version,
             run_id,
             task_id,
             scope,
