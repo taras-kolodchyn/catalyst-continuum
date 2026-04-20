@@ -228,8 +228,13 @@ done
 
 curl -fsS "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/healthz" >"$HEALTH_FILE"
 curl -fsS "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/config" >"$CONFIG_FILE"
+AI_GATEWAY_STATUS_FILE="$ARTIFACT_ROOT/http-ai-gateway-status.json"
+AI_GATEWAY_STATUS_CODE="$(
+  curl -sS -o "$AI_GATEWAY_STATUS_FILE" -w "%{http_code}" \
+    "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/ai-gateway/status"
+)"
 
-python3 - "$LIVENESS_FILE" "$READINESS_FILE" "$HEALTH_FILE" "$CONFIG_FILE" <<'PY'
+python3 - "$LIVENESS_FILE" "$READINESS_FILE" "$HEALTH_FILE" "$CONFIG_FILE" "$AI_GATEWAY_STATUS_FILE" "$AI_GATEWAY_STATUS_CODE" <<'PY'
 import json
 import pathlib
 import sys
@@ -238,6 +243,8 @@ livez = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
 readyz = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
 healthz = json.loads(pathlib.Path(sys.argv[3]).read_text(encoding="utf-8"))
 config = json.loads(pathlib.Path(sys.argv[4]).read_text(encoding="utf-8"))
+ai_gateway_status = json.loads(pathlib.Path(sys.argv[5]).read_text(encoding="utf-8"))
+ai_gateway_http_code = int(sys.argv[6])
 
 assert livez["status"] == "ok", livez
 assert livez["database"] == "not_checked", livez
@@ -254,6 +261,18 @@ statuses = {
 }
 assert statuses["docker"]["registered"] is True, config
 assert isinstance(config["github_app"]["missing_fields"], list), config
+assert ai_gateway_http_code in (200, 503), ai_gateway_http_code
+assert ai_gateway_status["provider"] == "litellm", ai_gateway_status
+assert ai_gateway_status["control_plane_owner"] == "orchestrator", ai_gateway_status
+assert ai_gateway_status["probe_url"].endswith("/v1/models"), ai_gateway_status
+assert (
+    ai_gateway_status["configured_default_model_aliases"]
+    == config["ai_gateway"]["default_model_aliases"]
+), ai_gateway_status
+if ai_gateway_http_code == 200:
+    assert ai_gateway_status["ready"] is True, ai_gateway_status
+else:
+    assert ai_gateway_status["ready"] is False, ai_gateway_status
 PY
 
 WEBHOOK_PAYLOAD_FILE="$ARTIFACT_ROOT/github-webhook-ping.json"

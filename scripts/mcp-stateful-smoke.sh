@@ -310,6 +310,7 @@ python3 - "$BIN" "$DATABASE_URL" "$ARTIFACT_ROOT" "$BRIEF_FILE" "$WEBHOOK_DELIVE
 import json
 import os
 import pathlib
+import platform
 import select
 import subprocess
 import sys
@@ -557,6 +558,62 @@ try:
     ):
         fail(
             "stateful MCP smoke failed: expected AI gateway chat_completions capability to be enabled"
+        )
+    ai_gateway_status = call_tool(
+        "describe_ai_gateway_status",
+        {},
+        "ai_gateway_status",
+    )
+    if ai_gateway_status["provider"] != "litellm":
+        fail(
+            "stateful MCP smoke failed: expected describe_ai_gateway_status to report "
+            f"litellm as the AI gateway provider, got "
+            f"{ai_gateway_status['provider']!r}"
+        )
+    if ai_gateway_status["control_plane_owner"] != "orchestrator":
+        fail(
+            "stateful MCP smoke failed: expected describe_ai_gateway_status to preserve "
+            f"orchestrator control-plane ownership, got "
+            f"{ai_gateway_status['control_plane_owner']!r}"
+        )
+    expected_probe_url = instance_config["ai_gateway"]["host_base_url"].rstrip("/") + "/v1/models"
+    if ai_gateway_status["probe_url"] != expected_probe_url:
+        fail(
+            "stateful MCP smoke failed: expected describe_ai_gateway_status to probe "
+            f"{expected_probe_url!r}, got {ai_gateway_status['probe_url']!r}"
+        )
+    if (
+        ai_gateway_status["configured_default_model_aliases"]
+        != instance_config["ai_gateway"]["default_model_aliases"]
+    ):
+        fail(
+            "stateful MCP smoke failed: expected describe_ai_gateway_status to reuse "
+            "the instance-config default model aliases"
+        )
+    expected_alias = (
+        instance_config["ai_gateway"]["default_model_aliases"]["macos_apple_silicon"]
+        if platform.system() == "Darwin" and platform.machine() == "arm64"
+        else instance_config["ai_gateway"]["default_model_aliases"]["other_platforms"]
+    )
+    if ai_gateway_status["current_host_default_model_alias"] != expected_alias:
+        fail(
+            "stateful MCP smoke failed: expected describe_ai_gateway_status to resolve "
+            f"the current host default alias {expected_alias!r}, got "
+            f"{ai_gateway_status['current_host_default_model_alias']!r}"
+        )
+    allowed_statuses = {
+        "ready",
+        "degraded",
+        "unauthorized",
+        "http_error",
+        "unreachable",
+        "invalid_response",
+        "invalid_config",
+    }
+    if ai_gateway_status["status"] not in allowed_statuses:
+        fail(
+            "stateful MCP smoke failed: unexpected ai_gateway_status status "
+            f"{ai_gateway_status['status']!r}"
         )
 
     deliveries = call_tool(

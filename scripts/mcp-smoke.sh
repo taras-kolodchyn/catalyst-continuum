@@ -7,6 +7,7 @@ cd "$ROOT_DIR"
 python3 - <<'PY'
 import json
 import pathlib
+import platform
 import subprocess
 
 root = pathlib.Path.cwd()
@@ -50,6 +51,15 @@ messages = [
         "id": 4,
         "method": "tools/call",
         "params": {
+            "name": "describe_ai_gateway_status",
+            "arguments": {},
+        },
+    },
+    {
+        "jsonrpc": "2.0",
+        "id": 5,
+        "method": "tools/call",
+        "params": {
             "name": "validate_brief",
             "arguments": {
                 "brief_content": brief_path.read_text(encoding="utf-8"),
@@ -88,15 +98,16 @@ if proc.returncode != 0:
     )
 
 responses = [json.loads(line) for line in stdout.splitlines() if line.strip()]
-if len(responses) != 4:
+if len(responses) != 5:
     raise SystemExit(
-        f"mcp smoke failed: expected 4 responses, received {len(responses)}\n{stdout}"
+        f"mcp smoke failed: expected 5 responses, received {len(responses)}\n{stdout}"
     )
 
 (
     initialize_response,
     tools_list_response,
     instance_config_response,
+    ai_gateway_status_response,
     validate_brief_response,
 ) = responses
 
@@ -166,6 +177,58 @@ if not any(
 ):
     raise SystemExit(
         "mcp smoke failed: expected AI gateway chat_completions capability to be enabled"
+    )
+
+ai_gateway_status = ai_gateway_status_response["result"]["structuredContent"]["ai_gateway_status"]
+if ai_gateway_status["provider"] != "litellm":
+    raise SystemExit(
+        "mcp smoke failed: expected describe_ai_gateway_status to report "
+        f"litellm as the AI gateway provider, got {ai_gateway_status['provider']!r}"
+    )
+if ai_gateway_status["control_plane_owner"] != "orchestrator":
+    raise SystemExit(
+        "mcp smoke failed: expected describe_ai_gateway_status to preserve "
+        f"orchestrator control-plane ownership, got "
+        f"{ai_gateway_status['control_plane_owner']!r}"
+    )
+expected_probe_url = instance_config["ai_gateway"]["host_base_url"].rstrip("/") + "/v1/models"
+if ai_gateway_status["probe_url"] != expected_probe_url:
+    raise SystemExit(
+        "mcp smoke failed: expected describe_ai_gateway_status to probe "
+        f"{expected_probe_url!r}, got {ai_gateway_status['probe_url']!r}"
+    )
+if (
+    ai_gateway_status["configured_default_model_aliases"]
+    != instance_config["ai_gateway"]["default_model_aliases"]
+):
+    raise SystemExit(
+        "mcp smoke failed: expected describe_ai_gateway_status to reuse the "
+        "instance-config default model aliases"
+    )
+expected_alias = (
+    instance_config["ai_gateway"]["default_model_aliases"]["macos_apple_silicon"]
+    if platform.system() == "Darwin" and platform.machine() == "arm64"
+    else instance_config["ai_gateway"]["default_model_aliases"]["other_platforms"]
+)
+if ai_gateway_status["current_host_default_model_alias"] != expected_alias:
+    raise SystemExit(
+        "mcp smoke failed: expected describe_ai_gateway_status to resolve the "
+        f"current host default alias {expected_alias!r}, got "
+        f"{ai_gateway_status['current_host_default_model_alias']!r}"
+    )
+allowed_statuses = {
+    "ready",
+    "degraded",
+    "unauthorized",
+    "http_error",
+    "unreachable",
+    "invalid_response",
+    "invalid_config",
+}
+if ai_gateway_status["status"] not in allowed_statuses:
+    raise SystemExit(
+        "mcp smoke failed: unexpected ai_gateway_status status "
+        f"{ai_gateway_status['status']!r}"
     )
 
 validation = validate_brief_response["result"]["structuredContent"]["validation"]
