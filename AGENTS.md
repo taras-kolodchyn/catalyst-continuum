@@ -73,6 +73,8 @@ When the change touches agent integrations or MCP behavior, also review:
 - For STDIO-based MCP servers, treat stdout as protocol-only. Never write logs, debug prints, or incidental output to stdout; send diagnostics to stderr or file-backed logging instead. Keep this rule aligned with the official MCP Rust server guidance: <https://modelcontextprotocol.io/docs/develop/build-server#rust>
 - Keep advertised MCP capabilities minimal and truthful. Only expose tools, resources, prompts, or other capabilities that the server actually implements and validates.
 - For new Rust MCP handlers and tool interfaces, prefer typed request structs and explicit validation over ad hoc unstructured payload handling when practical.
+- MCP request paths must fail with actionable protocol errors rather than crashing the server. Do not use `panic!`, `unwrap`, or `expect` in MCP handler paths where malformed agent input, transport issues, or upstream failures are realistic outcomes.
+- When MCP tools call upstream APIs, databases, runtimes, or other bounded systems, add explicit concurrency limits and timeouts instead of assuming the client will self-throttle. If a tool path performs CPU-heavy or blocking work, move it off the async executor.
 - When MCP behavior changes, update the matching tool definitions, handler validation, docs, and MCP smoke coverage in the same change so the transport contract stays inspectable and reproducible.
 
 ## Validation Rules
