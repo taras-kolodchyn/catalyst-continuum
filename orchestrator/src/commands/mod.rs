@@ -16,6 +16,7 @@ pub mod describe_run;
 pub mod evaluate_run_policy;
 pub mod evaluate_run_quality;
 pub mod export_pr_candidate;
+pub mod heartbeat_agent_task;
 pub mod list_github_webhook_action_requests;
 pub mod list_github_webhooks;
 pub mod list_packs;

@@ -9,15 +9,19 @@ use crate::{
         max_task_retry_count, plan_execution_completion, plan_failure_completion,
     },
     config::InstanceConfigReport,
-    models::{artifact::ArtifactSummary, run::RunContext, task::TaskSummary},
+    models::{
+        artifact::ArtifactSummary,
+        run::RunContext,
+        task::{
+            DEFAULT_TASK_RECLAIM_TIMEOUT_SECONDS, TASK_RECLAIM_GRACE_SECONDS, TaskSummary,
+            task_reclaim_deadline_seconds,
+        },
+    },
     planning::{materialization, packs::PackDefinition, policy, pr_candidate, workspace_snapshot},
     runtime::{RuntimeRegistry, TaskExecutionContext, TaskExecutionResult, TaskWorkspace},
     storage::postgres::PostgresRunStore,
     telemetry,
 };
-
-const DEFAULT_TASK_RECLAIM_TIMEOUT_SECONDS: u64 = 300;
-const TASK_RECLAIM_GRACE_SECONDS: u64 = 30;
 
 pub fn execute(args: RunNextTaskArgs) -> anyhow::Result<()> {
     let mut store = PostgresRunStore::connect(&args.database_url)?;
@@ -380,10 +384,7 @@ fn stale_task_failure_reason(task: &TaskSummary) -> String {
 }
 
 fn stale_task_reclaim_deadline_seconds(task: &TaskSummary) -> u64 {
-    task.execution
-        .timeout_seconds
-        .unwrap_or(DEFAULT_TASK_RECLAIM_TIMEOUT_SECONDS)
-        .saturating_add(TASK_RECLAIM_GRACE_SECONDS)
+    task_reclaim_deadline_seconds(task.execution.timeout_seconds)
 }
 
 fn build_execution_context(
@@ -784,6 +785,7 @@ mod tests {
             metadata,
             created_at: None,
             started_at: None,
+            lease_expires_at: None,
             completed_at: None,
             failure_reason: None,
             persisted: false,

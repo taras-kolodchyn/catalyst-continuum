@@ -5,6 +5,8 @@ use uuid::Uuid;
 
 const RETRY_METADATA_KEY: &str = "retry";
 const AGENT_EXECUTION_METADATA_KEY: &str = "agent_execution";
+pub const DEFAULT_TASK_RECLAIM_TIMEOUT_SECONDS: u64 = 300;
+pub const TASK_RECLAIM_GRACE_SECONDS: u64 = 30;
 
 #[derive(Debug, Clone)]
 pub struct TaskDraft {
@@ -70,6 +72,8 @@ pub struct TaskSummary {
     pub metadata: Value,
     pub created_at: Option<String>,
     pub started_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lease_expires_at: Option<String>,
     pub completed_at: Option<String>,
     pub failure_reason: Option<String>,
     pub persisted: bool,
@@ -98,6 +102,7 @@ impl TaskSummary {
             metadata: draft.metadata.clone(),
             created_at: None,
             started_at: None,
+            lease_expires_at: None,
             completed_at: None,
             failure_reason: None,
             persisted: false,
@@ -173,6 +178,11 @@ impl TaskSummary {
 
         if let Some(started_at) = &self.started_at {
             writeln!(&mut output, "started_at: {}", started_at).context("failed to render task")?;
+        }
+
+        if let Some(lease_expires_at) = &self.lease_expires_at {
+            writeln!(&mut output, "lease_expires_at: {}", lease_expires_at)
+                .context("failed to render task")?;
         }
 
         if let Some(completed_at) = &self.completed_at {
@@ -307,6 +317,23 @@ impl AgentTaskExecutionState {
             last_report_artifact_id: report_artifact_id.or(self.last_report_artifact_id),
         }
     }
+
+    pub fn after_heartbeat(&self, executor_id: Option<String>) -> Self {
+        Self {
+            agent: self.agent.clone(),
+            mode: self.mode.clone(),
+            executor_id: executor_id.or_else(|| self.executor_id.clone()),
+            claim_count: self.claim_count,
+            last_status: "heartbeat".to_string(),
+            last_report_artifact_id: self.last_report_artifact_id,
+        }
+    }
+}
+
+pub fn task_reclaim_deadline_seconds(timeout_seconds: Option<u64>) -> u64 {
+    timeout_seconds
+        .unwrap_or(DEFAULT_TASK_RECLAIM_TIMEOUT_SECONDS)
+        .saturating_add(TASK_RECLAIM_GRACE_SECONDS)
 }
 
 pub fn retry_state_from_metadata(metadata: &Value) -> Option<TaskRetryState> {
@@ -352,4 +379,33 @@ pub struct TaskExecutionSpec {
     pub sandbox_profile: Option<String>,
     #[serde(default)]
     pub timeout_seconds: Option<u64>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AgentTaskExecutionState, task_reclaim_deadline_seconds};
+
+    #[test]
+    fn heartbeat_updates_status_without_incrementing_claim_count() {
+        let claimed = AgentTaskExecutionState::new_claim(
+            "openhands",
+            Some("openhands-session-1".to_string()),
+        );
+
+        let heartbeated = claimed.after_heartbeat(None);
+
+        assert_eq!(heartbeated.agent, "openhands");
+        assert_eq!(
+            heartbeated.executor_id.as_deref(),
+            Some("openhands-session-1")
+        );
+        assert_eq!(heartbeated.claim_count, 1);
+        assert_eq!(heartbeated.last_status, "heartbeat");
+    }
+
+    #[test]
+    fn reclaim_deadline_uses_default_timeout_when_missing() {
+        assert_eq!(task_reclaim_deadline_seconds(None), 330);
+        assert_eq!(task_reclaim_deadline_seconds(Some(45)), 75);
+    }
 }

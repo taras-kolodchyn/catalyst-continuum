@@ -12,9 +12,9 @@ use crate::{
         describe_artifact, describe_github_default_branch_state,
         describe_github_webhook_action_report, describe_github_webhook_receipt,
         describe_latest_artifact, describe_repository_signal_payload, evaluate_run_policy,
-        evaluate_run_quality, export_pr_candidate, open_github_pr, publish_pr_export,
-        run_next_github_webhook_action, run_next_repository_automation, run_next_task,
-        submit_next_repository_signal, worker,
+        evaluate_run_quality, export_pr_candidate, heartbeat_agent_task, open_github_pr,
+        publish_pr_export, run_next_github_webhook_action, run_next_repository_automation,
+        run_next_task, submit_next_repository_signal, worker,
     },
     config::InstanceConfigReport,
     models::{
@@ -287,6 +287,15 @@ struct ClaimNextAgentTaskToolArgs {
     agent: String,
     #[serde(default)]
     run_id: Option<uuid::Uuid>,
+    #[serde(default)]
+    executor_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HeartbeatAgentTaskToolArgs {
+    task_id: uuid::Uuid,
+    agent: String,
     #[serde(default)]
     executor_id: Option<String>,
 }
@@ -609,6 +618,7 @@ impl StdioMcpServer {
             "describe_run" => self.call_describe_run(arguments),
             "list_run_events" => self.call_list_run_events(arguments),
             "claim_next_agent_task" => self.call_claim_next_agent_task(arguments),
+            "heartbeat_agent_task" => self.call_heartbeat_agent_task(arguments),
             "complete_agent_task" => self.call_complete_agent_task(arguments),
             "run_next_github_webhook_action" => self.call_run_next_github_webhook_action(arguments),
             "run_next_task" => self.call_run_next_task(arguments),
@@ -1087,6 +1097,26 @@ impl StdioMcpServer {
                 "claim",
                 structured,
                 claim.render_text()?,
+            ))
+        })
+    }
+
+    fn call_heartbeat_agent_task(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: HeartbeatAgentTaskToolArgs = parse_tool_arguments(arguments)?;
+            let mut store = self.open_store()?;
+            let heartbeat = heartbeat_agent_task::heartbeat_agent_task(
+                &mut store,
+                args.task_id,
+                &args.agent,
+                args.executor_id.as_deref(),
+            )?;
+            let structured = serde_json::to_value(&heartbeat)
+                .context("failed to serialize agent task heartbeat")?;
+            Ok(tool_success_with_text(
+                "heartbeat",
+                structured,
+                heartbeat.render_text()?,
             ))
         })
     }
@@ -1673,6 +1703,21 @@ fn tool_definitions() -> Vec<Value> {
             ]),
         ),
         tool_definition(
+            "heartbeat_agent_task",
+            "Refresh the reclaim lease for one externally claimed running task.",
+            json_schema_object(&[
+                required_string_property("task_id", "Task UUID."),
+                required_string_property(
+                    "agent",
+                    "Assigned agent identifier, for example openhands.",
+                ),
+                optional_string_property(
+                    "executor_id",
+                    "Optional external executor identifier. Required when the claim recorded one.",
+                ),
+            ]),
+        ),
+        tool_definition(
             "complete_agent_task",
             "Complete one externally claimed task and persist an agent_task_report artifact.",
             json_schema_object(&[
@@ -1876,7 +1921,7 @@ mod tests {
 
         assert_eq!(
             output[1]["result"]["tools"].as_array().map(Vec::len),
-            Some(33)
+            Some(34)
         );
         assert_eq!(output[1]["result"]["tools"][0]["name"], "list_packs");
         assert!(
@@ -1892,6 +1937,13 @@ mod tests {
                 .is_some_and(|tools| tools
                     .iter()
                     .any(|tool| tool["name"] == "claim_next_agent_task"))
+        );
+        assert!(
+            output[1]["result"]["tools"]
+                .as_array()
+                .is_some_and(|tools| tools
+                    .iter()
+                    .any(|tool| tool["name"] == "heartbeat_agent_task"))
         );
         assert!(
             output[1]["result"]["tools"]

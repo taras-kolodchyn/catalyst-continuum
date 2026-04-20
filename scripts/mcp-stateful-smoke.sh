@@ -511,6 +511,7 @@ try:
         "describe_run",
         "list_run_events",
         "claim_next_agent_task",
+        "heartbeat_agent_task",
         "complete_agent_task",
         "run_next_task",
         "run_worker_once",
@@ -1079,7 +1080,7 @@ policy:
             f"{planner_execution.get('execution_status')}"
         )
 
-    log_phase("claim and complete one external-agent task through MCP")
+    log_phase("claim, heartbeat, and complete one external-agent task through MCP")
     claim = call_tool(
         "claim_next_agent_task",
         {
@@ -1108,6 +1109,31 @@ policy:
             "stateful MCP smoke failed: expected claimed task assigned_agent=openhands, got "
             f"{claimed_task.get('assigned_agent')}"
         )
+    if not claimed_task.get("lease_expires_at"):
+        fail("stateful MCP smoke failed: claimed task should expose lease_expires_at")
+
+    heartbeat = call_tool(
+        "heartbeat_agent_task",
+        {
+            "task_id": claimed_task_id,
+            "agent": "openhands",
+            "executor_id": "mcp-stateful-smoke",
+        },
+        "heartbeat",
+    )
+    heartbeated_task = heartbeat.get("task") or {}
+    if heartbeated_task.get("status") != "running":
+        fail(
+            "stateful MCP smoke failed: expected heartbeated task to stay running, got "
+            f"{heartbeated_task.get('status')}"
+        )
+    if (heartbeated_task.get("agent_execution") or {}).get("last_status") != "heartbeat":
+        fail(
+            "stateful MCP smoke failed: expected heartbeat to update agent_execution.last_status "
+            f"to heartbeat, got {(heartbeated_task.get('agent_execution') or {}).get('last_status')}"
+        )
+    if not heartbeated_task.get("lease_expires_at"):
+        fail("stateful MCP smoke failed: heartbeat should preserve lease_expires_at")
 
     completion = call_tool(
         "complete_agent_task",

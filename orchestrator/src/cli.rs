@@ -18,6 +18,7 @@ pub enum Command {
     Serve(ServeArgs),
     McpServer(McpServerArgs),
     ClaimNextAgentTask(ClaimNextAgentTaskArgs),
+    HeartbeatAgentTask(HeartbeatAgentTaskArgs),
     CompleteAgentTask(CompleteAgentTaskArgs),
     DescribeInstanceConfig(DescribeInstanceConfigArgs),
     DescribePack(DescribePackArgs),
@@ -59,6 +60,7 @@ impl Command {
             Self::Serve(_) => "serve",
             Self::McpServer(_) => "mcp-server",
             Self::ClaimNextAgentTask(_) => "claim-next-agent-task",
+            Self::HeartbeatAgentTask(_) => "heartbeat-agent-task",
             Self::CompleteAgentTask(_) => "complete-agent-task",
             Self::DescribeInstanceConfig(_) => "describe-instance-config",
             Self::DescribePack(_) => "describe-pack",
@@ -141,6 +143,24 @@ pub struct ClaimNextAgentTaskArgs {
 
     #[arg(long)]
     pub run_id: Option<Uuid>,
+
+    #[arg(long)]
+    pub executor_id: Option<String>,
+
+    #[arg(long)]
+    pub pretty: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct HeartbeatAgentTaskArgs {
+    #[arg(long, env = "CATALYST_DATABASE_URL")]
+    pub database_url: String,
+
+    #[arg(long)]
+    pub task_id: Uuid,
+
+    #[arg(long)]
+    pub agent: String,
 
     #[arg(long)]
     pub executor_id: Option<String>,

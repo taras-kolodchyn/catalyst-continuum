@@ -976,6 +976,17 @@ printf '%s\n' "$CLAIM_OUTPUT"
 printf '%s\n' "$CLAIM_OUTPUT" | grep -q '^task_claimed: yes$'
 CLAIMED_TASK_ID="$(printf '%s\n' "$CLAIM_OUTPUT" | awk '/^task_id:/ {print $2; exit}')"
 test -n "$CLAIMED_TASK_ID"
+printf '%s\n' "$CLAIM_OUTPUT" | grep -q '^lease_expires_at: '
+
+HEARTBEAT_OUTPUT="$("$BIN" heartbeat-agent-task \
+  --database-url "$DATABASE_URL" \
+  --task-id "$CLAIMED_TASK_ID" \
+  --agent openhands \
+  --executor-id smoke-mvp)"
+printf '%s\n' "$HEARTBEAT_OUTPUT"
+printf '%s\n' "$HEARTBEAT_OUTPUT" | grep -q '^lease_refreshed: yes$'
+printf '%s\n' "$HEARTBEAT_OUTPUT" | grep -q '^agent_execution_status: heartbeat$'
+printf '%s\n' "$HEARTBEAT_OUTPUT" | grep -q '^lease_expires_at: '
 
 COMPLETE_OUTPUT="$("$BIN" complete-agent-task \
   --database-url "$DATABASE_URL" \

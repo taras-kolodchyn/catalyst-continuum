@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     approval_required BOOLEAN NOT NULL DEFAULT FALSE,
     metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
     started_at TIMESTAMPTZ,
+    lease_expires_at TIMESTAMPTZ,
     completed_at TIMESTAMPTZ,
     failure_reason TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -64,6 +65,7 @@ CREATE TABLE IF NOT EXISTS tasks (
 
 CREATE INDEX IF NOT EXISTS idx_tasks_run_id ON tasks (run_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_kind ON tasks (kind);
+CREATE INDEX IF NOT EXISTS idx_tasks_status_lease_expires_at ON tasks (status, lease_expires_at);
 
 CREATE TABLE IF NOT EXISTS run_events (
     event_id UUID PRIMARY KEY,
@@ -177,6 +179,7 @@ CREATE INDEX IF NOT EXISTS idx_repository_signals_materialized_run
     ON repository_signals (materialized_run_id);
 
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS lease_expires_at TIMESTAMPTZ;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS failure_reason TEXT;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS execution JSONB NOT NULL DEFAULT '{}'::jsonb;

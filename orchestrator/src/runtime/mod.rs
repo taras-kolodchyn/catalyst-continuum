@@ -278,6 +278,7 @@ mod tests {
             metadata: json!({}),
             created_at: None,
             started_at: None,
+            lease_expires_at: None,
             completed_at: None,
             failure_reason: None,
             persisted: false,

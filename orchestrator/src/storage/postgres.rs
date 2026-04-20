@@ -13,7 +13,7 @@ use crate::models::{
     run_event::{RunEventDraft, RunEventSummary},
     task::{
         AgentTaskExecutionState, TaskDraft, TaskExecutionSpec, TaskSummary,
-        metadata_with_agent_execution_state,
+        metadata_with_agent_execution_state, task_reclaim_deadline_seconds,
     },
     webhook::{
         GitHubWebhookActionRequestDraft, GitHubWebhookActionRequestListFilters,
@@ -24,6 +24,41 @@ use crate::models::{
 
 const INIT_SQL: &str = include_str!("../../sql/001_init.sql");
 const RFC3339_SQL: &str = "YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"";
+
+fn task_summary_projection_sql() -> String {
+    format!(
+        "task_id,
+        run_id,
+        backlog_item_id,
+        kind,
+        priority,
+        title,
+        description,
+        status,
+        execution,
+        dependency_task_ids,
+        source_refs,
+        assigned_pack,
+        assigned_agent,
+        orchestrator_model,
+        approval_required,
+        metadata,
+        to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
+        CASE
+            WHEN started_at IS NULL THEN NULL
+            ELSE to_char(started_at AT TIME ZONE 'UTC', '{RFC3339_SQL}')
+        END AS started_at,
+        CASE
+            WHEN lease_expires_at IS NULL THEN NULL
+            ELSE to_char(lease_expires_at AT TIME ZONE 'UTC', '{RFC3339_SQL}')
+        END AS lease_expires_at,
+        CASE
+            WHEN completed_at IS NULL THEN NULL
+            ELSE to_char(completed_at AT TIME ZONE 'UTC', '{RFC3339_SQL}')
+        END AS completed_at,
+        failure_reason"
+    )
+}
 
 pub struct PostgresRunStore {
     client: Client,
@@ -271,35 +306,11 @@ impl PostgresRunStore {
             .query(
                 &format!(
                     "SELECT
-                        task_id,
-                        run_id,
-                        backlog_item_id,
-                        kind,
-                        priority,
-                        title,
-                        description,
-                        status,
-                        execution,
-                        dependency_task_ids,
-                        source_refs,
-                        assigned_pack,
-                        assigned_agent,
-                        orchestrator_model,
-                        approval_required,
-                        metadata,
-                        to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
-                        CASE
-                            WHEN started_at IS NULL THEN NULL
-                            ELSE to_char(started_at AT TIME ZONE 'UTC', '{RFC3339_SQL}')
-                        END AS started_at,
-                        CASE
-                            WHEN completed_at IS NULL THEN NULL
-                            ELSE to_char(completed_at AT TIME ZONE 'UTC', '{RFC3339_SQL}')
-                        END AS completed_at,
-                        failure_reason
+                        {}
                     FROM tasks
                     WHERE ($1::uuid IS NULL OR run_id = $1)
-                    ORDER BY created_at ASC, backlog_item_id ASC"
+                    ORDER BY created_at ASC, backlog_item_id ASC",
+                    task_summary_projection_sql()
                 ),
                 &[&run_id],
             )
@@ -337,34 +348,10 @@ impl PostgresRunStore {
             .query_opt(
                 &format!(
                     "SELECT
-                        task_id,
-                        run_id,
-                        backlog_item_id,
-                        kind,
-                        priority,
-                        title,
-                        description,
-                        status,
-                        execution,
-                        dependency_task_ids,
-                        source_refs,
-                        assigned_pack,
-                        assigned_agent,
-                        orchestrator_model,
-                        approval_required,
-                        metadata,
-                        to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
-                        CASE
-                            WHEN started_at IS NULL THEN NULL
-                            ELSE to_char(started_at AT TIME ZONE 'UTC', '{RFC3339_SQL}')
-                        END AS started_at,
-                        CASE
-                            WHEN completed_at IS NULL THEN NULL
-                            ELSE to_char(completed_at AT TIME ZONE 'UTC', '{RFC3339_SQL}')
-                        END AS completed_at,
-                        failure_reason
+                        {}
                     FROM tasks
-                    WHERE task_id = $1"
+                    WHERE task_id = $1",
+                    task_summary_projection_sql()
                 ),
                 &[&task_id],
             )
@@ -388,32 +375,7 @@ impl PostgresRunStore {
             .query_opt(
                 &format!(
                     "SELECT
-                        task_id,
-                        run_id,
-                        backlog_item_id,
-                        kind,
-                        priority,
-                        title,
-                        description,
-                        status,
-                        execution,
-                        dependency_task_ids,
-                        source_refs,
-                        assigned_pack,
-                        assigned_agent,
-                        orchestrator_model,
-                        approval_required,
-                        metadata,
-                        to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
-                        CASE
-                            WHEN started_at IS NULL THEN NULL
-                            ELSE to_char(started_at AT TIME ZONE 'UTC', '{RFC3339_SQL}')
-                        END AS started_at,
-                        CASE
-                            WHEN completed_at IS NULL THEN NULL
-                            ELSE to_char(completed_at AT TIME ZONE 'UTC', '{RFC3339_SQL}')
-                        END AS completed_at,
-                        failure_reason
+                        {}
                     FROM tasks
                     WHERE task_id = (
                         SELECT t.task_id
@@ -432,7 +394,8 @@ impl PostgresRunStore {
                         LIMIT 1
                         FOR UPDATE SKIP LOCKED
                     )
-                    FOR UPDATE"
+                    FOR UPDATE",
+                    task_summary_projection_sql()
                 ),
                 &[&run_id, &agent],
             )
@@ -460,6 +423,10 @@ impl PostgresRunStore {
             &candidate_task.metadata,
             &next_agent_execution_state,
         );
+        let lease_window_seconds = i64::try_from(task_reclaim_deadline_seconds(
+            candidate_task.execution.timeout_seconds,
+        ))
+        .context("task lease window exceeds i64 range")?;
 
         let row = transaction
             .query_one(
@@ -467,39 +434,19 @@ impl PostgresRunStore {
                     "UPDATE tasks
                     SET status = 'running',
                         started_at = NOW(),
+                        lease_expires_at = NOW() + ($3::bigint * INTERVAL '1 second'),
                         failure_reason = NULL,
                         metadata = $2
                     WHERE task_id = $1
                       AND status = 'queued'
-                    RETURNING
-                        task_id,
-                        run_id,
-                        backlog_item_id,
-                        kind,
-                        priority,
-                        title,
-                        description,
-                        status,
-                        execution,
-                        dependency_task_ids,
-                        source_refs,
-                        assigned_pack,
-                        assigned_agent,
-                        orchestrator_model,
-                        approval_required,
-                        metadata,
-                        to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
-                        CASE
-                            WHEN started_at IS NULL THEN NULL
-                            ELSE to_char(started_at AT TIME ZONE 'UTC', '{RFC3339_SQL}')
-                        END AS started_at,
-                        CASE
-                            WHEN completed_at IS NULL THEN NULL
-                            ELSE to_char(completed_at AT TIME ZONE 'UTC', '{RFC3339_SQL}')
-                        END AS completed_at,
-                        failure_reason"
+                    RETURNING {}",
+                    task_summary_projection_sql()
                 ),
-                &[&candidate_task.task_id, &updated_metadata],
+                &[
+                    &candidate_task.task_id,
+                    &updated_metadata,
+                    &lease_window_seconds,
+                ],
             )
             .with_context(|| {
                 format!(
@@ -524,6 +471,7 @@ impl PostgresRunStore {
                 "orchestrator_model": task.orchestrator_model,
                 "execution_mode": "external_agent",
                 "executor_id": executor_id,
+                "lease_expires_at": task.lease_expires_at,
             }),
         );
         let _ = insert_run_event_record(&mut transaction, &event)?;
@@ -550,45 +498,24 @@ impl PostgresRunStore {
             .query(
                 &format!(
                     "SELECT
-                        task_id,
-                        run_id,
-                        backlog_item_id,
-                        kind,
-                        priority,
-                        title,
-                        description,
-                        status,
-                        execution,
-                        dependency_task_ids,
-                        source_refs,
-                        assigned_pack,
-                        assigned_agent,
-                        orchestrator_model,
-                        approval_required,
-                        metadata,
-                        to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
-                        CASE
-                            WHEN started_at IS NULL THEN NULL
-                            ELSE to_char(started_at AT TIME ZONE 'UTC', '{RFC3339_SQL}')
-                        END AS started_at,
-                        CASE
-                            WHEN completed_at IS NULL THEN NULL
-                            ELSE to_char(completed_at AT TIME ZONE 'UTC', '{RFC3339_SQL}')
-                        END AS completed_at,
-                        failure_reason
+                        {}
                      FROM tasks
                      WHERE status = 'running'
                        AND started_at IS NOT NULL
                        AND ($1::uuid IS NULL OR run_id = $1)
-                       AND started_at <= NOW() - (
-                            (
-                                COALESCE(
-                                    NULLIF(execution ->> 'timeout_seconds', '')::bigint,
-                                    $2
-                                ) + $3
-                            ) * INTERVAL '1 second'
-                       )
-                     ORDER BY started_at ASC, backlog_item_id ASC"
+                       AND COALESCE(
+                            lease_expires_at,
+                            started_at + (
+                                (
+                                    COALESCE(
+                                        NULLIF(execution ->> 'timeout_seconds', '')::bigint,
+                                        $2
+                                    ) + $3
+                                ) * INTERVAL '1 second'
+                            )
+                       ) <= NOW()
+                     ORDER BY started_at ASC, backlog_item_id ASC",
+                    task_summary_projection_sql()
                 ),
                 &[&run_id, &default_timeout_seconds, &reclaim_grace_seconds],
             )
@@ -598,6 +525,11 @@ impl PostgresRunStore {
     }
 
     pub fn mark_task_running(&mut self, task_id: Uuid) -> Result<TaskSummary> {
+        let default_timeout_seconds =
+            i64::try_from(crate::models::task::DEFAULT_TASK_RECLAIM_TIMEOUT_SECONDS)
+                .context("default task reclaim timeout exceeds i64 range")?;
+        let reclaim_grace_seconds = i64::try_from(crate::models::task::TASK_RECLAIM_GRACE_SECONDS)
+            .context("task reclaim grace exceeds i64 range")?;
         let mut transaction = self
             .client
             .transaction()
@@ -608,37 +540,21 @@ impl PostgresRunStore {
                     "UPDATE tasks
                     SET status = 'running',
                         started_at = NOW(),
+                        lease_expires_at = NOW()
+                            + (
+                                (
+                                    COALESCE(
+                                        NULLIF(execution ->> 'timeout_seconds', '')::bigint,
+                                        $2
+                                    ) + $3
+                                ) * INTERVAL '1 second'
+                            ),
                         failure_reason = NULL
                     WHERE task_id = $1
-                    RETURNING
-                        task_id,
-                        run_id,
-                        backlog_item_id,
-                        kind,
-                        priority,
-                        title,
-                        description,
-                        status,
-                        execution,
-                        dependency_task_ids,
-                        source_refs,
-                        assigned_pack,
-                        assigned_agent,
-                        orchestrator_model,
-                        approval_required,
-                        metadata,
-                        to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
-                        CASE
-                            WHEN started_at IS NULL THEN NULL
-                            ELSE to_char(started_at AT TIME ZONE 'UTC', '{RFC3339_SQL}')
-                        END AS started_at,
-                        CASE
-                            WHEN completed_at IS NULL THEN NULL
-                            ELSE to_char(completed_at AT TIME ZONE 'UTC', '{RFC3339_SQL}')
-                        END AS completed_at,
-                        failure_reason"
+                    RETURNING {}",
+                    task_summary_projection_sql()
                 ),
-                &[&task_id],
+                &[&task_id, &default_timeout_seconds, &reclaim_grace_seconds],
             )
             .context("failed to mark task running")?;
 
@@ -657,6 +573,7 @@ impl PostgresRunStore {
                 "provider": task.execution.provider,
                 "assigned_agent": task.assigned_agent,
                 "orchestrator_model": task.orchestrator_model,
+                "lease_expires_at": task.lease_expires_at,
             }),
         );
         let _ = insert_run_event_record(&mut transaction, &event)?;
@@ -665,6 +582,33 @@ impl PostgresRunStore {
             .context("failed to commit task running transaction")?;
 
         Ok(task)
+    }
+
+    pub fn refresh_agent_task_lease(
+        &mut self,
+        task_id: Uuid,
+        metadata: &Value,
+        lease_window_seconds: u64,
+    ) -> Result<TaskSummary> {
+        let lease_window_seconds =
+            i64::try_from(lease_window_seconds).context("task lease window exceeds i64 range")?;
+        let row = self
+            .client
+            .query_one(
+                &format!(
+                    "UPDATE tasks
+                    SET metadata = $2,
+                        lease_expires_at = NOW() + ($3::bigint * INTERVAL '1 second')
+                    WHERE task_id = $1
+                      AND status = 'running'
+                    RETURNING {}",
+                    task_summary_projection_sql()
+                ),
+                &[&task_id, &metadata, &lease_window_seconds],
+            )
+            .with_context(|| format!("failed to refresh agent task lease: {task_id}"))?;
+
+        Ok(row_to_task_summary(&row))
     }
 
     pub fn mark_task_finished(
@@ -684,36 +628,12 @@ impl PostgresRunStore {
                     "UPDATE tasks
                     SET status = $2,
                         completed_at = NOW(),
+                        lease_expires_at = NULL,
                         failure_reason = $3,
                         metadata = $4
                     WHERE task_id = $1
-                    RETURNING
-                        task_id,
-                        run_id,
-                        backlog_item_id,
-                        kind,
-                        priority,
-                        title,
-                        description,
-                        status,
-                        execution,
-                        dependency_task_ids,
-                        source_refs,
-                        assigned_pack,
-                        assigned_agent,
-                        orchestrator_model,
-                        approval_required,
-                        metadata,
-                        to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
-                        CASE
-                            WHEN started_at IS NULL THEN NULL
-                            ELSE to_char(started_at AT TIME ZONE 'UTC', '{RFC3339_SQL}')
-                        END AS started_at,
-                        CASE
-                            WHEN completed_at IS NULL THEN NULL
-                            ELSE to_char(completed_at AT TIME ZONE 'UTC', '{RFC3339_SQL}')
-                        END AS completed_at,
-                        failure_reason"
+                    RETURNING {}",
+                    task_summary_projection_sql()
                 ),
                 &[&task_id, &status, &failure_reason, &metadata],
             )
@@ -767,37 +687,13 @@ impl PostgresRunStore {
                     "UPDATE tasks
                     SET status = 'queued',
                         started_at = NULL,
+                        lease_expires_at = NULL,
                         completed_at = NULL,
                         failure_reason = $2,
                         metadata = $3
                     WHERE task_id = $1
-                    RETURNING
-                        task_id,
-                        run_id,
-                        backlog_item_id,
-                        kind,
-                        priority,
-                        title,
-                        description,
-                        status,
-                        execution,
-                        dependency_task_ids,
-                        source_refs,
-                        assigned_pack,
-                        assigned_agent,
-                        orchestrator_model,
-                        approval_required,
-                        metadata,
-                        to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
-                        CASE
-                            WHEN started_at IS NULL THEN NULL
-                            ELSE to_char(started_at AT TIME ZONE 'UTC', '{RFC3339_SQL}')
-                        END AS started_at,
-                        CASE
-                            WHEN completed_at IS NULL THEN NULL
-                            ELSE to_char(completed_at AT TIME ZONE 'UTC', '{RFC3339_SQL}')
-                        END AS completed_at,
-                        failure_reason"
+                    RETURNING {}",
+                    task_summary_projection_sql()
                 ),
                 &[&task_id, &failure_reason, &metadata],
             )
@@ -2382,35 +2278,11 @@ impl PostgresRunStore {
             .query(
                 &format!(
                     "SELECT
-                        task_id,
-                        run_id,
-                        backlog_item_id,
-                        kind,
-                        priority,
-                        title,
-                        description,
-                        status,
-                        execution,
-                        dependency_task_ids,
-                        source_refs,
-                        assigned_pack,
-                        assigned_agent,
-                        orchestrator_model,
-                        approval_required,
-                        metadata,
-                        to_char(created_at AT TIME ZONE 'UTC', '{RFC3339_SQL}') AS created_at,
-                        CASE
-                            WHEN started_at IS NULL THEN NULL
-                            ELSE to_char(started_at AT TIME ZONE 'UTC', '{RFC3339_SQL}')
-                        END AS started_at,
-                        CASE
-                            WHEN completed_at IS NULL THEN NULL
-                            ELSE to_char(completed_at AT TIME ZONE 'UTC', '{RFC3339_SQL}')
-                        END AS completed_at,
-                        failure_reason
+                        {}
                      FROM tasks
                      WHERE run_id = $1
-                     ORDER BY created_at ASC, backlog_item_id ASC"
+                     ORDER BY created_at ASC, backlog_item_id ASC",
+                    task_summary_projection_sql()
                 ),
                 &[&run_id],
             )
@@ -2588,6 +2460,7 @@ fn row_to_task_summary(row: &postgres::Row) -> TaskSummary {
         metadata,
         created_at: row.get("created_at"),
         started_at: row.get("started_at"),
+        lease_expires_at: row.get("lease_expires_at"),
         completed_at: row.get("completed_at"),
         failure_reason: row.get("failure_reason"),
         persisted: true,
