@@ -12,16 +12,6 @@ docker compose \
   -f deploy/compose/compose.yaml \
   config --format json >"$resolved_config_json"
 
-if ! rg -n '^  callbacks:$' deploy/compose/litellm-config.yaml >/dev/null 2>&1; then
-  echo "deploy/compose/litellm-config.yaml must declare litellm callbacks" >&2
-  exit 1
-fi
-
-if ! rg -n '^    - otel$' deploy/compose/litellm-config.yaml >/dev/null 2>&1; then
-  echo "deploy/compose/litellm-config.yaml must enable the otel callback" >&2
-  exit 1
-fi
-
 python3 - "$resolved_config_json" <<'PY'
 import json
 import pathlib
@@ -31,6 +21,36 @@ config = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
 services = config["services"]
 volumes = config.get("volumes", {})
 
+
+def litellm_callbacks(config_path: pathlib.Path) -> list[str]:
+    callbacks = []
+    in_litellm_settings = False
+    in_callbacks = False
+    for raw_line in config_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.split("#", 1)[0].rstrip()
+        if not line.strip():
+            continue
+
+        indent = len(line) - len(line.lstrip(" "))
+        stripped = line.strip()
+
+        if indent == 0:
+            in_litellm_settings = stripped == "litellm_settings:"
+            in_callbacks = False
+            continue
+
+        if not in_litellm_settings:
+            continue
+
+        if indent == 2:
+            in_callbacks = stripped == "callbacks:"
+            continue
+
+        if in_callbacks and indent == 4 and stripped.startswith("- "):
+            callbacks.append(stripped[2:].strip())
+
+    return callbacks
+
 required_services = ("orchestrator", "worker", "litellm", "litellm-db-init")
 for service_name in required_services:
     if service_name not in services:
@@ -38,6 +58,13 @@ for service_name in required_services:
 
 if "artifacts-data" not in volumes:
     raise SystemExit("compose config is missing required named volume: artifacts-data")
+
+callbacks = litellm_callbacks(pathlib.Path("deploy/compose/litellm-config.yaml"))
+if not callbacks:
+    raise SystemExit("deploy/compose/litellm-config.yaml must declare litellm callbacks")
+
+if "otel" not in callbacks:
+    raise SystemExit("deploy/compose/litellm-config.yaml must enable the otel callback")
 
 
 def environment_map(service: dict) -> dict:
