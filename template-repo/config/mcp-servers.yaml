@@ -1,0 +1,9 @@
+servers:
+  - server_id: fetch
+    display_name: Fetch
+    enabled: true
+    allowed_agents:
+      - openhands
+      - codex
+    docs_url: https://github.com/modelcontextprotocol/servers/blob/main/src/fetch/README.md
+    setup_hint: Register the pinned upstream Fetch MCP server directly in the agent client configuration when a run needs controlled web retrieval.

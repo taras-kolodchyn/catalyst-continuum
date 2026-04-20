@@ -18,6 +18,7 @@ choices into the open-source root.
 - `.env.example` for instance-level orchestrator variables
 - `.github/CODEOWNERS` for private review ownership
 - `config/runtime-providers.yaml` for Docker, Proxmox, and Kubernetes placeholders
+- `config/mcp-servers.yaml` for the instance-level external MCP allowlist
 - `deploy/compose/.env.example` for private compose overlays
 - `deploy/github-app/app-manifest.template.json` for GitHub App registration
 - `deploy/github-app/webhook.env.example` for webhook secret and installation wiring
