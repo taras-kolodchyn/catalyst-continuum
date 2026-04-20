@@ -100,6 +100,34 @@ services:
     ports:
       - "${GRAFANA_PORT}:3000"
 
+  litellm:
+    image: ghcr.io/berriai/litellm:${LITELLM_VERSION}@${LITELLM_IMAGE_DIGEST}
+    restart: unless-stopped
+    environment:
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
+      LITELLM_OLLAMA_API_BASE: ${LITELLM_OLLAMA_API_BASE}
+      LITELLM_OPENAI_COMPAT_API_BASE: ${LITELLM_OPENAI_COMPAT_API_BASE}
+      LITELLM_OPENAI_COMPAT_API_KEY: ${LITELLM_OPENAI_COMPAT_API_KEY}
+    volumes:
+      - ./litellm-config.yaml:/app/config.yaml:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: ["--config", "/app/config.yaml", "--host", "0.0.0.0", "--port", "4000"]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import os, urllib.request; req = urllib.request.Request('http://127.0.0.1:4000/v1/models', headers={'Authorization': 'Bearer ' + os.environ['LITELLM_MASTER_KEY']}); urllib.request.urlopen(req, timeout=5).read()",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    ports:
+      - "${LITELLM_PORT}:4000"
+
   orchestrator:
     image: catalyst-continuum-orchestrator:${ORCHESTRATOR_IMAGE_TAG}
     build:

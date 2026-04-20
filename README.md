@@ -170,6 +170,7 @@ The local `v0.1` compose stack now includes an observability baseline:
 - Tempo for traces
 - Grafana with pinned datasource and dashboard provisioning
 
+That compose baseline now also includes a pinned `LiteLLM` gateway service for local agent validation against a host-run local model backend such as Ollama or another OpenAI-compatible server.
 That compose baseline now also runs a dedicated `worker` service beside the HTTP `orchestrator`, with a shared artifact volume and the baseline `config/runtime-providers.yaml` plus `config/mcp-servers.yaml` available inside the container image so both processes resolve the same instance contract in local Docker runs.
 The bundled Redis service now also backs those short-lived promotion locks in the local stack, so publication requests for one run stay serialized across transports.
 
@@ -195,7 +196,7 @@ That MCP surface now includes `describe_instance_config` so an agent can inspect
 Use [examples/mcp/stdio-server.example.json](examples/mcp/stdio-server.example.json) as a neutral client config starting point, `./scripts/mcp-smoke.sh` for the stateless handshake/tool-discovery path, and `./scripts/mcp-stateful-smoke.sh` for the safe stateful run path.
 If OpenHands is the target client, prefer [examples/mcp/openhands.mcp.json](examples/mcp/openhands.mcp.json) and the registration flow documented in [docs/mcp/openhands.md](docs/mcp/openhands.md).
 For local OpenHands CLI registration, use `./scripts/openhands-register-mcp.sh`.
-For a first local OpenHands run, use `./scripts/openhands-bootstrap.sh --validate-mcp` and then `openhands -f examples/openhands/first-task.md`.
+For a first local OpenHands run with the bundled LiteLLM gateway, use `./scripts/openhands-bootstrap.sh --validate-litellm --validate-mcp` and then `openhands -f examples/openhands/first-task.md`.
 
 ## CI
 

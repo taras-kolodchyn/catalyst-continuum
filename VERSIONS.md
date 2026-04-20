@@ -50,6 +50,9 @@ source it directly are validated by `./scripts/check-versions.sh` in CI.
 - Grafana image: `grafana/grafana:12.0.8@sha256:52a34c9cfc385782b4dc991b15353d942bdf7b7b680db199b0cb1f006860e940`
   - Declared in [deploy/compose/.env.example](deploy/compose/.env.example)
 
+- LiteLLM image: `ghcr.io/berriai/litellm:main-stable@sha256:9e1536c6a9219519f024f221706b20b012ca5176988164798adc5c7fe011e5d5`
+  - Declared in [versions.env](versions.env) and [deploy/compose/.env.example](deploy/compose/.env.example)
+
 - Orchestrator local image tag: `0.1.0-dev`
   - Declared in [deploy/compose/.env.example](deploy/compose/.env.example)
 
@@ -92,6 +95,7 @@ source it directly are validated by `./scripts/check-versions.sh` in CI.
 - GitHub Actions dependencies are updated through Dependabot PRs and reviewed before merge.
 - GitHub Actions workflow refs are pinned to full commit SHAs instead of moving tags.
 - Dockerfile and Docker Compose image references should be updated together with their digests.
+- LiteLLM image updates should keep the `main-stable` tag and digest pin aligned with the mounted `deploy/compose/litellm-config.yaml` aliases and the corresponding template-repo scaffold.
 - Observability stack images for OpenTelemetry Collector, Loki, Tempo, Prometheus, and Grafana are pinned by tag and digest in the same way as application dependencies.
 - Local `act` runner image and architecture should be updated together with [`.actrc`](.actrc) and validated by `./scripts/check-versions.sh`.
 - Container SBOMs are generated from the built orchestrator image in CI and uploaded as workflow artifacts.

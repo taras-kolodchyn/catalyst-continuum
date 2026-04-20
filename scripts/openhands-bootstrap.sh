@@ -5,8 +5,10 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 REGISTER_MCP=0
+VALIDATE_LITELLM=0
 VALIDATE_MCP=0
 ENV_FILE=""
+LITELLM_MODEL=""
 
 usage() {
   cat <<'EOF'
@@ -17,7 +19,9 @@ OpenHands MCP onboarding steps.
 
 Options:
   --register-mcp      Register catalyst-continuum in OpenHands after Postgres is ready
+  --validate-litellm  Run the LiteLLM local gateway validation after Postgres is ready
   --validate-mcp      Run the safe stateful MCP validation flow after Postgres is ready
+  --litellm-model     Override the LiteLLM model alias used during validation
   --env-file PATH     Use a specific compose env file
   -h, --help          Show this help
 EOF
@@ -29,9 +33,21 @@ while [ "$#" -gt 0 ]; do
       REGISTER_MCP=1
       shift
       ;;
+    --validate-litellm)
+      VALIDATE_LITELLM=1
+      shift
+      ;;
     --validate-mcp)
       VALIDATE_MCP=1
       shift
+      ;;
+    --litellm-model)
+      if [ "$#" -lt 2 ]; then
+        echo "--litellm-model requires an alias" >&2
+        exit 1
+      fi
+      LITELLM_MODEL="$2"
+      shift 2
       ;;
     --env-file)
       if [ "$#" -lt 2 ]; then
@@ -78,6 +94,11 @@ POSTGRES_DB="${POSTGRES_DB:-continuum}"
 POSTGRES_USER="${POSTGRES_USER:-continuum}"
 POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-continuum-dev}"
 POSTGRES_PORT="${POSTGRES_PORT:-5432}"
+LITELLM_DEFAULT_MODEL="${LITELLM_DEFAULT_MODEL:-local-ollama-coder}"
+
+if [ -z "$LITELLM_MODEL" ]; then
+  LITELLM_MODEL="$LITELLM_DEFAULT_MODEL"
+fi
 
 compose_args=(
   docker
@@ -122,6 +143,14 @@ echo "postgres is ready"
 echo "database_url: $DATABASE_URL"
 echo
 
+if [ "$VALIDATE_LITELLM" -eq 1 ]; then
+  echo "running local LiteLLM validation"
+  ./scripts/litellm-local-smoke.sh \
+    --env-file "$ENV_FILE" \
+    --model "$LITELLM_MODEL"
+  echo
+fi
+
 if [ "$VALIDATE_MCP" -eq 1 ]; then
   echo "running safe stateful MCP validation"
   CATALYST_DATABASE_URL="$DATABASE_URL" \
@@ -137,10 +166,18 @@ fi
 
 echo "next:"
 echo "  export CATALYST_DATABASE_URL='$DATABASE_URL'"
+echo "  ./scripts/litellm-local-smoke.sh --model '$LITELLM_MODEL'"
 echo "  ./scripts/mcp-smoke.sh"
 echo "  ./scripts/mcp-stateful-smoke.sh"
 echo "  ./scripts/openhands-register-mcp.sh"
 echo "  openhands -f examples/openhands/first-task.md"
+echo
+echo "openhands llm settings:"
+echo "  provider: OpenAI"
+echo "  custom model: openai/$LITELLM_MODEL"
+echo "  base url (host OpenHands): http://127.0.0.1:${LITELLM_PORT:-4000}"
+echo "  base url (Docker OpenHands): http://host.docker.internal:${LITELLM_PORT:-4000}"
+echo "  api key: ${LITELLM_MASTER_KEY:-sk-continuum-dev}"
 echo
 echo "inside OpenHands:"
 echo "  /mcp"

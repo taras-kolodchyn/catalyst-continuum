@@ -3,6 +3,7 @@
 OpenHands is the current target MCP client for Catalyst Continuum.
 
 This document narrows the generic MCP integration down to the concrete OpenHands flow.
+For the full local agent loop, pair that MCP surface with the bundled `LiteLLM` gateway from `deploy/compose/compose.yaml` and a host-run local model backend such as Ollama or another OpenAI-compatible server.
 
 ## Recommended Starting Point
 
@@ -24,21 +25,23 @@ If the resolved `external_mcp_contract` for a run also allows `fetch`, register 
 For the shortest setup path, use:
 
 ```bash
-./scripts/openhands-bootstrap.sh --validate-mcp
+./scripts/openhands-bootstrap.sh --validate-litellm --validate-mcp
 ```
 
 This script:
 
 - starts the pinned local Postgres service from `deploy/compose/compose.yaml`
+- starts and validates the pinned local `LiteLLM` gateway when `--validate-litellm` is set
 - waits until the database is ready
 - runs the safe stateful MCP validation flow when `--validate-mcp` is set
 - prints the computed `CATALYST_DATABASE_URL`
+- prints the exact OpenHands LLM settings for the selected LiteLLM model alias
 - shows the next OpenHands commands to run
 
-To bootstrap Postgres, validate the stateful MCP path, and register the MCP server in one step:
+To bootstrap Postgres, validate LiteLLM plus the stateful MCP path, and register the MCP server in one step:
 
 ```bash
-./scripts/openhands-bootstrap.sh --validate-mcp --register-mcp
+./scripts/openhands-bootstrap.sh --validate-litellm --validate-mcp --register-mcp
 ```
 
 After that, start OpenHands with the prepared first task:
@@ -46,6 +49,39 @@ After that, start OpenHands with the prepared first task:
 ```bash
 openhands -f examples/openhands/first-task.md
 ```
+
+## LiteLLM Local Model Path
+
+The local `v0.1` flow now includes a pinned `LiteLLM` proxy in the shipped compose stack.
+That keeps the model-facing contract stable for OpenHands while leaving the actual local model runtime under operator control.
+
+The default aliases are:
+
+- `local-ollama-coder` for a host-run Ollama backend at `http://host.docker.internal:11434`
+- `local-openai-coder` for a host-run OpenAI-compatible backend at `http://host.docker.internal:1234/v1`
+
+To validate only the gateway and alias exposure:
+
+```bash
+./scripts/litellm-local-smoke.sh --skip-chat
+```
+
+To validate a real model round-trip once the host backend is already serving:
+
+```bash
+./scripts/litellm-local-smoke.sh --model local-ollama-coder
+./scripts/litellm-local-smoke.sh --model local-openai-coder
+```
+
+The script prints the exact OpenHands settings to use.
+For the default host-run OpenHands flow, those settings are:
+
+- `LLM Provider`: `OpenAI`
+- `Custom Model`: `openai/<liteLLM-alias>` such as `openai/local-ollama-coder`
+- `Base URL`: `http://127.0.0.1:4000`
+- `API Key`: the `LITELLM_MASTER_KEY` value from `deploy/compose/.env`
+
+If OpenHands itself runs inside Docker instead of on the host, use `http://host.docker.internal:4000` as the base URL.
 
 ## OpenHands CLI Registration
 

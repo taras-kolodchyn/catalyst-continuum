@@ -21,7 +21,7 @@ config = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
 services = config["services"]
 volumes = config.get("volumes", {})
 
-required_services = ("orchestrator", "worker")
+required_services = ("orchestrator", "worker", "litellm")
 for service_name in required_services:
     if service_name not in services:
         raise SystemExit(f"compose config is missing required service: {service_name}")
@@ -55,6 +55,8 @@ expected_env = {
 }
 
 for service_name in required_services:
+    if service_name == "litellm":
+        continue
     service = services[service_name]
     env = environment_map(service)
     for key, expected_value in expected_env.items():
@@ -81,4 +83,34 @@ if worker_command != ["worker", "--idle-sleep-ms", "1000"]:
         "worker command drifted from the v0.1 baseline: "
         f"{worker_command!r}"
     )
+
+litellm = services["litellm"]
+litellm_env = environment_map(litellm)
+for key in (
+    "LITELLM_MASTER_KEY",
+    "LITELLM_OLLAMA_API_BASE",
+    "LITELLM_OPENAI_COMPAT_API_BASE",
+    "LITELLM_OPENAI_COMPAT_API_KEY",
+):
+    if not litellm_env.get(key):
+        raise SystemExit(f"litellm must set {key}")
+
+litellm_command = litellm.get("command")
+if litellm_command != ["--config", "/app/config.yaml", "--host", "0.0.0.0", "--port", "4000"]:
+    raise SystemExit(
+        "litellm command drifted from the v0.1 baseline: "
+        f"{litellm_command!r}"
+    )
+
+if not any(
+    mount.get("type") == "bind"
+    and pathlib.Path(mount.get("source", "")).name == "litellm-config.yaml"
+    and mount.get("target") == "/app/config.yaml"
+    for mount in litellm.get("volumes", [])
+):
+    raise SystemExit("litellm must mount litellm-config.yaml at /app/config.yaml")
+
+extra_hosts = litellm.get("extra_hosts", [])
+if "host.docker.internal=host-gateway" not in extra_hosts:
+    raise SystemExit("litellm must resolve host.docker.internal through host-gateway")
 PY

@@ -20,12 +20,14 @@ choices into the open-source root.
 - `config/runtime-providers.yaml` for Docker, Proxmox, and Kubernetes placeholders
 - `config/mcp-servers.yaml` for the instance-level external MCP allowlist
 - `deploy/compose/.env.example` for private compose overlays
+- `deploy/compose/litellm-config.yaml` for private LiteLLM model alias wiring
 - `deploy/github-app/app-manifest.template.json` for GitHub App registration
 - `deploy/github-app/webhook.env.example` for webhook secret and installation wiring
 
 ## Notes
 
 - These files are scaffolds, not an active integration.
+- The LiteLLM scaffold keeps the OpenHands or Codex-facing model aliases stable while letting each private instance point those aliases at its own Ollama, LM Studio, vLLM, or other OpenAI-compatible local backend.
 - The GitHub App assets define the minimum permissions and events expected by the
   current draft-PR flow. The upstream orchestrator now exposes a signed webhook
   intake path plus durable delivery inspection surfaces. The first safe
