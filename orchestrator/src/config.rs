@@ -31,11 +31,12 @@ impl InstanceConfigReport {
     pub fn load(
         runtime_providers_file: Option<&Path>,
         mcp_servers_file: Option<&Path>,
+        ai_gateway_file: Option<&Path>,
     ) -> Result<Self> {
         let runtime_providers = RuntimeProvidersConfig::load(runtime_providers_file)?;
         let runtime_provider_statuses = runtime_providers.provider_statuses();
         let external_mcp_servers = ExternalMcpServersConfig::load(mcp_servers_file)?;
-        let ai_gateway = AiGatewayConfig::load()?;
+        let ai_gateway = AiGatewayConfig::load(ai_gateway_file)?;
         let github_app = GitHubAppConfig::from_env_snapshot(GitHubAppEnv::capture())?;
 
         Ok(Self {
@@ -63,8 +64,8 @@ pub struct AiGatewayConfig {
 }
 
 impl AiGatewayConfig {
-    pub fn load() -> Result<Self> {
-        match resolve_ai_gateway_file()? {
+    pub fn load(ai_gateway_file: Option<&Path>) -> Result<Self> {
+        match resolve_ai_gateway_file(ai_gateway_file)? {
             Some(path) => Self::from_file(&path),
             None => Ok(Self::default_config()),
         }
@@ -879,7 +880,11 @@ fn resolve_mcp_servers_file(explicit_path: Option<&Path>) -> Result<Option<PathB
     Ok(None)
 }
 
-fn resolve_ai_gateway_file() -> Result<Option<PathBuf>> {
+fn resolve_ai_gateway_file(explicit_path: Option<&Path>) -> Result<Option<PathBuf>> {
+    if let Some(path) = explicit_path {
+        return ensure_named_config_file(path, true, "AI gateway config");
+    }
+
     if let Some(path) = std::env::var_os(AI_GATEWAY_FILE_ENV).map(PathBuf::from) {
         return ensure_named_config_file(&path, true, "AI gateway config");
     }

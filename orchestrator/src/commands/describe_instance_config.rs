@@ -6,6 +6,7 @@ pub fn execute(args: DescribeInstanceConfigArgs) -> anyhow::Result<()> {
     let report = InstanceConfigReport::load(
         args.runtime_providers_file.as_deref(),
         args.mcp_servers_file.as_deref(),
+        args.ai_gateway_file.as_deref(),
     )?;
 
     if args.json {

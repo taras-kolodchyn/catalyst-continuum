@@ -14,7 +14,8 @@ The server process is:
 catalyst-continuum-orchestrator mcp-server \
   --artifact-root ".continuum/artifacts" \
   --runtime-providers-file "config/runtime-providers.yaml" \
-  --mcp-servers-file "config/mcp-servers.yaml"
+  --mcp-servers-file "config/mcp-servers.yaml" \
+  --ai-gateway-file "config/ai-gateway.yaml"
 ```
 
 You can also launch it from source during development:
@@ -24,7 +25,8 @@ cargo run -q -p catalyst-continuum-orchestrator -- \
   mcp-server \
   --artifact-root ".continuum/artifacts" \
   --runtime-providers-file "config/runtime-providers.yaml" \
-  --mcp-servers-file "config/mcp-servers.yaml"
+  --mcp-servers-file "config/mcp-servers.yaml" \
+  --ai-gateway-file "config/ai-gateway.yaml"
 ```
 
 ## External MCP Servers
@@ -107,7 +109,7 @@ Many open-source agents use slightly different configuration formats, but the tr
 - args: `run -q -p catalyst-continuum-orchestrator -- mcp-server ...`
 - env: optional `CATALYST_DATABASE_URL`, `CATALYST_RUNTIME_PROVIDERS_FILE`, `CATALYST_MCP_SERVERS_FILE`, and `CATALYST_AI_GATEWAY_FILE`
 
-Use `--runtime-providers-file` when the agent should target a non-default runtime-provider config path, `--mcp-servers-file` when the same session should use an explicit external MCP server allowlist, and `CATALYST_AI_GATEWAY_FILE` when the session should pin a non-default LiteLLM AI gateway contract file. That keeps MCP, HTTP, and local worker execution aligned to the same instance contract during validation.
+Use `--runtime-providers-file` when the agent should target a non-default runtime-provider config path, `--mcp-servers-file` when the same session should use an explicit external MCP server allowlist, and `--ai-gateway-file` or `CATALYST_AI_GATEWAY_FILE` when the session should pin a non-default LiteLLM AI gateway contract file. That keeps MCP, HTTP, and local worker execution aligned to the same instance contract during validation.
 
 A neutral example config is available at [examples/mcp/stdio-server.example.json](../../examples/mcp/stdio-server.example.json).
 

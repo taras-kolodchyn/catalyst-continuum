@@ -108,6 +108,7 @@ source "$ENV_FILE"
 
 LITELLM_PORT="${LITELLM_PORT:-4000}"
 LITELLM_MASTER_KEY="${LITELLM_MASTER_KEY:-sk-continuum-dev}"
+CATALYST_AI_GATEWAY_FILE="${CATALYST_AI_GATEWAY_FILE:-}"
 LITELLM_DEFAULT_MODEL="${LITELLM_DEFAULT_MODEL:-}"
 LITELLM_MACOS_NATIVE_MODEL="${LITELLM_MACOS_NATIVE_MODEL:-openai/mlx-community/Qwen2.5-Coder-3B-Instruct-4bit}"
 LITELLM_MACOS_NATIVE_API_BASE="${LITELLM_MACOS_NATIVE_API_BASE:-http://host.docker.internal:8080/v1}"
@@ -123,7 +124,17 @@ POSTGRES_USER="${POSTGRES_USER:-continuum}"
 REDIS_PASSWORD="${REDIS_PASSWORD:-continuum-dev}"
 
 if [ -z "$MODEL" ]; then
-  MODEL="$("$ROOT_DIR/scripts/litellm-default-model.sh" --env-file "$ENV_FILE")"
+  default_model_args=(
+    --env-file
+    "$ENV_FILE"
+  )
+  if [ -n "$CATALYST_AI_GATEWAY_FILE" ]; then
+    default_model_args+=(
+      --ai-gateway-file
+      "$CATALYST_AI_GATEWAY_FILE"
+    )
+  fi
+  MODEL="$("$ROOT_DIR/scripts/litellm-default-model.sh" "${default_model_args[@]}")"
 fi
 
 if [ "$NO_COMPOSE_UP" -eq 0 ]; then

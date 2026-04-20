@@ -19,7 +19,8 @@ cargo run -q -p catalyst-continuum-orchestrator -- \
   mcp-server \
   --artifact-root ".continuum/artifacts" \
   --runtime-providers-file "config/runtime-providers.yaml" \
-  --mcp-servers-file "config/mcp-servers.yaml"
+  --mcp-servers-file "config/mcp-servers.yaml" \
+  --ai-gateway-file "config/ai-gateway.yaml"
 ```
 
 This is the fastest way to validate the integration locally with OpenHands.
@@ -141,7 +142,7 @@ openhands mcp add catalyst-continuum \
   --env "CATALYST_RUNTIME_PROVIDERS_FILE=config/runtime-providers.yaml" \
   --env "CATALYST_MCP_SERVERS_FILE=config/mcp-servers.yaml" \
   --env "CATALYST_AI_GATEWAY_FILE=config/ai-gateway.yaml" \
-  cargo -- run -q -p catalyst-continuum-orchestrator -- mcp-server --artifact-root .continuum/artifacts --runtime-providers-file config/runtime-providers.yaml --mcp-servers-file config/mcp-servers.yaml
+  cargo -- run -q -p catalyst-continuum-orchestrator -- mcp-server --artifact-root .continuum/artifacts --runtime-providers-file config/runtime-providers.yaml --mcp-servers-file config/mcp-servers.yaml --ai-gateway-file config/ai-gateway.yaml
 ```
 
 Then verify the registration:
@@ -189,7 +190,9 @@ The config matches the OpenHands MCP file format:
         "--runtime-providers-file",
         "config/runtime-providers.yaml",
         "--mcp-servers-file",
-        "config/mcp-servers.yaml"
+        "config/mcp-servers.yaml",
+        "--ai-gateway-file",
+        "config/ai-gateway.yaml"
       ],
       "env": {
         "CATALYST_DATABASE_URL": "postgres://postgres:postgres@127.0.0.1:5432/catalyst_continuum",

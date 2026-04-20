@@ -94,10 +94,21 @@ POSTGRES_DB="${POSTGRES_DB:-continuum}"
 POSTGRES_USER="${POSTGRES_USER:-continuum}"
 POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-continuum-dev}"
 POSTGRES_PORT="${POSTGRES_PORT:-5432}"
+CATALYST_AI_GATEWAY_FILE="${CATALYST_AI_GATEWAY_FILE:-}"
 LITELLM_DEFAULT_MODEL="${LITELLM_DEFAULT_MODEL:-}"
 
 if [ -z "$LITELLM_MODEL" ]; then
-  LITELLM_MODEL="$("$ROOT_DIR/scripts/litellm-default-model.sh" --env-file "$ENV_FILE")"
+  default_model_args=(
+    --env-file
+    "$ENV_FILE"
+  )
+  if [ -n "$CATALYST_AI_GATEWAY_FILE" ]; then
+    default_model_args+=(
+      --ai-gateway-file
+      "$CATALYST_AI_GATEWAY_FILE"
+    )
+  fi
+  LITELLM_MODEL="$("$ROOT_DIR/scripts/litellm-default-model.sh" "${default_model_args[@]}")"
 fi
 
 compose_args=(
@@ -145,9 +156,13 @@ echo
 
 if [ "$VALIDATE_LITELLM" -eq 1 ]; then
   echo "running local LiteLLM validation"
-  ./scripts/litellm-local-smoke.sh \
-    --env-file "$ENV_FILE" \
-    --model "$LITELLM_MODEL"
+  smoke_args=(
+    --env-file
+    "$ENV_FILE"
+    --model
+    "$LITELLM_MODEL"
+  )
+  ./scripts/litellm-local-smoke.sh "${smoke_args[@]}"
   echo
 fi
 

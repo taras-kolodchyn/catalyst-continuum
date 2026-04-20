@@ -42,6 +42,13 @@ if [ -n "${CATALYST_MCP_SERVERS_FILE:-}" ]; then
   )
 fi
 
+if [ -n "${CATALYST_AI_GATEWAY_FILE:-}" ]; then
+  command_args+=(
+    --env
+    "CATALYST_AI_GATEWAY_FILE=${CATALYST_AI_GATEWAY_FILE}"
+  )
+fi
+
 command_args+=(
   cargo
   --
@@ -66,6 +73,13 @@ if [ -n "${CATALYST_MCP_SERVERS_FILE:-}" ]; then
   command_args+=(
     --mcp-servers-file
     "$CATALYST_MCP_SERVERS_FILE"
+  )
+fi
+
+if [ -n "${CATALYST_AI_GATEWAY_FILE:-}" ]; then
+  command_args+=(
+    --ai-gateway-file
+    "$CATALYST_AI_GATEWAY_FILE"
   )
 fi
 

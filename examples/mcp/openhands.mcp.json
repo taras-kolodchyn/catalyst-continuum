@@ -14,7 +14,9 @@
         "--runtime-providers-file",
         "config/runtime-providers.yaml",
         "--mcp-servers-file",
-        "config/mcp-servers.yaml"
+        "config/mcp-servers.yaml",
+        "--ai-gateway-file",
+        "config/ai-gateway.yaml"
       ],
       "env": {
         "CATALYST_DATABASE_URL": "postgres://postgres:postgres@127.0.0.1:5432/catalyst_continuum",
