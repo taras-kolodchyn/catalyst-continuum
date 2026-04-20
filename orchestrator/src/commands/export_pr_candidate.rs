@@ -5,6 +5,7 @@ use std::path::Path;
 use crate::{
     cli::ExportPrCandidateArgs,
     commands::evaluate_run_quality,
+    coordination,
     models::{artifact::ArtifactSummary, run_event::RunEventDraft},
     planning::{pr_candidate, pr_export},
     storage::postgres::PostgresRunStore,
@@ -73,6 +74,17 @@ impl ExportPrCandidateReport {
 }
 
 pub(crate) fn export_pr_candidate(
+    store: &mut PostgresRunStore,
+    run_id: uuid::Uuid,
+    artifact_root: &Path,
+    branch_name: Option<&str>,
+) -> anyhow::Result<ExportPrCandidateReport> {
+    coordination::with_promotion_run_lock(run_id, || {
+        export_pr_candidate_unlocked(store, run_id, artifact_root, branch_name)
+    })
+}
+
+pub(crate) fn export_pr_candidate_unlocked(
     store: &mut PostgresRunStore,
     run_id: uuid::Uuid,
     artifact_root: &Path,

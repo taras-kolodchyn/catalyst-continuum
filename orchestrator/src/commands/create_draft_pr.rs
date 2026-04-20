@@ -5,6 +5,7 @@ use std::path::Path;
 use crate::{
     cli::CreateDraftPrArgs,
     commands::evaluate_run_quality,
+    coordination,
     models::{artifact::ArtifactSummary, run_event::RunEventDraft},
     planning::{github_pr, pr_candidate, pr_export, pr_publication},
     storage::postgres::PostgresRunStore,
@@ -32,6 +33,18 @@ pub fn execute(args: CreateDraftPrArgs) -> anyhow::Result<()> {
 }
 
 pub(crate) fn create_draft_pr(
+    store: &mut PostgresRunStore,
+    run_id: uuid::Uuid,
+    artifact_root: &Path,
+    remote_url: Option<&str>,
+    branch_name: Option<&str>,
+) -> anyhow::Result<CreateDraftPrReport> {
+    coordination::with_promotion_run_lock(run_id, || {
+        create_draft_pr_unlocked(store, run_id, artifact_root, remote_url, branch_name)
+    })
+}
+
+pub(crate) fn create_draft_pr_unlocked(
     store: &mut PostgresRunStore,
     run_id: uuid::Uuid,
     artifact_root: &Path,

@@ -4,6 +4,7 @@ use serde::Serialize;
 use crate::commands::evaluate_run_quality;
 use crate::{
     cli::OpenGithubPrArgs,
+    coordination,
     models::{artifact::ArtifactSummary, run_event::RunEventDraft},
     planning::{github_pr, pr_publication, quality_gate},
     storage::postgres::PostgresRunStore,
@@ -25,6 +26,16 @@ pub fn execute(args: OpenGithubPrArgs) -> anyhow::Result<()> {
 }
 
 pub(crate) fn open_github_pr(
+    store: &mut PostgresRunStore,
+    run_id: uuid::Uuid,
+    artifact_root: &std::path::Path,
+) -> anyhow::Result<OpenGithubPrReport> {
+    coordination::with_promotion_run_lock(run_id, || {
+        open_github_pr_unlocked(store, run_id, artifact_root)
+    })
+}
+
+pub(crate) fn open_github_pr_unlocked(
     store: &mut PostgresRunStore,
     run_id: uuid::Uuid,
     artifact_root: &std::path::Path,

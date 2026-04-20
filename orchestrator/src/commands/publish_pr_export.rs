@@ -5,6 +5,7 @@ use std::path::Path;
 use crate::commands::evaluate_run_quality;
 use crate::{
     cli::PublishPrExportArgs,
+    coordination,
     models::{artifact::ArtifactSummary, run_event::RunEventDraft},
     planning::{pr_export, pr_publication, quality_gate},
     storage::postgres::PostgresRunStore,
@@ -80,6 +81,18 @@ impl PublishPrExportReport {
 }
 
 pub(crate) fn publish_pr_export(
+    store: &mut PostgresRunStore,
+    run_id: uuid::Uuid,
+    artifact_root: &Path,
+    remote_url: Option<&str>,
+    push: bool,
+) -> anyhow::Result<PublishPrExportReport> {
+    coordination::with_promotion_run_lock(run_id, || {
+        publish_pr_export_unlocked(store, run_id, artifact_root, remote_url, push)
+    })
+}
+
+pub(crate) fn publish_pr_export_unlocked(
     store: &mut PostgresRunStore,
     run_id: uuid::Uuid,
     artifact_root: &Path,

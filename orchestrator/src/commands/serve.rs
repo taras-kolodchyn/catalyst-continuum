@@ -15,6 +15,7 @@ use crate::{
         worker,
     },
     config::{InstanceConfigReport, load_github_app_webhook_secret},
+    coordination,
     github_webhook_routing::evaluate_github_webhook_route,
     github_webhooks::{GitHubWebhookErrorKind, GitHubWebhookHeaders, ingest_github_webhook},
     models::repository_signal::{RepositorySignalListFilters, RepositorySignalSummary},
@@ -1013,7 +1014,7 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                                     ) {
                                         Ok(report) => json_response(StatusCode(200), &report),
                                         Err(error) => json_response(
-                                            StatusCode(500),
+                                            promotion_error_status(&error),
                                             &ErrorResponse {
                                                 error: format!(
                                                     "failed to export PR candidate for run {run_id}: {error}"
@@ -1086,7 +1087,7 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                                 ) {
                                     Ok(report) => json_response(StatusCode(200), &report),
                                     Err(error) => json_response(
-                                        StatusCode(500),
+                                        promotion_error_status(&error),
                                         &ErrorResponse {
                                             error: format!(
                                                 "failed to publish PR export for run {run_id}: {error}"
@@ -1169,7 +1170,7 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                                         ) {
                                             Ok(report) => json_response(StatusCode(200), &report),
                                             Err(error) => json_response(
-                                                StatusCode(500),
+                                                promotion_error_status(&error),
                                                 &ErrorResponse {
                                                     error: format!(
                                                         "failed to create draft PR for run {run_id}: {error}"
@@ -1257,6 +1258,14 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
 
 fn parse_run_id(value: &str) -> anyhow::Result<Uuid> {
     Uuid::parse_str(value).map_err(|error| anyhow::anyhow!("invalid run id `{value}`: {error}"))
+}
+
+fn promotion_error_status(error: &anyhow::Error) -> StatusCode {
+    if coordination::is_promotion_lock_conflict(error) {
+        return StatusCode(409);
+    }
+
+    StatusCode(500)
 }
 
 fn parse_artifact_id(value: &str) -> anyhow::Result<Uuid> {
