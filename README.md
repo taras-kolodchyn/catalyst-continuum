@@ -170,7 +170,12 @@ The local `v0.1` compose stack now includes an observability baseline:
 - Tempo for traces
 - Grafana with pinned datasource and dashboard provisioning
 
-That compose baseline now also includes a pinned `LiteLLM` gateway service for local agent validation against a host-run local model backend such as Ollama or another OpenAI-compatible server.
+That compose baseline now also includes a pinned `LiteLLM` gateway service for local agent validation.
+The repository-standard local backend policy is now explicit:
+
+- macOS Apple Silicon prefers a native `mlx-lm` HTTP server behind LiteLLM
+- other developer platforms prefer Ollama behind LiteLLM
+- macOS can still opt into Ollama by overriding `LITELLM_DEFAULT_MODEL`
 That compose baseline now also runs a dedicated `worker` service beside the HTTP `orchestrator`, with a shared artifact volume and the baseline `config/runtime-providers.yaml` plus `config/mcp-servers.yaml` available inside the container image so both processes resolve the same instance contract in local Docker runs.
 The bundled Redis service now also backs those short-lived promotion locks in the local stack, so publication requests for one run stay serialized across transports.
 

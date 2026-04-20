@@ -27,7 +27,8 @@ choices into the open-source root.
 ## Notes
 
 - These files are scaffolds, not an active integration.
-- The LiteLLM scaffold keeps the OpenHands or Codex-facing model aliases stable while letting each private instance point those aliases at its own Ollama, LM Studio, vLLM, or other OpenAI-compatible local backend.
+- The LiteLLM scaffold keeps the OpenHands or Codex-facing model aliases stable while letting each private instance point those aliases at its preferred host-managed backend.
+- The upstream repository defaults to native `mlx-lm` on macOS Apple Silicon and Ollama everywhere else, but the private template can override that through `LITELLM_DEFAULT_MODEL` and the backend-specific env vars in `deploy/compose/.env.example`.
 - The GitHub App assets define the minimum permissions and events expected by the
   current draft-PR flow. The upstream orchestrator now exposes a signed webhook
   intake path plus durable delivery inspection surfaces. The first safe

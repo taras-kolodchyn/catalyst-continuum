@@ -98,6 +98,7 @@ source it directly are validated by `./scripts/check-versions.sh` in CI.
 - LiteLLM image updates should keep the `main-stable` tag and digest pin aligned with the mounted `deploy/compose/litellm-config.yaml` aliases and the corresponding template-repo scaffold.
 - Observability stack images for OpenTelemetry Collector, Loki, Tempo, Prometheus, and Grafana are pinned by tag and digest in the same way as application dependencies.
 - Local `act` runner image and architecture should be updated together with [`.actrc`](.actrc) and validated by `./scripts/check-versions.sh`.
+- Host-managed local model backends such as MLX-LM on macOS Apple Silicon or Ollama on other platforms are intentionally outside the repository pin set because they are not shipped inside the compose baseline. If you standardize them for your team, pin them in your own operator environment as well.
 - Container SBOMs are generated from the built orchestrator image in CI and uploaded as workflow artifacts.
 - GitHub Actions also generates a Sigstore-backed provenance attestation for the uploaded SBOM artifact.
 - Version bumps should land with green `rust`, `compose`, and `smoke` checks.

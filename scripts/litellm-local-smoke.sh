@@ -17,6 +17,13 @@ Usage: ./scripts/litellm-local-smoke.sh [OPTIONS]
 Validate the local LiteLLM gateway from the pinned compose stack and print the
 OpenHands settings for the selected model alias.
 
+Repository-standard defaults:
+
+- macOS Apple Silicon: `local-macos-native`
+- everything else: `local-ollama-coder`
+
+Use `LITELLM_DEFAULT_MODEL` or `--model` to override.
+
 Options:
   --env-file PATH     Use a specific compose env file
   --model ALIAS       Validate a specific LiteLLM model alias
@@ -101,12 +108,15 @@ source "$ENV_FILE"
 
 LITELLM_PORT="${LITELLM_PORT:-4000}"
 LITELLM_MASTER_KEY="${LITELLM_MASTER_KEY:-sk-continuum-dev}"
-LITELLM_DEFAULT_MODEL="${LITELLM_DEFAULT_MODEL:-local-ollama-coder}"
+LITELLM_DEFAULT_MODEL="${LITELLM_DEFAULT_MODEL:-}"
+LITELLM_MACOS_NATIVE_MODEL="${LITELLM_MACOS_NATIVE_MODEL:-openai/mlx-community/Llama-3.2-3B-Instruct-4bit}"
+LITELLM_MACOS_NATIVE_API_BASE="${LITELLM_MACOS_NATIVE_API_BASE:-http://host.docker.internal:8080/v1}"
+LITELLM_MACOS_NATIVE_API_KEY="${LITELLM_MACOS_NATIVE_API_KEY:-local-mlx}"
+LITELLM_OLLAMA_MODEL="${LITELLM_OLLAMA_MODEL:-ollama/qwen2.5-coder:7b}"
 LITELLM_OLLAMA_API_BASE="${LITELLM_OLLAMA_API_BASE:-http://host.docker.internal:11434}"
-LITELLM_OPENAI_COMPAT_API_BASE="${LITELLM_OPENAI_COMPAT_API_BASE:-http://host.docker.internal:1234/v1}"
 
 if [ -z "$MODEL" ]; then
-  MODEL="$LITELLM_DEFAULT_MODEL"
+  MODEL="$("$ROOT_DIR/scripts/litellm-default-model.sh" --env-file "$ENV_FILE")"
 fi
 
 if [ "$NO_COMPOSE_UP" -eq 0 ]; then
@@ -166,12 +176,21 @@ PY
 )"
 
 backend_url=""
+backend_label=""
+backend_model=""
+backend_start_command=""
 case "$MODEL" in
+  local-macos-native)
+    backend_url="$LITELLM_MACOS_NATIVE_API_BASE"
+    backend_label="mlx-lm native server"
+    backend_model="$LITELLM_MACOS_NATIVE_MODEL"
+    backend_start_command="mlx_lm.server --model ${LITELLM_MACOS_NATIVE_MODEL#openai/}"
+    ;;
   local-ollama-coder)
     backend_url="$LITELLM_OLLAMA_API_BASE"
-    ;;
-  local-openai-coder)
-    backend_url="$LITELLM_OPENAI_COMPAT_API_BASE"
+    backend_label="Ollama"
+    backend_model="$LITELLM_OLLAMA_MODEL"
+    backend_start_command="ollama pull ${LITELLM_OLLAMA_MODEL#ollama/} && ollama serve"
     ;;
 esac
 
@@ -179,13 +198,22 @@ echo
 echo "litellm is ready"
 echo "base_url: $base_url"
 echo "model_alias: $MODEL"
+if [ -n "$backend_label" ]; then
+  echo "backend_type: $backend_label"
+fi
 if [ -n "$backend_url" ]; then
   echo "backend_url: $backend_url"
+fi
+if [ -n "$backend_model" ]; then
+  echo "backend_model: $backend_model"
 fi
 echo "configured_models:"
 while IFS= read -r model_id; do
   echo "  - $model_id"
 done <<<"$available_models"
+if [ -n "$backend_start_command" ]; then
+  echo "backend_start: $backend_start_command"
+fi
 
 if [ "$SKIP_CHAT" -eq 0 ]; then
   echo

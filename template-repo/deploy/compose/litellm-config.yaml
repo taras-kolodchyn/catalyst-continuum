@@ -1,13 +1,13 @@
 model_list:
+  - model_name: local-macos-native
+    litellm_params:
+      model: os.environ/LITELLM_MACOS_NATIVE_MODEL
+      api_base: os.environ/LITELLM_MACOS_NATIVE_API_BASE
+      api_key: os.environ/LITELLM_MACOS_NATIVE_API_KEY
   - model_name: local-ollama-coder
     litellm_params:
-      model: ollama/qwen2.5-coder:7b
+      model: os.environ/LITELLM_OLLAMA_MODEL
       api_base: os.environ/LITELLM_OLLAMA_API_BASE
-  - model_name: local-openai-coder
-    litellm_params:
-      model: openai/local-coder
-      api_base: os.environ/LITELLM_OPENAI_COMPAT_API_BASE
-      api_key: os.environ/LITELLM_OPENAI_COMPAT_API_KEY
 
 litellm_settings:
   master_key: os.environ/LITELLM_MASTER_KEY

@@ -94,10 +94,10 @@ POSTGRES_DB="${POSTGRES_DB:-continuum}"
 POSTGRES_USER="${POSTGRES_USER:-continuum}"
 POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-continuum-dev}"
 POSTGRES_PORT="${POSTGRES_PORT:-5432}"
-LITELLM_DEFAULT_MODEL="${LITELLM_DEFAULT_MODEL:-local-ollama-coder}"
+LITELLM_DEFAULT_MODEL="${LITELLM_DEFAULT_MODEL:-}"
 
 if [ -z "$LITELLM_MODEL" ]; then
-  LITELLM_MODEL="$LITELLM_DEFAULT_MODEL"
+  LITELLM_MODEL="$("$ROOT_DIR/scripts/litellm-default-model.sh" --env-file "$ENV_FILE")"
 fi
 
 compose_args=(
@@ -171,6 +171,21 @@ echo "  ./scripts/mcp-smoke.sh"
 echo "  ./scripts/mcp-stateful-smoke.sh"
 echo "  ./scripts/openhands-register-mcp.sh"
 echo "  openhands -f examples/openhands/first-task.md"
+echo
+echo "recommended local backend:"
+case "$LITELLM_MODEL" in
+  local-macos-native)
+    native_model="${LITELLM_MACOS_NATIVE_MODEL:-openai/mlx-community/Llama-3.2-3B-Instruct-4bit}"
+    echo "  macOS Apple Silicon native MLX-LM"
+    echo "  mlx_lm.server --model ${native_model#openai/}"
+    ;;
+  local-ollama-coder)
+    ollama_model="${LITELLM_OLLAMA_MODEL:-ollama/qwen2.5-coder:7b}"
+    echo "  Ollama"
+    echo "  ollama pull ${ollama_model#ollama/}"
+    echo "  ollama serve"
+    ;;
+esac
 echo
 echo "openhands llm settings:"
 echo "  provider: OpenAI"

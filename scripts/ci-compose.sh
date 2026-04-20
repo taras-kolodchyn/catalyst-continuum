@@ -88,9 +88,11 @@ litellm = services["litellm"]
 litellm_env = environment_map(litellm)
 for key in (
     "LITELLM_MASTER_KEY",
+    "LITELLM_MACOS_NATIVE_MODEL",
+    "LITELLM_MACOS_NATIVE_API_BASE",
+    "LITELLM_MACOS_NATIVE_API_KEY",
+    "LITELLM_OLLAMA_MODEL",
     "LITELLM_OLLAMA_API_BASE",
-    "LITELLM_OPENAI_COMPAT_API_BASE",
-    "LITELLM_OPENAI_COMPAT_API_KEY",
 ):
     if not litellm_env.get(key):
         raise SystemExit(f"litellm must set {key}")

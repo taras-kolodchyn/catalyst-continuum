@@ -3,7 +3,12 @@
 OpenHands is the current target MCP client for Catalyst Continuum.
 
 This document narrows the generic MCP integration down to the concrete OpenHands flow.
-For the full local agent loop, pair that MCP surface with the bundled `LiteLLM` gateway from `deploy/compose/compose.yaml` and a host-run local model backend such as Ollama or another OpenAI-compatible server.
+For the full local agent loop, pair that MCP surface with the bundled `LiteLLM` gateway from `deploy/compose/compose.yaml` and a host-run local model backend.
+The repository-standard choice is:
+
+- macOS Apple Silicon: native [`mlx-lm` HTTP server](https://github.com/ml-explore/mlx-lm/blob/main/mlx_lm/SERVER.md)
+- other developer platforms: Ollama
+- macOS can still opt into Ollama explicitly
 
 ## Recommended Starting Point
 
@@ -54,30 +59,53 @@ openhands -f examples/openhands/first-task.md
 
 The local `v0.1` flow now includes a pinned `LiteLLM` proxy in the shipped compose stack.
 That keeps the model-facing contract stable for OpenHands while leaving the actual local model runtime under operator control.
+The repository scripts resolve the default alias this way:
+
+- `local-macos-native` on macOS Apple Silicon
+- `local-ollama-coder` on every other host
+
+If you want a different default on your machine, set `LITELLM_DEFAULT_MODEL` in `deploy/compose/.env`.
 
 The default aliases are:
 
+- `local-macos-native` for a host-run MLX-LM server at `http://host.docker.internal:8080/v1`
 - `local-ollama-coder` for a host-run Ollama backend at `http://host.docker.internal:11434`
-- `local-openai-coder` for a host-run OpenAI-compatible backend at `http://host.docker.internal:1234/v1`
+
+Recommended macOS Apple Silicon native backend:
+
+```bash
+pip install mlx-lm
+mlx_lm.server --model mlx-community/Llama-3.2-3B-Instruct-4bit
+```
+
+That follows the official [`mlx-lm` install guide](https://github.com/ml-explore/mlx-lm) plus the official [`mlx_lm.server` HTTP server docs](https://github.com/ml-explore/mlx-lm/blob/main/mlx_lm/SERVER.md).
+
+Recommended non-macOS backend:
+
+```bash
+ollama pull qwen2.5-coder:7b
+ollama serve
+```
 
 To validate only the gateway and alias exposure:
 
 ```bash
+./scripts/litellm-default-model.sh
 ./scripts/litellm-local-smoke.sh --skip-chat
 ```
 
 To validate a real model round-trip once the host backend is already serving:
 
 ```bash
+./scripts/litellm-local-smoke.sh --model local-macos-native
 ./scripts/litellm-local-smoke.sh --model local-ollama-coder
-./scripts/litellm-local-smoke.sh --model local-openai-coder
 ```
 
 The script prints the exact OpenHands settings to use.
 For the default host-run OpenHands flow, those settings are:
 
 - `LLM Provider`: `OpenAI`
-- `Custom Model`: `openai/<liteLLM-alias>` such as `openai/local-ollama-coder`
+- `Custom Model`: `openai/<liteLLM-alias>` such as `openai/local-macos-native` or `openai/local-ollama-coder`
 - `Base URL`: `http://127.0.0.1:4000`
 - `API Key`: the `LITELLM_MASTER_KEY` value from `deploy/compose/.env`
 
