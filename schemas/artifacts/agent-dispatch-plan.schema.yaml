@@ -1,0 +1,181 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "urn:catalyst-continuum:schemas:artifacts:agent-dispatch-plan:v0.1"
+title: "Catalyst Continuum Agent Dispatch Plan Artifact"
+description: "Run-level delegation contract grouping tasks by assigned agent and resolved external MCP policy."
+type: object
+additionalProperties: false
+required:
+  - schema_version
+  - artifact_type
+  - run_id
+  - brief_id
+  - selected_pack
+  - agents
+  - tasks
+properties:
+  schema_version:
+    type: string
+    const: "v0.1"
+  artifact_type:
+    type: string
+    const: "agent_dispatch_plan"
+  run_id:
+    $ref: "#/$defs/uuid_string"
+  brief_id:
+    $ref: "#/$defs/uuid_string"
+  selected_pack:
+    anyOf:
+      - type: string
+        minLength: 1
+      - type: "null"
+  orchestrator_model:
+    type: string
+    minLength: 1
+  default_agent:
+    type: string
+    minLength: 1
+  allowed_agents:
+    $ref: "#/$defs/string_array"
+  supported_agents:
+    $ref: "#/$defs/string_array"
+  external_mcp_contract:
+    $ref: "#/$defs/external_mcp_contract"
+  agents:
+    type: array
+    items:
+      $ref: "#/$defs/agent_bucket"
+  tasks:
+    type: array
+    items:
+      $ref: "#/$defs/dispatch_task"
+$defs:
+  uuid_string:
+    type: string
+    format: uuid
+  nullable_uuid_string:
+    anyOf:
+      - $ref: "#/$defs/uuid_string"
+      - type: "null"
+  string_array:
+    type: array
+    items:
+      type: string
+    uniqueItems: true
+  external_mcp_contract:
+    type: object
+    additionalProperties: false
+    required:
+      - requested_run_agents
+      - servers
+    properties:
+      requested_run_agents:
+        $ref: "#/$defs/string_array"
+      servers:
+        type: array
+        items:
+          $ref: "#/$defs/external_mcp_server"
+  external_mcp_server:
+    type: object
+    additionalProperties: false
+    required:
+      - server_id
+      - status
+      - allowed_for_this_run_agents
+      - denied_for_this_run_agents
+      - allowed_by_instance_agents
+    properties:
+      server_id:
+        type: string
+        minLength: 1
+      display_name:
+        type: string
+        minLength: 1
+      purpose:
+        type: string
+        minLength: 1
+      docs_url:
+        type: string
+        format: uri
+      setup_hint:
+        type: string
+        minLength: 1
+      status:
+        type: string
+        enum:
+          - allowed
+          - denied
+          - disabled
+          - unknown_server
+      allowed_for_this_run_agents:
+        $ref: "#/$defs/string_array"
+      denied_for_this_run_agents:
+        $ref: "#/$defs/string_array"
+      allowed_by_instance_agents:
+        $ref: "#/$defs/string_array"
+      reason:
+        type: string
+        minLength: 1
+  agent_bucket:
+    type: object
+    additionalProperties: false
+    required:
+      - agent
+      - task_count
+      - task_ids
+      - backlog_item_ids
+      - task_kinds
+    properties:
+      agent:
+        type: string
+        minLength: 1
+      task_count:
+        type: integer
+        minimum: 0
+      task_ids:
+        type: array
+        items:
+          $ref: "#/$defs/uuid_string"
+        uniqueItems: true
+      backlog_item_ids:
+        $ref: "#/$defs/string_array"
+      task_kinds:
+        $ref: "#/$defs/string_array"
+  dispatch_task:
+    type: object
+    additionalProperties: false
+    required:
+      - task_id
+      - backlog_item_id
+      - kind
+      - priority
+      - title
+      - dependency_task_ids
+    properties:
+      task_id:
+        $ref: "#/$defs/uuid_string"
+      backlog_item_id:
+        type: string
+        minLength: 1
+      kind:
+        type: string
+        minLength: 1
+      priority:
+        type: string
+        enum:
+          - low
+          - medium
+          - high
+          - critical
+      title:
+        type: string
+        minLength: 1
+      assigned_agent:
+        type: string
+        minLength: 1
+      orchestrator_model:
+        type: string
+        minLength: 1
+      dependency_task_ids:
+        type: array
+        items:
+          $ref: "#/$defs/uuid_string"

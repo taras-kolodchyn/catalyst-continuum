@@ -9,6 +9,8 @@ mod planning;
 mod runtime;
 mod storage;
 mod telemetry;
+#[cfg(test)]
+mod test_support;
 
 use clap::Parser;
 

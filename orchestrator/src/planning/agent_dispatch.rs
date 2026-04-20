@@ -248,6 +248,7 @@ mod tests {
         planning::{
             backlog::generate_initial_backlog, packs::PackDefinition, tasks::materialize_tasks,
         },
+        test_support::assert_json_file_matches_schema,
     };
     use std::{collections::BTreeMap, path::Path};
 
@@ -337,6 +338,27 @@ mod tests {
                 .and_then(|contract| contract.servers.first())
                 .map(|server| server.allowed_for_this_run_agents.clone()),
             Some(vec!["codex".to_string()])
+        );
+    }
+
+    #[test]
+    fn agent_dispatch_plan_matches_published_schema() {
+        let brief = sample_brief();
+        let run = RunDraft::from_brief(&brief, "examples/brief.yaml".to_string());
+        let pack = PackDefinition::load(Some("cli-tool")).expect("cli-tool pack should load");
+        let temp_root =
+            std::env::temp_dir().join(format!("continuum-dispatch-schema-{}", Uuid::new_v4()));
+        let backlog = generate_initial_backlog(&brief, &run, &pack, &temp_root, false)
+            .expect("backlog should generate");
+        let tasks =
+            materialize_tasks(&run, &pack, &backlog.document).expect("tasks should materialize");
+
+        let (artifact, _) = generate_agent_dispatch_plan(&run, &tasks, &temp_root, true)
+            .expect("dispatch plan should generate");
+
+        assert_json_file_matches_schema(
+            "schemas/artifacts/agent-dispatch-plan.schema.yaml",
+            Path::new(&artifact.location_value),
         );
     }
 

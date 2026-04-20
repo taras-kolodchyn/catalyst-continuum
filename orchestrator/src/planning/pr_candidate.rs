@@ -409,6 +409,7 @@ mod tests {
             packs::PackDefinition, tasks::materialize_tasks, workspace_snapshot,
         },
         runtime::TaskWorkspace,
+        test_support::assert_json_file_matches_schema,
     };
 
     #[test]
@@ -540,6 +541,100 @@ mod tests {
         );
 
         let _ = fs::remove_dir_all(&temp_root);
+    }
+
+    #[test]
+    fn pr_candidate_manifest_matches_published_schema() {
+        let brief = sample_brief();
+        let run = RunDraft::from_brief(&brief, "examples/brief.yaml".to_string());
+        let pack = PackDefinition::load(Some("container-service")).expect("pack should load");
+        let generated =
+            generate_initial_backlog(&brief, &run, &pack, Path::new(".tmp-artifacts"), false)
+                .expect("backlog should generate");
+        let tasks =
+            materialize_tasks(&run, &pack, &generated.document).expect("tasks should build");
+        let run_context = RunContext::from_draft(&run);
+        let temp_root =
+            std::env::temp_dir().join(format!("continuum-pr-candidate-schema-{}", Uuid::new_v4()));
+
+        let scaffold_task = TaskSummary::from_draft(&tasks[1]);
+        let scaffold_artifact =
+            generate_task_artifacts(&scaffold_task, &run_context, &pack, &temp_root)
+                .expect("scaffold materialization should succeed")
+                .into_iter()
+                .find(|artifact| artifact.artifact_type == "scaffold_bundle")
+                .expect("scaffold bundle should be generated");
+        let code_task = TaskSummary::from_draft(&tasks[2]);
+        let code_artifact = generate_task_artifacts(&code_task, &run_context, &pack, &temp_root)
+            .expect("code materialization should succeed")
+            .into_iter()
+            .find(|artifact| artifact.artifact_type == "code_bundle")
+            .expect("code bundle should be generated");
+
+        let base_snapshot = workspace_snapshot::compose_workspace_snapshot(
+            &run_context,
+            &[ArtifactSummary::from_draft(&scaffold_artifact)
+                .with_created_at("2026-04-17T10:00:00.000Z".to_string())],
+            &temp_root,
+        )
+        .expect("base snapshot should compose");
+        let base_snapshot_summary = ArtifactSummary::from_draft(&base_snapshot)
+            .with_created_at("2026-04-17T10:05:00.000Z".to_string());
+        let workspace_path = workspace_snapshot::prepare_task_workspace(
+            &code_task,
+            &base_snapshot_summary,
+            &temp_root,
+        )
+        .expect("task workspace should prepare");
+        let workspace = TaskWorkspace {
+            source_artifact_id: base_snapshot.artifact_id,
+            source_path: PathBuf::from(&base_snapshot.location_value)
+                .canonicalize()
+                .expect("base snapshot path should canonicalize"),
+            host_path: workspace_path,
+            container_path: "/workspace".to_string(),
+        };
+        let patch_artifact = workspace_snapshot::compose_code_workspace_patch(
+            &code_task,
+            &workspace,
+            &code_artifact,
+            &temp_root,
+        )
+        .expect("workspace patch should build");
+
+        let snapshot = workspace_snapshot::compose_workspace_snapshot(
+            &run_context,
+            &[
+                ArtifactSummary::from_draft(&scaffold_artifact)
+                    .with_created_at("2026-04-17T10:00:00.000Z".to_string()),
+                ArtifactSummary::from_draft(&code_artifact)
+                    .with_created_at("2026-04-17T10:10:00.000Z".to_string()),
+            ],
+            &temp_root,
+        )
+        .expect("workspace snapshot should compose");
+        let snapshot_summary = ArtifactSummary::from_draft(&snapshot)
+            .with_created_at("2026-04-17T10:15:00.000Z".to_string());
+        let patch_summary = ArtifactSummary::from_draft(&patch_artifact)
+            .with_created_at("2026-04-17T10:12:00.000Z".to_string());
+
+        let candidate = compose_pr_candidate(
+            &run_context,
+            &snapshot_summary,
+            &[patch_summary],
+            &temp_root,
+        )
+        .expect("pr candidate should compose");
+        let manifest_path = candidate
+            .metadata
+            .get("manifest_path")
+            .and_then(serde_json::Value::as_str)
+            .expect("pr candidate should expose manifest_path metadata");
+
+        assert_json_file_matches_schema(
+            "schemas/artifacts/pr-candidate.schema.yaml",
+            Path::new(manifest_path),
+        );
     }
 
     fn sample_brief() -> Brief {

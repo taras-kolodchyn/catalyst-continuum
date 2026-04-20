@@ -855,6 +855,7 @@ mod tests {
         run::{RunContext, RunDraft},
         task::{TaskExecutionSpec, TaskRetryState, TaskSummary, metadata_with_retry_state},
     };
+    use crate::test_support::assert_json_file_matches_schema;
     use std::{collections::BTreeMap, path::Path};
 
     #[test]
@@ -1064,6 +1065,55 @@ mod tests {
             .expect_err("pack timeout ceiling should be enforced");
 
         assert!(error.to_string().contains("ceiling of 60s"));
+    }
+
+    #[test]
+    fn policy_report_matches_published_schema() {
+        let brief = sample_brief(Some(BriefPolicy {
+            max_task_count: Some(4),
+            max_total_timeout_seconds: Some(120),
+            max_task_retry_count: Some(1),
+            allowed_task_kinds: vec![
+                "plan".to_string(),
+                "scaffold".to_string(),
+                "code".to_string(),
+                "test".to_string(),
+            ],
+            allowed_runtime_providers: vec!["docker".to_string()],
+            allowed_sandbox_profiles: vec!["restricted".to_string()],
+        }));
+        let run = RunDraft::from_brief(&brief, "examples/briefs/policy-schema.yaml".to_string());
+        let pack = PackDefinition::load(Some("cli-tool")).expect("cli-tool pack should load");
+        let temp_root =
+            std::env::temp_dir().join(format!("continuum-policy-schema-{}", Uuid::new_v4()));
+        let tasks = vec![
+            sample_task(
+                &run,
+                "PLAN-001",
+                "plan",
+                "docker",
+                Some("restricted"),
+                Some(30),
+                Some(1),
+            ),
+            sample_task(
+                &run,
+                "TEST-001",
+                "test",
+                "docker",
+                Some("restricted"),
+                Some(30),
+                Some(1),
+            ),
+        ];
+
+        let evaluation = evaluate_submission_policy(&run, &brief, &pack, &tasks, &temp_root)
+            .expect("policy evaluation should succeed");
+
+        assert_json_file_matches_schema(
+            "schemas/artifacts/policy-report.schema.yaml",
+            Path::new(&evaluation.artifact.location_value),
+        );
     }
 
     fn sample_brief(policy: Option<BriefPolicy>) -> Brief {

@@ -1,0 +1,100 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "urn:catalyst-continuum:schemas:artifacts:backlog:v0.1"
+title: "Catalyst Continuum Backlog Artifact"
+description: "Persisted planning backlog generated from a brief and selected pack."
+type: object
+additionalProperties: false
+required:
+  - schema_version
+  - artifact_type
+  - run_id
+  - brief_id
+  - title
+  - summary
+  - selected_pack
+  - items
+properties:
+  schema_version:
+    type: string
+    const: "v0.1"
+  artifact_type:
+    type: string
+    const: "backlog"
+  run_id:
+    $ref: "#/$defs/uuid_string"
+  brief_id:
+    $ref: "#/$defs/uuid_string"
+  title:
+    type: string
+    minLength: 1
+  summary:
+    type: string
+    minLength: 1
+  selected_pack:
+    anyOf:
+      - type: string
+        minLength: 1
+      - type: "null"
+  orchestrator_model:
+    type: string
+    minLength: 1
+  default_agent:
+    type: string
+    minLength: 1
+  allowed_agents:
+    $ref: "#/$defs/string_array"
+  supported_agents:
+    $ref: "#/$defs/string_array"
+  items:
+    type: array
+    minItems: 1
+    items:
+      $ref: "#/$defs/backlog_item"
+$defs:
+  uuid_string:
+    type: string
+    format: uuid
+  string_array:
+    type: array
+    items:
+      type: string
+    uniqueItems: true
+  backlog_item:
+    type: object
+    additionalProperties: false
+    required:
+      - template_id
+      - id
+      - kind
+      - priority
+      - title
+      - description
+      - sources
+    properties:
+      template_id:
+        type: string
+        minLength: 1
+      id:
+        type: string
+        minLength: 1
+      kind:
+        type: string
+        minLength: 1
+      priority:
+        type: string
+        enum:
+          - low
+          - medium
+          - high
+          - critical
+      title:
+        type: string
+        minLength: 1
+      description:
+        type: string
+        minLength: 1
+      sources:
+        $ref: "#/$defs/string_array"
+      assigned_agent:
+        type: string
+        minLength: 1

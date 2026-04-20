@@ -1250,6 +1250,7 @@ mod tests {
         pr_candidate::PR_CANDIDATE_ARTIFACT_TYPE,
         workspace_snapshot::{PATCH_ARTIFACT_TYPE, SNAPSHOT_ARTIFACT_TYPE},
     };
+    use crate::test_support::assert_json_file_matches_schema;
 
     #[test]
     fn produces_failed_quality_gate_when_run_is_not_ready() {
@@ -1406,6 +1407,37 @@ mod tests {
 
         assert_eq!(first, second);
         assert_ne!(first, quality_report_artifact_id(Uuid::new_v4()));
+    }
+
+    #[test]
+    fn quality_report_matches_published_schema() {
+        let temp_root =
+            std::env::temp_dir().join(format!("continuum-quality-schema-{}", Uuid::new_v4()));
+        let pack = PackDefinition::load(Some("cli-tool")).expect("cli-tool pack should load");
+        let evaluation = evaluate_run_quality(
+            &RunContext {
+                run_id: Uuid::new_v4(),
+                title: "Quality schema test".to_string(),
+                selected_pack: Some("cli-tool".to_string()),
+                repository_host: Some("github".to_string()),
+                repository_owner: Some("smartit".to_string()),
+                repository_name: Some("demo".to_string()),
+                repository_default_branch: Some("main".to_string()),
+                repository_visibility: Some("private".to_string()),
+                metadata: json!({}),
+            },
+            "queued",
+            &pack,
+            &[],
+            &[],
+            &temp_root,
+        )
+        .expect("quality gate should evaluate");
+
+        assert_json_file_matches_schema(
+            "schemas/artifacts/quality-report.schema.yaml",
+            Path::new(&evaluation.artifact.location_value),
+        );
     }
 
     #[test]

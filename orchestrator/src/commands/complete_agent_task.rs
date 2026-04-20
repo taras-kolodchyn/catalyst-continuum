@@ -379,3 +379,79 @@ fn persist_success_artifacts(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{models::task::TaskExecutionSpec, test_support::assert_json_file_matches_schema};
+    use serde_json::json;
+    use std::path::Path;
+
+    #[test]
+    fn agent_task_report_matches_published_schema() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "continuum-agent-report-schema-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let run_id = uuid::Uuid::new_v4();
+        let task_id = uuid::Uuid::new_v4();
+        let artifact_id = uuid::Uuid::new_v4();
+        let task = TaskSummary {
+            task_id,
+            run_id,
+            backlog_item_id: "CODE-001".to_string(),
+            kind: "code".to_string(),
+            priority: "medium".to_string(),
+            status: "running".to_string(),
+            title: "Implement code".to_string(),
+            description: "Implement the requested feature.".to_string(),
+            execution: TaskExecutionSpec {
+                provider: "docker".to_string(),
+                image: None,
+                command: vec!["cargo".to_string(), "test".to_string()],
+                working_directory: Some("/workspace".to_string()),
+                sandbox_profile: Some("restricted".to_string()),
+                timeout_seconds: Some(30),
+            },
+            dependency_task_ids: json!([]),
+            source_refs: json!([]),
+            assigned_pack: Some("cli-tool".to_string()),
+            assigned_agent: Some("openhands".to_string()),
+            orchestrator_model: Some("planner-default".to_string()),
+            approval_required: false,
+            agent_execution: None,
+            retry_state: None,
+            metadata: json!({}),
+            created_at: None,
+            started_at: None,
+            lease_expires_at: None,
+            completed_at: None,
+            failure_reason: None,
+            persisted: false,
+        };
+        let manifest = AgentTaskReportManifest {
+            artifact_type: AGENT_TASK_REPORT_ARTIFACT_TYPE.to_string(),
+            run_id,
+            task_id,
+            backlog_item_id: task.backlog_item_id.clone(),
+            kind: task.kind.clone(),
+            assigned_agent: "openhands".to_string(),
+            executor_id: Some("openhands-session-1".to_string()),
+            claim_count: 1,
+            reported_status: "failed".to_string(),
+            task_status: "queued".to_string(),
+            retry_scheduled: true,
+            summary: "task failed and was requeued".to_string(),
+            details: Some("first retry scheduled".to_string()),
+            failure_reason: Some("temporary failure".to_string()),
+        };
+
+        let artifact = persist_agent_task_report(&temp_root, &task, artifact_id, &manifest)
+            .expect("agent task report should persist");
+
+        assert_json_file_matches_schema(
+            "schemas/artifacts/agent-task-report.schema.yaml",
+            Path::new(&artifact.location_value),
+        );
+    }
+}

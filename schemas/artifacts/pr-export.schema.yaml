@@ -1,0 +1,72 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "urn:catalyst-continuum:schemas:artifacts:pr-export:v0.1"
+title: "Catalyst Continuum PR Export Artifact"
+description: "Persisted exported Git repository and patch manifest prepared for publication."
+type: object
+additionalProperties: false
+required:
+  - schema_version
+  - artifact_type
+  - run_id
+  - repository_name
+  - default_branch
+  - branch_name
+  - commit_sha
+  - repository_path
+  - patches_path
+  - combined_patch_path
+  - source_pr_candidate_artifact_id
+  - source_quality_report_artifact_id
+  - patch_count
+  - patch_files
+properties:
+  schema_version:
+    type: string
+    const: "v0.1"
+  artifact_type:
+    type: string
+    const: "pr_export"
+  run_id:
+    $ref: "#/$defs/uuid_string"
+  repository_name:
+    anyOf:
+      - type: string
+        minLength: 1
+      - type: "null"
+  default_branch:
+    anyOf:
+      - type: string
+        minLength: 1
+      - type: "null"
+  branch_name:
+    type: string
+    minLength: 1
+  commit_sha:
+    type: string
+    pattern: "^[0-9a-f]{40}$"
+  repository_path:
+    type: string
+    minLength: 1
+  patches_path:
+    type: string
+    minLength: 1
+  combined_patch_path:
+    type: string
+    minLength: 1
+  source_pr_candidate_artifact_id:
+    $ref: "#/$defs/uuid_string"
+  source_quality_report_artifact_id:
+    $ref: "#/$defs/uuid_string"
+  patch_count:
+    type: integer
+    minimum: 1
+  patch_files:
+    type: array
+    minItems: 1
+    items:
+      type: string
+      minLength: 1
+$defs:
+  uuid_string:
+    type: string
+    format: uuid

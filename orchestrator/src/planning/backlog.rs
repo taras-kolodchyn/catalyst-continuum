@@ -344,8 +344,9 @@ mod tests {
             run::RunDraft,
         },
         planning::packs::PackDefinition,
+        test_support::assert_json_file_matches_schema,
     };
-    use std::collections::BTreeMap;
+    use std::{collections::BTreeMap, path::Path};
 
     #[test]
     fn builds_backlog_items_from_container_service_pack() {
@@ -366,6 +367,23 @@ mod tests {
         assert_eq!(items[2].id, "CODE-001");
         assert_eq!(items[2].priority, "high");
         assert_eq!(items[4].id, "TEST-001");
+    }
+
+    #[test]
+    fn backlog_document_matches_published_schema() {
+        let brief = sample_brief();
+        let run = RunDraft::from_brief(&brief, "examples/brief.yaml".to_string());
+        let pack = PackDefinition::load(Some("container-service")).expect("pack should load");
+        let temp_root =
+            std::env::temp_dir().join(format!("continuum-backlog-schema-{}", Uuid::new_v4()));
+
+        let generated = generate_initial_backlog(&brief, &run, &pack, &temp_root, true)
+            .expect("backlog should generate");
+
+        assert_json_file_matches_schema(
+            "schemas/artifacts/backlog.schema.yaml",
+            Path::new(&generated.artifact.location_value),
+        );
     }
 
     fn sample_brief() -> Brief {

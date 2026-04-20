@@ -9,6 +9,7 @@ External MCP capability policy is documented in [docs/adr/0002-agent-capability-
 Generic open-source agent integration notes live in [docs/mcp/open-source-client.md](docs/mcp/open-source-client.md).
 OpenHands-specific integration notes live in [docs/mcp/openhands.md](docs/mcp/openhands.md).
 Pinned `Fetch` integration guidance lives in [docs/mcp/fetch.md](docs/mcp/fetch.md).
+Published brief, run-event, and artifact schemas live under [schemas/](schemas/), with per-artifact manifest contracts under [schemas/artifacts/](schemas/artifacts/).
 
 ## Control Plane vs MCP
 

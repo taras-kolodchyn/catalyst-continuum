@@ -18,6 +18,7 @@ The goal of these schemas is to lock the minimum data model needed for the first
 - `task.schema.yaml`: unit of planned or executable work within a run.
 - `run-event.schema.yaml`: durable audit event emitted for run and task transitions.
 - `artifact.schema.yaml`: immutable output metadata produced by a run or task.
+- `artifacts/*.schema.yaml`: persisted manifests for the published run artifacts agents and operators inspect directly.
 - `budget-policy.schema.yaml`: repository, run, task, or agent budget constraints.
 
 ## v0.1 Modeling Rules
@@ -28,6 +29,7 @@ The goal of these schemas is to lock the minimum data model needed for the first
 - Artifacts are metadata records, not inline binary payloads.
 - `task.execution.provider` is intentionally provider-agnostic even though `docker` is the first implementation.
 - Schemas are written as JSON Schema Draft 2020-12 documents encoded in YAML.
+- Published artifact manifest schemas are backed by Rust unit tests that validate real generated manifests against the checked-in schema files.
 
 ## Expected Flow
 
