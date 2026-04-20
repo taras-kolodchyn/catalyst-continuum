@@ -43,20 +43,23 @@ impl DockerRuntimeProvider {
 
     fn execution_settings(
         &self,
+        task: &TaskSummary,
         execution_context: &TaskExecutionContext,
         artifact_root: &Path,
-    ) -> DockerExecutionSettings {
+    ) -> Result<DockerExecutionSettings> {
         let rootless_user = if self.rootless {
             resolve_rootless_user(execution_context, artifact_root)
         } else {
             None
         };
 
-        DockerExecutionSettings {
+        Ok(DockerExecutionSettings {
             network_mode: self.network_mode.clone(),
             rootless_requested: self.rootless,
             rootless_user,
-        }
+            sandbox_profile: normalized_sandbox_profile(task.execution.sandbox_profile.as_deref()),
+            sandbox_flags: sandbox_flags_for_profile(task.execution.sandbox_profile.as_deref())?,
+        })
     }
 
     fn build_command(
@@ -96,6 +99,10 @@ impl DockerRuntimeProvider {
 
         if let Some(rootless_user) = execution_settings.rootless_user.as_deref() {
             command.args(["--user", rootless_user]);
+        }
+
+        for sandbox_flag in &execution_settings.sandbox_flags {
+            command.arg(sandbox_flag);
         }
 
         if let Some(workspace) = &execution_context.workspace {
@@ -140,6 +147,16 @@ impl DockerRuntimeProvider {
             .args([
                 "-e",
                 &format!("CONTINUUM_WORKSPACE_PATH={workspace_container_path}"),
+            ])
+            .args([
+                "-e",
+                &format!(
+                    "CONTINUUM_SANDBOX_PROFILE={}",
+                    execution_settings
+                        .sandbox_profile
+                        .as_deref()
+                        .unwrap_or("unspecified")
+                ),
             ])
             .args([
                 "-e",
@@ -191,7 +208,7 @@ impl RuntimeProvider for DockerRuntimeProvider {
             .as_deref()
             .context("docker task is missing execution.image")?;
         let working_directory = container_working_directory(task, execution_context);
-        let execution_settings = self.execution_settings(execution_context, artifact_root);
+        let execution_settings = self.execution_settings(task, execution_context, artifact_root)?;
         let mut command = self.build_command(task, execution_context, &execution_settings)?;
         let timeout = task.execution.timeout_seconds.map(Duration::from_secs);
         let output = run_command_with_optional_timeout(&mut command, timeout);
@@ -245,6 +262,8 @@ impl RuntimeProvider for DockerRuntimeProvider {
                 .workspace
                 .as_ref()
                 .map(|workspace| workspace.source_artifact_id),
+            sandbox_profile: execution_settings.sandbox_profile.clone(),
+            sandbox_flags: execution_settings.sandbox_flags.clone(),
             network_mode: execution_settings.network_mode.clone(),
             rootless_requested: execution_settings.rootless_requested,
             rootless_applied: execution_settings.rootless_applied(),
@@ -306,6 +325,8 @@ impl RuntimeProvider for DockerRuntimeProvider {
                     .workspace
                     .as_ref()
                     .map(|workspace| workspace.source_artifact_id),
+                "sandbox_profile": execution_settings.sandbox_profile,
+                "sandbox_flags": execution_settings.sandbox_flags,
                 "network_mode": execution_settings.network_mode,
                 "rootless_requested": execution_settings.rootless_requested,
                 "rootless_applied": execution_settings.rootless_applied(),
@@ -336,6 +357,8 @@ struct ExecutionArtifactPayload {
     working_directory: Option<String>,
     workspace_path: Option<String>,
     workspace_source_artifact_id: Option<Uuid>,
+    sandbox_profile: Option<String>,
+    sandbox_flags: Vec<String>,
     network_mode: Option<String>,
     rootless_requested: bool,
     rootless_applied: bool,
@@ -361,11 +384,36 @@ struct DockerExecutionSettings {
     network_mode: Option<String>,
     rootless_requested: bool,
     rootless_user: Option<String>,
+    sandbox_profile: Option<String>,
+    sandbox_flags: Vec<String>,
 }
 
 impl DockerExecutionSettings {
     fn rootless_applied(&self) -> bool {
         self.rootless_requested && self.rootless_user.is_some()
+    }
+}
+
+fn normalized_sandbox_profile(profile: Option<&str>) -> Option<String> {
+    profile.and_then(|value| {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    })
+}
+
+fn sandbox_flags_for_profile(profile: Option<&str>) -> Result<Vec<String>> {
+    match normalized_sandbox_profile(profile).as_deref() {
+        None => Ok(Vec::new()),
+        Some("restricted") => Ok(vec![
+            "--cap-drop=ALL".to_string(),
+            "--security-opt=no-new-privileges".to_string(),
+            "--pids-limit=256".to_string(),
+        ]),
+        Some(other) => anyhow::bail!("docker runtime does not support sandbox_profile `{other}`"),
     }
 }
 
@@ -565,9 +613,19 @@ mod tests {
             host_path: workspace_path.clone(),
             container_path: "/workspace".to_string(),
         });
-        let execution_settings = provider.execution_settings(&execution_context, &temp_root);
+        let execution_settings = provider
+            .execution_settings(
+                &sample_task(Some("restricted")),
+                &execution_context,
+                &temp_root,
+            )
+            .expect("execution settings should resolve");
         let command = provider
-            .build_command(&sample_task(), &execution_context, &execution_settings)
+            .build_command(
+                &sample_task(Some("restricted")),
+                &execution_context,
+                &execution_settings,
+            )
             .expect("docker command should build");
         let args = command
             .get_args()
@@ -575,9 +633,19 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert!(args.windows(2).any(|pair| pair == ["--network", "bridge"]));
+        assert!(args.iter().any(|arg| arg == "--cap-drop=ALL"));
+        assert!(
+            args.iter()
+                .any(|arg| arg == "--security-opt=no-new-privileges")
+        );
+        assert!(args.iter().any(|arg| arg == "--pids-limit=256"));
         assert!(args.windows(2).any(|pair| {
             pair[0] == "-w" && (pair[1] == "/workspace" || pair[1].starts_with("/workspace/"))
         }));
+        assert_eq!(
+            execution_settings.sandbox_profile.as_deref(),
+            Some("restricted")
+        );
 
         #[cfg(unix)]
         {
@@ -599,9 +667,11 @@ mod tests {
     fn build_command_omits_optional_runtime_flags_when_disabled() {
         let provider = DockerRuntimeProvider::default();
         let execution_context = TaskExecutionContext::default();
-        let execution_settings = provider.execution_settings(&execution_context, Path::new("."));
+        let execution_settings = provider
+            .execution_settings(&sample_task(None), &execution_context, Path::new("."))
+            .expect("execution settings should resolve");
         let command = provider
-            .build_command(&sample_task(), &execution_context, &execution_settings)
+            .build_command(&sample_task(None), &execution_context, &execution_settings)
             .expect("docker command should build");
         let args = command
             .get_args()
@@ -610,10 +680,37 @@ mod tests {
 
         assert!(!args.iter().any(|arg| arg == "--network"));
         assert!(!args.iter().any(|arg| arg == "--user"));
+        assert!(!args.iter().any(|arg| arg == "--cap-drop=ALL"));
+        assert!(
+            !args
+                .iter()
+                .any(|arg| arg == "--security-opt=no-new-privileges")
+        );
+        assert!(!args.iter().any(|arg| arg == "--pids-limit=256"));
         assert!(!execution_settings.rootless_applied());
+        assert!(execution_settings.sandbox_flags.is_empty());
     }
 
-    fn sample_task() -> TaskSummary {
+    #[test]
+    fn rejects_unknown_sandbox_profile() {
+        let provider = DockerRuntimeProvider::default();
+        let execution_context = TaskExecutionContext::default();
+        let error = provider
+            .execution_settings(
+                &sample_task(Some("future-enterprise-profile")),
+                &execution_context,
+                Path::new("."),
+            )
+            .expect_err("unknown sandbox profile should fail");
+
+        assert!(
+            error
+                .to_string()
+                .contains("does not support sandbox_profile `future-enterprise-profile`")
+        );
+    }
+
+    fn sample_task(sandbox_profile: Option<&str>) -> TaskSummary {
         TaskSummary {
             task_id: Uuid::new_v4(),
             run_id: Uuid::new_v4(),
@@ -631,7 +728,7 @@ mod tests {
                 ),
                 command: vec!["sh".to_string(), "-lc".to_string(), "echo ok".to_string()],
                 working_directory: Some(".".to_string()),
-                sandbox_profile: Some("restricted".to_string()),
+                sandbox_profile: sandbox_profile.map(str::to_string),
                 timeout_seconds: Some(30),
             },
             dependency_task_ids: json!([]),
