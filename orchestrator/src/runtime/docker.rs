@@ -14,30 +14,57 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::{
+    config::DockerRuntimeProviderConfig,
     models::{artifact::ArtifactDraft, task::TaskSummary},
     runtime::{RuntimeProvider, TaskExecutionContext, TaskExecutionResult},
     telemetry,
 };
 
-#[derive(Debug, Default)]
-pub struct DockerRuntimeProvider;
+#[derive(Debug, Clone, Default)]
+pub struct DockerRuntimeProvider {
+    network_mode: Option<String>,
+    rootless: bool,
+}
 
-impl RuntimeProvider for DockerRuntimeProvider {
-    fn kind(&self) -> &'static str {
-        "docker"
+impl DockerRuntimeProvider {
+    pub fn from_config(config: &DockerRuntimeProviderConfig) -> Self {
+        Self {
+            network_mode: config.network_mode.as_ref().and_then(|value| {
+                let trimmed = value.trim();
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed.to_string())
+                }
+            }),
+            rootless: config.rootless.unwrap_or(false),
+        }
     }
 
-    fn execute_task(
+    fn execution_settings(
+        &self,
+        execution_context: &TaskExecutionContext,
+        artifact_root: &Path,
+    ) -> DockerExecutionSettings {
+        let rootless_user = if self.rootless {
+            resolve_rootless_user(execution_context, artifact_root)
+        } else {
+            None
+        };
+
+        DockerExecutionSettings {
+            network_mode: self.network_mode.clone(),
+            rootless_requested: self.rootless,
+            rootless_user,
+        }
+    }
+
+    fn build_command(
         &self,
         task: &TaskSummary,
         execution_context: &TaskExecutionContext,
-        artifact_root: &Path,
-    ) -> Result<TaskExecutionResult> {
-        ensure!(
-            task.execution.provider == "docker",
-            "docker runtime can only execute tasks with provider=docker"
-        );
-
+        execution_settings: &DockerExecutionSettings,
+    ) -> Result<Command> {
         let image = task
             .execution
             .image
@@ -62,6 +89,14 @@ impl RuntimeProvider for DockerRuntimeProvider {
 
         let mut command = Command::new("docker");
         command.args(["run", "--rm"]);
+
+        if let Some(network_mode) = execution_settings.network_mode.as_deref() {
+            command.args(["--network", network_mode]);
+        }
+
+        if let Some(rootless_user) = execution_settings.rootless_user.as_deref() {
+            command.args(["--user", rootless_user]);
+        }
 
         if let Some(workspace) = &execution_context.workspace {
             command.args([
@@ -106,8 +141,58 @@ impl RuntimeProvider for DockerRuntimeProvider {
                 "-e",
                 &format!("CONTINUUM_WORKSPACE_PATH={workspace_container_path}"),
             ])
+            .args([
+                "-e",
+                &format!(
+                    "CONTINUUM_RUNTIME_ROOTLESS_REQUESTED={}",
+                    if execution_settings.rootless_requested {
+                        "1"
+                    } else {
+                        "0"
+                    }
+                ),
+            ])
+            .args([
+                "-e",
+                &format!(
+                    "CONTINUUM_RUNTIME_ROOTLESS_APPLIED={}",
+                    if execution_settings.rootless_applied() {
+                        "1"
+                    } else {
+                        "0"
+                    }
+                ),
+            ])
             .arg(image)
             .args(task.execution.command.iter().map(String::as_str));
+
+        Ok(command)
+    }
+}
+
+impl RuntimeProvider for DockerRuntimeProvider {
+    fn kind(&self) -> &'static str {
+        "docker"
+    }
+
+    fn execute_task(
+        &self,
+        task: &TaskSummary,
+        execution_context: &TaskExecutionContext,
+        artifact_root: &Path,
+    ) -> Result<TaskExecutionResult> {
+        ensure!(
+            task.execution.provider == "docker",
+            "docker runtime can only execute tasks with provider=docker"
+        );
+        let image = task
+            .execution
+            .image
+            .as_deref()
+            .context("docker task is missing execution.image")?;
+        let working_directory = container_working_directory(task, execution_context);
+        let execution_settings = self.execution_settings(execution_context, artifact_root);
+        let mut command = self.build_command(task, execution_context, &execution_settings)?;
         let timeout = task.execution.timeout_seconds.map(Duration::from_secs);
         let output = run_command_with_optional_timeout(&mut command, timeout);
 
@@ -160,6 +245,10 @@ impl RuntimeProvider for DockerRuntimeProvider {
                 .workspace
                 .as_ref()
                 .map(|workspace| workspace.source_artifact_id),
+            network_mode: execution_settings.network_mode.clone(),
+            rootless_requested: execution_settings.rootless_requested,
+            rootless_applied: execution_settings.rootless_applied(),
+            rootless_user: execution_settings.rootless_user.clone(),
             exit_code,
             timed_out: output.timed_out,
             timeout_seconds: task.execution.timeout_seconds,
@@ -217,6 +306,10 @@ impl RuntimeProvider for DockerRuntimeProvider {
                     .workspace
                     .as_ref()
                     .map(|workspace| workspace.source_artifact_id),
+                "network_mode": execution_settings.network_mode,
+                "rootless_requested": execution_settings.rootless_requested,
+                "rootless_applied": execution_settings.rootless_applied(),
+                "rootless_user": execution_settings.rootless_user,
             }),
         };
 
@@ -243,6 +336,10 @@ struct ExecutionArtifactPayload {
     working_directory: Option<String>,
     workspace_path: Option<String>,
     workspace_source_artifact_id: Option<Uuid>,
+    network_mode: Option<String>,
+    rootless_requested: bool,
+    rootless_applied: bool,
+    rootless_user: Option<String>,
     exit_code: i32,
     timed_out: bool,
     timeout_seconds: Option<u64>,
@@ -257,6 +354,19 @@ struct CommandOutput {
     stdout: String,
     stderr: String,
     timed_out: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DockerExecutionSettings {
+    network_mode: Option<String>,
+    rootless_requested: bool,
+    rootless_user: Option<String>,
+}
+
+impl DockerExecutionSettings {
+    fn rootless_applied(&self) -> bool {
+        self.rootless_requested && self.rootless_user.is_some()
+    }
 }
 
 fn run_command_with_optional_timeout(
@@ -370,13 +480,47 @@ fn container_working_directory(
     }
 }
 
+#[cfg(unix)]
+fn resolve_rootless_user(
+    execution_context: &TaskExecutionContext,
+    artifact_root: &Path,
+) -> Option<String> {
+    use std::os::unix::fs::MetadataExt;
+
+    let candidate_path = execution_context
+        .workspace
+        .as_ref()
+        .map(|workspace| workspace.host_path.as_path())
+        .unwrap_or(artifact_root);
+    let existing_path = candidate_path.ancestors().find(|path| path.exists())?;
+    let metadata = fs::metadata(existing_path).ok()?;
+
+    Some(format!("{}:{}", metadata.uid(), metadata.gid()))
+}
+
+#[cfg(not(unix))]
+fn resolve_rootless_user(
+    _execution_context: &TaskExecutionContext,
+    _artifact_root: &Path,
+) -> Option<String> {
+    None
+}
+
 #[cfg(test)]
 mod tests {
-    use super::run_command_with_optional_timeout;
+    use super::{DockerRuntimeProvider, run_command_with_optional_timeout};
+    use crate::models::task::TaskSummary;
+    use serde_json::json;
     use std::{
+        ffi::OsStr,
+        fs,
+        path::Path,
         process::{Command, Stdio},
         time::Duration,
     };
+    use uuid::Uuid;
+
+    use crate::runtime::{TaskExecutionContext, TaskWorkspace};
 
     #[test]
     fn collects_output_when_command_finishes_within_timeout() {
@@ -402,5 +546,109 @@ mod tests {
 
         assert!(output.timed_out);
         assert_ne!(output.exit_code, 0);
+    }
+
+    #[test]
+    fn build_command_applies_network_mode_and_rootless_user() {
+        let temp_root =
+            std::env::temp_dir().join(format!("continuum-docker-runtime-{}", Uuid::new_v4()));
+        let workspace_path = temp_root.join("workspace");
+        fs::create_dir_all(&workspace_path).expect("workspace dir should be created");
+
+        let provider = DockerRuntimeProvider {
+            network_mode: Some("bridge".to_string()),
+            rootless: true,
+        };
+        let execution_context = TaskExecutionContext::default().with_workspace(TaskWorkspace {
+            source_artifact_id: Uuid::new_v4(),
+            source_path: workspace_path.clone(),
+            host_path: workspace_path.clone(),
+            container_path: "/workspace".to_string(),
+        });
+        let execution_settings = provider.execution_settings(&execution_context, &temp_root);
+        let command = provider
+            .build_command(&sample_task(), &execution_context, &execution_settings)
+            .expect("docker command should build");
+        let args = command
+            .get_args()
+            .map(|arg: &OsStr| arg.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+
+        assert!(args.windows(2).any(|pair| pair == ["--network", "bridge"]));
+        assert!(args.windows(2).any(|pair| {
+            pair[0] == "-w" && (pair[1] == "/workspace" || pair[1].starts_with("/workspace/"))
+        }));
+
+        #[cfg(unix)]
+        {
+            assert!(execution_settings.rootless_applied());
+            let rootless_user = execution_settings
+                .rootless_user
+                .as_ref()
+                .expect("rootless user should resolve on unix temp dirs");
+            assert!(
+                args.windows(2)
+                    .any(|pair| pair == ["--user", rootless_user])
+            );
+        }
+
+        let _ = fs::remove_dir_all(temp_root);
+    }
+
+    #[test]
+    fn build_command_omits_optional_runtime_flags_when_disabled() {
+        let provider = DockerRuntimeProvider::default();
+        let execution_context = TaskExecutionContext::default();
+        let execution_settings = provider.execution_settings(&execution_context, Path::new("."));
+        let command = provider
+            .build_command(&sample_task(), &execution_context, &execution_settings)
+            .expect("docker command should build");
+        let args = command
+            .get_args()
+            .map(|arg: &OsStr| arg.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+
+        assert!(!args.iter().any(|arg| arg == "--network"));
+        assert!(!args.iter().any(|arg| arg == "--user"));
+        assert!(!execution_settings.rootless_applied());
+    }
+
+    fn sample_task() -> TaskSummary {
+        TaskSummary {
+            task_id: Uuid::new_v4(),
+            run_id: Uuid::new_v4(),
+            backlog_item_id: "PLAN-001".to_string(),
+            kind: "plan".to_string(),
+            priority: "high".to_string(),
+            status: "queued".to_string(),
+            title: "Sample task".to_string(),
+            description: "Sample description".to_string(),
+            execution: crate::models::task::TaskExecutionSpec {
+                provider: "docker".to_string(),
+                image: Some(
+                    "busybox:1.37.0@sha256:1487d0af5f52b4ba31c7e465126ee2123fe3f2305d638e7827681e7cf6c83d5e"
+                        .to_string(),
+                ),
+                command: vec!["sh".to_string(), "-lc".to_string(), "echo ok".to_string()],
+                working_directory: Some(".".to_string()),
+                sandbox_profile: Some("restricted".to_string()),
+                timeout_seconds: Some(30),
+            },
+            dependency_task_ids: json!([]),
+            source_refs: json!(["test"]),
+            assigned_pack: None,
+            assigned_agent: None,
+            orchestrator_model: None,
+            approval_required: false,
+            agent_execution: None,
+            retry_state: None,
+            metadata: json!({}),
+            created_at: None,
+            started_at: None,
+            lease_expires_at: None,
+            completed_at: None,
+            failure_reason: None,
+            persisted: false,
+        }
     }
 }

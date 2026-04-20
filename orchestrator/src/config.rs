@@ -399,6 +399,13 @@ impl RuntimeProvidersConfig {
             self.default_provider
         );
 
+        if let Some(network_mode) = self.providers.docker.network_mode.as_ref() {
+            ensure!(
+                !network_mode.trim().is_empty(),
+                "runtime providers config requires providers.docker.network_mode to be non-empty when set"
+            );
+        }
+
         if self.providers.proxmox.enabled {
             ensure!(
                 self.providers
@@ -1037,6 +1044,33 @@ providers:
         assert_eq!(config.source_path, None);
         assert!(config.servers.is_empty());
         assert!(config.allowed_servers_for_agent("openhands").is_empty());
+    }
+
+    #[test]
+    fn rejects_blank_docker_network_mode() {
+        let config = RuntimeProvidersConfig {
+            source_path: None,
+            default_provider: "docker".to_string(),
+            providers: RuntimeProviderSet {
+                docker: DockerRuntimeProviderConfig {
+                    enabled: true,
+                    network_mode: Some("   ".to_string()),
+                    rootless: Some(true),
+                },
+                proxmox: ProxmoxRuntimeProviderConfig::default(),
+                kubernetes: KubernetesRuntimeProviderConfig::default(),
+            },
+        };
+
+        let error = config
+            .validate()
+            .expect_err("blank docker network_mode should be rejected");
+
+        assert!(
+            error
+                .to_string()
+                .contains("providers.docker.network_mode to be non-empty")
+        );
     }
 
     #[test]

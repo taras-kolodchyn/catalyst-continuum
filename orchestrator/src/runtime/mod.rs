@@ -94,7 +94,7 @@ impl RuntimeRegistry {
         let mut registry = Self::new();
 
         if config.providers.docker.enabled {
-            registry.register(DockerRuntimeProvider);
+            registry.register(DockerRuntimeProvider::from_config(&config.providers.docker));
         } else {
             registry.provider_errors.insert(
                 "docker".to_string(),
