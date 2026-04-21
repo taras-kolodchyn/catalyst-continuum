@@ -4,6 +4,9 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+# shellcheck disable=SC1091
+source "$ROOT_DIR/scripts/lib/readiness.sh"
+
 REGISTER_MCP=0
 VALIDATE_LITELLM=0
 VALIDATE_MCP=0
@@ -129,21 +132,14 @@ if [ -z "$container_id" ]; then
   exit 1
 fi
 
-status=""
-for _ in $(seq 1 60); do
-  status="$(
-    docker inspect \
-      --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' \
-      "$container_id" 2>/dev/null || true
-  )"
-  if [ "$status" = "healthy" ] || [ "$status" = "running" ]; then
-    break
-  fi
-  sleep 1
-done
-
-if [ "$status" != "healthy" ] && [ "$status" != "running" ]; then
-  echo "postgres did not become ready (status: ${status:-unknown})" >&2
+if ! wait_for_docker_container_status \
+  "OpenHands bootstrap postgres" \
+  "$container_id" \
+  60 \
+  healthy \
+  running; then
+  "${compose_args[@]}" ps >&2 || true
+  "${compose_args[@]}" logs --no-color --tail 200 postgres >&2 || true
   exit 1
 fi
 

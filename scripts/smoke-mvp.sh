@@ -6,6 +6,8 @@ cd "$ROOT_DIR"
 
 # shellcheck disable=SC1091
 source "$ROOT_DIR/versions.env"
+# shellcheck disable=SC1091
+source "$ROOT_DIR/scripts/lib/readiness.sh"
 
 resolve_cargo_target_root() {
   if [ -n "${CARGO_TARGET_DIR:-}" ]; then
@@ -151,17 +153,12 @@ if [ -z "${CATALYST_DATABASE_URL:-}" ]; then
     "$POSTGRES_IMAGE" "${POSTGRES_SERVER_ARGS[@]}" >/dev/null
   STARTED_POSTGRES=1
 
-  for _ in $(seq 1 30); do
-    STATUS="$(docker inspect --format='{{.State.Health.Status}}' "$POSTGRES_CONTAINER_NAME" 2>/dev/null || true)"
-    if [ "$STATUS" = "healthy" ]; then
-      break
-    fi
-    sleep 1
-  done
-
-  if [ "${STATUS:-}" != "healthy" ]; then
+  if ! wait_for_docker_container_status \
+    "smoke postgres" \
+    "$POSTGRES_CONTAINER_NAME" \
+    30 \
+    healthy; then
     print_postgres_debug
-    echo "smoke postgres did not become healthy" >&2
     exit 1
   fi
 

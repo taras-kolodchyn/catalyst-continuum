@@ -4,6 +4,9 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+# shellcheck disable=SC1091
+source "$ROOT_DIR/scripts/lib/readiness.sh"
+
 ENV_FILE=""
 MODEL=""
 PROMPT="Reply with exactly OK."
@@ -122,6 +125,11 @@ LITELLM_OTEL_SERVICE_NAME="${LITELLM_OTEL_SERVICE_NAME:-catalyst-continuum-litel
 LOKI_PORT="${LOKI_PORT:-3100}"
 POSTGRES_USER="${POSTGRES_USER:-continuum}"
 REDIS_PASSWORD="${REDIS_PASSWORD:-continuum-dev}"
+compose_args=(
+  docker compose
+  --env-file "$ENV_FILE"
+  -f deploy/compose/compose.yaml
+)
 
 if [ -z "$MODEL" ]; then
   default_model_args=(
@@ -144,10 +152,7 @@ if [ "$NO_COMPOSE_UP" -eq 0 ]; then
   fi
 
   echo "starting pinned LiteLLM service via docker compose"
-  docker compose \
-    --env-file "$ENV_FILE" \
-    -f deploy/compose/compose.yaml \
-    up -d litellm >/dev/null
+  "${compose_args[@]}" up -d litellm >/dev/null
 fi
 
 base_url="http://127.0.0.1:${LITELLM_PORT}"
@@ -164,17 +169,15 @@ cleanup() {
 
 trap cleanup EXIT
 
-for _ in $(seq 1 60); do
-  if curl -fsS \
-    -H "Authorization: Bearer ${LITELLM_MASTER_KEY}" \
-    "$models_url" >"$models_json"; then
-    break
+if ! wait_for_http_capture \
+  "LiteLLM models" \
+  "$models_url" \
+  "$models_json" \
+  60 \
+  -H "Authorization: Bearer ${LITELLM_MASTER_KEY}"; then
+  if [ "$NO_COMPOSE_UP" -eq 0 ]; then
+    "${compose_args[@]}" logs --no-color --tail 200 litellm >&2 || true
   fi
-  sleep 1
-done
-
-if [ ! -s "$models_json" ]; then
-  echo "LiteLLM did not become ready at ${models_url}" >&2
   exit 1
 fi
 

@@ -6,6 +6,8 @@ cd "$ROOT_DIR"
 
 # shellcheck disable=SC1091
 source "$ROOT_DIR/versions.env"
+# shellcheck disable=SC1091
+source "$ROOT_DIR/scripts/lib/readiness.sh"
 
 resolve_cargo_target_root() {
   if [ -n "${CARGO_TARGET_DIR:-}" ]; then
@@ -139,17 +141,12 @@ if [ -z "${CATALYST_DATABASE_URL:-}" ]; then
     "$POSTGRES_IMAGE" "${POSTGRES_SERVER_ARGS[@]}" >/dev/null
   STARTED_POSTGRES=1
 
-  for _ in $(seq 1 30); do
-    STATUS="$(docker inspect --format='{{.State.Health.Status}}' "$POSTGRES_CONTAINER_NAME" 2>/dev/null || true)"
-    if [ "$STATUS" = "healthy" ]; then
-      break
-    fi
-    sleep 1
-  done
-
-  if [ "${STATUS:-}" != "healthy" ]; then
+  if ! wait_for_docker_container_status \
+    "stateful MCP smoke postgres" \
+    "$POSTGRES_CONTAINER_NAME" \
+    30 \
+    healthy; then
     print_postgres_debug
-    echo "stateful MCP smoke postgres did not become healthy" >&2
     exit 1
   fi
   log_phase "postgres ready"
@@ -179,6 +176,7 @@ mkdir -p "$ARTIFACT_ROOT"
 export CATALYST_GITHUB_APP_WEBHOOK_SECRET="$GITHUB_WEBHOOK_SECRET"
 export CATALYST_GITHUB_APP_INSTALLATION_ID="$GITHUB_APP_INSTALLATION_ID"
 ORCHESTRATOR_LOG_FILE="$ARTIFACT_ROOT/mcp-smoke-orchestrator.log"
+ORCHESTRATOR_READYZ_FILE="$ARTIFACT_ROOT/mcp-smoke-orchestrator-readyz.json"
 "$BIN" \
   serve \
   --bind-addr "127.0.0.1:${ORCHESTRATOR_HTTP_PORT}" \
@@ -186,15 +184,13 @@ ORCHESTRATOR_LOG_FILE="$ARTIFACT_ROOT/mcp-smoke-orchestrator.log"
   --artifact-root "$ARTIFACT_ROOT" >"$ORCHESTRATOR_LOG_FILE" 2>&1 &
 ORCHESTRATOR_PID=$!
 
-for _ in $(seq 1 30); do
-  if curl -fsS "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/readyz" >/dev/null 2>&1; then
-    break
-  fi
-  sleep 1
-done
-
-if ! curl -fsS "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/readyz" >/dev/null 2>&1; then
-  echo "stateful MCP smoke orchestrator did not become ready" >&2
+if ! wait_for_http_capture \
+  "stateful MCP smoke orchestrator readiness" \
+  "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/readyz" \
+  "$ORCHESTRATOR_READYZ_FILE" \
+  30 \
+  "${CURL_ARGS[@]}"; then
+  cat "$ORCHESTRATOR_LOG_FILE" >&2 || true
   exit 1
 fi
 log_phase "orchestrator ready"
