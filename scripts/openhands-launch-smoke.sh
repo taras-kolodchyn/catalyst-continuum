@@ -14,6 +14,7 @@ OVERRIDE_STATE_DIR="$SMOKE_ROOT/state/override-model"
 FULL_STATE_DIR="$SMOKE_ROOT/state/full-mcp-surface"
 MCP_ONLY_STATE_DIR="$SMOKE_ROOT/state/mcp-only"
 FETCH_STATE_DIR="$SMOKE_ROOT/state/fetch-allowlist"
+INSTANCE_STATE_DIR="$SMOKE_ROOT/state/instance-external"
 ARTIFACT_ROOT="$SMOKE_ROOT/artifacts"
 HOST_OUTPUT="$SMOKE_ROOT/host-full-access.txt"
 CONTAINER_OUTPUT="$SMOKE_ROOT/container-sandbox.txt"
@@ -21,6 +22,7 @@ OVERRIDE_OUTPUT="$SMOKE_ROOT/override-model.txt"
 FULL_OUTPUT="$SMOKE_ROOT/full-mcp-surface.txt"
 MCP_ONLY_OUTPUT="$SMOKE_ROOT/mcp-only.txt"
 FETCH_OUTPUT="$SMOKE_ROOT/fetch-allowlist.txt"
+INSTANCE_OUTPUT="$SMOKE_ROOT/instance-external.txt"
 
 rm -rf "$SMOKE_ROOT"
 mkdir -p \
@@ -30,6 +32,7 @@ mkdir -p \
   "$FULL_STATE_DIR" \
   "$MCP_ONLY_STATE_DIR" \
   "$FETCH_STATE_DIR" \
+  "$INSTANCE_STATE_DIR" \
   "$ARTIFACT_ROOT"
 
 "$ROOT_DIR/scripts/openhands-launch.sh" \
@@ -79,6 +82,14 @@ LITELLM_DEFAULT_MODEL=local-macos-native \
   --external-server-allowlist fetch \
   --dry-run >"$FETCH_OUTPUT"
 
+"$ROOT_DIR/scripts/openhands-launch.sh" \
+  --profile container-sandbox \
+  --task-file "$ROOT_DIR/examples/openhands/bootstrap-task.md" \
+  --artifact-root "$ARTIFACT_ROOT" \
+  --state-dir "$INSTANCE_STATE_DIR" \
+  --instance-external-mcp-servers \
+  --dry-run >"$INSTANCE_OUTPUT"
+
 python3 - \
   "$HOST_OUTPUT" \
   "$CONTAINER_OUTPUT" \
@@ -86,12 +97,14 @@ python3 - \
   "$FULL_OUTPUT" \
   "$MCP_ONLY_OUTPUT" \
   "$FETCH_OUTPUT" \
+  "$INSTANCE_OUTPUT" \
   "$HOST_STATE_DIR" \
   "$CONTAINER_STATE_DIR" \
   "$OVERRIDE_STATE_DIR" \
   "$FULL_STATE_DIR" \
   "$MCP_ONLY_STATE_DIR" \
   "$FETCH_STATE_DIR" \
+  "$INSTANCE_STATE_DIR" \
   "$OPENHANDS_CLI_VERSION" \
   "$OPENHANDS_AGENT_SERVER_REPOSITORY" \
   "$OPENHANDS_AGENT_SERVER_TAG" <<'PY'
@@ -105,15 +118,17 @@ override_output = pathlib.Path(sys.argv[3])
 full_output = pathlib.Path(sys.argv[4])
 mcp_only_output = pathlib.Path(sys.argv[5])
 fetch_output = pathlib.Path(sys.argv[6])
-host_state_dir = pathlib.Path(sys.argv[7])
-container_state_dir = pathlib.Path(sys.argv[8])
-override_state_dir = pathlib.Path(sys.argv[9])
-full_state_dir = pathlib.Path(sys.argv[10])
-mcp_only_state_dir = pathlib.Path(sys.argv[11])
-fetch_state_dir = pathlib.Path(sys.argv[12])
-cli_version = sys.argv[13]
-agent_server_repository = sys.argv[14]
-agent_server_tag = sys.argv[15]
+instance_output = pathlib.Path(sys.argv[7])
+host_state_dir = pathlib.Path(sys.argv[8])
+container_state_dir = pathlib.Path(sys.argv[9])
+override_state_dir = pathlib.Path(sys.argv[10])
+full_state_dir = pathlib.Path(sys.argv[11])
+mcp_only_state_dir = pathlib.Path(sys.argv[12])
+fetch_state_dir = pathlib.Path(sys.argv[13])
+instance_state_dir = pathlib.Path(sys.argv[14])
+cli_version = sys.argv[15]
+agent_server_repository = sys.argv[16]
+agent_server_tag = sys.argv[17]
 
 
 def parse_output(path: pathlib.Path) -> dict[str, str]:
@@ -132,6 +147,7 @@ override = parse_output(override_output)
 full = parse_output(full_output)
 mcp_only = parse_output(mcp_only_output)
 fetch = parse_output(fetch_output)
+instance = parse_output(instance_output)
 
 
 def load_server_names(path: pathlib.Path) -> list[str]:
@@ -358,6 +374,22 @@ if fetch_server_names != ["catalyst-continuum", "fetch"]:
     raise SystemExit(
         "fetch-allowlist smoke failed: expected orchestrator plus fetch, got "
         f"{fetch_server_names!r}"
+    )
+
+if instance.get("external_mcp_mode") != "instance":
+    raise SystemExit("instance smoke failed: expected external_mcp_mode=instance")
+
+if instance.get("mcp_config") != str(instance_state_dir / "mcp.json"):
+    raise SystemExit("instance smoke failed: unexpected mcp_config path")
+
+if not (instance_state_dir / "mcp.json").exists():
+    raise SystemExit("instance smoke failed: expected repo-local mcp.json")
+
+instance_server_names = load_server_names(instance_state_dir / "mcp.json")
+if instance_server_names != ["catalyst-continuum", "fetch"]:
+    raise SystemExit(
+        "instance smoke failed: expected orchestrator plus instance-allowed fetch, got "
+        f"{instance_server_names!r}"
     )
 PY
 

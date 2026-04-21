@@ -21,6 +21,7 @@ LAUNCHERS_FILE="${CATALYST_AGENT_LAUNCHERS_FILE:-$ROOT_DIR/config/agent-launcher
 RUNTIME_PROVIDERS_FILE="${CATALYST_RUNTIME_PROVIDERS_FILE:-$ROOT_DIR/config/runtime-providers.yaml}"
 MCP_SERVERS_FILE="${CATALYST_MCP_SERVERS_FILE:-$ROOT_DIR/config/mcp-servers.yaml}"
 AI_GATEWAY_FILE="${CATALYST_AI_GATEWAY_FILE:-$ROOT_DIR/config/ai-gateway.yaml}"
+LAUNCH_SCRIPT="${OPENHANDS_LAUNCH_SCRIPT:-$ROOT_DIR/scripts/openhands-launch.sh}"
 
 CLAIMED_TASK_ID=""
 WORKSPACE_ROOT=""
@@ -174,6 +175,7 @@ LAUNCHERS_FILE="$(abspath_path "$LAUNCHERS_FILE")"
 RUNTIME_PROVIDERS_FILE="$(abspath_path "$RUNTIME_PROVIDERS_FILE")"
 MCP_SERVERS_FILE="$(abspath_path "$MCP_SERVERS_FILE")"
 AI_GATEWAY_FILE="$(abspath_path "$AI_GATEWAY_FILE")"
+LAUNCH_SCRIPT="$(abspath_path "$LAUNCH_SCRIPT")"
 mkdir -p "$STATE_ROOT"
 
 if [ "${CATALYST_SKIP_WORKSPACE_BUILD:-0}" != "1" ]; then
@@ -182,6 +184,11 @@ fi
 
 if [ ! -x "$BIN" ]; then
   echo "orchestrator binary not found: $BIN" >&2
+  exit 1
+fi
+
+if [ ! -x "$LAUNCH_SCRIPT" ]; then
+  echo "OpenHands launch script not found or not executable: $LAUNCH_SCRIPT" >&2
   exit 1
 fi
 
@@ -382,7 +389,7 @@ heartbeat_loop &
 HEARTBEAT_PID=$!
 
 launch_args=(
-  "$ROOT_DIR/scripts/openhands-launch.sh"
+  "$LAUNCH_SCRIPT"
   --workspace "$WORKSPACE_ROOT"
   --state-dir "$STATE_DIR"
   --launchers-file "$LAUNCHERS_FILE"
@@ -398,7 +405,7 @@ launch_args=(
 )
 
 if [ -n "$PROFILE" ]; then
-  launch_args=( "$ROOT_DIR/scripts/openhands-launch.sh" --profile "$PROFILE" "${launch_args[@]:1}" )
+  launch_args=( "$LAUNCH_SCRIPT" --profile "$PROFILE" "${launch_args[@]:1}" )
 fi
 
 if [ "$BOOTSTRAP" -eq 1 ]; then

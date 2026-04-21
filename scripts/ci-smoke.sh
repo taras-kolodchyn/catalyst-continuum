@@ -14,6 +14,7 @@ ARTIFACT_ROOT_BASE="${CATALYST_ARTIFACT_ROOT:-$ROOT_DIR/.continuum/ci-artifacts}
 export CATALYST_SKIP_WORKSPACE_BUILD=1
 
 ./scripts/openhands-launch-smoke.sh
+./scripts/openhands-run-agent-task-smoke.sh
 
 execute_scenario() {
   local scenario="$1"
