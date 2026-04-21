@@ -16,6 +16,8 @@ required:
   - reported_status
   - task_status
   - retry_scheduled
+  - task_workspace_input_artifact_id
+  - workspace_root
   - summary
   - details
   - failure_reason
@@ -57,6 +59,15 @@ properties:
       - failed
   retry_scheduled:
     type: boolean
+  task_workspace_input_artifact_id:
+    anyOf:
+      - $ref: "#/$defs/uuid_string"
+      - type: "null"
+  workspace_root:
+    anyOf:
+      - type: string
+        minLength: 1
+      - type: "null"
   summary:
     type: string
     minLength: 1

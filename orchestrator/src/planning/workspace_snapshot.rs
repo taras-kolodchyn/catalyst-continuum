@@ -338,6 +338,68 @@ pub fn resolve_task_workspace_input_bundle_path(
     })
 }
 
+pub fn resolve_reported_task_workspace_root(
+    task: &TaskSummary,
+    task_workspace_input_artifact: &ArtifactSummary,
+    reported_workspace_root: &Path,
+) -> Result<PathBuf> {
+    validate_task_workspace_input_artifact(task_workspace_input_artifact)?;
+
+    let prepared_task_id = metadata_uuid(&task_workspace_input_artifact.metadata, "task_id")
+        .with_context(|| {
+            format!(
+                "prepared task workspace artifact {} is missing metadata.task_id",
+                task_workspace_input_artifact.artifact_id
+            )
+        })?;
+    ensure!(
+        prepared_task_id == task.task_id,
+        "prepared task workspace artifact {} belongs to task {}, not {}",
+        task_workspace_input_artifact.artifact_id,
+        prepared_task_id,
+        task.task_id
+    );
+
+    if let Some(backlog_item_id) = task_workspace_input_artifact
+        .metadata
+        .get("backlog_item_id")
+        .and_then(|value| value.as_str())
+    {
+        ensure!(
+            backlog_item_id == task.backlog_item_id,
+            "prepared task workspace artifact {} belongs to backlog item {}, not {}",
+            task_workspace_input_artifact.artifact_id,
+            backlog_item_id,
+            task.backlog_item_id
+        );
+    }
+
+    let prepared_workspace_root = PathBuf::from(&task_workspace_input_artifact.location_value)
+        .canonicalize()
+        .with_context(|| {
+            format!(
+                "failed to canonicalize prepared task workspace root: {}",
+                task_workspace_input_artifact.location_value
+            )
+        })?;
+    let reported_workspace_root = reported_workspace_root.canonicalize().with_context(|| {
+        format!(
+            "failed to canonicalize reported task workspace root: {}",
+            reported_workspace_root.display()
+        )
+    })?;
+
+    ensure!(
+        reported_workspace_root == prepared_workspace_root,
+        "reported task workspace root {} does not match prepared task workspace {} for task {}",
+        reported_workspace_root.display(),
+        prepared_workspace_root.display(),
+        task.task_id
+    );
+
+    Ok(reported_workspace_root)
+}
+
 fn resolve_bundle_path(artifact: &ArtifactSummary) -> Result<Option<PathBuf>> {
     let Some(bundle_path_value) = artifact
         .metadata
@@ -602,8 +664,13 @@ pub fn compose_code_workspace_patch(
             "task_id": task.task_id,
             "backlog_item_id": task.backlog_item_id,
             "workspace_source_artifact_id": workspace.source_artifact_id,
+            "workspace_input_artifact_id": workspace.input_artifact_id,
             "workspace_source_path": workspace.source_path.display().to_string(),
             "workspace_output_path": workspace.host_path.display().to_string(),
+            "workspace_bundle_path": workspace
+                .bundle_path
+                .as_ref()
+                .map(|path| path.display().to_string()),
             "code_bundle_artifact_id": code_bundle_artifact.artifact_id,
             "code_bundle_path": code_bundle_artifact.location_value,
             "changed_file_count": changed_file_count,
@@ -1439,7 +1506,7 @@ fn workspace_snapshot_artifact_id(run_id: Uuid) -> Uuid {
     Uuid::from_bytes(bytes)
 }
 
-fn task_workspace_input_artifact_id(task_id: Uuid) -> Uuid {
+pub fn task_workspace_input_artifact_id(task_id: Uuid) -> Uuid {
     let digest = Sha256::digest(format!("task-workspace-input:{task_id}").as_bytes());
     let mut bytes = [0_u8; 16];
     bytes.copy_from_slice(&digest[..16]);
@@ -1863,6 +1930,70 @@ mod tests {
     }
 
     #[test]
+    fn rejects_reported_task_workspace_root_that_does_not_match_prepared_workspace() {
+        let brief = sample_brief();
+        let run = RunDraft::from_brief(&brief, "examples/brief.yaml".to_string());
+        let pack = PackDefinition::load(Some("container-service")).expect("pack should load");
+        let generated =
+            generate_initial_backlog(&brief, &run, &pack, Path::new(".tmp-artifacts"), false)
+                .expect("backlog should generate");
+        let tasks =
+            materialize_tasks(&run, &pack, &generated.document).expect("tasks should build");
+        let run_context = RunContext::from_draft(&run);
+        let temp_root = std::env::temp_dir().join(format!(
+            "continuum-task-workspace-input-mismatch-{}",
+            Uuid::new_v4()
+        ));
+
+        let scaffold_task = TaskSummary::from_draft(&tasks[1]);
+        let scaffold_artifact =
+            generate_task_artifacts(&scaffold_task, &run_context, &pack, &temp_root)
+                .expect("scaffold materialization should succeed")
+                .into_iter()
+                .next()
+                .expect("scaffold bundle should exist");
+        let snapshot_sources = vec![
+            ArtifactSummary::from_draft(&scaffold_artifact)
+                .with_created_at("2026-04-17T10:00:00.000Z".to_string()),
+        ];
+        let snapshot = compose_workspace_snapshot(&run_context, &snapshot_sources, &temp_root)
+            .expect("workspace snapshot should compose");
+        let snapshot_summary = ArtifactSummary::from_draft(&snapshot)
+            .with_created_at("2026-04-17T10:10:00.000Z".to_string());
+        let code_task = TaskSummary::from_draft(&tasks[2]);
+        let prepared_workspace_root =
+            prepare_task_workspace(&code_task, &snapshot_summary, &temp_root)
+                .expect("task workspace should prepare");
+        let prepared_workspace = compose_task_workspace_input_artifact(
+            &code_task,
+            TaskWorkspaceSourceKind::Snapshot,
+            Some(&snapshot_summary),
+            &prepared_workspace_root,
+            &temp_root,
+        )
+        .expect("task workspace input artifact should compose");
+        let unexpected_workspace_root = temp_root.join("unexpected-workspace");
+        fs::create_dir_all(&unexpected_workspace_root)
+            .expect("unexpected workspace should be created");
+
+        let error = resolve_reported_task_workspace_root(
+            &code_task,
+            &ArtifactSummary::from_draft(&prepared_workspace),
+            &unexpected_workspace_root,
+        )
+        .expect_err("mismatched prepared workspace root should fail");
+
+        assert!(
+            error
+                .to_string()
+                .contains("does not match prepared task workspace"),
+            "unexpected error: {error:#}"
+        );
+
+        let _ = fs::remove_dir_all(&temp_root);
+    }
+
+    #[test]
     fn composes_code_workspace_patch_from_code_bundle_overlay() {
         let brief = sample_brief();
         let run = RunDraft::from_brief(&brief, "examples/brief.yaml".to_string());
@@ -1899,16 +2030,29 @@ mod tests {
             .with_created_at("2026-04-17T10:10:00.000Z".to_string());
         let workspace_path = prepare_task_workspace(&code_task, &snapshot_summary, &temp_root)
             .expect("task workspace should prepare");
+        let task_workspace_input = compose_task_workspace_input_artifact(
+            &code_task,
+            TaskWorkspaceSourceKind::Snapshot,
+            Some(&snapshot_summary),
+            &workspace_path,
+            &temp_root,
+        )
+        .expect("task workspace input artifact should compose");
         let source_path = PathBuf::from(&snapshot.location_value)
             .canonicalize()
             .expect("snapshot path should canonicalize");
         let workspace = TaskWorkspace {
             source_artifact_id: snapshot.artifact_id,
-            input_artifact_id: None,
+            input_artifact_id: Some(task_workspace_input.artifact_id),
             source_path,
             host_path: workspace_path,
             container_path: "/workspace".to_string(),
-            bundle_path: None,
+            bundle_path: Some(
+                resolve_task_workspace_input_bundle_path(&ArtifactSummary::from_draft(
+                    &task_workspace_input,
+                ))
+                .expect("task workspace input bundle path should resolve"),
+            ),
         };
 
         let patch_artifact =
@@ -1932,6 +2076,15 @@ mod tests {
         assert_eq!(
             patch_artifact.metadata["workspace_source_artifact_id"],
             snapshot.artifact_id.to_string()
+        );
+        assert_eq!(
+            patch_artifact.metadata["workspace_input_artifact_id"],
+            task_workspace_input.artifact_id.to_string()
+        );
+        assert!(
+            patch_artifact.metadata["workspace_bundle_path"]
+                .as_str()
+                .is_some_and(|path| path.ends_with("/workspace/input.tar"))
         );
         assert_eq!(
             patch_artifact.metadata["code_bundle_artifact_id"],

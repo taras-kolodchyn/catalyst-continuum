@@ -469,6 +469,23 @@ def call_tool(name, arguments=None, key=None):
     return structured[key]
 
 
+def call_tool_expect_error(name, arguments=None):
+    log_phase(f"call MCP tool {name} (expect error)")
+    result = request(
+        "tools/call",
+        {
+            "name": name,
+            "arguments": arguments or {},
+        },
+    )
+    if not result.get("isError"):
+        fail(
+            f"stateful MCP smoke failed: expected tool {name} to return an error, got {result}"
+        )
+    log_phase(f"completed MCP tool {name} (error expected)")
+    return result
+
+
 def log_phase(message):
     print(f"[mcp-stateful-smoke] {message}", flush=True)
 
@@ -1386,6 +1403,12 @@ policy:
         encoding="utf-8",
     )
     (workspace_root / ".gitignore").write_text("target/\\n", encoding="utf-8")
+    unexpected_workspace_root = workspace_root.parent / "unexpected-workspace"
+    unexpected_workspace_root.mkdir(parents=True, exist_ok=True)
+    (unexpected_workspace_root / "README.md").write_text(
+        "# unexpected workspace\\n",
+        encoding="utf-8",
+    )
 
     heartbeat = call_tool(
         "heartbeat_agent_task",
@@ -1409,6 +1432,26 @@ policy:
         )
     if not heartbeated_task.get("lease_expires_at"):
         fail("stateful MCP smoke failed: heartbeat should preserve lease_expires_at")
+
+    completion_error = call_tool_expect_error(
+        "complete_agent_task",
+        {
+            "task_id": claimed_task_id,
+            "agent": "openhands",
+            "executor_id": "mcp-stateful-smoke",
+            "status": "succeeded",
+            "summary": "stateful smoke external-agent handoff rejected unexpected workspace",
+            "workspace_root": str(unexpected_workspace_root),
+        },
+    )
+    if "does not match prepared task workspace" not in json.dumps(
+        completion_error,
+        sort_keys=True,
+    ):
+        fail(
+            "stateful MCP smoke failed: expected complete_agent_task error to mention prepared "
+            f"workspace mismatch, got {completion_error}"
+        )
 
     completion = call_tool(
         "complete_agent_task",
@@ -1456,6 +1499,16 @@ policy:
         fail(
             "stateful MCP smoke failed: expected report assigned_agent=openhands, got "
             f"{report_detail['manifest']['assigned_agent']}"
+        )
+    if report_detail["manifest"]["task_workspace_input_artifact_id"] != task_workspace_input_artifact_id:
+        fail(
+            "stateful MCP smoke failed: agent task report should point at prepared workspace "
+            f"artifact, got {report_detail['manifest']['task_workspace_input_artifact_id']}"
+        )
+    if report_detail["manifest"]["workspace_root"] != str(workspace_root):
+        fail(
+            "stateful MCP smoke failed: agent task report should preserve prepared workspace_root, "
+            f"got {report_detail['manifest']['workspace_root']}"
         )
 
     log_phase("execute a single worker cycle through MCP")

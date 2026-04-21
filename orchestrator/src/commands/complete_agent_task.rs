@@ -84,9 +84,17 @@ struct AgentTaskReportManifest {
     reported_status: String,
     task_status: String,
     retry_scheduled: bool,
+    task_workspace_input_artifact_id: Option<uuid::Uuid>,
+    workspace_root: Option<String>,
     summary: String,
     details: Option<String>,
     failure_reason: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct PreparedTaskWorkspaceInput {
+    artifact: ArtifactSummary,
+    workspace_root: PathBuf,
 }
 
 pub(crate) fn complete_agent_task(
@@ -160,6 +168,11 @@ pub(crate) fn complete_agent_task(
         );
     }
 
+    let prepared_workspace = if status == "succeeded" {
+        resolve_prepared_task_workspace_input(store, &task, workspace_root)?
+    } else {
+        None
+    };
     let run_context = store.fetch_run_context(task.run_id)?;
     let mut effective_status = status.to_string();
     let mut effective_failure_reason = match status {
@@ -169,8 +182,13 @@ pub(crate) fn complete_agent_task(
     let mut effective_retryable = retryable;
 
     if status == "succeeded"
-        && let Err(error) =
-            persist_success_artifacts(store, &task, &run_context, artifact_root, workspace_root)
+        && let Err(error) = persist_success_artifacts(
+            store,
+            &task,
+            &run_context,
+            artifact_root,
+            prepared_workspace.as_ref(),
+        )
     {
         effective_status = "failed".to_string();
         effective_failure_reason = Some(format!("agent task post-processing failed: {error:#}"));
@@ -210,6 +228,12 @@ pub(crate) fn complete_agent_task(
         reported_status: status.to_string(),
         task_status: completion_plan.status.clone(),
         retry_scheduled: completion_plan.retry_scheduled,
+        task_workspace_input_artifact_id: prepared_workspace
+            .as_ref()
+            .map(|workspace| workspace.artifact.artifact_id),
+        workspace_root: prepared_workspace
+            .as_ref()
+            .map(|workspace| workspace.workspace_root.display().to_string()),
         summary: summary.to_string(),
         details: details.map(str::to_string),
         failure_reason: completion_plan.failure_reason.clone(),
@@ -333,9 +357,42 @@ fn persist_agent_task_report(
             "reported_status": &manifest.reported_status,
             "task_status": &manifest.task_status,
             "retry_scheduled": manifest.retry_scheduled,
+            "task_workspace_input_artifact_id": &manifest.task_workspace_input_artifact_id,
+            "workspace_root": &manifest.workspace_root,
             "summary": &manifest.summary,
         }),
     })
+}
+
+fn resolve_prepared_task_workspace_input(
+    store: &mut PostgresRunStore,
+    task: &TaskSummary,
+    workspace_root: Option<&Path>,
+) -> anyhow::Result<Option<PreparedTaskWorkspaceInput>> {
+    let Some(workspace_root) = workspace_root else {
+        return Ok(None);
+    };
+
+    let task_workspace_input_artifact = store
+        .fetch_artifact(workspace_snapshot::task_workspace_input_artifact_id(task.task_id))?
+        .map(|record| record.artifact)
+        .with_context(|| {
+            format!(
+                "task {} was completed with workspace_root {}, but no prepared task_workspace_input artifact exists; call prepare_agent_task_workspace first",
+                task.backlog_item_id,
+                workspace_root.display()
+            )
+        })?;
+    let workspace_root = workspace_snapshot::resolve_reported_task_workspace_root(
+        task,
+        &task_workspace_input_artifact,
+        workspace_root,
+    )?;
+
+    Ok(Some(PreparedTaskWorkspaceInput {
+        artifact: task_workspace_input_artifact,
+        workspace_root,
+    }))
 }
 
 fn persist_success_artifacts(
@@ -343,11 +400,15 @@ fn persist_success_artifacts(
     task: &TaskSummary,
     run_context: &crate::models::run::RunContext,
     artifact_root: &Path,
-    workspace_root: Option<&Path>,
+    prepared_workspace: Option<&PreparedTaskWorkspaceInput>,
 ) -> anyhow::Result<()> {
-    let task_artifacts = if let Some(workspace_root) = workspace_root {
-        let captured =
-            capture_success_artifacts_from_workspace(store, task, artifact_root, workspace_root)?;
+    let task_artifacts = if let Some(prepared_workspace) = prepared_workspace {
+        let captured = capture_success_artifacts_from_workspace(
+            store,
+            task,
+            artifact_root,
+            prepared_workspace,
+        )?;
         if captured.is_empty() {
             let selected_pack = task
                 .assigned_pack
@@ -409,13 +470,13 @@ fn capture_success_artifacts_from_workspace(
     store: &mut PostgresRunStore,
     task: &TaskSummary,
     artifact_root: &Path,
-    workspace_root: &Path,
+    prepared_workspace: &PreparedTaskWorkspaceInput,
 ) -> anyhow::Result<Vec<ArtifactDraft>> {
     match task.kind.as_str() {
         "scaffold" => Ok(vec![
             workspace_snapshot::capture_scaffold_bundle_from_workspace(
                 task,
-                workspace_root,
+                &prepared_workspace.workspace_root,
                 artifact_root,
             )?,
         ]),
@@ -431,7 +492,7 @@ fn capture_success_artifacts_from_workspace(
             let code_bundle = workspace_snapshot::capture_code_bundle_from_workspace(
                 task,
                 &snapshot_artifact,
-                workspace_root,
+                &prepared_workspace.workspace_root,
                 artifact_root,
             )?;
             let source_path = PathBuf::from(&snapshot_artifact.location_value)
@@ -442,19 +503,17 @@ fn capture_success_artifacts_from_workspace(
                         snapshot_artifact.location_value
                     )
                 })?;
-            let prepared_workspace_root = workspace_root.canonicalize().with_context(|| {
-                format!(
-                    "failed to canonicalize external task workspace root: {}",
-                    workspace_root.display()
-                )
-            })?;
             let task_workspace = TaskWorkspace {
                 source_artifact_id: snapshot_artifact.artifact_id,
-                input_artifact_id: None,
+                input_artifact_id: Some(prepared_workspace.artifact.artifact_id),
                 source_path,
-                host_path: prepared_workspace_root,
+                host_path: prepared_workspace.workspace_root.clone(),
                 container_path: "/workspace".to_string(),
-                bundle_path: workspace_snapshot::resolve_snapshot_bundle_path(&snapshot_artifact)?,
+                bundle_path: Some(
+                    workspace_snapshot::resolve_task_workspace_input_bundle_path(
+                        &prepared_workspace.artifact,
+                    )?,
+                ),
             };
             let patch_artifact = workspace_snapshot::compose_code_workspace_patch(
                 task,
@@ -529,6 +588,8 @@ mod tests {
             reported_status: "failed".to_string(),
             task_status: "queued".to_string(),
             retry_scheduled: true,
+            task_workspace_input_artifact_id: Some(uuid::Uuid::new_v4()),
+            workspace_root: Some("/tmp/prepared-workspace".to_string()),
             summary: "task failed and was requeued".to_string(),
             details: Some("first retry scheduled".to_string()),
             failure_reason: Some("temporary failure".to_string()),

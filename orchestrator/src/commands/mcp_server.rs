@@ -2007,7 +2007,7 @@ fn tool_definitions() -> Vec<Value> {
                 ),
                 optional_string_property(
                     "workspace_root",
-                    "Optional host workspace path to capture as real task output when status is succeeded.",
+                    "Optional host workspace path to capture as real task output when status is succeeded. Must match the prepared workspace returned by prepare_agent_task_workspace.",
                 ),
                 optional_boolean_property(
                     "retryable",

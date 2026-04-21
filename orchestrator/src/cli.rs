@@ -252,7 +252,10 @@ pub struct CompleteAgentTaskArgs {
     #[arg(long)]
     pub executor_id: Option<String>,
 
-    #[arg(long)]
+    #[arg(
+        long,
+        help = "Optional host workspace path to capture when status is succeeded; must match the prepared task workspace for this task."
+    )]
     pub workspace_root: Option<PathBuf>,
 
     #[arg(long)]

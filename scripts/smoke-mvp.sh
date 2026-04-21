@@ -1132,6 +1132,8 @@ printf '%s\n' "$PREPARE_OUTPUT" | grep -q '^task_workspace_input_artifact:$'
 printf '%s\n' "$PREPARE_OUTPUT" | grep -q '^bundle_path: '
 CLAIMED_WORKSPACE_ROOT="$(printf '%s\n' "$PREPARE_OUTPUT" | awk '/^workspace_root:/ {print $2; exit}')"
 test -n "$CLAIMED_WORKSPACE_ROOT"
+TASK_WORKSPACE_INPUT_ARTIFACT_ID="$(printf '%s\n' "$PREPARE_OUTPUT" | awk '/^task_workspace_input_artifact:/{flag=1;next} flag && /^artifact_id:/{print $2; exit}')"
+test -n "$TASK_WORKSPACE_INPUT_ARTIFACT_ID"
 python3 - "$PACK_ID" "$CLAIMED_WORKSPACE_ROOT" "$RUST_VERSION" <<'PY'
 import pathlib
 import sys
@@ -1372,6 +1374,24 @@ printf '%s\n' "$HEARTBEAT_OUTPUT" | grep -q '^lease_refreshed: yes$'
 printf '%s\n' "$HEARTBEAT_OUTPUT" | grep -q '^agent_execution_status: heartbeat$'
 printf '%s\n' "$HEARTBEAT_OUTPUT" | grep -q '^lease_expires_at: '
 
+UNEXPECTED_WORKSPACE_ROOT="$(dirname "$CLAIMED_WORKSPACE_ROOT")/unexpected-workspace"
+mkdir -p "$UNEXPECTED_WORKSPACE_ROOT"
+printf '# unexpected workspace\n' >"$UNEXPECTED_WORKSPACE_ROOT/README.md"
+COMPLETE_ERROR_FILE="$ARTIFACT_ROOT/complete-agent-task-error.log"
+if "$BIN" complete-agent-task \
+  --database-url "$DATABASE_URL" \
+  --artifact-root "$ARTIFACT_ROOT" \
+  --task-id "$CLAIMED_TASK_ID" \
+  --agent openhands \
+  --executor-id smoke-mvp \
+  --status succeeded \
+  --summary "smoke external-agent handoff rejected unexpected workspace" \
+  --workspace-root "$UNEXPECTED_WORKSPACE_ROOT" >"$COMPLETE_ERROR_FILE" 2>&1; then
+  echo "expected complete-agent-task to reject unexpected workspace_root" >&2
+  exit 1
+fi
+grep -q 'does not match prepared task workspace' "$COMPLETE_ERROR_FILE"
+
 COMPLETE_OUTPUT="$("$BIN" complete-agent-task \
   --database-url "$DATABASE_URL" \
   --artifact-root "$ARTIFACT_ROOT" \
@@ -1391,23 +1411,29 @@ AGENT_REPORT_ARTIFACT_FILE="$ARTIFACT_ROOT/agent-task-report-artifact.json"
   --database-url "$DATABASE_URL" \
   --artifact-id "$AGENT_REPORT_ARTIFACT_ID" \
   --json >"$AGENT_REPORT_ARTIFACT_FILE"
-python3 - "$AGENT_REPORT_ARTIFACT_FILE" "$CLAIMED_TASK_ID" <<'PY'
+python3 - "$AGENT_REPORT_ARTIFACT_FILE" "$CLAIMED_TASK_ID" "$TASK_WORKSPACE_INPUT_ARTIFACT_ID" "$CLAIMED_WORKSPACE_ROOT" <<'PY'
 import json
 import pathlib
 import sys
 
 artifact = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
 task_id = sys.argv[2]
+task_workspace_input_artifact_id = sys.argv[3]
+workspace_root = sys.argv[4]
 
 assert artifact["artifact"]["artifact_type"] == "agent_task_report", artifact
 assert artifact["metadata"]["task_id"] == task_id, artifact
 assert artifact["metadata"]["assigned_agent"] == "openhands", artifact
 assert artifact["metadata"]["reported_status"] == "succeeded", artifact
+assert artifact["metadata"]["task_workspace_input_artifact_id"] == task_workspace_input_artifact_id, artifact
+assert artifact["metadata"]["workspace_root"] == workspace_root, artifact
 assert artifact["manifest"]["task_id"] == task_id, artifact
 assert artifact["manifest"]["assigned_agent"] == "openhands", artifact
 assert artifact["manifest"]["reported_status"] == "succeeded", artifact
 assert artifact["manifest"]["task_status"] == "succeeded", artifact
 assert artifact["manifest"]["retry_scheduled"] is False, artifact
+assert artifact["manifest"]["task_workspace_input_artifact_id"] == task_workspace_input_artifact_id, artifact
+assert artifact["manifest"]["workspace_root"] == workspace_root, artifact
 PY
 
 WORKER_OUTPUT="$("$BIN" worker \
