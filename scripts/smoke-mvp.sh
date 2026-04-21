@@ -237,6 +237,37 @@ wait_for_orchestrator_http_ready() {
   return 1
 }
 
+wait_for_pid_guarded_http_ready() {
+  local name="$1"
+  local url="$2"
+  local output_file="$3"
+  local attempts="$4"
+  local pid="$5"
+  local log_file="$6"
+  local last_result="not yet probed"
+
+  for _ in $(seq 1 "$attempts"); do
+    if probe_http_capture "$url" "$output_file"; then
+      return 0
+    fi
+    last_result="$WAIT_LAST_HTTP_RESULT"
+
+    if ! kill -0 "$pid" >/dev/null 2>&1; then
+      cat "$log_file" >&2 || true
+      echo \
+        "$name exited before becoming ready (last probe: ${last_result})" >&2
+      return 1
+    fi
+
+    sleep 1
+  done
+
+  cat "$log_file" >&2 || true
+  echo \
+    "$name did not become ready after ${attempts}s (last probe: ${last_result})" >&2
+  return 1
+}
+
 CATALYST_GITHUB_APP_WEBHOOK_SECRET="$GITHUB_WEBHOOK_SECRET" \
 CATALYST_GITHUB_APP_INSTALLATION_ID="$GITHUB_APP_INSTALLATION_ID" \
   "$BIN" serve \
@@ -1342,19 +1373,13 @@ PY
       ) >"$SERVICE_LOG" 2>&1 &
       SERVICE_PID="$!"
 
-      for _ in $(seq 1 30); do
-        if curl -fsS "http://127.0.0.1:${SERVICE_PORT}${SMOKE_HEALTHCHECK_PATH}" >"$HEALTH_OUTPUT"; then
-          break
-        fi
-
-        if ! kill -0 "$SERVICE_PID" >/dev/null 2>&1; then
-          cat "$SERVICE_LOG" >&2
-          echo "generated service exited before becoming ready" >&2
-          exit 1
-        fi
-
-        sleep 1
-      done
+      wait_for_pid_guarded_http_ready \
+        "generated service" \
+        "http://127.0.0.1:${SERVICE_PORT}${SMOKE_HEALTHCHECK_PATH}" \
+        "$HEALTH_OUTPUT" \
+        30 \
+        "$SERVICE_PID" \
+        "$SERVICE_LOG"
 
       curl -fsS "http://127.0.0.1:${SERVICE_PORT}${SMOKE_HEALTHCHECK_PATH}" >"$HEALTH_OUTPUT"
 

@@ -4,6 +4,9 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+# shellcheck disable=SC1091
+source "$ROOT_DIR/scripts/lib/readiness.sh"
+
 BASE_ENV_FILE="deploy/compose/.env.example"
 COMPOSE_FILE="deploy/compose/compose.yaml"
 ENV_FILE="$BASE_ENV_FILE"
@@ -79,9 +82,9 @@ TEMP_DIR="$(mktemp -d)"
 COMPOSE_ENV_FILE="$TEMP_DIR/compose.env"
 SUCCESS=0
 HTTP_WAIT_ATTEMPTS="${COMPOSE_OBSERVABILITY_SMOKE_HTTP_WAIT_ATTEMPTS:-90}"
-LAST_HTTP_PROBE_RESULT="not yet probed"
 LAST_PROMETHEUS_TARGET_SUMMARY="not yet probed"
 LAST_GRAFANA_PROVISIONING_SUMMARY="not yet probed"
+HTTP_PROBE_FILE="$TEMP_DIR/http-probe.out"
 
 compose_cmd() {
   docker compose -p "$PROJECT_NAME" --env-file "$COMPOSE_ENV_FILE" -f "$COMPOSE_FILE" "$@"
@@ -122,27 +125,12 @@ wait_for_http() {
   local name="$1"
   local url="$2"
   shift 2
-  local http_code
-  local curl_exit
-
-  for _ in $(seq 1 "$HTTP_WAIT_ATTEMPTS"); do
-    if http_code="$(curl -s -o /dev/null -w '%{http_code}' "$@" "$url" 2>/dev/null)"; then
-      LAST_HTTP_PROBE_RESULT="HTTP ${http_code}"
-      case "$http_code" in
-        2*|3*)
-          return 0
-          ;;
-      esac
-    else
-      curl_exit=$?
-      LAST_HTTP_PROBE_RESULT="curl exit ${curl_exit} (http ${http_code:-000})"
-    fi
-    sleep 1
-  done
-
-  echo \
-    "$name did not become ready at $url after ${HTTP_WAIT_ATTEMPTS}s (last probe: $LAST_HTTP_PROBE_RESULT)" >&2
-  return 1
+  wait_for_http_capture \
+    "$name" \
+    "$url" \
+    "$HTTP_PROBE_FILE" \
+    "$HTTP_WAIT_ATTEMPTS" \
+    "$@"
 }
 
 prometheus_target_summary() {
