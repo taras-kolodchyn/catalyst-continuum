@@ -145,6 +145,10 @@ tool_names = {
     tool["name"]
     for tool in tools_list_response["result"]["tools"]
 }
+tools_by_name = {
+    tool["name"]: tool
+    for tool in tools_list_response["result"]["tools"]
+}
 expected_tools = {
     "list_packs",
     "describe_pack",
@@ -174,6 +178,26 @@ missing_tools = expected_tools - tool_names
 if missing_tools:
     raise SystemExit(
         f"mcp smoke failed: missing tools {sorted(missing_tools)}"
+    )
+for tool_name in ("list_packs", "validate_brief", "describe_run"):
+    if (
+        tools_by_name[tool_name]
+        .get("annotations", {})
+        .get("readOnlyHint")
+        is not True
+    ):
+        raise SystemExit(
+            "mcp smoke failed: expected readOnlyHint=true for "
+            f"{tool_name}"
+        )
+if (
+    tools_by_name["submit_brief"]
+    .get("annotations", {})
+    .get("readOnlyHint")
+    is True
+):
+    raise SystemExit(
+        "mcp smoke failed: submit_brief must not be advertised as read-only"
     )
 
 instance_config = instance_config_response["result"]["structuredContent"]["instance_config"]

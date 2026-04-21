@@ -507,14 +507,20 @@ fi
 if [ "$REQUIRE_TOOL_CALLS" -eq 1 ]; then
   echo
   echo "running tool-call validation"
+  tool_call_validation_nonce="$(
+    python3 - <<'PY'
+import time
+print(time.time_ns())
+PY
+  )"
   tool_call_validation_output="$(
-    python3 - "$base_url" "$LITELLM_MASTER_KEY" "$MODEL" <<'PY'
+    python3 - "$base_url" "$LITELLM_MASTER_KEY" "$MODEL" "$tool_call_validation_nonce" <<'PY'
 import json
 import sys
 import urllib.error
 import urllib.request
 
-base_url, master_key, model = sys.argv[1:]
+base_url, master_key, model, nonce = sys.argv[1:]
 request = urllib.request.Request(
     f"{base_url}/v1/chat/completions",
     data=json.dumps(
@@ -523,7 +529,10 @@ request = urllib.request.Request(
             "messages": [
                 {
                     "role": "user",
-                    "content": "Use the ping tool exactly once with message hi.",
+                    "content": (
+                        "Use the ping tool exactly once with message hi. "
+                        f"Validation nonce: {nonce}."
+                    ),
                 }
             ],
             "tools": [

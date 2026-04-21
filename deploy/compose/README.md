@@ -39,6 +39,11 @@ docker compose --env-file deploy/compose/.env.example -f deploy/compose/compose.
 ./scripts/compose-runtime-check.sh
 ```
 
+That runtime check now proves both containers can see the pinned Docker CLI and
+talk to the host Docker daemon through `/var/run/docker.sock`, because the
+local `docker` runtime provider depends on that contract for background task
+execution.
+
 6. Validate the pinned stack's readiness, Prometheus scrape topology, Grafana provisioning, and live AI-gateway wiring through an isolated compose project name and ephemeral host ports:
 
 ```bash
@@ -107,6 +112,10 @@ ollama serve
 - The orchestrator exports OpenTelemetry traces, metrics, and logs over OTLP HTTP when the collector endpoint env vars are configured.
 - The compose stack now runs a dedicated long-lived `worker` service alongside the HTTP `orchestrator`, so background run progression works in the local stack without shelling into the container manually.
 - The long-lived `worker` now waits for a healthy HTTP `orchestrator` before starting, and the shared Postgres schema bootstrap is serialized with an advisory lock so the shipped local stack does not race its own schema initialization during cold start.
+- The compose `orchestrator` and `worker` now also mount `/var/run/docker.sock`
+  and ship a pinned Docker CLI binary, so in-container `docker` runtime tasks
+  can launch disposable task containers against the host daemon during local
+  validation.
 - The compose stack now also runs a pinned `LiteLLM` gateway service. The gateway is bundled; the actual local model backend remains host-run and operator-managed through `LITELLM_MACOS_NATIVE_API_BASE` or `LITELLM_OLLAMA_API_BASE`.
 - The bundled LiteLLM gateway now enables the official `otel` callback and exports proxy traces plus semantic log events over OTLP HTTP to the local `otel-collector`, following LiteLLM's official [OpenTelemetry integration guide](https://docs.litellm.ai/docs/observability/opentelemetry_integration), so LiteLLM activity lands in the same Tempo and Loki baseline as the orchestrator.
 - A one-shot `litellm-db-init` helper now ensures the dedicated LiteLLM database exists on the shared local Postgres server before the gateway starts. This follows the official LiteLLM proxy database contract around `DATABASE_URL` and Prisma-backed proxy state from [docs.litellm.ai](https://docs.litellm.ai/).

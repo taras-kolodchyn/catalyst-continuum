@@ -12,11 +12,13 @@ HOST_STATE_DIR="$SMOKE_ROOT/state/host-full-access"
 CONTAINER_STATE_DIR="$SMOKE_ROOT/state/container-sandbox"
 OVERRIDE_STATE_DIR="$SMOKE_ROOT/state/override-model"
 FULL_STATE_DIR="$SMOKE_ROOT/state/full-mcp-surface"
+MCP_ONLY_STATE_DIR="$SMOKE_ROOT/state/mcp-only"
 ARTIFACT_ROOT="$SMOKE_ROOT/artifacts"
 HOST_OUTPUT="$SMOKE_ROOT/host-full-access.txt"
 CONTAINER_OUTPUT="$SMOKE_ROOT/container-sandbox.txt"
 OVERRIDE_OUTPUT="$SMOKE_ROOT/override-model.txt"
 FULL_OUTPUT="$SMOKE_ROOT/full-mcp-surface.txt"
+MCP_ONLY_OUTPUT="$SMOKE_ROOT/mcp-only.txt"
 
 rm -rf "$SMOKE_ROOT"
 mkdir -p \
@@ -24,6 +26,7 @@ mkdir -p \
   "$CONTAINER_STATE_DIR" \
   "$OVERRIDE_STATE_DIR" \
   "$FULL_STATE_DIR" \
+  "$MCP_ONLY_STATE_DIR" \
   "$ARTIFACT_ROOT"
 
 "$ROOT_DIR/scripts/openhands-launch.sh" \
@@ -57,18 +60,29 @@ LITELLM_DEFAULT_MODEL=local-macos-native \
   --full-mcp-surface \
   --dry-run >"$FULL_OUTPUT"
 
+"$ROOT_DIR/scripts/openhands-launch.sh" \
+  --profile container-sandbox \
+  --task-file "$ROOT_DIR/examples/openhands/bootstrap-task.md" \
+  --artifact-root "$ARTIFACT_ROOT" \
+  --state-dir "$MCP_ONLY_STATE_DIR" \
+  --mcp-only-tools \
+  --dry-run >"$MCP_ONLY_OUTPUT"
+
 python3 - \
   "$HOST_OUTPUT" \
   "$CONTAINER_OUTPUT" \
   "$OVERRIDE_OUTPUT" \
   "$FULL_OUTPUT" \
+  "$MCP_ONLY_OUTPUT" \
   "$HOST_STATE_DIR" \
   "$CONTAINER_STATE_DIR" \
   "$OVERRIDE_STATE_DIR" \
   "$FULL_STATE_DIR" \
+  "$MCP_ONLY_STATE_DIR" \
   "$OPENHANDS_CLI_VERSION" \
   "$OPENHANDS_AGENT_SERVER_REPOSITORY" \
   "$OPENHANDS_AGENT_SERVER_TAG" <<'PY'
+import json
 import pathlib
 import sys
 
@@ -76,13 +90,15 @@ host_output = pathlib.Path(sys.argv[1])
 container_output = pathlib.Path(sys.argv[2])
 override_output = pathlib.Path(sys.argv[3])
 full_output = pathlib.Path(sys.argv[4])
-host_state_dir = pathlib.Path(sys.argv[5])
-container_state_dir = pathlib.Path(sys.argv[6])
-override_state_dir = pathlib.Path(sys.argv[7])
-full_state_dir = pathlib.Path(sys.argv[8])
-cli_version = sys.argv[9]
-agent_server_repository = sys.argv[10]
-agent_server_tag = sys.argv[11]
+mcp_only_output = pathlib.Path(sys.argv[5])
+host_state_dir = pathlib.Path(sys.argv[6])
+container_state_dir = pathlib.Path(sys.argv[7])
+override_state_dir = pathlib.Path(sys.argv[8])
+full_state_dir = pathlib.Path(sys.argv[9])
+mcp_only_state_dir = pathlib.Path(sys.argv[10])
+cli_version = sys.argv[11]
+agent_server_repository = sys.argv[12]
+agent_server_tag = sys.argv[13]
 
 
 def parse_output(path: pathlib.Path) -> dict[str, str]:
@@ -99,6 +115,7 @@ host = parse_output(host_output)
 container = parse_output(container_output)
 override = parse_output(override_output)
 full = parse_output(full_output)
+mcp_only = parse_output(mcp_only_output)
 
 if host.get("profile") != "host-full-access":
     raise SystemExit("host profile smoke failed: expected profile=host-full-access")
@@ -228,17 +245,7 @@ expected_allowlist = ",".join(
         "list_packs",
         "validate_brief",
         "submit_brief",
-        "list_runs",
         "describe_run",
-        "run_next_task",
-        "claim_next_agent_task",
-        "prepare_agent_task_workspace",
-        "heartbeat_agent_task",
-        "complete_agent_task",
-        "run_worker_once",
-        "evaluate_run_policy",
-        "evaluate_run_quality",
-        "describe_artifact",
     ]
 )
 
@@ -262,6 +269,31 @@ if full.get("mcp_config") != str(full_state_dir / "mcp.json"):
 
 if not (full_state_dir / "mcp.json").exists():
     raise SystemExit("full-surface smoke failed: expected repo-local mcp.json")
+
+if mcp_only.get("tool_filter_mode") != "mcp-only":
+    raise SystemExit("mcp-only smoke failed: expected tool_filter_mode=mcp-only")
+
+expected_filter_regex = (
+    "^catalyst\\-continuum_(list_packs|validate_brief|submit_brief|describe_run)$"
+)
+if mcp_only.get("filter_tools_regex") != expected_filter_regex:
+    raise SystemExit("mcp-only smoke failed: unexpected filter_tools_regex")
+
+if mcp_only.get("agent_settings") != str(mcp_only_state_dir / "agent_settings.json"):
+    raise SystemExit("mcp-only smoke failed: unexpected agent_settings path")
+
+if not (mcp_only_state_dir / "agent_settings.json").exists():
+    raise SystemExit("mcp-only smoke failed: expected launcher-generated agent_settings.json")
+
+if not (mcp_only_state_dir / ".launcher-generated-agent-settings").exists():
+    raise SystemExit("mcp-only smoke failed: expected launcher marker file")
+
+mcp_only_settings = json.loads((mcp_only_state_dir / "agent_settings.json").read_text())
+if mcp_only_settings.get("tools") != []:
+    raise SystemExit("mcp-only smoke failed: expected no local tool specs in agent_settings")
+
+if mcp_only_settings.get("include_default_tools") != ["FinishTool", "ThinkTool"]:
+    raise SystemExit("mcp-only smoke failed: expected only FinishTool and ThinkTool")
 PY
 
 echo "OpenHands launch profiles resolve correctly"

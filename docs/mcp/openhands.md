@@ -66,6 +66,13 @@ tools such as `list_packs` stay callable from the first live validation prompt.
 OpenHands also exposes those orchestrator tools with the MCP server name
 prefixed into the tool name, for example `catalyst-continuum_list_packs`.
 Treat those as MCP tool calls, not as terminal commands.
+The orchestrator also advertises inspection and validation tools such as
+`list_packs`, `validate_brief`, and `describe_run` with
+`annotations.readOnlyHint=true`, so OpenHands does not require
+`security_risk` on those safe calls. Mutating tools such as `submit_brief`,
+`run_next_task`, `claim_next_agent_task`, and `complete_agent_task` should
+still include the usual OpenHands wrapper metadata like `security_risk` and
+`summary` when the model emits them.
 
 After that, start OpenHands with the prepared bootstrap task:
 
@@ -110,28 +117,16 @@ The launcher also keeps the session repo-local instead of mutating global
 The pinned launcher path now also narrows the orchestrator's internal MCP tool
 surface by default through the OpenHands-specific allowlist in
 `config/agent-launchers.toml`.
-That default surface is intentionally aligned to
+That default surface is intentionally aligned only to
 [examples/openhands/bootstrap-task.md](../../examples/openhands/bootstrap-task.md),
-while still covering the deeper stateful path in
-[examples/openhands/first-task.md](../../examples/openhands/first-task.md), so a
-local code model does not have to reason over the full control-plane tool set
-just to validate the first end-to-end flow.
+so a local code model does not have to reason over the broader stateful
+control-plane tool set just to validate the first end-to-end flow.
 The default allowlist covers:
 
 - `list_packs`
 - `validate_brief`
 - `submit_brief`
-- `list_runs`
 - `describe_run`
-- `run_next_task`
-- `claim_next_agent_task`
-- `prepare_agent_task_workspace`
-- `heartbeat_agent_task`
-- `complete_agent_task`
-- `run_worker_once`
-- `evaluate_run_policy`
-- `evaluate_run_quality`
-- `describe_artifact`
 
 Use `--dry-run` when you want to inspect the exact resolved contract before
 launching:
@@ -148,6 +143,14 @@ an advanced local session, opt out of that default narrowing:
 ./scripts/openhands-launch.sh --profile container-sandbox --full-mcp-surface
 ./scripts/openhands-launch.sh --profile host-full-access --full-mcp-surface
 ```
+
+When a weaker local model keeps drifting into shell-first behavior, add
+`--mcp-only-tools` so the generated OpenHands `agent_settings.json` exposes only
+the orchestrator MCP tools plus `FinishTool` and `ThinkTool`. That mode is
+meant for bootstrap-style MCP validation, not for broader coding sessions.
+
+Use `--full-mcp-surface` for the deeper stateful walkthrough in
+[examples/openhands/first-task.md](../../examples/openhands/first-task.md).
 
 ## LiteLLM Local Model Path
 
@@ -424,6 +427,15 @@ server, submits one short brief, and inspects the created run.
 That first-run path should reuse the `run_id` returned by `submit_brief`
 directly instead of asking OpenHands to rediscover the same run through
 `list_runs`.
+For weaker local coding models, keep the bootstrap task explicit about the
+exact prefixed MCP tool names plus the required JSON argument shapes for
+`validate_brief`, `submit_brief`, and `describe_run`. If one of those MCP calls
+fails, correct or retry the MCP call itself instead of falling back to shell
+commands that try to imitate the MCP action.
+That bootstrap prompt should also treat `describe_run` as a hard completion
+gate: the bootstrap path is not complete until the model has actually called
+`describe_run` and reported the run status, task counts, assigned agents, and
+persisted artifacts from that inspection result.
 That starter task now also makes the `brief_content` contract explicit by
 embedding the exact YAML brief inline. OpenHands should reuse that literal YAML
 text for `validate_brief` and `submit_brief`, instead of paraphrasing the brief

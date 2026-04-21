@@ -1,21 +1,13 @@
 schema_version: v0.1
 brief_id: 44444444-4444-4444-4444-444444444444
 title: OpenHands Bootstrap CLI
-summary: >
-  Validate the shortest OpenHands MCP bootstrap path with a deterministic CLI
-  brief.
+summary: "Validate the shortest OpenHands MCP bootstrap path with a deterministic CLI brief."
 goals:
-  - Confirm that OpenHands can validate and submit a brief through MCP.
+  - "Confirm that OpenHands can validate and submit a brief through MCP."
 functional_requirements:
   - id: BOOT-1
-    title: Materialize one inspectable run
-    description: Create a run that can be inspected through MCP after submission.
+    title: "Materialize one inspectable run"
+    description: "Create a run that can be inspected through MCP after submission."
 constraints:
-  - Keep the bootstrap brief short and deterministic.
-execution_preferences:
-  repo_pack: cli-tool
-  default_runtime_provider: docker
-  sandbox_profile: restricted
-  allowed_agents:
-    - openhands
-    - codex
+  - "Keep the bootstrap brief short and deterministic."
+execution_preferences: { repo_pack: cli-tool, default_runtime_provider: docker, sandbox_profile: restricted, allowed_agents: [openhands, codex] }

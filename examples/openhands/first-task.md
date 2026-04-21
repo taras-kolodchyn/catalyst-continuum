@@ -1,5 +1,9 @@
 Use the `catalyst-continuum` MCP tools to validate the local integration before attempting any code changes.
 
+Launch this task with `./scripts/openhands-launch.sh --full-mcp-surface ...` so
+OpenHands can see the deeper stateful MCP tool set. The default launcher
+surface is intentionally narrower and only covers the bootstrap path.
+
 Important constraints:
 
 - Start with `list_packs` immediately.
@@ -7,7 +11,12 @@ Important constraints:
 - Prefer the `catalyst-continuum` MCP tools over shell commands whenever one of the listed tools can perform the step directly.
 - In OpenHands, these MCP tools are exposed as prefixed tool calls such as `catalyst-continuum_list_packs` and `catalyst-continuum_validate_brief`. Invoke them as MCP tool calls. Do not type those tool names into the terminal.
 - Use the exact YAML brief embedded below as `brief_content` for both `validate_brief` and `submit_brief`. Do not paraphrase it, synthesize a new YAML document, or pass the path string as the content.
+- Do not rename YAML keys. Keep `summary:` exactly as written below; do not rewrite it to keys such as `schema_summary:`.
+- For mutating MCP tools such as `submit_brief`, `run_next_task`, `claim_next_agent_task`, and `complete_agent_task`, include OpenHands wrapper fields like `security_risk` and `summary` in the MCP tool-call arguments. Read-only tools such as `list_packs`, `validate_brief`, and `describe_run` can stay minimal.
 - Reuse the `run_id` returned by `submit_brief` for every later run-scoped tool call. Do not call `list_runs` just to rediscover the same run unless `submit_brief` fails to return a `run_id`.
+- If an MCP tool call fails, retry or correct that MCP tool call. Do not switch to the terminal to wrap, install, or emulate the same MCP action.
+- Do not call the OpenHands finish action before the final artifact and quality summary. Finishing after only `list_packs`, `validate_brief`, or `describe_run` is a failed run, not a completed one.
+- The task is incomplete until the final summary cites the run status, the claimed task, the prepared workspace, the completion result, the quality gate result, and the inspected artifacts. If those details are missing, keep working.
 - Do not call publication or remote-review tools.
 - Stop after the policy, quality, and artifact inspection summary.
 
@@ -80,10 +89,41 @@ policy:
 Work in this order:
 
 1. Call `list_packs` and summarize which repository packs are available.
+   Exact MCP tool call example:
+   Tool: `catalyst-continuum_list_packs`
+   Arguments: `{}`
 2. Call `validate_brief` with the exact YAML block above in `brief_content` and `examples/briefs/minimal-cli-tool.yaml` in `brief_source_path`.
+   Exact MCP tool call shape:
+   Tool: `catalyst-continuum_validate_brief`
+   Arguments:
+   ```json
+   {
+     "brief_source_path": "examples/briefs/minimal-cli-tool.yaml",
+     "brief_content": "<paste the exact YAML block above verbatim>"
+   }
+   ```
 3. If validation succeeds, call `submit_brief` with the same exact YAML block in `brief_content` and the same logical source path.
+   Exact MCP tool call shape:
+   Tool: `catalyst-continuum_submit_brief`
+   Arguments:
+   ```json
+   {
+     "security_risk": "LOW",
+     "summary": "Submit the validated minimal CLI brief to create one run for the stateful MCP exercise.",
+     "brief_source_path": "examples/briefs/minimal-cli-tool.yaml",
+     "brief_content": "<paste the exact YAML block above verbatim>"
+   }
+   ```
 4. Read the `run_id` returned by `submit_brief`.
 5. Call `describe_run` for that `run_id` and summarize its current status, task counts, and artifacts.
+   Exact MCP tool call shape:
+   Tool: `catalyst-continuum_describe_run`
+   Arguments:
+   ```json
+   {
+     "run_id": "<the run_id returned by submit_brief>"
+   }
+   ```
 6. Call `run_next_task` once for that `run_id` so the codex-owned planning task completes.
 7. Call `claim_next_agent_task` with `agent=openhands` for that `run_id` and summarize the claimed task.
 8. Call `prepare_agent_task_workspace` for the claimed task and summarize the returned `workspace_root` plus `source_kind`.

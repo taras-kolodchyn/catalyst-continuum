@@ -38,11 +38,39 @@ run_describe_instance_config() {
   fi
 }
 
+run_docker_runtime_probe() {
+  local service_name="$1"
+  local output_file="$2"
+  local stderr_file="$TEMP_DIR/${service_name}-docker.stderr"
+  local runtime_image="busybox:${BUSYBOX_VERSION:-1.37.0}@${BUSYBOX_IMAGE_DIGEST:-sha256:1487d0af5f52b4ba31c7e465126ee2123fe3f2305d638e7827681e7cf6c83d5e}"
+
+  if ! compose_cmd run \
+    --rm \
+    --no-deps \
+    --entrypoint sh \
+    "$service_name" \
+    -lc \
+    "test -S /var/run/docker.sock && docker version --format '{{.Client.Version}} {{.Server.Version}}' && docker run --rm '$runtime_image' sh -lc 'printf runtime-check'" \
+    >"$output_file" 2>"$stderr_file"; then
+    cat "$stderr_file" >&2
+    return 1
+  fi
+}
+
 compose_cmd build orchestrator worker >/dev/null
 run_describe_instance_config orchestrator "$TEMP_DIR/orchestrator.json"
 run_describe_instance_config worker "$TEMP_DIR/worker.json"
+run_docker_runtime_probe orchestrator "$TEMP_DIR/orchestrator-docker.txt"
+run_docker_runtime_probe worker "$TEMP_DIR/worker-docker.txt"
+expected_docker_cli_tag="${DOCKER_CLI_IMAGE_TAG:-29.4.1-cli}"
+expected_docker_cli_version="${expected_docker_cli_tag%-cli}"
 
-python3 - "$TEMP_DIR/orchestrator.json" "$TEMP_DIR/worker.json" <<'PY'
+python3 - \
+  "$TEMP_DIR/orchestrator.json" \
+  "$TEMP_DIR/worker.json" \
+  "$TEMP_DIR/orchestrator-docker.txt" \
+  "$TEMP_DIR/worker-docker.txt" \
+  "$expected_docker_cli_version" <<'PY'
 import json
 import pathlib
 import sys
@@ -50,8 +78,9 @@ import sys
 EXPECTED_RUNTIME_CONFIG = "/app/config/runtime-providers.yaml"
 EXPECTED_MCP_CONFIG = "/app/config/mcp-servers.yaml"
 EXPECTED_AI_GATEWAY_CONFIG = "/app/config/ai-gateway.yaml"
+EXPECTED_DOCKER_CLIENT_VERSION = sys.argv[5]
 
-for path in sys.argv[1:]:
+for path in sys.argv[1:3]:
     payload = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
     runtime_config = payload["runtime_providers"]["source_path"]
     mcp_config = payload["external_mcp_servers"]["source_path"]
@@ -65,6 +94,27 @@ for path in sys.argv[1:]:
     if ai_gateway_config != EXPECTED_AI_GATEWAY_CONFIG:
         raise SystemExit(
             f"unexpected AI gateway config path: {ai_gateway_config!r}"
+        )
+
+for path in sys.argv[3:5]:
+    lines = pathlib.Path(path).read_text(encoding="utf-8").strip().splitlines()
+    if len(lines) != 2:
+        raise SystemExit(
+            "unexpected docker probe output inside compose runtime image: "
+            f"{lines!r}"
+        )
+    client_version, server_version = lines[0].split(" ", 1)
+    if client_version != EXPECTED_DOCKER_CLIENT_VERSION:
+        raise SystemExit(
+            "unexpected docker client version inside compose runtime image: "
+            f"{client_version!r}"
+        )
+    if not server_version:
+        raise SystemExit("missing docker server version inside compose runtime image")
+    if lines[1] != "runtime-check":
+        raise SystemExit(
+            "unexpected nested docker run output inside compose runtime image: "
+            f"{lines[1]!r}"
         )
 
 print("compose runtime check OK")

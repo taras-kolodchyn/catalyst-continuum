@@ -188,6 +188,8 @@ services:
       args:
         RUST_IMAGE_TAG: ${RUST_IMAGE_TAG}
         RUST_IMAGE_DIGEST: ${RUST_IMAGE_DIGEST}
+        DOCKER_CLI_IMAGE_TAG: ${DOCKER_CLI_IMAGE_TAG}
+        DOCKER_CLI_IMAGE_DIGEST: ${DOCKER_CLI_IMAGE_DIGEST}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -209,11 +211,13 @@ services:
       CATALYST_REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       CATALYST_OTEL_EXPORT_INTERVAL_SECONDS: ${CATALYST_OTEL_EXPORT_INTERVAL_SECONDS}
       CATALYST_SERVICE_VERSION: ${ORCHESTRATOR_IMAGE_TAG}
+      DOCKER_HOST: unix:///var/run/docker.sock
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
       OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
       OTEL_SERVICE_NAME: catalyst-continuum-orchestrator
     volumes:
       - artifacts-data:/app/.continuum/artifacts
+      - /var/run/docker.sock:/var/run/docker.sock
     command: ["serve", "--bind-addr", "0.0.0.0:8080"]
     healthcheck:
       test: ["CMD", "/usr/bin/wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/readyz"]
@@ -232,6 +236,8 @@ services:
       args:
         RUST_IMAGE_TAG: ${RUST_IMAGE_TAG}
         RUST_IMAGE_DIGEST: ${RUST_IMAGE_DIGEST}
+        DOCKER_CLI_IMAGE_TAG: ${DOCKER_CLI_IMAGE_TAG}
+        DOCKER_CLI_IMAGE_DIGEST: ${DOCKER_CLI_IMAGE_DIGEST}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -254,11 +260,13 @@ services:
       CATALYST_REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       CATALYST_OTEL_EXPORT_INTERVAL_SECONDS: ${CATALYST_OTEL_EXPORT_INTERVAL_SECONDS}
       CATALYST_SERVICE_VERSION: ${ORCHESTRATOR_IMAGE_TAG}
+      DOCKER_HOST: unix:///var/run/docker.sock
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
       OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
       OTEL_SERVICE_NAME: catalyst-continuum-worker
     volumes:
       - artifacts-data:/app/.continuum/artifacts
+      - /var/run/docker.sock:/var/run/docker.sock
     command: ["worker", "--idle-sleep-ms", "1000"]
 
 volumes:

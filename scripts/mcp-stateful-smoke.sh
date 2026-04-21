@@ -495,6 +495,7 @@ try:
 
     tools = request("tools/list")["tools"]
     tool_names = {tool["name"] for tool in tools}
+    tools_by_name = {tool["name"]: tool for tool in tools}
     expected_tools = {
         "list_packs",
         "describe_pack",
@@ -538,6 +539,26 @@ try:
         fail(
             "stateful MCP smoke failed: missing tools "
             f"{sorted(missing_tools)}"
+        )
+    for tool_name in ("list_packs", "validate_brief", "describe_run"):
+        if (
+            tools_by_name[tool_name]
+            .get("annotations", {})
+            .get("readOnlyHint")
+            is not True
+        ):
+            fail(
+                "stateful MCP smoke failed: expected readOnlyHint=true for "
+                f"{tool_name}"
+            )
+    if (
+        tools_by_name["submit_brief"]
+        .get("annotations", {})
+        .get("readOnlyHint")
+        is True
+    ):
+        fail(
+            "stateful MCP smoke failed: submit_brief must not be advertised as read-only"
         )
 
     log_phase("list MCP tools")

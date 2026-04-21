@@ -21,6 +21,7 @@ DRY_RUN=0
 PRINT_ENV=0
 ENV_FILE=""
 FULL_MCP_SURFACE=0
+MCP_ONLY_TOOLS=0
 EXPLICIT_LITELLM_MODEL=""
 
 WORKSPACE="${OPENHANDS_WORKSPACE:-$ROOT_DIR}"
@@ -58,6 +59,7 @@ Options:
   --env-file PATH                Compose env file used for Postgres/LiteLLM defaults
   --litellm-model ALIAS          Override the LiteLLM model alias used for this launch
   --full-mcp-surface             Disable the pinned OpenHands MCP tool allowlist and expose the full orchestrator MCP surface
+  --mcp-only-tools              Restrict the OpenHands session to orchestrator MCP tools plus Finish/Think
   --launchers-file PATH          Agent launcher profile config file
   --artifact-root PATH           Artifact root passed to the orchestrator MCP server
   --runtime-providers-file PATH  Runtime providers config path
@@ -151,6 +153,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --full-mcp-surface)
       FULL_MCP_SURFACE=1
+      shift
+      ;;
+    --mcp-only-tools)
+      MCP_ONLY_TOOLS=1
       shift
       ;;
     --launchers-file)
@@ -416,6 +422,98 @@ export CATALYST_AI_GATEWAY_FILE="$AI_GATEWAY_FILE"
 export CATALYST_AI_GATEWAY_API_KEY="$LITELLM_MASTER_KEY"
 export RUNTIME="$PROFILE_RUNTIME"
 
+AGENT_SETTINGS_PATH="$STATE_DIR/agent_settings.json"
+LAUNCHER_AGENT_SETTINGS_MARKER="$STATE_DIR/.launcher-generated-agent-settings"
+MCP_ONLY_FILTER_REGEX=""
+
+build_mcp_only_filter_regex() {
+  python3 - "$1" "$2" <<'PY'
+import re
+import sys
+
+allowlist = [item for item in sys.argv[1].split(",") if item]
+full_surface = sys.argv[2] == "1"
+prefix = "catalyst-continuum_"
+
+if full_surface or not allowlist:
+    print(f"^{re.escape(prefix)}.*$")
+else:
+    pattern = "|".join(re.escape(item) for item in allowlist)
+    print(f"^{re.escape(prefix)}({pattern})$")
+PY
+}
+
+write_mcp_only_agent_settings() {
+  python3 - \
+    "$AGENT_SETTINGS_PATH" \
+    "$MCP_ONLY_FILTER_REGEX" \
+    "$LITELLM_MODEL" \
+    "$HOST_BASE_URL" \
+    "$LITELLM_MASTER_KEY" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+filter_regex = sys.argv[2]
+model_alias = sys.argv[3]
+base_url = sys.argv[4]
+api_key = sys.argv[5]
+
+agent_settings = {
+    "llm": {
+        "model": f"openai/{model_alias}",
+        "api_key": api_key,
+        "base_url": base_url,
+        "openrouter_site_url": "https://docs.all-hands.dev/",
+        "openrouter_app_name": "OpenHands",
+        "num_retries": 5,
+        "retry_multiplier": 8.0,
+        "retry_min_wait": 8,
+        "retry_max_wait": 64,
+        "timeout": 300,
+        "max_message_chars": 30000,
+        "stream": False,
+        "drop_params": True,
+        "modify_params": True,
+        "disable_stop_word": False,
+        "caching_prompt": True,
+        "log_completions": False,
+        "log_completions_folder": "logs/completions",
+        "native_tool_calling": True,
+        "reasoning_effort": "high",
+        "enable_encrypted_reasoning": True,
+        "prompt_cache_retention": "24h",
+        "extended_thinking_budget": 200000,
+        "usage_id": "agent",
+        "litellm_extra_body": {},
+    },
+    "tools": [],
+    "mcp_config": {},
+    "filter_tools_regex": filter_regex,
+    "include_default_tools": ["FinishTool", "ThinkTool"],
+    "system_prompt_kwargs": {
+        "cli_mode": True,
+        "llm_security_analyzer": True,
+    },
+    "tool_concurrency_limit": 1,
+    "kind": "Agent",
+}
+
+path.write_text(json.dumps(agent_settings), encoding="utf-8")
+PY
+  printf '%s\n' "launcher-generated" >"$LAUNCHER_AGENT_SETTINGS_MARKER"
+}
+
+if [ "$MCP_ONLY_TOOLS" -eq 1 ]; then
+  MCP_ONLY_FILTER_REGEX="$(
+    build_mcp_only_filter_regex "$AGENT_MCP_TOOL_ALLOWLIST" "$FULL_MCP_SURFACE"
+  )"
+  write_mcp_only_agent_settings
+elif [ -f "$LAUNCHER_AGENT_SETTINGS_MARKER" ]; then
+  rm -f "$AGENT_SETTINGS_PATH" "$LAUNCHER_AGENT_SETTINGS_MARKER"
+fi
+
 unset SANDBOX_VOLUMES
 unset SANDBOX_USER_ID
 unset AGENT_SERVER_IMAGE_REPOSITORY
@@ -478,6 +576,7 @@ print_contract() {
   echo "artifact_root=$ARTIFACT_ROOT"
   echo "database_url=$DATABASE_URL"
   echo "mcp_config=$STATE_DIR/mcp.json"
+  echo "agent_settings=$AGENT_SETTINGS_PATH"
   echo "task_source_kind=$TASK_SOURCE_KIND"
   if [ -n "$TASK_SOURCE_PATH" ]; then
     echo "task_source_path=$TASK_SOURCE_PATH"
@@ -489,6 +588,10 @@ print_contract() {
   fi
   if [ "$FULL_MCP_SURFACE" -ne 1 ] && [ -n "$AGENT_MCP_TOOL_ALLOWLIST" ]; then
     echo "mcp_tool_allowlist=$AGENT_MCP_TOOL_ALLOWLIST"
+  fi
+  if [ "$MCP_ONLY_TOOLS" -eq 1 ]; then
+    echo "tool_filter_mode=mcp-only"
+    echo "filter_tools_regex=$MCP_ONLY_FILTER_REGEX"
   fi
   echo "llm_model=openai/$LITELLM_MODEL"
   echo "llm_base_url=$HOST_BASE_URL"
@@ -559,6 +662,10 @@ if ! "$ROOT_DIR/scripts/litellm-local-smoke.sh" \
   if [ "$LITELLM_MODEL" = "local-macos-native" ]; then
     echo \
       "Try --litellm-model local-ollama-coder or export LITELLM_DEFAULT_MODEL=local-ollama-coder." >&2
+  elif [ "$LITELLM_MODEL" = "local-ollama-coder" ]; then
+    ollama_model="${LITELLM_OLLAMA_MODEL:-ollama/qwen2.5-coder:7b}"
+    echo \
+      "Ensure the pinned Ollama model is installed: ollama pull ${ollama_model#ollama/}" >&2
   fi
   exit 1
 fi

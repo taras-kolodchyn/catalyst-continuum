@@ -1678,12 +1678,12 @@ fn filtered_tool_definitions(allowlist: Option<&BTreeSet<String>>) -> Vec<Value>
 
 fn tool_definitions() -> Vec<Value> {
     vec![
-        tool_definition(
+        read_only_tool_definition(
             "list_packs",
             "List available repository packs.",
             json_schema_object(&[]),
         ),
-        tool_definition(
+        read_only_tool_definition(
             "describe_pack",
             "Describe one repository pack. Defaults to the configured default pack when pack_id is omitted.",
             json_schema_object(&[optional_string_property(
@@ -1691,22 +1691,22 @@ fn tool_definitions() -> Vec<Value> {
                 "Repository pack identifier.",
             )]),
         ),
-        tool_definition(
+        read_only_tool_definition(
             "describe_instance_config",
             "Inspect runtime provider and GitHub App instance configuration without exposing secret values.",
             json_schema_object(&[]),
         ),
-        tool_definition(
+        read_only_tool_definition(
             "describe_ai_gateway_status",
             "Inspect the live LiteLLM AI gateway status, including reachability and configured default model alias drift.",
             json_schema_object(&[]),
         ),
-        tool_definition(
+        read_only_tool_definition(
             "describe_artifact",
             "Fetch one orchestrator artifact with metadata and a safe manifest/text inspection when available.",
             json_schema_object(&[required_string_property("artifact_id", "Artifact UUID.")]),
         ),
-        tool_definition(
+        read_only_tool_definition(
             "describe_latest_artifact",
             "Fetch the latest artifact of a given type for one run, with safe manifest and text inspection.",
             json_schema_object(&[
@@ -1714,7 +1714,7 @@ fn tool_definitions() -> Vec<Value> {
                 required_string_property("artifact_type", "Artifact type identifier."),
             ]),
         ),
-        tool_definition(
+        read_only_tool_definition(
             "validate_brief",
             "Validate an inline YAML product brief and resolve its repository pack.",
             json_schema_object(&[
@@ -1801,7 +1801,7 @@ fn tool_definitions() -> Vec<Value> {
                 ),
             ]),
         ),
-        tool_definition(
+        read_only_tool_definition(
             "list_github_webhooks",
             "List recent GitHub webhook deliveries accepted by the control plane.",
             json_schema_object(&[
@@ -1812,7 +1812,7 @@ fn tool_definitions() -> Vec<Value> {
                 ),
             ]),
         ),
-        tool_definition(
+        read_only_tool_definition(
             "describe_github_webhook",
             "Fetch one persisted GitHub webhook delivery with metadata and receipt linkage.",
             json_schema_object(&[required_string_property(
@@ -1820,7 +1820,7 @@ fn tool_definitions() -> Vec<Value> {
                 "GitHub delivery identifier.",
             )]),
         ),
-        tool_definition(
+        read_only_tool_definition(
             "describe_github_webhook_receipt",
             "Fetch the persisted receipt produced for one accepted GitHub webhook delivery.",
             json_schema_object(&[required_string_property(
@@ -1828,7 +1828,7 @@ fn tool_definitions() -> Vec<Value> {
                 "GitHub delivery identifier.",
             )]),
         ),
-        tool_definition(
+        read_only_tool_definition(
             "list_github_webhook_action_requests",
             "List pending or historical GitHub webhook action requests materialized by the control plane.",
             json_schema_object(&[
@@ -1843,7 +1843,7 @@ fn tool_definitions() -> Vec<Value> {
                 ),
             ]),
         ),
-        tool_definition(
+        read_only_tool_definition(
             "describe_github_webhook_action_request",
             "Fetch one persisted GitHub webhook action request with routing context.",
             json_schema_object(&[required_string_property(
@@ -1851,7 +1851,7 @@ fn tool_definitions() -> Vec<Value> {
                 "GitHub webhook action request identifier.",
             )]),
         ),
-        tool_definition(
+        read_only_tool_definition(
             "describe_github_webhook_action_report",
             "Fetch the persisted execution report produced by one completed GitHub webhook action request.",
             json_schema_object(&[required_string_property(
@@ -1859,7 +1859,7 @@ fn tool_definitions() -> Vec<Value> {
                 "GitHub webhook action request identifier.",
             )]),
         ),
-        tool_definition(
+        read_only_tool_definition(
             "describe_github_default_branch_state",
             "Fetch the current persisted default-branch sync state for one GitHub repository.",
             json_schema_object(&[
@@ -1873,7 +1873,7 @@ fn tool_definitions() -> Vec<Value> {
                 ),
             ]),
         ),
-        tool_definition(
+        read_only_tool_definition(
             "list_repository_signals",
             "List durable repository automation signals emitted by the control plane.",
             json_schema_object(&[
@@ -1895,7 +1895,7 @@ fn tool_definitions() -> Vec<Value> {
                 ),
             ]),
         ),
-        tool_definition(
+        read_only_tool_definition(
             "describe_repository_signal",
             "Fetch one durable repository automation signal with source and trigger metadata.",
             json_schema_object(&[required_string_property(
@@ -1903,7 +1903,7 @@ fn tool_definitions() -> Vec<Value> {
                 "Repository signal identifier.",
             )]),
         ),
-        tool_definition(
+        read_only_tool_definition(
             "describe_repository_signal_payload",
             "Fetch the persisted payload emitted for one durable repository automation signal.",
             json_schema_object(&[required_string_property(
@@ -1911,7 +1911,7 @@ fn tool_definitions() -> Vec<Value> {
                 "Repository signal identifier.",
             )]),
         ),
-        tool_definition(
+        read_only_tool_definition(
             "list_runs",
             "List recent orchestrator runs.",
             json_schema_object(&[
@@ -1923,12 +1923,12 @@ fn tool_definitions() -> Vec<Value> {
                 optional_string_property("target_pack", "Optional repository pack filter."),
             ]),
         ),
-        tool_definition(
+        read_only_tool_definition(
             "describe_run",
             "Fetch one orchestrator run with tasks and artifacts.",
             json_schema_object(&[required_string_property("run_id", "Run UUID.")]),
         ),
-        tool_definition(
+        read_only_tool_definition(
             "list_run_events",
             "List durable run and task events for one orchestrator run.",
             json_schema_object(&[
@@ -2072,12 +2072,36 @@ fn tool_definitions() -> Vec<Value> {
 }
 
 fn tool_definition(name: &str, description: &str, input_schema: Value) -> Value {
-    json!({
+    tool_definition_with_annotations(name, description, input_schema, None)
+}
+
+fn read_only_tool_definition(name: &str, description: &str, input_schema: Value) -> Value {
+    tool_definition_with_annotations(
+        name,
+        description,
+        input_schema,
+        Some(json!({
+            "readOnlyHint": true
+        })),
+    )
+}
+
+fn tool_definition_with_annotations(
+    name: &str,
+    description: &str,
+    input_schema: Value,
+    annotations: Option<Value>,
+) -> Value {
+    let mut tool = json!({
         "name": name,
         "title": name.replace('_', " "),
         "description": description,
         "inputSchema": input_schema
-    })
+    });
+    if let Some(annotations) = annotations {
+        tool["annotations"] = annotations;
+    }
+    tool
 }
 
 fn json_schema_object(properties: &[PropertyDefinition<'_>]) -> Value {
@@ -2463,6 +2487,56 @@ mod tests {
             tool_names,
             vec!["list_packs", "validate_brief", "describe_run"]
         );
+    }
+
+    #[test]
+    fn advertises_read_only_annotations_for_inspection_tools() {
+        let mut server = StdioMcpServer::new(McpServerArgs {
+            database_url: None,
+            artifact_root: PathBuf::from(".continuum/artifacts"),
+            runtime_providers_file: None,
+            mcp_servers_file: None,
+            ai_gateway_file: None,
+            tool_allowlist: Vec::new(),
+        })
+        .expect("server should initialize");
+        let input = concat!(
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{},\"clientInfo\":{\"name\":\"test-client\",\"version\":\"0.1.0\"}}}\n",
+            "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n",
+            "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\",\"params\":{}}\n"
+        );
+
+        let output = run_session(&mut server, input);
+        let tools = output[1]["result"]["tools"]
+            .as_array()
+            .expect("tools/list should return an array");
+        let list_packs = tools
+            .iter()
+            .find(|tool| tool["name"] == "list_packs")
+            .expect("list_packs tool should exist");
+        let validate_brief = tools
+            .iter()
+            .find(|tool| tool["name"] == "validate_brief")
+            .expect("validate_brief tool should exist");
+        let describe_run = tools
+            .iter()
+            .find(|tool| tool["name"] == "describe_run")
+            .expect("describe_run tool should exist");
+        let submit_brief = tools
+            .iter()
+            .find(|tool| tool["name"] == "submit_brief")
+            .expect("submit_brief tool should exist");
+
+        assert_eq!(list_packs["annotations"]["readOnlyHint"], Value::Bool(true));
+        assert_eq!(
+            validate_brief["annotations"]["readOnlyHint"],
+            Value::Bool(true)
+        );
+        assert_eq!(
+            describe_run["annotations"]["readOnlyHint"],
+            Value::Bool(true)
+        );
+        assert!(submit_brief.get("annotations").is_none());
     }
 
     #[test]
