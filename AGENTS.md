@@ -95,6 +95,7 @@ Before delivering, run the smallest meaningful validation set that proves the ch
 - `./scripts/mcp-smoke.sh` for stateless MCP handshake and tool discovery changes
 - `./scripts/mcp-reference-smoke.sh` for upstream MCP interoperability checks against the pinned `Everything` reference server
 - `./scripts/mcp-stateful-smoke.sh` for MCP stateful-path changes, especially OpenHands-facing flows
+- `./scripts/openhands-launch-smoke.sh` for pinned OpenHands launch-profile, repo-local persistence, and LiteLLM/MCP launcher-contract changes
 
 If a change affects multiple surfaces, run all relevant checks instead of choosing only one.
 
@@ -136,6 +137,7 @@ If full `act` execution is blocked by an upstream Apple Silicon `rustc` or `qemu
 Use these paths as the primary orientation points:
 
 - `orchestrator/` for the Rust control plane
+- `config/` for runtime-provider, MCP allowlist, AI gateway, and agent-launch profile contracts
 - `packs/` for repository pack contracts and generated repository behavior
 - `scripts/` for CI, smoke, MCP, OpenHands, and release-validation helpers
 - `deploy/compose/` for the local MVP stack

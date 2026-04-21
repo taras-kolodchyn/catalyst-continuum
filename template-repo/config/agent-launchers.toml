@@ -1,0 +1,16 @@
+default_agent = "openhands"
+
+[agents.openhands]
+default_profile = "container-sandbox"
+default_task_file = "examples/openhands/first-task.md"
+workspace_mount_path = "/workspace"
+
+[agents.openhands.profiles.host-full-access]
+runtime = "process"
+description = "Run OpenHands from the host with the unsafe process sandbox and full host access."
+
+[agents.openhands.profiles.container-sandbox]
+runtime = "docker"
+description = "Run OpenHands from the host with the Docker sandbox and the repository mounted at /workspace."
+mount_workspace = true
+pass_user_id = true

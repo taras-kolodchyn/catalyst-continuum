@@ -20,6 +20,7 @@ choices into the open-source root.
 - `config/runtime-providers.yaml` for Docker, Proxmox, and Kubernetes placeholders
 - `config/mcp-servers.yaml` for the instance-level external MCP allowlist
 - `config/ai-gateway.yaml` for the LiteLLM AI edge-gateway contract
+- `config/agent-launchers.toml` for pinned OpenHands launch profiles
 - `deploy/compose/.env.example` for private compose overlays
 - `deploy/compose/litellm-config.yaml` for private LiteLLM model alias wiring
 - `deploy/github-app/app-manifest.template.json` for GitHub App registration
@@ -35,6 +36,7 @@ choices into the open-source root.
 - The upstream macOS-native example uses a coding-tuned MLX model and enables Redis-backed LiteLLM cache entries by default, so private instances inherit a code-oriented local validation path instead of a general chat model.
 - The private compose scaffold now also carries `LITELLM_DATABASE_NAME`, because the upstream local stack expects LiteLLM to persist its Prisma-backed proxy state in a dedicated database on the shared Postgres server.
 - The private compose scaffold also carries the upstream LiteLLM OTel env knobs, because the upstream local stack expects the gateway to emit official LiteLLM traces and semantic log events into the shared collector baseline instead of running without gateway-level observability.
+- The agent-launcher scaffold keeps the first operator-facing agent launch path declarative: OpenHands can stay on the host with `RUNTIME=process` for full access, or stay host-run while executing inside the Docker sandbox with the repository mounted at `/workspace`.
 - The GitHub App assets define the minimum permissions and events expected by the
   current draft-PR flow. The upstream orchestrator now exposes a signed webhook
   intake path plus durable delivery inspection surfaces. The first safe

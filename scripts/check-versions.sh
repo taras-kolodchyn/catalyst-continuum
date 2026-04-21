@@ -89,6 +89,10 @@ declared_mcp_everything_version="$(sed -nE 's/^MCP_EVERYTHING_NPM_VERSION=(.+)$/
 declared_mcp_fetch_version="$(sed -nE 's/^MCP_FETCH_PYPI_VERSION=(.+)$/\1/p' versions.env)"
 declared_mcp_fetch_wheel_sha256="$(sed -nE 's/^MCP_FETCH_WHEEL_SHA256=(.+)$/\1/p' versions.env)"
 declared_mcp_inspector_version="$(sed -nE 's/^MCP_INSPECTOR_NPM_VERSION=(.+)$/\1/p' versions.env)"
+declared_openhands_uv_python_version="$(sed -nE 's/^OPENHANDS_UV_PYTHON_VERSION=(.+)$/\1/p' versions.env)"
+declared_openhands_cli_version="$(sed -nE 's/^OPENHANDS_CLI_VERSION=(.+)$/\1/p' versions.env)"
+declared_openhands_agent_server_repository="$(sed -nE 's/^OPENHANDS_AGENT_SERVER_REPOSITORY=(.+)$/\1/p' versions.env)"
+declared_openhands_agent_server_tag="$(sed -nE 's/^OPENHANDS_AGENT_SERVER_TAG=(.+)$/\1/p' versions.env)"
 declared_checkout_ref="$(sed -nE 's/^ACTIONS_CHECKOUT_REF=(.+)$/\1/p' versions.env)"
 declared_rust_toolchain_action_ref="$(sed -nE 's/^RUST_TOOLCHAIN_ACTION_REF=(.+)$/\1/p' versions.env)"
 declared_rust_cache_action_ref="$(sed -nE 's/^RUST_CACHE_ACTION_REF=(.+)$/\1/p' versions.env)"
@@ -161,6 +165,22 @@ check_value \
   "versions.env MCP_INSPECTOR_NPM_VERSION" \
   "$MCP_INSPECTOR_NPM_VERSION" \
   "$declared_mcp_inspector_version"
+check_value \
+  "versions.env OPENHANDS_UV_PYTHON_VERSION" \
+  "$OPENHANDS_UV_PYTHON_VERSION" \
+  "$declared_openhands_uv_python_version"
+check_value \
+  "versions.env OPENHANDS_CLI_VERSION" \
+  "$OPENHANDS_CLI_VERSION" \
+  "$declared_openhands_cli_version"
+check_value \
+  "versions.env OPENHANDS_AGENT_SERVER_REPOSITORY" \
+  "$OPENHANDS_AGENT_SERVER_REPOSITORY" \
+  "$declared_openhands_agent_server_repository"
+check_value \
+  "versions.env OPENHANDS_AGENT_SERVER_TAG" \
+  "$OPENHANDS_AGENT_SERVER_TAG" \
+  "$declared_openhands_agent_server_tag"
 check_value "versions.env ACTIONS_CHECKOUT_REF" "$ACTIONS_CHECKOUT_REF" "$declared_checkout_ref"
 check_value "versions.env RUST_TOOLCHAIN_ACTION_REF" "$RUST_TOOLCHAIN_ACTION_REF" "$declared_rust_toolchain_action_ref"
 check_value "versions.env RUST_CACHE_ACTION_REF" "$RUST_CACHE_ACTION_REF" "$declared_rust_cache_action_ref"
@@ -262,6 +282,35 @@ if ! grep -Fq "$expected_inspector_package" docs/mcp/fetch.md; then
   report_mismatch \
     "docs/mcp/fetch.md inspector pin" \
     "$expected_inspector_package" \
+    "hardcoded or missing"
+fi
+
+expected_openhands_pin="openhands==\${OPENHANDS_CLI_VERSION}"
+if ! grep -Fq "$expected_openhands_pin" scripts/openhands-launch.sh; then
+  report_mismatch \
+    "scripts/openhands-launch.sh OpenHands CLI version source" \
+    "$expected_openhands_pin" \
+    "hardcoded or missing"
+fi
+
+if ! grep -Fq 'OPENHANDS_UV_PYTHON_VERSION' scripts/openhands-launch.sh; then
+  report_mismatch \
+    "scripts/openhands-launch.sh uv Python version source" \
+    "OPENHANDS_UV_PYTHON_VERSION" \
+    "hardcoded or missing"
+fi
+
+if ! grep -Fq 'OPENHANDS_AGENT_SERVER_REPOSITORY' scripts/openhands-launch.sh; then
+  report_mismatch \
+    "scripts/openhands-launch.sh agent server repository source" \
+    "OPENHANDS_AGENT_SERVER_REPOSITORY" \
+    "hardcoded or missing"
+fi
+
+if ! grep -Fq 'OPENHANDS_AGENT_SERVER_TAG' scripts/openhands-launch.sh; then
+  report_mismatch \
+    "scripts/openhands-launch.sh agent server tag source" \
+    "OPENHANDS_AGENT_SERVER_TAG" \
     "hardcoded or missing"
 fi
 

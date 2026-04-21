@@ -53,7 +53,40 @@ To bootstrap Postgres, validate LiteLLM plus the stateful MCP path, and register
 After that, start OpenHands with the prepared first task:
 
 ```bash
-openhands -f examples/openhands/first-task.md
+./scripts/openhands-launch.sh --bootstrap --profile container-sandbox --task-file examples/openhands/first-task.md
+```
+
+For the same task without sandbox isolation, switch to the host-process profile:
+
+```bash
+./scripts/openhands-launch.sh --bootstrap --profile host-full-access --task-file examples/openhands/first-task.md
+```
+
+## Pinned Launch Profiles
+
+The repository now ships a pinned OpenHands launcher surface in
+`config/agent-launchers.toml` plus `./scripts/openhands-launch.sh`.
+
+That launcher keeps the OpenHands CLI on the host in both modes and changes the
+execution sandbox underneath it:
+
+- `host-full-access` sets `RUNTIME=process`, which gives OpenHands full host access with no isolation.
+- `container-sandbox` sets `RUNTIME=docker`, mounts the repository at `/workspace`, and pins the OpenHands agent-server image to the repository's current known-good tag.
+
+The launcher also keeps the session repo-local instead of mutating global
+`~/.openhands` state:
+
+- it renders `mcp.json` into a repo-local persistence dir under `.continuum/openhands/<profile>/`
+- it sets `OPENHANDS_PERSISTENCE_DIR` and `PERSISTENCE_DIR` to that repo-local path
+- it applies `LLM_MODEL`, `LLM_BASE_URL`, and `LLM_API_KEY` through `--override-with-envs`
+- it keeps the LiteLLM, Postgres, runtime-provider, MCP allowlist, and AI-gateway paths aligned with the same repository config files used by the orchestrator
+
+Use `--dry-run` when you want to inspect the exact resolved contract before
+launching:
+
+```bash
+./scripts/openhands-launch.sh --profile container-sandbox --dry-run
+./scripts/openhands-launch.sh --profile host-full-access --dry-run
 ```
 
 ## LiteLLM Local Model Path
@@ -131,6 +164,9 @@ For the default host-run OpenHands flow, those settings are:
 - `API Key`: the `LITELLM_MASTER_KEY` value from `deploy/compose/.env`
 
 If OpenHands itself runs inside Docker instead of on the host, use `http://host.docker.internal:4000` as the base URL.
+If you stay on the new repo-pinned `./scripts/openhands-launch.sh` path, the
+CLI itself remains host-run, so both launch profiles keep using the host base
+URL from `config/ai-gateway.yaml`; only the execution sandbox changes.
 
 ## OpenHands CLI Registration
 
@@ -164,6 +200,8 @@ The helper script:
 ## Manual OpenHands Config
 
 OpenHands also supports manual configuration in `~/.openhands/mcp.json`.
+Prefer the repo-local launcher path above when you want a reproducible session
+that does not overwrite a developer's global OpenHands state.
 
 For a full instance-derived config, prefer:
 
@@ -320,4 +358,11 @@ Before wiring OpenHands, validate the server locally:
 `./scripts/mcp-reference-smoke.sh` validates that the current client/runtime can still interoperate with the pinned upstream `Everything` reference server before you blame OpenHands-specific behavior on Catalyst Continuum's MCP adapter.
 `./scripts/mcp-stateful-smoke.sh` validates the safe stateful path: `describe_instance_config`, `describe_ai_gateway_status`, GitHub webhook inspection plus receipt inspection and execution, webhook execution-report inspection, default-branch-state inspection, repository-signal inspection plus payload inspection, queue-safe repository-signal materialization through `submit_next_repository_signal`, the higher-level idle-path check for `run_next_repository_automation`, brief submission, run listing, one `run_next_task` execution for the codex-owned planning step, one `claim_next_agent_task`, `heartbeat_agent_task`, and `complete_agent_task` cycle for the OpenHands-owned step, a follow-on `run_worker_once` execution, policy evaluation, persisted policy-artifact inspection, and run-event inspection. The heavier full-run quality-gate path stays in `./scripts/smoke-mvp.sh` and `./scripts/ci-smoke.sh`, so the MCP smoke stays focused on agent-facing transport and stateful tool contracts.
 
-Then register the server in OpenHands and start a conversation with [examples/openhands/first-task.md](../../examples/openhands/first-task.md). That is the shortest path to confirming the integration end to end without publishing or opening a GitHub PR.
+Then launch one of the repo-pinned profiles with [examples/openhands/first-task.md](../../examples/openhands/first-task.md). That is the shortest path to confirming the integration end to end without publishing or opening a GitHub PR:
+
+```bash
+./scripts/openhands-launch.sh --bootstrap --profile container-sandbox --task-file examples/openhands/first-task.md
+```
+
+Switch to `--profile host-full-access` only when you explicitly want the unsafe
+host-process path for debugging or controlled local development.
