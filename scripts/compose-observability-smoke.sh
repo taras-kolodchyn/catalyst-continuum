@@ -160,16 +160,16 @@ wait_for_prometheus_targets() {
   local summary
 
   for _ in $(seq 1 "$HTTP_WAIT_ATTEMPTS"); do
-    if curl -fsS \
-      "http://127.0.0.1:${PROMETHEUS_PORT}/api/v1/targets?state=active" >"$PROMETHEUS_TARGETS_FILE" \
-      2>/dev/null; then
+    if probe_http_capture \
+      "http://127.0.0.1:${PROMETHEUS_PORT}/api/v1/targets?state=active" \
+      "$PROMETHEUS_TARGETS_FILE"; then
       if summary="$(prometheus_target_summary)"; then
         LAST_PROMETHEUS_TARGET_SUMMARY="$summary"
         return 0
       fi
       LAST_PROMETHEUS_TARGET_SUMMARY="$summary"
     else
-      LAST_PROMETHEUS_TARGET_SUMMARY="probe failed"
+      LAST_PROMETHEUS_TARGET_SUMMARY="$WAIT_LAST_HTTP_RESULT"
     fi
     sleep 1
   done
@@ -214,19 +214,22 @@ wait_for_grafana_provisioning() {
   local summary
 
   for _ in $(seq 1 "$HTTP_WAIT_ATTEMPTS"); do
-    if ! curl -fsS \
+    if ! probe_http_capture \
+      "http://127.0.0.1:${GRAFANA_PORT}/api/datasources" \
+      "$GRAFANA_DATASOURCES_FILE" \
       -u "${GRAFANA_ADMIN_USER}:${GRAFANA_ADMIN_PASSWORD}" \
-      "http://127.0.0.1:${GRAFANA_PORT}/api/datasources" >"$GRAFANA_DATASOURCES_FILE" 2>/dev/null; then
-      LAST_GRAFANA_PROVISIONING_SUMMARY="datasource probe failed"
+      ; then
+      LAST_GRAFANA_PROVISIONING_SUMMARY="datasource ${WAIT_LAST_HTTP_RESULT}"
       sleep 1
       continue
     fi
 
-    if ! curl -fsS \
+    if ! probe_http_capture \
+      "http://127.0.0.1:${GRAFANA_PORT}/api/dashboards/uid/catalyst-continuum-overview" \
+      "$GRAFANA_DASHBOARD_FILE" \
       -u "${GRAFANA_ADMIN_USER}:${GRAFANA_ADMIN_PASSWORD}" \
-      "http://127.0.0.1:${GRAFANA_PORT}/api/dashboards/uid/catalyst-continuum-overview" >"$GRAFANA_DASHBOARD_FILE" \
-      2>/dev/null; then
-      LAST_GRAFANA_PROVISIONING_SUMMARY="dashboard probe failed"
+      ; then
+      LAST_GRAFANA_PROVISIONING_SUMMARY="dashboard ${WAIT_LAST_HTTP_RESULT}"
       sleep 1
       continue
     fi
