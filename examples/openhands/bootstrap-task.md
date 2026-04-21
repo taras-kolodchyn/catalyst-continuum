@@ -7,6 +7,7 @@ Important constraints:
 - Prefer the `catalyst-continuum` MCP tools over shell commands whenever one of the listed tools can perform the step directly.
 - In OpenHands, these MCP tools are exposed as prefixed tool calls such as `catalyst-continuum_list_packs` and `catalyst-continuum_validate_brief`. Invoke them as MCP tool calls. Do not type those tool names into the terminal.
 - Use the exact YAML brief embedded below as `brief_content` for both `validate_brief` and `submit_brief`. Do not paraphrase it, synthesize a new YAML document, or pass the path string as the content.
+- Reuse the `run_id` returned by `submit_brief` for the follow-up run inspection. Do not call `list_runs` just to rediscover the run unless `submit_brief` fails to return a `run_id`.
 - Stop after the run inspection summary. Do not run workers, claim agent tasks, prepare workspaces, or use publication tooling.
 
 Exact brief content to reuse verbatim for `brief_content`
@@ -41,6 +42,6 @@ Work in this order:
 1. Call `list_packs` and summarize which repository packs are available.
 2. Call `validate_brief` with the exact YAML block above in `brief_content` and `examples/briefs/openhands-bootstrap-cli.yaml` in `brief_source_path`.
 3. If validation succeeds, call `submit_brief` with the same exact YAML block in `brief_content` and the same logical source path.
-4. Call `list_runs` and identify the run created from that brief.
-5. Call `describe_run` for the newest run and summarize its status, task counts, assigned agents, and persisted artifacts.
+4. Read the `run_id` returned by `submit_brief`.
+5. Call `describe_run` for that `run_id` and summarize its status, task counts, assigned agents, and persisted artifacts.
 6. Stop and tell me whether the OpenHands MCP bootstrap path is working.

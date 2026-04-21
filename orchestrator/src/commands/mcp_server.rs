@@ -1139,7 +1139,7 @@ impl StdioMcpServer {
             Ok(tool_success_with_text(
                 "run",
                 structured,
-                run.render_text()?,
+                render_run_detail_text(&run),
             ))
         })
     }
@@ -1519,6 +1519,49 @@ fn render_pack_catalog_text(
 
     for item in &catalog.items {
         text.push_str(&format!("\n- {} ({})", item.pack_id, item.display_name));
+    }
+
+    text
+}
+
+fn render_run_detail_text(run: &crate::models::run::RunDetail) -> String {
+    let assigned_agents = run
+        .tasks
+        .iter()
+        .filter_map(|task| task.assigned_agent.as_deref())
+        .collect::<BTreeSet<_>>();
+    let assigned_agents = if assigned_agents.is_empty() {
+        "none".to_string()
+    } else {
+        assigned_agents.into_iter().collect::<Vec<_>>().join(", ")
+    };
+
+    let mut text = format!(
+        "run_id: {}\nstatus: {}\ntarget_pack: {}\ntask_counts: total={}, queued={}, running={}, succeeded={}, failed={}, approval_required={}\nassigned_agents: {}\ntask_count: {}\nartifact_count: {}",
+        run.run.run_id,
+        run.run.status,
+        run.run.target_pack.as_deref().unwrap_or("unassigned"),
+        run.run.task_counts.total,
+        run.run.task_counts.queued,
+        run.run.task_counts.running,
+        run.run.task_counts.succeeded,
+        run.run.task_counts.failed,
+        run.run.task_counts.approval_required,
+        assigned_agents,
+        run.tasks.len(),
+        run.artifacts.len()
+    );
+
+    if run.artifact_highlights.is_empty() {
+        text.push_str("\nartifact_highlights: none");
+    } else {
+        text.push_str("\nartifact_highlights:");
+        for artifact in &run.artifact_highlights {
+            text.push_str(&format!(
+                "\n- {} ({})",
+                artifact.artifact_type, artifact.artifact_id
+            ));
+        }
     }
 
     text
@@ -2111,7 +2154,14 @@ fn optional_integer_property<'a>(name: &'a str, description: &'a str) -> Propert
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::{
+        artifact::ArtifactSummary,
+        run::{RunDetail, RunSummary, RunTaskCounts},
+        task::{TaskExecutionSpec, TaskSummary},
+    };
+    use serde_json::json;
     use std::{fs, path::PathBuf};
+    use uuid::Uuid;
 
     #[test]
     fn negotiates_supported_protocol_version() {
@@ -2320,6 +2370,64 @@ mod tests {
         assert!(text.contains("default_pack_id: container-service"));
         assert!(text.contains("- cli-tool (CLI Tool)"));
         assert!(!text.contains("\"recommended_external_mcp_servers\""));
+    }
+
+    #[test]
+    fn render_run_detail_text_returns_compact_summary() {
+        let run_id = Uuid::new_v4();
+        let run = RunDetail {
+            run: RunSummary::new(
+                run_id,
+                Uuid::new_v4(),
+                "queued".to_string(),
+                "mcp".to_string(),
+                "OpenHands Bootstrap CLI".to_string(),
+                None,
+                Some("cli-tool".to_string()),
+                None,
+                1,
+                1,
+                1,
+                "examples/briefs/openhands-bootstrap-cli.yaml".to_string(),
+                RunTaskCounts {
+                    total: 2,
+                    queued: 2,
+                    running: 0,
+                    succeeded: 0,
+                    failed: 0,
+                    approval_required: 0,
+                },
+                3,
+                Some("2026-04-21T15:00:00Z".to_string()),
+            ),
+            artifact_highlights: vec![
+                sample_artifact_summary("backlog"),
+                sample_artifact_summary("agent_dispatch_plan"),
+                sample_artifact_summary("policy_report"),
+            ],
+            artifacts: vec![
+                sample_artifact_summary("backlog"),
+                sample_artifact_summary("agent_dispatch_plan"),
+                sample_artifact_summary("policy_report"),
+            ],
+            tasks: vec![
+                sample_task_summary(run_id, "codex", "plan"),
+                sample_task_summary(run_id, "openhands", "scaffold"),
+            ],
+        };
+
+        let text = render_run_detail_text(&run);
+
+        assert!(text.contains(&format!("run_id: {run_id}")));
+        assert!(text.contains("status: queued"));
+        assert!(text.contains("target_pack: cli-tool"));
+        assert!(text.contains("assigned_agents: codex, openhands"));
+        assert!(text.contains("task_count: 2"));
+        assert!(text.contains("artifact_count: 3"));
+        assert!(text.contains("artifact_highlights:"));
+        assert!(text.contains("- backlog ("));
+        assert!(!text.contains("description:"));
+        assert!(!text.contains("location:"));
     }
 
     #[test]
@@ -2656,5 +2764,55 @@ repository:
         ));
         fs::write(&path, contents).expect("temp MCP servers file should be written");
         path
+    }
+
+    fn sample_artifact_summary(artifact_type: &str) -> ArtifactSummary {
+        ArtifactSummary {
+            artifact_id: Uuid::new_v4(),
+            artifact_type: artifact_type.to_string(),
+            format: "json".to_string(),
+            location_kind: "file".to_string(),
+            location_value: format!(".continuum/artifacts/{artifact_type}.json"),
+            content_digest: "sha256:test".to_string(),
+            metadata: json!({}),
+            created_at: Some("2026-04-21T15:00:00Z".to_string()),
+            persisted: true,
+        }
+    }
+
+    fn sample_task_summary(run_id: Uuid, assigned_agent: &str, kind: &str) -> TaskSummary {
+        TaskSummary {
+            task_id: Uuid::new_v4(),
+            run_id,
+            backlog_item_id: format!("item-{kind}"),
+            kind: kind.to_string(),
+            priority: "must".to_string(),
+            status: "queued".to_string(),
+            title: format!("{kind} task"),
+            description: format!("task for {assigned_agent}"),
+            execution: TaskExecutionSpec {
+                provider: "docker".to_string(),
+                image: None,
+                command: Vec::new(),
+                working_directory: None,
+                sandbox_profile: Some("restricted".to_string()),
+                timeout_seconds: Some(60),
+            },
+            dependency_task_ids: json!([]),
+            source_refs: json!([]),
+            assigned_pack: Some("cli-tool".to_string()),
+            assigned_agent: Some(assigned_agent.to_string()),
+            orchestrator_model: Some("planner-default".to_string()),
+            approval_required: false,
+            agent_execution: None,
+            retry_state: None,
+            metadata: json!({}),
+            created_at: Some("2026-04-21T15:00:00Z".to_string()),
+            started_at: None,
+            lease_expires_at: None,
+            completed_at: None,
+            failure_reason: None,
+            persisted: true,
+        }
     }
 }

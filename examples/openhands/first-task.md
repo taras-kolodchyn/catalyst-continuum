@@ -7,6 +7,7 @@ Important constraints:
 - Prefer the `catalyst-continuum` MCP tools over shell commands whenever one of the listed tools can perform the step directly.
 - In OpenHands, these MCP tools are exposed as prefixed tool calls such as `catalyst-continuum_list_packs` and `catalyst-continuum_validate_brief`. Invoke them as MCP tool calls. Do not type those tool names into the terminal.
 - Use the exact YAML brief embedded below as `brief_content` for both `validate_brief` and `submit_brief`. Do not paraphrase it, synthesize a new YAML document, or pass the path string as the content.
+- Reuse the `run_id` returned by `submit_brief` for every later run-scoped tool call. Do not call `list_runs` just to rediscover the same run unless `submit_brief` fails to return a `run_id`.
 - Do not call publication or remote-review tools.
 - Stop after the policy, quality, and artifact inspection summary.
 
@@ -81,17 +82,17 @@ Work in this order:
 1. Call `list_packs` and summarize which repository packs are available.
 2. Call `validate_brief` with the exact YAML block above in `brief_content` and `examples/briefs/minimal-cli-tool.yaml` in `brief_source_path`.
 3. If validation succeeds, call `submit_brief` with the same exact YAML block in `brief_content` and the same logical source path.
-4. Call `list_runs` and identify the run created from that brief.
-5. Call `describe_run` for the newest run and summarize its current status, task counts, and artifacts.
-6. Call `run_next_task` once for that run so the codex-owned planning task completes.
-7. Call `claim_next_agent_task` with `agent=openhands` for that run and summarize the claimed task.
+4. Read the `run_id` returned by `submit_brief`.
+5. Call `describe_run` for that `run_id` and summarize its current status, task counts, and artifacts.
+6. Call `run_next_task` once for that `run_id` so the codex-owned planning task completes.
+7. Call `claim_next_agent_task` with `agent=openhands` for that `run_id` and summarize the claimed task.
 8. Call `prepare_agent_task_workspace` for the claimed task and summarize the returned `workspace_root` plus `source_kind`.
 9. If you simulate a longer OpenHands session, call `heartbeat_agent_task` for the claimed task before completion and confirm the task stays `running` with a refreshed lease.
 10. Call `complete_agent_task` for the claimed task with a short success summary and the prepared `workspace_root` so the orchestrator can persist the real task output plus an `agent_task_report`.
 11. Call `describe_run` again and confirm the externally completed task now shows the persisted report linkage.
-12. If the run is not terminal yet, call `run_worker_once` for that run and then `describe_run` again. Repeat until the run reaches `succeeded` or `failed`.
-13. Call `evaluate_run_policy` for the run.
-14. Call `evaluate_run_quality` for the run.
+12. If the run is not terminal yet, call `run_worker_once` for that `run_id` and then `describe_run` again. Repeat until the run reaches `succeeded` or `failed`.
+13. Call `evaluate_run_policy` for that `run_id`.
+14. Call `evaluate_run_quality` for that `run_id`.
 15. Call `describe_artifact` for the persisted `policy_report`, `quality_report`, and `agent_task_report` artifacts and summarize whether the MCP integration is working correctly end to end.
 
 Do not use PR export, publication, or remote review tooling.

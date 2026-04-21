@@ -421,6 +421,9 @@ The shortest first-run task now lives in
 [examples/openhands/bootstrap-task.md](../../examples/openhands/bootstrap-task.md).
 It stays below worker execution and remote publication: it validates the MCP
 server, submits one short brief, and inspects the created run.
+That first-run path should reuse the `run_id` returned by `submit_brief`
+directly instead of asking OpenHands to rediscover the same run through
+`list_runs`.
 That starter task now also makes the `brief_content` contract explicit by
 embedding the exact YAML brief inline. OpenHands should reuse that literal YAML
 text for `validate_brief` and `submit_brief`, instead of paraphrasing the brief
