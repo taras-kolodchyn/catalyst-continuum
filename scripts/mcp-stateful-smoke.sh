@@ -352,6 +352,8 @@ proc = subprocess.Popen(
 next_id = 1
 REQUEST_TIMEOUT_SECONDS = 30
 stderr_lines = deque(maxlen=400)
+stdout_lines = deque(maxlen=400)
+current_request_label = "idle"
 
 
 def drain_stderr():
@@ -378,7 +380,10 @@ def fail(message):
             pass
     stderr_thread.join(timeout=1)
     stderr = "".join(stderr_lines)
-    raise SystemExit(f"{message}\nSTDERR:\n{stderr}")
+    stdout = "".join(stdout_lines)
+    raise SystemExit(
+        f"{message}\nLAST_REQUEST:\n{current_request_label}\nSTDERR:\n{stderr}\nSTDOUT:\n{stdout}"
+    )
 
 
 def send(message):
@@ -399,6 +404,7 @@ def recv():
     line = proc.stdout.readline()
     if not line:
         fail(f"stateful MCP smoke failed: server exited unexpectedly with code {proc.poll()}")
+    stdout_lines.append(line)
     try:
         return json.loads(line)
     except json.JSONDecodeError as error:
@@ -406,15 +412,20 @@ def recv():
 
 
 def request(method, params=None):
-    global next_id
+    global next_id, current_request_label
+    params = params or {}
     request_id = next_id
     next_id += 1
+    if method == "tools/call":
+        current_request_label = f"{method}:{params.get('name', 'unknown')}"
+    else:
+        current_request_label = method
     send(
         {
             "jsonrpc": "2.0",
             "id": request_id,
             "method": method,
-            "params": params or {},
+            "params": params,
         }
     )
     while True:
@@ -426,6 +437,7 @@ def request(method, params=None):
                 "stateful MCP smoke failed: JSON-RPC error for "
                 f"{method}: {message['error']}"
             )
+        current_request_label = "idle"
         return message["result"]
 
 
