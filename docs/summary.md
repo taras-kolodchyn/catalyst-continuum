@@ -164,6 +164,7 @@ Runtime-provider expansion and execution hardening:
 - Proxmox runtime-provider support, including disposable linked-clone VMs, Cloud-Init templates, and rootless container hardening
 - Kubernetes runtime-provider support with Jobs or Pods, local validation via `kind`, and provider-neutral control-plane contracts
 - Further execution isolation hardening as the system expands beyond the Docker-first baseline
+- AI security control-plane hardening, including a run-scoped security envelope, threat-model and security-backlog artifacts, tainted-context provenance, and a pinned security-eval baseline for prompt injection, tool abuse, model abuse, and poisoning scenarios
 
 ## Later Candidate Directions
 
@@ -238,6 +239,9 @@ Useful early modules for the repository:
 - `docs/` for ADRs, architecture notes, and operator guidance
 
 ## Next Actions
+
+- Keep `v0.2` centered on two coupled themes: remote runtime expansion and AI security hardening.
+- Use [ai-security-roadmap.md](ai-security-roadmap.md) as the source document for the security-envelope, taint/provenance, threat-model, and security-eval work.
 
 - Define the brief schema for v0.1 input.
 - Define artifact schemas for backlog, architecture, scaffold plan, and run metadata.
