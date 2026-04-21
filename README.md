@@ -219,7 +219,8 @@ For local OpenHands CLI registration, use `./scripts/openhands-register-mcp.sh`.
 For a full OpenHands `mcp.json` derived from the orchestrator allowlist, use `./scripts/openhands-render-mcp-config.sh --output "$HOME/.openhands/mcp.json"`.
 For a first local OpenHands run with the bundled LiteLLM gateway and repo-pinned settings, use `./scripts/openhands-launch.sh --bootstrap --profile container-sandbox --task-file examples/openhands/first-task.md`.
 For the same run without sandbox isolation, switch to `./scripts/openhands-launch.sh --bootstrap --profile host-full-access --task-file examples/openhands/first-task.md`.
-For a scripted external-executor cycle that claims one task, prepares its workspace, runs headless OpenHands, and reports the result back to the control plane, use `./scripts/openhands-run-agent-task.sh --database-url "$CATALYST_DATABASE_URL" --profile container-sandbox`.
+The pinned launcher now fails fast when the selected LiteLLM alias cannot return native `tool_calls`, because that leaves OpenHands hanging before the first real action. It also inlines local `--task-file` contents into the prompt so the first validation run starts from the MCP workflow instead of from task-file directory exploration. When the selected model still cannot drive a live tool session, rerun with `--litellm-model local-ollama-coder` or export `LITELLM_DEFAULT_MODEL=local-ollama-coder` for the session.
+For a scripted external-executor cycle that claims one task, prepares its workspace, runs headless OpenHands, and reports the result back to the control plane, use `./scripts/openhands-run-agent-task.sh --database-url "$CATALYST_DATABASE_URL" --profile container-sandbox --litellm-model local-ollama-coder`.
 
 ## CI
 

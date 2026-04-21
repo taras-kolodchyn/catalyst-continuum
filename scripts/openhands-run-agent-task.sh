@@ -12,6 +12,7 @@ HEARTBEAT_INTERVAL=""
 BOOTSTRAP=0
 VALIDATE=0
 FULL_MCP_SURFACE=0
+EXPLICIT_LITELLM_MODEL=""
 
 DATABASE_URL="${CATALYST_DATABASE_URL:-}"
 ARTIFACT_ROOT="${CATALYST_ARTIFACT_ROOT:-$ROOT_DIR/.continuum/artifacts}"
@@ -44,6 +45,7 @@ Options:
   --bootstrap                    Start Postgres/LiteLLM before launch
   --validate                     Bootstrap plus validate the pinned MCP path before launch
   --full-mcp-surface             Disable the pinned validation allowlist for the OpenHands session
+  --litellm-model ALIAS          Override the LiteLLM model alias used for the OpenHands session
   --database-url URL             Explicit Postgres URL (or use CATALYST_DATABASE_URL)
   --artifact-root PATH           Artifact root passed to the orchestrator commands
   --state-root PATH              Root directory for executor-local OpenHands state
@@ -89,6 +91,10 @@ while [ "$#" -gt 0 ]; do
     --full-mcp-surface)
       FULL_MCP_SURFACE=1
       shift
+      ;;
+    --litellm-model)
+      EXPLICIT_LITELLM_MODEL="$2"
+      shift 2
       ;;
     --database-url)
       DATABASE_URL="$2"
@@ -397,6 +403,9 @@ if [ "$VALIDATE" -eq 1 ]; then
 fi
 if [ "$FULL_MCP_SURFACE" -eq 1 ]; then
   launch_args+=(--full-mcp-surface)
+fi
+if [ -n "$EXPLICIT_LITELLM_MODEL" ]; then
+  launch_args+=(--litellm-model "$EXPLICIT_LITELLM_MODEL")
 fi
 
 set +e

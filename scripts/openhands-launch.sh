@@ -10,6 +10,8 @@ source "$ROOT_DIR/versions.env"
 PROFILE=""
 TASK_TEXT=""
 TASK_FILE=""
+TASK_SOURCE_KIND="direct-text"
+TASK_SOURCE_PATH=""
 HEADLESS=0
 JSON_OUTPUT=0
 ALWAYS_APPROVE=0
@@ -19,6 +21,7 @@ DRY_RUN=0
 PRINT_ENV=0
 ENV_FILE=""
 FULL_MCP_SURFACE=0
+EXPLICIT_LITELLM_MODEL=""
 
 WORKSPACE="${OPENHANDS_WORKSPACE:-$ROOT_DIR}"
 STATE_DIR=""
@@ -53,6 +56,7 @@ Options:
   --workspace PATH               Repository or workspace root to mount/use
   --state-dir PATH               Repo-local OpenHands persistence directory
   --env-file PATH                Compose env file used for Postgres/LiteLLM defaults
+  --litellm-model ALIAS          Override the LiteLLM model alias used for this launch
   --full-mcp-surface             Disable the pinned OpenHands MCP tool allowlist and expose the full orchestrator MCP surface
   --launchers-file PATH          Agent launcher profile config file
   --artifact-root PATH           Artifact root passed to the orchestrator MCP server
@@ -135,6 +139,14 @@ while [ "$#" -gt 0 ]; do
         exit 1
       fi
       ENV_FILE="$2"
+      shift 2
+      ;;
+    --litellm-model)
+      if [ "$#" -lt 2 ]; then
+        echo "--litellm-model requires an alias" >&2
+        exit 1
+      fi
+      EXPLICIT_LITELLM_MODEL="$2"
       shift 2
       ;;
     --full-mcp-surface)
@@ -319,6 +331,14 @@ if [ -n "$TASK_FILE" ]; then
     exit 1
   fi
   TASK_FILE="$(abspath_path "$TASK_FILE")"
+  TASK_SOURCE_KIND="inlined-file"
+  TASK_SOURCE_PATH="$TASK_FILE"
+  TASK_TEXT="$(cat "$TASK_FILE")"
+  TASK_FILE=""
+  if [ -z "$TASK_TEXT" ]; then
+    echo "task file is empty: $TASK_SOURCE_PATH" >&2
+    exit 1
+  fi
 fi
 
 # shellcheck disable=SC1090
@@ -344,14 +364,18 @@ if [ -z "$HOST_BASE_URL" ]; then
   exit 1
 fi
 
-LITELLM_MODEL="$(
-  "$ROOT_DIR/scripts/litellm-default-model.sh" \
-    --env-file "$ENV_FILE" \
-    --ai-gateway-file "$AI_GATEWAY_FILE"
-)"
+if [ -n "$EXPLICIT_LITELLM_MODEL" ]; then
+  LITELLM_MODEL="$EXPLICIT_LITELLM_MODEL"
+else
+  LITELLM_MODEL="$(
+    "$ROOT_DIR/scripts/litellm-default-model.sh" \
+      --env-file "$ENV_FILE" \
+      --ai-gateway-file "$AI_GATEWAY_FILE"
+  )"
+fi
 
 if [ "$BOOTSTRAP" -eq 1 ]; then
-  bootstrap_args=(--env-file "$ENV_FILE" --validate-litellm)
+  bootstrap_args=(--env-file "$ENV_FILE" --validate-litellm --litellm-model "$LITELLM_MODEL")
   if [ "$VALIDATE" -eq 1 ]; then
     bootstrap_args+=(--validate-mcp)
   fi
@@ -433,10 +457,6 @@ if [ -n "$TASK_TEXT" ]; then
   launch_command+=(--task "$TASK_TEXT")
 fi
 
-if [ -n "$TASK_FILE" ]; then
-  launch_command+=(--file "$TASK_FILE")
-fi
-
 quote_command() {
   local quoted=""
   local arg
@@ -458,6 +478,10 @@ print_contract() {
   echo "artifact_root=$ARTIFACT_ROOT"
   echo "database_url=$DATABASE_URL"
   echo "mcp_config=$STATE_DIR/mcp.json"
+  echo "task_source_kind=$TASK_SOURCE_KIND"
+  if [ -n "$TASK_SOURCE_PATH" ]; then
+    echo "task_source_path=$TASK_SOURCE_PATH"
+  fi
   if [ "$FULL_MCP_SURFACE" -eq 1 ]; then
     echo "mcp_surface=full"
   else
@@ -508,8 +532,10 @@ if [ "$PROFILE_RUNTIME" = "docker" ] && ! command -v docker >/dev/null 2>&1; the
 fi
 
 gateway_probe_file="$(mktemp)"
+tool_call_probe_file="$(mktemp)"
 cleanup() {
   rm -f "$gateway_probe_file"
+  rm -f "$tool_call_probe_file"
 }
 trap cleanup EXIT
 
@@ -518,6 +544,22 @@ if ! curl -fsS \
   "${HOST_BASE_URL}/v1/models" >"$gateway_probe_file"; then
   echo "LiteLLM gateway is not reachable at ${HOST_BASE_URL}/v1/models" >&2
   echo "Run ./scripts/openhands-bootstrap.sh --validate-litellm or pass --bootstrap." >&2
+  exit 1
+fi
+
+if ! "$ROOT_DIR/scripts/litellm-local-smoke.sh" \
+  --env-file "$ENV_FILE" \
+  --model "$LITELLM_MODEL" \
+  --skip-chat \
+  --require-tool-calls \
+  --no-compose-up >"$tool_call_probe_file" 2>&1; then
+  cat "$tool_call_probe_file" >&2 || true
+  echo \
+    "Selected LiteLLM model alias '$LITELLM_MODEL' failed the OpenHands tool-calling preflight." >&2
+  if [ "$LITELLM_MODEL" = "local-macos-native" ]; then
+    echo \
+      "Try --litellm-model local-ollama-coder or export LITELLM_DEFAULT_MODEL=local-ollama-coder." >&2
+  fi
   exit 1
 fi
 

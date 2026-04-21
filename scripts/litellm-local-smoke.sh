@@ -9,9 +9,11 @@ source "$ROOT_DIR/scripts/lib/readiness.sh"
 
 ENV_FILE=""
 MODEL=""
+MODEL_EXPLICIT=0
 PROMPT="Reply with exactly OK."
 SKIP_CHAT=0
 NO_COMPOSE_UP=0
+REQUIRE_TOOL_CALLS=0
 
 usage() {
   cat <<'EOF'
@@ -31,7 +33,9 @@ Options:
   --env-file PATH     Use a specific compose env file
   --model ALIAS       Validate a specific LiteLLM model alias
   --prompt TEXT       Override the chat validation prompt
-  --skip-chat         Only validate /v1/models and alias resolution
+  --skip-chat         Skip the plain chat/caching/OTel validation layer
+  --require-tool-calls
+                     Validate native tool_calls for the selected model alias
   --no-compose-up     Expect LiteLLM to already be running
   -h, --help          Show this help
 EOF
@@ -53,6 +57,7 @@ while [ "$#" -gt 0 ]; do
         exit 1
       fi
       MODEL="$2"
+      MODEL_EXPLICIT=1
       shift 2
       ;;
     --prompt)
@@ -65,6 +70,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --skip-chat)
       SKIP_CHAT=1
+      shift
+      ;;
+    --require-tool-calls)
+      REQUIRE_TOOL_CALLS=1
       shift
       ;;
     --no-compose-up)
@@ -234,12 +243,13 @@ env "${instance_config_env[@]}" \
     --json >"$ai_gateway_status_json"
 
 ai_gateway_contract="$(
-  python3 - "$instance_config_json" "$base_url" "$LITELLM_PORT" "$MODEL" "$available_models" <<'PY'
+  python3 - "$instance_config_json" "$base_url" "$LITELLM_PORT" "$MODEL" "$available_models" "$MODEL_EXPLICIT" <<'PY'
 import json
 import platform
 import sys
 
-instance_config_path, host_base_url, port, selected_model, available_models = sys.argv[1:]
+instance_config_path, host_base_url, port, selected_model, available_models, model_explicit = sys.argv[1:]
+model_explicit = model_explicit == "1"
 instance_config = json.loads(open(instance_config_path, encoding="utf-8").read())
 ai_gateway = instance_config["ai_gateway"]
 available_model_ids = set(available_models.splitlines())
@@ -282,7 +292,7 @@ host_arch = platform.machine()
 expected_selected_model = (
     macos_alias if host_os == "Darwin" and host_arch == "arm64" else other_alias
 )
-if selected_model != expected_selected_model:
+if not model_explicit and selected_model != expected_selected_model:
     raise SystemExit(
         "selected LiteLLM default model drifted from the AI gateway contract: "
         f"{selected_model!r} vs {expected_selected_model!r}"
@@ -311,11 +321,12 @@ PY
 )"
 
 ai_gateway_live_status="$(
-  python3 - "$ai_gateway_status_json" "$MODEL" <<'PY'
+  python3 - "$ai_gateway_status_json" "$MODEL" "$MODEL_EXPLICIT" <<'PY'
 import json
 import sys
 
-status_path, selected_model = sys.argv[1:]
+status_path, selected_model, model_explicit = sys.argv[1:]
+model_explicit = model_explicit == "1"
 payload = json.loads(open(status_path, encoding="utf-8").read())
 
 if payload["status"] != "ready":
@@ -325,7 +336,10 @@ if payload["status"] != "ready":
     )
 if payload["ready"] is not True:
     raise SystemExit("describe-ai-gateway-status returned ready=false")
-if payload["current_host_default_model_alias"] != selected_model:
+if (
+    not model_explicit
+    and payload["current_host_default_model_alias"] != selected_model
+):
     raise SystemExit(
         "describe-ai-gateway-status current_host_default_model_alias drifted from "
         f"selected model: {payload['current_host_default_model_alias']!r} vs {selected_model!r}"
@@ -488,6 +502,142 @@ if command -v docker >/dev/null 2>&1; then
       exit 1
       ;;
   esac
+fi
+
+if [ "$REQUIRE_TOOL_CALLS" -eq 1 ]; then
+  echo
+  echo "running tool-call validation"
+  tool_call_validation_output="$(
+    python3 - "$base_url" "$LITELLM_MASTER_KEY" "$MODEL" <<'PY'
+import json
+import sys
+import urllib.error
+import urllib.request
+
+base_url, master_key, model = sys.argv[1:]
+request = urllib.request.Request(
+    f"{base_url}/v1/chat/completions",
+    data=json.dumps(
+        {
+            "model": model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "Use the ping tool exactly once with message hi.",
+                }
+            ],
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "ping",
+                        "description": "Ping helper",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "message": {"type": "string"},
+                            },
+                            "required": ["message"],
+                        },
+                    },
+                }
+            ],
+            "tool_choice": "required",
+            "max_tokens": 64,
+            "temperature": 0,
+        }
+    ).encode("utf-8"),
+    headers={
+        "Authorization": f"Bearer {master_key}",
+        "Content-Type": "application/json",
+    },
+    method="POST",
+)
+
+try:
+    with urllib.request.urlopen(request, timeout=120) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+except urllib.error.HTTPError as exc:
+    body = exc.read().decode("utf-8", errors="replace")
+    raise SystemExit(
+        f"LiteLLM tool-call validation failed with HTTP {exc.code}: {body}"
+    ) from exc
+except urllib.error.URLError as exc:
+    raise SystemExit(f"LiteLLM tool-call validation failed: {exc}") from exc
+
+choices = payload.get("choices", [])
+if not choices:
+    raise SystemExit("LiteLLM tool-call validation returned no choices")
+
+message = choices[0].get("message", {})
+tool_calls = message.get("tool_calls") or []
+if not tool_calls:
+    content = message.get("content")
+    if isinstance(content, list):
+        content = "".join(
+            part.get("text", "") for part in content if isinstance(part, dict)
+        )
+    content = (content or "").strip()
+    raise SystemExit(
+        "LiteLLM tool-call validation returned no native tool_calls for "
+        f"{model!r}. Received content={content!r}"
+    )
+
+tool_call = tool_calls[0]
+function = tool_call.get("function") or {}
+tool_name = function.get("name")
+arguments_raw = function.get("arguments") or ""
+if tool_name != "ping":
+    raise SystemExit(
+        f"LiteLLM tool-call validation returned unexpected tool name: {tool_name!r}"
+    )
+
+try:
+    arguments = json.loads(arguments_raw)
+except json.JSONDecodeError as exc:
+    raise SystemExit(
+        "LiteLLM tool-call validation returned invalid function arguments JSON: "
+        f"{arguments_raw!r}"
+    ) from exc
+
+if arguments.get("message") != "hi":
+    raise SystemExit(
+        "LiteLLM tool-call validation returned unexpected tool arguments: "
+        f"{arguments!r}"
+    )
+
+print(
+    json.dumps(
+        {
+            "toolName": tool_name,
+            "toolArguments": arguments,
+        }
+    )
+)
+PY
+  )"
+
+  tool_call_name="$(
+    python3 - "$tool_call_validation_output" <<'PY'
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+print(payload["toolName"])
+PY
+  )"
+  tool_call_arguments="$(
+    python3 - "$tool_call_validation_output" <<'PY'
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+print(json.dumps(payload["toolArguments"], sort_keys=True))
+PY
+  )"
+
+  echo "tool_call_name: ${tool_call_name}"
+  echo "tool_call_arguments: ${tool_call_arguments}"
 fi
 
 if [ "$SKIP_CHAT" -eq 0 ]; then

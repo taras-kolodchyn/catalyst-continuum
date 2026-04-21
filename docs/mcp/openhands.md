@@ -50,10 +50,33 @@ To bootstrap Postgres, validate LiteLLM plus the stateful MCP path, and register
 ./scripts/openhands-bootstrap.sh --validate-litellm --validate-mcp --register-mcp
 ```
 
+The pinned launcher now performs a native `tool_calls` preflight for the chosen
+LiteLLM alias before it starts OpenHands. If the selected alias only returns
+JSON-shaped text instead of native tool calls, the launcher fails fast with an
+actionable message instead of leaving the session hanging before the first real
+tool action.
+The same launcher now also inlines local `--task-file` contents into the actual
+OpenHands task prompt instead of using OpenHands file-context mode. That keeps
+the first local validation path anchored to the MCP steps themselves instead of
+encouraging a local code model to inspect the task-file directory before it
+touches the orchestrator tools.
+The MCP server now also tolerates the OpenHands wrapper metadata fields that
+can be attached to tool arguments during native tool calls, so zero-argument
+tools such as `list_packs` stay callable from the first live validation prompt.
+
 After that, start OpenHands with the prepared first task:
 
 ```bash
 ./scripts/openhands-launch.sh --bootstrap --profile container-sandbox --task-file examples/openhands/first-task.md
+```
+
+If your current default LiteLLM alias does not support native `tool_calls`,
+override it explicitly for the session:
+
+```bash
+./scripts/openhands-launch.sh --bootstrap --profile container-sandbox \
+  --litellm-model local-ollama-coder \
+  --task-file examples/openhands/first-task.md
 ```
 
 For the same task without sandbox isolation, switch to the host-process profile:
@@ -186,8 +209,8 @@ To validate only the gateway and alias exposure:
 To validate a real model round-trip once the host backend is already serving:
 
 ```bash
-./scripts/litellm-local-smoke.sh --model local-macos-native
-./scripts/litellm-local-smoke.sh --model local-ollama-coder
+./scripts/litellm-local-smoke.sh --model local-macos-native --skip-chat --require-tool-calls
+./scripts/litellm-local-smoke.sh --model local-ollama-coder --skip-chat --require-tool-calls
 ```
 
 The smoke path now also verifies that LiteLLM returns a stable cache key for
@@ -390,6 +413,10 @@ Stateful tools need `CATALYST_DATABASE_URL`:
 `evaluate_run_policy` is the visibility tool for OpenHands when it needs to inspect whether the current run still satisfies control-plane policy constraints such as runtime provider, sandbox profile, and planned timeout budget.
 `evaluate_run_quality` is the visibility tool for OpenHands when it needs to inspect whether a run is ready for remote PR promotion. Even if OpenHands skips that explicit call, `publish_pr_export` and `open_github_pr` will enforce the same automated gate before pushing changes outward.
 The safe first-run task in [examples/openhands/first-task.md](../../examples/openhands/first-task.md) stays below remote publication: it validates the MCP server, progresses a local run, evaluates policy and quality, and inspects the persisted artifacts.
+That starter task now also makes the `brief_content` contract explicit by
+embedding the exact YAML brief inline. OpenHands should reuse that literal YAML
+text for `validate_brief` and `submit_brief`, instead of paraphrasing the brief
+or passing the path string as the content.
 
 ## Reliability Note
 
@@ -424,7 +451,8 @@ For a control-plane-driven OpenHands executor cycle instead of a manual MCP conv
 ```bash
 ./scripts/openhands-run-agent-task.sh \
   --database-url "$CATALYST_DATABASE_URL" \
-  --profile container-sandbox
+  --profile container-sandbox \
+  --litellm-model local-ollama-coder
 ```
 
 That wrapper:

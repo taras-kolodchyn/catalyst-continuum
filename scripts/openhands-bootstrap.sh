@@ -157,6 +157,8 @@ if [ "$VALIDATE_LITELLM" -eq 1 ]; then
     "$ENV_FILE"
     --model
     "$LITELLM_MODEL"
+    --skip-chat
+    --require-tool-calls
   )
   ./scripts/litellm-local-smoke.sh "${smoke_args[@]}"
   echo
@@ -177,11 +179,11 @@ fi
 
 echo "next:"
 echo "  export CATALYST_DATABASE_URL='$DATABASE_URL'"
-echo "  ./scripts/litellm-local-smoke.sh --model '$LITELLM_MODEL'"
+echo "  ./scripts/litellm-local-smoke.sh --model '$LITELLM_MODEL' --skip-chat --require-tool-calls"
 echo "  ./scripts/mcp-smoke.sh"
 echo "  ./scripts/mcp-stateful-smoke.sh"
-echo "  ./scripts/openhands-launch.sh --bootstrap --profile container-sandbox --task-file examples/openhands/first-task.md"
-echo "  ./scripts/openhands-launch.sh --bootstrap --profile host-full-access --task-file examples/openhands/first-task.md"
+echo "  ./scripts/openhands-launch.sh --bootstrap --profile container-sandbox --litellm-model '$LITELLM_MODEL' --task-file examples/openhands/first-task.md"
+echo "  ./scripts/openhands-launch.sh --bootstrap --profile host-full-access --litellm-model '$LITELLM_MODEL' --task-file examples/openhands/first-task.md"
 echo "  ./scripts/openhands-register-mcp.sh"
 echo "  ./scripts/openhands-render-mcp-config.sh --output \"\$HOME/.openhands/mcp.json\""
 echo

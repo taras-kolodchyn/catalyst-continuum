@@ -1,10 +1,85 @@
 Use the `catalyst-continuum` MCP tools to validate the local integration before attempting any code changes.
 
+Important constraints:
+
+- Start with `list_packs` immediately.
+- Treat this prompt as the full task description. Do not spend a step re-opening this task file, listing `examples/openhands/`, or exploring the current directory.
+- Prefer the `catalyst-continuum` MCP tools over shell commands whenever one of the listed tools can perform the step directly.
+- Use the exact YAML brief embedded below as `brief_content` for both `validate_brief` and `submit_brief`. Do not paraphrase it, synthesize a new YAML document, or pass the path string as the content.
+- Do not call publication or remote-review tools.
+- Stop after the policy, quality, and artifact inspection summary.
+
+Exact brief content to reuse verbatim for `brief_content`
+Source path for that brief: `examples/briefs/minimal-cli-tool.yaml`
+
+```yaml
+schema_version: v0.1
+brief_id: 22222222-2222-2222-2222-222222222222
+title: Minimal CLI Tool
+summary: >
+  Build a minimal command-line proof of concept from a structured brief so the
+  orchestrator can validate non-HTTP pack flows end to end.
+requested_by: product@example.com
+target_users:
+  - internal platform engineers
+goals:
+  - Turn a structured brief into a draft backlog.
+  - Scaffold a minimal repository layout for a Rust CLI tool.
+functional_requirements:
+  - id: CLI-1
+    title: Summarize the generated proof of concept
+    description: Emit a machine-readable summary of the generated repository.
+    priority: must
+  - id: CLI-2
+    title: List structured requirements
+    description: Emit the structured requirement catalog through CLI output.
+    priority: must
+constraints:
+  - Keep the first CLI implementation dependency-light.
+  - Use Docker as the initial runtime provider for task execution.
+deliverables:
+  - backlog artifact
+  - scaffold plan artifact
+technical_preferences:
+  languages:
+    - rust
+  infrastructure:
+    - docker compose
+repository:
+  host: github
+  owner: smartit
+  name: catalyst-continuum-cli-demo
+  default_branch: main
+  visibility: private
+execution_preferences:
+  repo_pack: cli-tool
+  default_runtime_provider: docker
+  sandbox_profile: restricted
+  orchestrator_model: planner-default
+  default_agent: openhands
+  allowed_agents:
+    - openhands
+    - codex
+policy:
+  max_task_count: 8
+  max_total_timeout_seconds: 180
+  max_task_retry_count: 1
+  allowed_task_kinds:
+    - plan
+    - scaffold
+    - code
+    - test
+  allowed_runtime_providers:
+    - docker
+  allowed_sandbox_profiles:
+    - restricted
+```
+
 Work in this order:
 
 1. Call `list_packs` and summarize which repository packs are available.
-2. Call `validate_brief` with the contents of `examples/briefs/minimal-cli-tool.yaml`.
-3. If validation succeeds, call `submit_brief`.
+2. Call `validate_brief` with the exact YAML block above in `brief_content` and `examples/briefs/minimal-cli-tool.yaml` in `brief_source_path`.
+3. If validation succeeds, call `submit_brief` with the same exact YAML block in `brief_content` and the same logical source path.
 4. Call `list_runs` and identify the run created from that brief.
 5. Call `describe_run` for the newest run and summarize its current status, task counts, and artifacts.
 6. Call `run_next_task` once for that run so the codex-owned planning task completes.
@@ -18,6 +93,5 @@ Work in this order:
 14. Call `evaluate_run_quality` for the run.
 15. Call `describe_artifact` for the persisted `policy_report`, `quality_report`, and `agent_task_report` artifacts and summarize whether the MCP integration is working correctly end to end.
 
-Do not open a GitHub PR.
-Do not call `export_pr_candidate`, `publish_pr_export`, or `open_github_pr`.
+Do not use PR export, publication, or remote review tooling.
 Stop after the policy/quality and artifact inspection summary and tell me whether the MCP integration is working correctly.

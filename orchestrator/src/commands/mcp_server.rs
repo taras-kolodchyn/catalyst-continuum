@@ -100,7 +100,6 @@ struct PaginationParams {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
 struct CallToolParams {
     name: String,
     #[serde(default)]
@@ -1415,14 +1414,24 @@ fn parse_params<T>(params: Option<Value>) -> anyhow::Result<T>
 where
     T: for<'de> Deserialize<'de>,
 {
-    serde_json::from_value(params.unwrap_or_else(|| json!({}))).context("invalid JSON-RPC params")
+    serde_json::from_value(params.unwrap_or_else(|| json!({})))
+        .map_err(|error| anyhow!("invalid JSON-RPC params: {error}"))
 }
 
 fn parse_tool_arguments<T>(arguments: Value) -> anyhow::Result<T>
 where
     T: for<'de> Deserialize<'de>,
 {
-    serde_json::from_value(arguments).context("invalid tool arguments")
+    match serde_json::from_value(arguments.clone()) {
+        Ok(parsed) => Ok(parsed),
+        Err(error) => {
+            let sanitized = strip_openhands_wrapper_metadata(arguments);
+            match serde_json::from_value(sanitized) {
+                Ok(parsed) => Ok(parsed),
+                Err(_) => Err(anyhow!("invalid tool arguments: {error}")),
+            }
+        }
+    }
 }
 
 fn normalize_arguments(arguments: Value) -> anyhow::Result<Value> {
@@ -1431,6 +1440,17 @@ fn normalize_arguments(arguments: Value) -> anyhow::Result<Value> {
         Value::Object(_) => Ok(arguments),
         _ => Err(anyhow!("tool arguments must be a JSON object")),
     }
+}
+
+fn strip_openhands_wrapper_metadata(arguments: Value) -> Value {
+    let Value::Object(mut object) = arguments else {
+        return arguments;
+    };
+
+    object.remove("security_risk");
+    object.remove("summary");
+
+    Value::Object(object)
 }
 
 fn call_tool<F>(f: F) -> Value
@@ -1636,10 +1656,13 @@ fn tool_definitions() -> Vec<Value> {
             "validate_brief",
             "Validate an inline YAML product brief and resolve its repository pack.",
             json_schema_object(&[
-                required_string_property("brief_content", "Structured brief YAML content."),
+                required_string_property(
+                    "brief_content",
+                    "Literal YAML document contents. Pass the exact brief text, not a filesystem path, paraphrase, or summary.",
+                ),
                 optional_string_property(
                     "brief_source_path",
-                    "Logical source path reported in validation output.",
+                    "Logical source path reported in validation output, for example examples/briefs/minimal-cli-tool.yaml.",
                 ),
             ]),
         ),
@@ -1647,10 +1670,13 @@ fn tool_definitions() -> Vec<Value> {
             "submit_brief",
             "Submit an inline YAML product brief into the orchestrator and create a run.",
             json_schema_object(&[
-                required_string_property("brief_content", "Structured brief YAML content."),
+                required_string_property(
+                    "brief_content",
+                    "Literal YAML document contents. Pass the exact brief text, not a filesystem path, paraphrase, or summary.",
+                ),
                 optional_string_property(
                     "brief_source_path",
-                    "Logical source path reported in submission output.",
+                    "Logical source path reported in submission output, for example examples/briefs/minimal-cli-tool.yaml.",
                 ),
                 optional_boolean_property(
                     "dry_run",
@@ -1662,10 +1688,13 @@ fn tool_definitions() -> Vec<Value> {
             "submit_next_repository_signal",
             "Materialize the latest fresh pending repository signal for the repository declared in an inline YAML brief.",
             json_schema_object(&[
-                required_string_property("brief_content", "Structured brief YAML content."),
+                required_string_property(
+                    "brief_content",
+                    "Literal YAML document contents. Pass the exact brief text, not a filesystem path, paraphrase, or summary.",
+                ),
                 optional_string_property(
                     "brief_source_path",
-                    "Logical source path reported in submission output.",
+                    "Logical source path reported in submission output, for example examples/briefs/minimal-cli-tool.yaml.",
                 ),
                 optional_string_property(
                     "signal_kind",
@@ -1678,10 +1707,13 @@ fn tool_definitions() -> Vec<Value> {
             "Submit an inline YAML product brief against one pending repository signal and materialize a run linked to that signal.",
             json_schema_object(&[
                 required_string_property("signal_id", "Repository signal identifier."),
-                required_string_property("brief_content", "Structured brief YAML content."),
+                required_string_property(
+                    "brief_content",
+                    "Literal YAML document contents. Pass the exact brief text, not a filesystem path, paraphrase, or summary.",
+                ),
                 optional_string_property(
                     "brief_source_path",
-                    "Logical source path reported in submission output.",
+                    "Logical source path reported in submission output, for example examples/briefs/minimal-cli-tool.yaml.",
                 ),
             ]),
         ),
@@ -1689,10 +1721,13 @@ fn tool_definitions() -> Vec<Value> {
             "run_next_repository_automation",
             "Execute one repository automation cycle by advancing the next pending GitHub webhook action request and then materializing the freshest matching repository signal for the repository declared in an inline YAML brief.",
             json_schema_object(&[
-                required_string_property("brief_content", "Structured brief YAML content."),
+                required_string_property(
+                    "brief_content",
+                    "Literal YAML document contents. Pass the exact brief text, not a filesystem path, paraphrase, or summary.",
+                ),
                 optional_string_property(
                     "brief_source_path",
-                    "Logical source path reported in automation output.",
+                    "Logical source path reported in automation output, for example examples/briefs/minimal-cli-tool.yaml.",
                 ),
                 optional_string_property(
                     "action",
@@ -2298,6 +2333,84 @@ mod tests {
         assert_eq!(
             output[1]["error"]["message"],
             "tool is not enabled for this MCP session: validate_brief"
+        );
+    }
+
+    #[test]
+    fn accepts_openhands_wrapper_metadata_for_empty_arg_tools() {
+        let mut server = StdioMcpServer::new(McpServerArgs {
+            database_url: None,
+            artifact_root: PathBuf::from(".continuum/artifacts"),
+            runtime_providers_file: None,
+            mcp_servers_file: None,
+            ai_gateway_file: None,
+            tool_allowlist: Vec::new(),
+        })
+        .expect("server should initialize");
+        let input = concat!(
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{},\"clientInfo\":{\"name\":\"test-client\",\"version\":\"0.1.0\"}}}\n",
+            "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n",
+            "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"list_packs\",\"arguments\":{\"security_risk\":\"LOW\",\"summary\":\"List available repository packs.\"}}}\n"
+        );
+
+        let output = run_session(&mut server, input);
+
+        assert_eq!(output[1]["error"], Value::Null);
+        assert_eq!(
+            output[1]["result"]["structuredContent"]["catalog"]["items"][0]["pack_id"],
+            "cli-tool"
+        );
+    }
+
+    #[test]
+    fn accepts_openhands_wrapper_metadata_on_tools_call_params() {
+        let mut server = StdioMcpServer::new(McpServerArgs {
+            database_url: None,
+            artifact_root: PathBuf::from(".continuum/artifacts"),
+            runtime_providers_file: None,
+            mcp_servers_file: None,
+            ai_gateway_file: None,
+            tool_allowlist: Vec::new(),
+        })
+        .expect("server should initialize");
+        let input = concat!(
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{},\"clientInfo\":{\"name\":\"test-client\",\"version\":\"0.1.0\"}}}\n",
+            "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n",
+            "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"list_packs\",\"arguments\":{\"security_risk\":\"LOW\",\"summary\":\"List available repository packs.\"},\"server\":\"catalyst-continuum\"}}\n"
+        );
+
+        let output = run_session(&mut server, input);
+
+        assert_eq!(output[1]["error"], Value::Null);
+        assert_eq!(
+            output[1]["result"]["structuredContent"]["catalog"]["items"][0]["pack_id"],
+            "cli-tool"
+        );
+    }
+
+    #[test]
+    fn accepts_openhands_wrapper_metadata_for_structured_tool_args() {
+        let mut server = StdioMcpServer::new(McpServerArgs {
+            database_url: None,
+            artifact_root: PathBuf::from(".continuum/artifacts"),
+            runtime_providers_file: None,
+            mcp_servers_file: None,
+            ai_gateway_file: None,
+            tool_allowlist: Vec::new(),
+        })
+        .expect("server should initialize");
+        let input = concat!(
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{},\"clientInfo\":{\"name\":\"test-client\",\"version\":\"0.1.0\"}}}\n",
+            "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n",
+            "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"describe_pack\",\"arguments\":{\"pack_id\":\"cli-tool\",\"security_risk\":\"LOW\",\"summary\":\"Describe the CLI tool pack.\"}}}\n"
+        );
+
+        let output = run_session(&mut server, input);
+
+        assert_eq!(output[1]["error"], Value::Null);
+        assert_eq!(
+            output[1]["result"]["structuredContent"]["pack"]["pack_id"],
+            "cli-tool"
         );
     }
 

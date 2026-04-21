@@ -40,12 +40,13 @@ mkdir -p \
   --state-dir "$CONTAINER_STATE_DIR" \
   --dry-run >"$CONTAINER_OUTPUT"
 
-LITELLM_DEFAULT_MODEL=local-ollama-coder \
+LITELLM_DEFAULT_MODEL=local-macos-native \
   "$ROOT_DIR/scripts/openhands-launch.sh" \
     --profile container-sandbox \
     --task-file "$ROOT_DIR/examples/openhands/first-task.md" \
     --artifact-root "$ARTIFACT_ROOT" \
     --state-dir "$OVERRIDE_STATE_DIR" \
+    --litellm-model local-ollama-coder \
     --dry-run >"$OVERRIDE_OUTPUT"
 
 "$ROOT_DIR/scripts/openhands-launch.sh" \
@@ -117,6 +118,12 @@ if f"openhands=={cli_version}" not in host_command:
         "host profile smoke failed: expected pinned OpenHands CLI version in launch command"
     )
 
+if " --file " in host_command:
+    raise SystemExit("host profile smoke failed: expected inline task, not --file")
+
+if " --task " not in host_command:
+    raise SystemExit("host profile smoke failed: expected --task in launch command")
+
 if container.get("profile") != "container-sandbox":
     raise SystemExit(
         "container profile smoke failed: expected profile=container-sandbox"
@@ -162,6 +169,21 @@ if host.get("mcp_config") != str(host_state_dir / "mcp.json"):
 if container.get("mcp_config") != str(container_state_dir / "mcp.json"):
     raise SystemExit("container profile smoke failed: unexpected mcp_config path")
 
+if host.get("task_source_kind") != "inlined-file":
+    raise SystemExit("host profile smoke failed: expected task file to be inlined")
+
+if container.get("task_source_kind") != "inlined-file":
+    raise SystemExit("container profile smoke failed: expected task file to be inlined")
+
+expected_task_source = str(pathlib.Path.cwd() / "examples/openhands/first-task.md")
+if host.get("task_source_path") != expected_task_source:
+    raise SystemExit("host profile smoke failed: unexpected inlined task source path")
+
+if container.get("task_source_path") != expected_task_source:
+    raise SystemExit(
+        "container profile smoke failed: unexpected inlined task source path"
+    )
+
 if host.get("mcp_surface") != "validation":
     raise SystemExit("host profile smoke failed: expected validation MCP surface")
 
@@ -174,6 +196,15 @@ if not host.get("llm_model", "").startswith("openai/"):
 if not container.get("llm_model", "").startswith("openai/"):
     raise SystemExit(
         "container profile smoke failed: expected OpenAI-compatible model alias"
+    )
+
+container_command = container.get("launch_command", "")
+if " --file " in container_command:
+    raise SystemExit("container profile smoke failed: expected inline task, not --file")
+
+if " --task " not in container_command:
+    raise SystemExit(
+        "container profile smoke failed: expected --task in launch command"
     )
 
 if override.get("llm_model") != "openai/local-ollama-coder":
