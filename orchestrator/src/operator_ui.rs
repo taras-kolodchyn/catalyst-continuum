@@ -1,9 +1,18 @@
+use serde::Serialize;
 use tiny_http::{Header, Response, StatusCode};
+
+use crate::{
+    commands::describe_ai_gateway_status::{self, AiGatewayStatusReport},
+    config::InstanceConfigReport,
+    planning::pack_catalog::{PackCatalogDocument, build_pack_catalog},
+    storage::postgres::DatabaseReadiness,
+};
 
 const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; connect-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'";
 const INDEX_HTML: &str = include_str!("operator_ui/index.html");
 const APP_JS: &str = include_str!("operator_ui/app.js");
 const STYLES_CSS: &str = include_str!("operator_ui/styles.css");
+pub const DASHBOARD_PATH: &str = "/ui/dashboard";
 
 pub fn route_label(path: &str) -> Option<&'static str> {
     match path {
@@ -25,6 +34,81 @@ pub fn response(path: &str) -> Option<Response<std::io::Cursor<Vec<u8>>>> {
     Some(static_response(body, content_type))
 }
 
+pub fn dashboard_snapshot(
+    readiness_probe: anyhow::Result<DatabaseReadiness>,
+    instance_config: &InstanceConfigReport,
+) -> OperatorUiDashboardSnapshotResponse {
+    let api_key = describe_ai_gateway_status::gateway_api_key_from_env();
+    let probe_base_url = describe_ai_gateway_status::gateway_probe_base_url_from_env();
+    let ai_gateway_status = describe_ai_gateway_status::describe_ai_gateway_status(
+        &instance_config.ai_gateway,
+        2_000,
+        api_key.as_deref(),
+        probe_base_url.as_deref(),
+    );
+    let readyz = readiness_envelope(readiness_probe);
+    let ai_gateway = if ai_gateway_status.ready {
+        OperatorUiDataEnvelope::success(StatusCode(200).0, ai_gateway_status)
+    } else {
+        OperatorUiDataEnvelope::success(StatusCode(503).0, ai_gateway_status)
+    };
+    let config = OperatorUiDataEnvelope::success(StatusCode(200).0, instance_config.clone());
+    let packs = match build_pack_catalog() {
+        Ok(document) => OperatorUiDataEnvelope::success(StatusCode(200).0, document),
+        Err(error) => OperatorUiDataEnvelope::error(StatusCode(500).0, error.to_string()),
+    };
+
+    OperatorUiDashboardSnapshotResponse {
+        readyz,
+        ai_gateway,
+        config,
+        packs,
+    }
+}
+
+fn readiness_envelope(
+    readiness_probe: anyhow::Result<DatabaseReadiness>,
+) -> OperatorUiDataEnvelope<OperatorUiReadinessResponse> {
+    match readiness_probe {
+        Ok(readiness) if readiness.schema_ready => OperatorUiDataEnvelope::success(
+            StatusCode(200).0,
+            OperatorUiReadinessResponse {
+                status: "ok".to_string(),
+                service: "catalyst-continuum-orchestrator".to_string(),
+                database: "ready".to_string(),
+                schema: "ready".to_string(),
+                database_name: Some(readiness.database_name),
+                missing_tables: Vec::new(),
+                error: None,
+            },
+        ),
+        Ok(readiness) => OperatorUiDataEnvelope::success(
+            StatusCode(503).0,
+            OperatorUiReadinessResponse {
+                status: "degraded".to_string(),
+                service: "catalyst-continuum-orchestrator".to_string(),
+                database: "ready".to_string(),
+                schema: "missing_tables".to_string(),
+                database_name: Some(readiness.database_name),
+                missing_tables: readiness.missing_tables,
+                error: None,
+            },
+        ),
+        Err(error) => OperatorUiDataEnvelope::success(
+            StatusCode(503).0,
+            OperatorUiReadinessResponse {
+                status: "error".to_string(),
+                service: "catalyst-continuum-orchestrator".to_string(),
+                database: "unavailable".to_string(),
+                schema: "unknown".to_string(),
+                database_name: None,
+                missing_tables: Vec::new(),
+                error: Some(error.to_string()),
+            },
+        ),
+    }
+}
+
 fn static_response(
     body: &'static str,
     content_type: &'static str,
@@ -43,9 +127,66 @@ fn header(name: &str, value: impl AsRef<str>) -> Header {
         .unwrap_or_else(|_| panic!("invalid static UI response header: {name}"))
 }
 
+#[derive(Debug, Serialize)]
+pub struct OperatorUiDashboardSnapshotResponse {
+    pub readyz: OperatorUiDataEnvelope<OperatorUiReadinessResponse>,
+    pub ai_gateway: OperatorUiDataEnvelope<AiGatewayStatusReport>,
+    pub config: OperatorUiDataEnvelope<InstanceConfigReport>,
+    pub packs: OperatorUiDataEnvelope<PackCatalogDocument>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OperatorUiDataEnvelope<T> {
+    pub ok: bool,
+    pub status: u16,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<T>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+impl<T> OperatorUiDataEnvelope<T> {
+    fn success(status: u16, data: T) -> Self {
+        Self {
+            ok: status < 400,
+            status,
+            data: Some(data),
+            error: None,
+        }
+    }
+
+    fn error(status: u16, error: String) -> Self {
+        Self {
+            ok: false,
+            status,
+            data: None,
+            error: Some(error),
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct OperatorUiReadinessResponse {
+    pub status: String,
+    pub service: String,
+    pub database: String,
+    pub schema: String,
+    pub database_name: Option<String>,
+    pub missing_tables: Vec<String>,
+    pub error: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{response, route_label};
+    use super::{DASHBOARD_PATH, dashboard_snapshot, response, route_label};
+    use crate::{
+        config::{
+            AiGatewayCapabilityConfig, AiGatewayConfig, AiGatewayDefaultModelAliases,
+            ExternalMcpServersConfig, GitHubAppConfig, InstanceConfigReport, RuntimeProviderSet,
+            RuntimeProviderStatus, RuntimeProvidersConfig,
+        },
+        storage::postgres::DatabaseReadiness,
+    };
 
     #[test]
     fn maps_supported_operator_ui_routes() {
@@ -54,6 +195,34 @@ mod tests {
         assert_eq!(route_label("/ui/app.js"), Some("/ui/app.js"));
         assert_eq!(route_label("/ui/styles.css"), Some("/ui/styles.css"));
         assert_eq!(route_label("/ui/unknown"), None);
+    }
+
+    #[test]
+    fn builds_dashboard_snapshot_without_failing_the_ui_route() {
+        let snapshot = dashboard_snapshot(
+            Ok(DatabaseReadiness {
+                database_name: "continuum".to_string(),
+                schema_ready: true,
+                missing_tables: Vec::new(),
+            }),
+            &sample_instance_config(),
+        );
+
+        assert_eq!(DASHBOARD_PATH, "/ui/dashboard");
+        assert!(snapshot.readyz.ok);
+        assert_eq!(snapshot.readyz.status, 200);
+        assert!(snapshot.config.ok);
+        assert!(snapshot.packs.ok);
+        assert_eq!(
+            snapshot
+                .config
+                .data
+                .as_ref()
+                .expect("config data should be present")
+                .runtime_providers
+                .default_provider,
+            "docker"
+        );
     }
 
     #[test]
@@ -82,5 +251,55 @@ mod tests {
             header.field.equiv("Content-Type")
                 && header.value.as_str() == "application/javascript; charset=utf-8"
         }));
+    }
+
+    fn sample_instance_config() -> InstanceConfigReport {
+        InstanceConfigReport {
+            runtime_providers: RuntimeProvidersConfig {
+                source_path: Some("/tmp/runtime-providers.yaml".to_string()),
+                default_provider: "docker".to_string(),
+                providers: RuntimeProviderSet::default(),
+            },
+            runtime_provider_statuses: vec![RuntimeProviderStatus {
+                provider: "docker".to_string(),
+                enabled: true,
+                implemented: true,
+                registered: true,
+                issue: None,
+            }],
+            external_mcp_servers: ExternalMcpServersConfig {
+                source_path: Some("/tmp/mcp-servers.yaml".to_string()),
+                servers: Vec::new(),
+            },
+            ai_gateway: AiGatewayConfig {
+                source_path: Some("/tmp/ai-gateway.yaml".to_string()),
+                provider: "litellm".to_string(),
+                deployment_mode: "bundled".to_string(),
+                control_plane_owner: "orchestrator".to_string(),
+                api_format: "openai_compatible".to_string(),
+                host_base_url: "http://127.0.0.1:4000".to_string(),
+                container_base_url: "http://host.docker.internal:4000".to_string(),
+                default_model_aliases: AiGatewayDefaultModelAliases {
+                    macos_apple_silicon: "local-macos-native".to_string(),
+                    other_platforms: "local-ollama-coder".to_string(),
+                },
+                capabilities: vec![AiGatewayCapabilityConfig {
+                    capability: "chat_completions".to_string(),
+                    enabled: true,
+                    note: Some("OpenAI-compatible chat completions are enabled.".to_string()),
+                }],
+            },
+            github_app: GitHubAppConfig {
+                app_id: None,
+                installation_id: None,
+                private_key_path: None,
+                private_key_exists: false,
+                webhook_secret_configured: false,
+                publication_ready: false,
+                publication_missing_fields: vec!["app_id".to_string()],
+                ready: false,
+                missing_fields: vec!["app_id".to_string(), "webhook_secret".to_string()],
+            },
+        }
     }
 }

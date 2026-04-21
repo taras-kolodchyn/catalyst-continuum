@@ -159,24 +159,28 @@ async function refreshDashboard() {
 
   try {
     const [
-      readyzEnvelope,
-      aiGatewayEnvelope,
-      configEnvelope,
-      packsEnvelope,
+      dashboardEnvelope,
       runsEnvelope,
       webhookActionsEnvelope,
       signalsEnvelope,
       deliveriesEnvelope,
     ] = await Promise.all([
-      fetchJsonEnvelope("/readyz"),
-      fetchJsonEnvelope("/ai-gateway/status"),
-      fetchJsonEnvelope("/config"),
-      fetchJsonEnvelope("/packs"),
+      fetchJsonEnvelope("/ui/dashboard"),
       fetchJsonEnvelope(buildRunsPath()),
       fetchJsonEnvelope("/github/webhook-actions?limit=8"),
       fetchJsonEnvelope("/repository-signals?limit=8"),
       fetchJsonEnvelope("/github/webhooks?limit=8"),
     ]);
+
+    const readyzEnvelope =
+      dashboardEnvelope.data?.readyz ?? failedEnvelope(new Error("missing readyz snapshot"));
+    const aiGatewayEnvelope =
+      dashboardEnvelope.data?.ai_gateway ??
+      failedEnvelope(new Error("missing AI gateway snapshot"));
+    const configEnvelope =
+      dashboardEnvelope.data?.config ?? failedEnvelope(new Error("missing config snapshot"));
+    const packsEnvelope =
+      dashboardEnvelope.data?.packs ?? failedEnvelope(new Error("missing packs snapshot"));
 
     renderStatusGrid({
       readyz: readyzEnvelope,

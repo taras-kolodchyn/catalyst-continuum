@@ -83,6 +83,7 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                     endpoints: vec![
                         "/",
                         "/ui",
+                        "/ui/dashboard",
                         "/livez",
                         "/healthz",
                         "/readyz",
@@ -118,6 +119,10 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                         "POST /briefs/submit",
                     ],
                 },
+            ),
+            ("GET", operator_ui::DASHBOARD_PATH) => json_response(
+                StatusCode(200),
+                &operator_ui::dashboard_snapshot(store.probe_readiness(), &instance_config),
             ),
             ("GET", _) if operator_ui::route_label(path).is_some() => operator_ui::response(path)
                 .expect("operator UI route guard should resolve a static response"),
@@ -1654,6 +1659,7 @@ fn route_label(method: &str, path: &str) -> &'static str {
 
     match (method, path) {
         ("GET", "/") => "/",
+        ("GET", operator_ui::DASHBOARD_PATH) => operator_ui::DASHBOARD_PATH,
         ("GET", "/livez") => "/livez",
         ("GET", "/healthz") => "/healthz",
         ("GET", "/readyz") => "/readyz",
@@ -1936,6 +1942,7 @@ mod tests {
         assert_eq!(route_label("GET", "/ui"), "/ui");
         assert_eq!(route_label("GET", "/ui/app.js"), "/ui/app.js");
         assert_eq!(route_label("GET", "/ui/styles.css"), "/ui/styles.css");
+        assert_eq!(route_label("GET", "/ui/dashboard"), "/ui/dashboard");
         assert_eq!(route_label("GET", "/livez"), "/livez");
         assert_eq!(route_label("GET", "/healthz"), "/healthz");
         assert_eq!(route_label("GET", "/readyz"), "/readyz");
