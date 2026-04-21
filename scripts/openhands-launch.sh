@@ -23,6 +23,8 @@ ENV_FILE=""
 FULL_MCP_SURFACE=0
 MCP_ONLY_TOOLS=0
 EXPLICIT_LITELLM_MODEL=""
+EXTERNAL_SERVER_ALLOWLIST=""
+INSTANCE_EXTERNAL_MCP_SERVERS=0
 
 WORKSPACE="${OPENHANDS_WORKSPACE:-$ROOT_DIR}"
 STATE_DIR=""
@@ -60,6 +62,10 @@ Options:
   --litellm-model ALIAS          Override the LiteLLM model alias used for this launch
   --full-mcp-surface             Disable the pinned OpenHands MCP tool allowlist and expose the full orchestrator MCP surface
   --mcp-only-tools              Restrict the OpenHands session to orchestrator MCP tools plus Finish/Think
+  --external-server-allowlist CSV
+                                 Render only these external MCP servers for the OpenHands session
+  --instance-external-mcp-servers
+                                 Render every instance-allowed external MCP server for the OpenHands session
   --launchers-file PATH          Agent launcher profile config file
   --artifact-root PATH           Artifact root passed to the orchestrator MCP server
   --runtime-providers-file PATH  Runtime providers config path
@@ -159,6 +165,18 @@ while [ "$#" -gt 0 ]; do
       MCP_ONLY_TOOLS=1
       shift
       ;;
+    --external-server-allowlist)
+      if [ "$#" -lt 2 ]; then
+        echo "--external-server-allowlist requires a CSV value" >&2
+        exit 1
+      fi
+      EXTERNAL_SERVER_ALLOWLIST="$2"
+      shift 2
+      ;;
+    --instance-external-mcp-servers)
+      INSTANCE_EXTERNAL_MCP_SERVERS=1
+      shift
+      ;;
     --launchers-file)
       if [ "$#" -lt 2 ]; then
         echo "--launchers-file requires a path" >&2
@@ -230,6 +248,11 @@ done
 
 if [ -n "$TASK_TEXT" ] && [ -n "$TASK_FILE" ]; then
   echo "--task and --task-file are mutually exclusive" >&2
+  exit 1
+fi
+
+if [ "$INSTANCE_EXTERNAL_MCP_SERVERS" -eq 1 ] && [ -n "$EXTERNAL_SERVER_ALLOWLIST" ]; then
+  echo "--external-server-allowlist and --instance-external-mcp-servers are mutually exclusive" >&2
   exit 1
 fi
 
@@ -402,6 +425,12 @@ if [ "$FULL_MCP_SURFACE" -eq 1 ]; then
   render_mcp_args+=(--full-mcp-surface)
 elif [ -n "$AGENT_MCP_TOOL_ALLOWLIST" ]; then
   render_mcp_args+=(--tool-allowlist "$AGENT_MCP_TOOL_ALLOWLIST")
+fi
+
+if [ "$INSTANCE_EXTERNAL_MCP_SERVERS" -eq 1 ]; then
+  render_mcp_args+=(--instance-external-mcp-servers)
+elif [ -n "$EXTERNAL_SERVER_ALLOWLIST" ]; then
+  render_mcp_args+=(--external-server-allowlist "$EXTERNAL_SERVER_ALLOWLIST")
 fi
 
 "$ROOT_DIR/scripts/openhands-render-mcp-config.sh" "${render_mcp_args[@]}" >/dev/null
@@ -592,6 +621,14 @@ print_contract() {
   if [ "$MCP_ONLY_TOOLS" -eq 1 ]; then
     echo "tool_filter_mode=mcp-only"
     echo "filter_tools_regex=$MCP_ONLY_FILTER_REGEX"
+  fi
+  if [ "$INSTANCE_EXTERNAL_MCP_SERVERS" -eq 1 ]; then
+    echo "external_mcp_mode=instance"
+  elif [ -n "$EXTERNAL_SERVER_ALLOWLIST" ]; then
+    echo "external_mcp_mode=allowlist"
+    echo "external_mcp_server_allowlist=$EXTERNAL_SERVER_ALLOWLIST"
+  else
+    echo "external_mcp_mode=none"
   fi
   echo "llm_model=openai/$LITELLM_MODEL"
   echo "llm_base_url=$HOST_BASE_URL"

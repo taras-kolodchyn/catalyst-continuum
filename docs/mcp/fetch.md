@@ -89,6 +89,7 @@ Instead it owns the policy contract around `Fetch`:
 - the same resolved result is persisted into `agent_dispatch_plan`
 
 That gives OpenHands, Codex, and operators one inspectable answer for whether the external MCP server should be present for this run, without making Catalyst Continuum a third-party sidecar manager.
+For the repo-pinned OpenHands path, manual sessions stay bootstrap-safe by default and can opt in with `./scripts/openhands-launch.sh --external-server-allowlist fetch`, while the scripted executor wrapper `./scripts/openhands-run-agent-task.sh` projects the run-level allowlist from `claim-next-agent-task` automatically.
 
 ## Validation And Debugging
 

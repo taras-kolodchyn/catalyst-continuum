@@ -249,6 +249,12 @@ values = {
     "TASK_DESCRIPTION": task.get("description", ""),
     "TASK_BACKLOG_ITEM_ID": task.get("backlog_item_id", ""),
     "TASK_TIMEOUT_SECONDS": str(execution.get("timeout_seconds") or ""),
+    "CLAIM_EXTERNAL_SERVER_ALLOWLIST": ",".join(
+        server.get("server_id", "")
+        for server in (claim.get("external_mcp_contract") or {}).get("servers") or []
+        if server.get("status") == "allowed"
+        and "openhands" in (server.get("client_launches") or {})
+    ),
 }
 
 for key, value in values.items():
@@ -406,6 +412,9 @@ if [ "$FULL_MCP_SURFACE" -eq 1 ]; then
 fi
 if [ -n "$EXPLICIT_LITELLM_MODEL" ]; then
   launch_args+=(--litellm-model "$EXPLICIT_LITELLM_MODEL")
+fi
+if [ -n "${CLAIM_EXTERNAL_SERVER_ALLOWLIST:-}" ]; then
+  launch_args+=(--external-server-allowlist "$CLAIM_EXTERNAL_SERVER_ALLOWLIST")
 fi
 
 set +e

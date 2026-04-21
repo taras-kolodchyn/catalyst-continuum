@@ -13,12 +13,14 @@ CONTAINER_STATE_DIR="$SMOKE_ROOT/state/container-sandbox"
 OVERRIDE_STATE_DIR="$SMOKE_ROOT/state/override-model"
 FULL_STATE_DIR="$SMOKE_ROOT/state/full-mcp-surface"
 MCP_ONLY_STATE_DIR="$SMOKE_ROOT/state/mcp-only"
+FETCH_STATE_DIR="$SMOKE_ROOT/state/fetch-allowlist"
 ARTIFACT_ROOT="$SMOKE_ROOT/artifacts"
 HOST_OUTPUT="$SMOKE_ROOT/host-full-access.txt"
 CONTAINER_OUTPUT="$SMOKE_ROOT/container-sandbox.txt"
 OVERRIDE_OUTPUT="$SMOKE_ROOT/override-model.txt"
 FULL_OUTPUT="$SMOKE_ROOT/full-mcp-surface.txt"
 MCP_ONLY_OUTPUT="$SMOKE_ROOT/mcp-only.txt"
+FETCH_OUTPUT="$SMOKE_ROOT/fetch-allowlist.txt"
 
 rm -rf "$SMOKE_ROOT"
 mkdir -p \
@@ -27,6 +29,7 @@ mkdir -p \
   "$OVERRIDE_STATE_DIR" \
   "$FULL_STATE_DIR" \
   "$MCP_ONLY_STATE_DIR" \
+  "$FETCH_STATE_DIR" \
   "$ARTIFACT_ROOT"
 
 "$ROOT_DIR/scripts/openhands-launch.sh" \
@@ -68,17 +71,27 @@ LITELLM_DEFAULT_MODEL=local-macos-native \
   --mcp-only-tools \
   --dry-run >"$MCP_ONLY_OUTPUT"
 
+"$ROOT_DIR/scripts/openhands-launch.sh" \
+  --profile container-sandbox \
+  --task-file "$ROOT_DIR/examples/openhands/bootstrap-task.md" \
+  --artifact-root "$ARTIFACT_ROOT" \
+  --state-dir "$FETCH_STATE_DIR" \
+  --external-server-allowlist fetch \
+  --dry-run >"$FETCH_OUTPUT"
+
 python3 - \
   "$HOST_OUTPUT" \
   "$CONTAINER_OUTPUT" \
   "$OVERRIDE_OUTPUT" \
   "$FULL_OUTPUT" \
   "$MCP_ONLY_OUTPUT" \
+  "$FETCH_OUTPUT" \
   "$HOST_STATE_DIR" \
   "$CONTAINER_STATE_DIR" \
   "$OVERRIDE_STATE_DIR" \
   "$FULL_STATE_DIR" \
   "$MCP_ONLY_STATE_DIR" \
+  "$FETCH_STATE_DIR" \
   "$OPENHANDS_CLI_VERSION" \
   "$OPENHANDS_AGENT_SERVER_REPOSITORY" \
   "$OPENHANDS_AGENT_SERVER_TAG" <<'PY'
@@ -91,14 +104,16 @@ container_output = pathlib.Path(sys.argv[2])
 override_output = pathlib.Path(sys.argv[3])
 full_output = pathlib.Path(sys.argv[4])
 mcp_only_output = pathlib.Path(sys.argv[5])
-host_state_dir = pathlib.Path(sys.argv[6])
-container_state_dir = pathlib.Path(sys.argv[7])
-override_state_dir = pathlib.Path(sys.argv[8])
-full_state_dir = pathlib.Path(sys.argv[9])
-mcp_only_state_dir = pathlib.Path(sys.argv[10])
-cli_version = sys.argv[11]
-agent_server_repository = sys.argv[12]
-agent_server_tag = sys.argv[13]
+fetch_output = pathlib.Path(sys.argv[6])
+host_state_dir = pathlib.Path(sys.argv[7])
+container_state_dir = pathlib.Path(sys.argv[8])
+override_state_dir = pathlib.Path(sys.argv[9])
+full_state_dir = pathlib.Path(sys.argv[10])
+mcp_only_state_dir = pathlib.Path(sys.argv[11])
+fetch_state_dir = pathlib.Path(sys.argv[12])
+cli_version = sys.argv[13]
+agent_server_repository = sys.argv[14]
+agent_server_tag = sys.argv[15]
 
 
 def parse_output(path: pathlib.Path) -> dict[str, str]:
@@ -116,6 +131,12 @@ container = parse_output(container_output)
 override = parse_output(override_output)
 full = parse_output(full_output)
 mcp_only = parse_output(mcp_only_output)
+fetch = parse_output(fetch_output)
+
+
+def load_server_names(path: pathlib.Path) -> list[str]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return sorted((payload.get("mcpServers") or {}).keys())
 
 if host.get("profile") != "host-full-access":
     raise SystemExit("host profile smoke failed: expected profile=host-full-access")
@@ -207,6 +228,12 @@ if host.get("mcp_surface") != "validation":
 if container.get("mcp_surface") != "validation":
     raise SystemExit("container profile smoke failed: expected validation MCP surface")
 
+if host.get("external_mcp_mode") != "none":
+    raise SystemExit("host profile smoke failed: expected external_mcp_mode=none")
+
+if container.get("external_mcp_mode") != "none":
+    raise SystemExit("container profile smoke failed: expected external_mcp_mode=none")
+
 if not host.get("llm_model", "").startswith("openai/"):
     raise SystemExit("host profile smoke failed: expected OpenAI-compatible model alias")
 
@@ -258,6 +285,9 @@ if container.get("mcp_tool_allowlist") != expected_allowlist:
 if override.get("mcp_tool_allowlist") != expected_allowlist:
     raise SystemExit("override profile smoke failed: unexpected MCP tool allowlist")
 
+if override.get("external_mcp_mode") != "none":
+    raise SystemExit("override profile smoke failed: expected external_mcp_mode=none")
+
 if full.get("mcp_surface") != "full":
     raise SystemExit("full-surface smoke failed: expected mcp_surface=full")
 
@@ -294,6 +324,41 @@ if mcp_only_settings.get("tools") != []:
 
 if mcp_only_settings.get("include_default_tools") != ["FinishTool", "ThinkTool"]:
     raise SystemExit("mcp-only smoke failed: expected only FinishTool and ThinkTool")
+
+if fetch.get("external_mcp_mode") != "allowlist":
+    raise SystemExit("fetch-allowlist smoke failed: expected external_mcp_mode=allowlist")
+
+if fetch.get("external_mcp_server_allowlist") != "fetch":
+    raise SystemExit(
+        "fetch-allowlist smoke failed: expected external_mcp_server_allowlist=fetch"
+    )
+
+if fetch.get("mcp_config") != str(fetch_state_dir / "mcp.json"):
+    raise SystemExit("fetch-allowlist smoke failed: unexpected mcp_config path")
+
+if not (fetch_state_dir / "mcp.json").exists():
+    raise SystemExit("fetch-allowlist smoke failed: expected repo-local mcp.json")
+
+host_server_names = load_server_names(host_state_dir / "mcp.json")
+container_server_names = load_server_names(container_state_dir / "mcp.json")
+fetch_server_names = load_server_names(fetch_state_dir / "mcp.json")
+
+if host_server_names != ["catalyst-continuum"]:
+    raise SystemExit(
+        f"host profile smoke failed: unexpected MCP servers {host_server_names!r}"
+    )
+
+if container_server_names != ["catalyst-continuum"]:
+    raise SystemExit(
+        "container profile smoke failed: default launcher should not include external "
+        f"MCP servers, got {container_server_names!r}"
+    )
+
+if fetch_server_names != ["catalyst-continuum", "fetch"]:
+    raise SystemExit(
+        "fetch-allowlist smoke failed: expected orchestrator plus fetch, got "
+        f"{fetch_server_names!r}"
+    )
 PY
 
 echo "OpenHands launch profiles resolve correctly"

@@ -205,6 +205,6 @@ For stateful sessions, `list_github_webhooks` and `describe_github_webhook` expo
 ## Notes
 
 - Start with stateless validation first. This keeps agent integration simple before wiring Postgres and runtime workers.
-- When a pack recommends `fetch` and the resolved `external_mcp_contract` allows it for the current agent, register the pinned upstream `Fetch` server directly in the client using [fetch.md](fetch.md) instead of expecting the orchestrator to launch it.
+- When a pack recommends `fetch` and the resolved `external_mcp_contract` allows it for the current agent, register the pinned upstream `Fetch` server directly in the client using [fetch.md](fetch.md) instead of expecting the orchestrator to launch it. The repo-pinned OpenHands launcher now does that through an explicit session allowlist, and its executor wrapper projects that allowlist from the claim response automatically.
 - Prefer absolute paths over cwd-sensitive relative paths when the client persists its MCP registration.
 - Keep the client-side timeout reasonably generous for mutating tools, especially once worker execution is involved.

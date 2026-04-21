@@ -14,6 +14,8 @@ DATABASE_URL="${CATALYST_DATABASE_URL:-}"
 LAUNCHERS_FILE="${CATALYST_AGENT_LAUNCHERS_FILE:-$ROOT_DIR/config/agent-launchers.toml}"
 TOOL_ALLOWLIST="${CATALYST_MCP_TOOL_ALLOWLIST:-}"
 FULL_MCP_SURFACE=0
+EXTERNAL_SERVER_ALLOWLIST=""
+INSTANCE_EXTERNAL_MCP_SERVERS=0
 
 usage() {
   cat <<'EOF'
@@ -32,6 +34,10 @@ Options:
   --launchers-file PATH          Agent launcher config file used to derive the default OpenHands MCP tool allowlist
   --tool-allowlist CSV           Override the OpenHands MCP tool allowlist passed to the orchestrator
   --full-mcp-surface             Omit the default OpenHands MCP tool allowlist and expose the full orchestrator MCP surface
+  --external-server-allowlist CSV
+                                 Render only these external MCP servers for OpenHands
+  --instance-external-mcp-servers
+                                 Render every instance-allowed external MCP server for OpenHands
   -h, --help                     Show this help
 EOF
 }
@@ -114,6 +120,18 @@ while [ "$#" -gt 0 ]; do
       FULL_MCP_SURFACE=1
       shift
       ;;
+    --external-server-allowlist)
+      if [ "$#" -lt 2 ]; then
+        echo "--external-server-allowlist requires a CSV value" >&2
+        exit 1
+      fi
+      EXTERNAL_SERVER_ALLOWLIST="$2"
+      shift 2
+      ;;
+    --instance-external-mcp-servers)
+      INSTANCE_EXTERNAL_MCP_SERVERS=1
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -128,6 +146,11 @@ done
 
 if [ "$FULL_MCP_SURFACE" -eq 1 ] && [ -n "$TOOL_ALLOWLIST" ]; then
   echo "--tool-allowlist and --full-mcp-surface are mutually exclusive" >&2
+  exit 1
+fi
+
+if [ "$INSTANCE_EXTERNAL_MCP_SERVERS" -eq 1 ] && [ -n "$EXTERNAL_SERVER_ALLOWLIST" ]; then
+  echo "--external-server-allowlist and --instance-external-mcp-servers are mutually exclusive" >&2
   exit 1
 fi
 
@@ -174,7 +197,9 @@ rendered_config="$(
     "$MCP_SERVERS_FILE" \
     "$AI_GATEWAY_FILE" \
     "$DATABASE_URL" \
-    "$TOOL_ALLOWLIST" <<'PY'
+    "$TOOL_ALLOWLIST" \
+    "$EXTERNAL_SERVER_ALLOWLIST" \
+    "$INSTANCE_EXTERNAL_MCP_SERVERS" <<'PY'
 import json
 import pathlib
 import sys
@@ -188,6 +213,10 @@ mcp_servers_file = str(pathlib.Path(sys.argv[6]).resolve())
 ai_gateway_file = str(pathlib.Path(sys.argv[7]).resolve())
 database_url = sys.argv[8]
 tool_allowlist = sys.argv[9]
+external_server_allowlist = [
+    item.strip() for item in sys.argv[10].split(",") if item.strip()
+]
+instance_external_mcp_servers = sys.argv[11] == "1"
 
 instance_config = json.loads(instance_config_path.read_text(encoding="utf-8"))
 
@@ -227,11 +256,39 @@ mcp_servers = {
     }
 }
 
-for server in instance_config["external_mcp_servers"]["servers"]:
+if len(set(external_server_allowlist)) != len(external_server_allowlist):
+    raise SystemExit("external server allowlist contains duplicate server ids")
+
+server_catalog = {
+    server["server_id"]: server
+    for server in instance_config["external_mcp_servers"]["servers"]
+}
+
+selected_external_server_ids: list[str] = []
+if instance_external_mcp_servers:
+    selected_external_server_ids = [
+        server["server_id"]
+        for server in instance_config["external_mcp_servers"]["servers"]
+        if server.get("enabled", False)
+        and "openhands" in server.get("allowed_agents", [])
+    ]
+else:
+    selected_external_server_ids = external_server_allowlist
+
+for server_id in selected_external_server_ids:
+    server = server_catalog.get(server_id)
+    if server is None:
+        raise SystemExit(
+            f"OpenHands external MCP server allowlist references unknown server {server_id!r}"
+        )
     if not server.get("enabled", False):
-        continue
+        raise SystemExit(
+            f"OpenHands external MCP server {server_id!r} is disabled in the instance config"
+        )
     if "openhands" not in server.get("allowed_agents", []):
-        continue
+        raise SystemExit(
+            f"OpenHands external MCP server {server_id!r} is not allowed for openhands"
+        )
 
     server_id = server["server_id"]
     launch = server.get("client_launches", {}).get("openhands")

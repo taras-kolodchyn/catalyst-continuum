@@ -24,7 +24,11 @@ cargo run -q -p catalyst-continuum-orchestrator -- \
 ```
 
 This is the fastest way to validate the integration locally with OpenHands.
-If the resolved `external_mcp_contract` for a run also allows `fetch`, register the pinned upstream `Fetch` server separately in OpenHands using [fetch.md](fetch.md); Catalyst Continuum only publishes the policy contract for that server, not its lifecycle.
+The default launcher and renderer paths stay bootstrap-safe by projecting only
+the orchestrator MCP server. External MCP servers stay opt-in for manual
+sessions through `--external-server-allowlist` or
+`--instance-external-mcp-servers`, and the scripted executor path projects the
+run-level allowlist from the orchestrator claim automatically.
 
 ## First Local Run
 
@@ -127,6 +131,13 @@ The default allowlist covers:
 - `validate_brief`
 - `submit_brief`
 - `describe_run`
+
+The pinned launcher also keeps external MCP exposure explicit:
+
+- by default it renders only the orchestrator MCP server
+- `--external-server-allowlist fetch` renders only the named external MCP servers
+- `--instance-external-mcp-servers` renders the full instance-allowed external MCP set for OpenHands
+- `./scripts/openhands-run-agent-task.sh` automatically projects only the run-level allowed external MCP server ids from `claim-next-agent-task`
 
 Use `--dry-run` when you want to inspect the exact resolved contract before
 launching:
@@ -287,7 +298,8 @@ OpenHands also supports manual configuration in `~/.openhands/mcp.json`.
 Prefer the repo-local launcher path above when you want a reproducible session
 that does not overwrite a developer's global OpenHands state.
 
-For a full instance-derived config, prefer:
+For a bootstrap-safe instance-derived config with only the orchestrator server,
+prefer:
 
 ```bash
 ./scripts/openhands-render-mcp-config.sh --output "$HOME/.openhands/mcp.json"
@@ -299,11 +311,21 @@ That renderer:
 - uses `cargo --manifest-path <repo>/Cargo.toml` for the orchestrator command
 - carries over `CATALYST_DATABASE_URL` when you export it before rendering
 - applies the pinned OpenHands MCP tool allowlist from `config/agent-launchers.toml` by default
-- includes the OpenHands-allowed external MCP servers from `config/mcp-servers.yaml`
-- materializes the pinned launch arguments declared in `config/mcp-servers.yaml` for those servers, for example the shipped `Fetch` contract
+- defaults to only the orchestrator MCP server
+- can add exact external MCP servers with `--external-server-allowlist`
+- can add the full instance-allowed external MCP server set with `--instance-external-mcp-servers`
+- materializes the pinned launch arguments declared in `config/mcp-servers.yaml` for any rendered external servers, for example the shipped `Fetch` contract
 
 If you want the rendered config to expose the full internal tool surface instead
 of the default validation-focused allowlist, pass `--full-mcp-surface`.
+
+To add only the shipped `Fetch` contract for one manual session, use:
+
+```bash
+./scripts/openhands-render-mcp-config.sh \
+  --external-server-allowlist fetch \
+  --output "$HOME/.openhands/mcp.json"
+```
 
 Use [examples/mcp/openhands.mcp.json](../../examples/mcp/openhands.mcp.json) only as a minimal shape reference when you want to hand-edit the file yourself.
 
@@ -338,15 +360,6 @@ The config matches the OpenHands MCP file format:
         "CATALYST_RUNTIME_PROVIDERS_FILE": "/absolute/path/to/catalyst-continuum/config/runtime-providers.yaml",
         "CATALYST_MCP_SERVERS_FILE": "/absolute/path/to/catalyst-continuum/config/mcp-servers.yaml",
         "CATALYST_AI_GATEWAY_FILE": "/absolute/path/to/catalyst-continuum/config/ai-gateway.yaml"
-      }
-    },
-    "fetch": {
-      "transport": "stdio",
-      "command": "uvx",
-      "args": [
-        "--from",
-        "mcp-server-fetch==2025.4.7",
-        "mcp-server-fetch"
       }
     }
   }
@@ -486,6 +499,7 @@ That wrapper:
 - claims one OpenHands-assigned task through the orchestrator CLI
 - prepares the real task workspace through `prepare-agent-task-workspace`
 - launches the pinned headless OpenHands profile against that workspace
+- projects only the run-level allowed external MCP servers from the claim into the launched OpenHands session
 - keeps the claim lease alive with `heartbeat-agent-task`
 - completes the task with `workspace_root` so successful scaffold or code work is captured into real source artifacts before run quality continues
 
