@@ -708,7 +708,11 @@ impl StdioMcpServer {
             let catalog = build_pack_catalog()?;
             let content =
                 serde_json::to_value(&catalog).context("failed to serialize pack catalog")?;
-            Ok(tool_success_object("catalog", content))
+            Ok(tool_success_with_text(
+                "catalog",
+                content,
+                render_pack_catalog_text(&catalog),
+            ))
         })
     }
 
@@ -1505,6 +1509,21 @@ fn tool_error_value(message: &str) -> Value {
     })
 }
 
+fn render_pack_catalog_text(
+    catalog: &crate::planning::pack_catalog::PackCatalogDocument,
+) -> String {
+    let mut text = format!(
+        "pack_count: {}\ndefault_pack_id: {}\npacks:",
+        catalog.pack_count, catalog.default_pack_id
+    );
+
+    for item in &catalog.items {
+        text.push_str(&format!("\n- {} ({})", item.pack_id, item.display_name));
+    }
+
+    text
+}
+
 fn jsonrpc_result_response(id: Value, result: Value) -> Value {
     json!({
         "jsonrpc": "2.0",
@@ -2273,6 +2292,34 @@ mod tests {
                     .iter()
                     .any(|tool| tool["name"] == "run_next_github_webhook_action"))
         );
+    }
+
+    #[test]
+    fn list_packs_tool_returns_compact_text_summary() {
+        let mut server = StdioMcpServer::new(McpServerArgs {
+            database_url: None,
+            artifact_root: PathBuf::from(".continuum/artifacts"),
+            runtime_providers_file: None,
+            mcp_servers_file: None,
+            ai_gateway_file: None,
+            tool_allowlist: Vec::new(),
+        })
+        .expect("server should initialize");
+        let input = concat!(
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{},\"clientInfo\":{\"name\":\"test-client\",\"version\":\"0.1.0\"}}}\n",
+            "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n",
+            "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"list_packs\",\"arguments\":{}}}\n"
+        );
+
+        let output = run_session(&mut server, input);
+        let text = output[1]["result"]["content"][0]["text"]
+            .as_str()
+            .expect("list_packs should return text content");
+
+        assert!(text.contains("pack_count: 3"));
+        assert!(text.contains("default_pack_id: container-service"));
+        assert!(text.contains("- cli-tool (CLI Tool)"));
+        assert!(!text.contains("\"recommended_external_mcp_servers\""));
     }
 
     #[test]

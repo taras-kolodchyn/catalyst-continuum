@@ -63,11 +63,14 @@ touches the orchestrator tools.
 The MCP server now also tolerates the OpenHands wrapper metadata fields that
 can be attached to tool arguments during native tool calls, so zero-argument
 tools such as `list_packs` stay callable from the first live validation prompt.
+OpenHands also exposes those orchestrator tools with the MCP server name
+prefixed into the tool name, for example `catalyst-continuum_list_packs`.
+Treat those as MCP tool calls, not as terminal commands.
 
-After that, start OpenHands with the prepared first task:
+After that, start OpenHands with the prepared bootstrap task:
 
 ```bash
-./scripts/openhands-launch.sh --bootstrap --profile container-sandbox --task-file examples/openhands/first-task.md
+./scripts/openhands-launch.sh --bootstrap --profile container-sandbox --task-file examples/openhands/bootstrap-task.md
 ```
 
 If your current default LiteLLM alias does not support native `tool_calls`,
@@ -76,13 +79,13 @@ override it explicitly for the session:
 ```bash
 ./scripts/openhands-launch.sh --bootstrap --profile container-sandbox \
   --litellm-model local-ollama-coder \
-  --task-file examples/openhands/first-task.md
+  --task-file examples/openhands/bootstrap-task.md
 ```
 
 For the same task without sandbox isolation, switch to the host-process profile:
 
 ```bash
-./scripts/openhands-launch.sh --bootstrap --profile host-full-access --task-file examples/openhands/first-task.md
+./scripts/openhands-launch.sh --bootstrap --profile host-full-access --task-file examples/openhands/bootstrap-task.md
 ```
 
 ## Pinned Launch Profiles
@@ -108,7 +111,9 @@ The pinned launcher path now also narrows the orchestrator's internal MCP tool
 surface by default through the OpenHands-specific allowlist in
 `config/agent-launchers.toml`.
 That default surface is intentionally aligned to
-[examples/openhands/first-task.md](../../examples/openhands/first-task.md) so a
+[examples/openhands/bootstrap-task.md](../../examples/openhands/bootstrap-task.md),
+while still covering the deeper stateful path in
+[examples/openhands/first-task.md](../../examples/openhands/first-task.md), so a
 local code model does not have to reason over the full control-plane tool set
 just to validate the first end-to-end flow.
 The default allowlist covers:
@@ -166,7 +171,7 @@ If you want a different default on your machine, set `LITELLM_DEFAULT_MODEL` in
 ```bash
 LITELLM_DEFAULT_MODEL=local-ollama-coder ./scripts/openhands-launch.sh \
   --profile container-sandbox \
-  --task-file examples/openhands/first-task.md
+  --task-file examples/openhands/bootstrap-task.md
 ```
 
 The default aliases are:
@@ -412,11 +417,17 @@ Stateful tools need `CATALYST_DATABASE_URL`:
 `describe_latest_artifact` is the shortest path when OpenHands already knows the run and only needs the newest `agent_dispatch_plan`, `policy_report`, `quality_report`, `pr_candidate`, or promotion artifact by type.
 `evaluate_run_policy` is the visibility tool for OpenHands when it needs to inspect whether the current run still satisfies control-plane policy constraints such as runtime provider, sandbox profile, and planned timeout budget.
 `evaluate_run_quality` is the visibility tool for OpenHands when it needs to inspect whether a run is ready for remote PR promotion. Even if OpenHands skips that explicit call, `publish_pr_export` and `open_github_pr` will enforce the same automated gate before pushing changes outward.
-The safe first-run task in [examples/openhands/first-task.md](../../examples/openhands/first-task.md) stays below remote publication: it validates the MCP server, progresses a local run, evaluates policy and quality, and inspects the persisted artifacts.
+The shortest first-run task now lives in
+[examples/openhands/bootstrap-task.md](../../examples/openhands/bootstrap-task.md).
+It stays below worker execution and remote publication: it validates the MCP
+server, submits one short brief, and inspects the created run.
 That starter task now also makes the `brief_content` contract explicit by
 embedding the exact YAML brief inline. OpenHands should reuse that literal YAML
 text for `validate_brief` and `submit_brief`, instead of paraphrasing the brief
 or passing the path string as the content.
+The deeper stateful exercise remains
+[examples/openhands/first-task.md](../../examples/openhands/first-task.md) once
+the shorter bootstrap path is already working.
 
 ## Reliability Note
 
@@ -465,11 +476,17 @@ That wrapper:
 
 Switch to `--profile host-full-access` only when you explicitly want the unsafe host-process path for debugging.
 
-Then launch one of the repo-pinned profiles with [examples/openhands/first-task.md](../../examples/openhands/first-task.md). That is the shortest path to confirming the integration end to end without publishing or opening a GitHub PR:
+Then launch one of the repo-pinned profiles with
+[examples/openhands/bootstrap-task.md](../../examples/openhands/bootstrap-task.md).
+That is the shortest path to confirming the integration without publishing or
+opening a GitHub PR:
 
 ```bash
-./scripts/openhands-launch.sh --bootstrap --profile container-sandbox --task-file examples/openhands/first-task.md
+./scripts/openhands-launch.sh --bootstrap --profile container-sandbox --task-file examples/openhands/bootstrap-task.md
 ```
+
+Once that passes, move on to the deeper stateful validation in
+[examples/openhands/first-task.md](../../examples/openhands/first-task.md).
 
 Switch to `--profile host-full-access` only when you explicitly want the unsafe
 host-process path for debugging or controlled local development.

@@ -28,14 +28,14 @@ mkdir -p \
 
 "$ROOT_DIR/scripts/openhands-launch.sh" \
   --profile host-full-access \
-  --task-file "$ROOT_DIR/examples/openhands/first-task.md" \
+  --task-file "$ROOT_DIR/examples/openhands/bootstrap-task.md" \
   --artifact-root "$ARTIFACT_ROOT" \
   --state-dir "$HOST_STATE_DIR" \
   --dry-run >"$HOST_OUTPUT"
 
 "$ROOT_DIR/scripts/openhands-launch.sh" \
   --profile container-sandbox \
-  --task-file "$ROOT_DIR/examples/openhands/first-task.md" \
+  --task-file "$ROOT_DIR/examples/openhands/bootstrap-task.md" \
   --artifact-root "$ARTIFACT_ROOT" \
   --state-dir "$CONTAINER_STATE_DIR" \
   --dry-run >"$CONTAINER_OUTPUT"
@@ -43,7 +43,7 @@ mkdir -p \
 LITELLM_DEFAULT_MODEL=local-macos-native \
   "$ROOT_DIR/scripts/openhands-launch.sh" \
     --profile container-sandbox \
-    --task-file "$ROOT_DIR/examples/openhands/first-task.md" \
+    --task-file "$ROOT_DIR/examples/openhands/bootstrap-task.md" \
     --artifact-root "$ARTIFACT_ROOT" \
     --state-dir "$OVERRIDE_STATE_DIR" \
     --litellm-model local-ollama-coder \
@@ -51,7 +51,7 @@ LITELLM_DEFAULT_MODEL=local-macos-native \
 
 "$ROOT_DIR/scripts/openhands-launch.sh" \
   --profile container-sandbox \
-  --task-file "$ROOT_DIR/examples/openhands/first-task.md" \
+  --task-file "$ROOT_DIR/examples/openhands/bootstrap-task.md" \
   --artifact-root "$ARTIFACT_ROOT" \
   --state-dir "$FULL_STATE_DIR" \
   --full-mcp-surface \
@@ -175,7 +175,7 @@ if host.get("task_source_kind") != "inlined-file":
 if container.get("task_source_kind") != "inlined-file":
     raise SystemExit("container profile smoke failed: expected task file to be inlined")
 
-expected_task_source = str(pathlib.Path.cwd() / "examples/openhands/first-task.md")
+expected_task_source = str(pathlib.Path.cwd() / "examples/openhands/bootstrap-task.md")
 if host.get("task_source_path") != expected_task_source:
     raise SystemExit("host profile smoke failed: unexpected inlined task source path")
 
