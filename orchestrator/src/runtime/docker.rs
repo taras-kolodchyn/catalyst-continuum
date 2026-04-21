@@ -262,6 +262,11 @@ impl RuntimeProvider for DockerRuntimeProvider {
                 .workspace
                 .as_ref()
                 .map(|workspace| workspace.source_artifact_id),
+            workspace_bundle_path: execution_context
+                .workspace
+                .as_ref()
+                .and_then(|workspace| workspace.bundle_path.as_ref())
+                .map(|path| path.display().to_string()),
             sandbox_profile: execution_settings.sandbox_profile.clone(),
             sandbox_flags: execution_settings.sandbox_flags.clone(),
             network_mode: execution_settings.network_mode.clone(),
@@ -325,6 +330,11 @@ impl RuntimeProvider for DockerRuntimeProvider {
                     .workspace
                     .as_ref()
                     .map(|workspace| workspace.source_artifact_id),
+                "workspace_bundle_path": execution_context
+                    .workspace
+                    .as_ref()
+                    .and_then(|workspace| workspace.bundle_path.as_ref())
+                    .map(|path| path.display().to_string()),
                 "sandbox_profile": execution_settings.sandbox_profile,
                 "sandbox_flags": execution_settings.sandbox_flags,
                 "network_mode": execution_settings.network_mode,
@@ -357,6 +367,7 @@ struct ExecutionArtifactPayload {
     working_directory: Option<String>,
     workspace_path: Option<String>,
     workspace_source_artifact_id: Option<Uuid>,
+    workspace_bundle_path: Option<String>,
     sandbox_profile: Option<String>,
     sandbox_flags: Vec<String>,
     network_mode: Option<String>,
@@ -612,6 +623,7 @@ mod tests {
             source_path: workspace_path.clone(),
             host_path: workspace_path.clone(),
             container_path: "/workspace".to_string(),
+            bundle_path: None,
         });
         let execution_settings = provider
             .execution_settings(

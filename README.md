@@ -74,6 +74,7 @@ catalyst-continuum-orchestrator evaluate-run-quality \
 ```
 
 The quality gate now checks both presence and freshness of derived artifacts, including whether the latest `workspace_snapshot` still references the newest source bundles and whether the latest `pr_candidate` still points at the newest snapshot and patch set.
+That `workspace_snapshot` artifact now also carries a provider-neutral bundle path and digest in its metadata, so future Proxmox and Kubernetes runtimes can hydrate the same prepared workspace without coupling execution to a local host mount.
 `export-pr-candidate`, `publish-pr-export`, `open-github-pr`, and `create-draft-pr` now anchor their artifact lineage to the current passed `quality_report` and reject stale or unverified promotion inputs.
 
 After that, the run can be promoted into a draft GitHub pull request:

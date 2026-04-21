@@ -5,6 +5,7 @@ These schemas describe the persisted JSON manifests behind the primary run artif
 Current published set:
 
 - `backlog.schema.yaml`
+- `workspace-snapshot.schema.yaml`
 - `agent-dispatch-plan.schema.yaml`
 - `policy-report.schema.yaml`
 - `quality-report.schema.yaml`

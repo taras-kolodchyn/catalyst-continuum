@@ -403,6 +403,7 @@ fn build_execution_context(
     if let Some(snapshot_artifact) = snapshot_artifact {
         let host_path =
             workspace_snapshot::prepare_task_workspace(task, &snapshot_artifact, artifact_root)?;
+        let bundle_path = workspace_snapshot::resolve_snapshot_bundle_path(&snapshot_artifact)?;
         let source_path = std::path::PathBuf::from(&snapshot_artifact.location_value)
             .canonicalize()
             .with_context(|| {
@@ -416,6 +417,7 @@ fn build_execution_context(
             source_path,
             host_path,
             container_path: "/workspace".to_string(),
+            bundle_path,
         });
     }
 

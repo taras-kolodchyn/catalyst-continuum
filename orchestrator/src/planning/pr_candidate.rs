@@ -465,6 +465,7 @@ mod tests {
                 .expect("base snapshot path should canonicalize"),
             host_path: workspace_path,
             container_path: "/workspace".to_string(),
+            bundle_path: None,
         };
         let patch_artifact = workspace_snapshot::compose_code_workspace_patch(
             &code_task,
@@ -593,6 +594,7 @@ mod tests {
                 .expect("base snapshot path should canonicalize"),
             host_path: workspace_path,
             container_path: "/workspace".to_string(),
+            bundle_path: None,
         };
         let patch_artifact = workspace_snapshot::compose_code_workspace_patch(
             &code_task,

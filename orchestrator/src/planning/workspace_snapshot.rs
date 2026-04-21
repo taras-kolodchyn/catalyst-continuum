@@ -1,6 +1,7 @@
 use std::{
     collections::BTreeMap,
-    fs,
+    fs::{self, File},
+    io,
     path::{Path, PathBuf},
     process::Command,
 };
@@ -9,6 +10,7 @@ use anyhow::{Context, Result, bail, ensure};
 use serde::Serialize;
 use serde_json::json;
 use sha2::{Digest, Sha256};
+use tar::{Archive, Builder, Header};
 use uuid::Uuid;
 
 use crate::models::{
@@ -21,6 +23,7 @@ use crate::runtime::TaskWorkspace;
 pub const SOURCE_ARTIFACT_TYPES: &[&str] = &["scaffold_bundle", "code_bundle"];
 pub const SNAPSHOT_ARTIFACT_TYPE: &str = "workspace_snapshot";
 pub const PATCH_ARTIFACT_TYPE: &str = "workspace_patch";
+const SNAPSHOT_BUNDLE_EXTENSION: &str = "tar";
 
 pub fn should_refresh_workspace_snapshot(artifacts: &[ArtifactSummary]) -> bool {
     artifacts
@@ -105,6 +108,8 @@ pub fn compose_workspace_snapshot(
             manifest_path.display()
         )
     })?;
+    let bundle_path = workspace_snapshot_bundle_path(run.run_id, artifact_root);
+    let bundle = compose_workspace_bundle(&snapshot_root, &bundle_path)?;
 
     Ok(ArtifactDraft {
         artifact_id: workspace_snapshot_artifact_id(run.run_id),
@@ -134,6 +139,11 @@ pub fn compose_workspace_snapshot(
             "repository_name": run.repository_name,
             "pack_id": run.selected_pack,
             "current_path": snapshot_root.display().to_string(),
+            "bundle_path": bundle.path.display().to_string(),
+            "bundle_format": SNAPSHOT_BUNDLE_EXTENSION,
+            "bundle_content_digest": bundle.content_digest,
+            "bundle_byte_count": bundle.byte_count,
+            "bundle_entry_count": bundle.entry_count,
         }),
     })
 }
@@ -163,7 +173,11 @@ pub fn prepare_task_workspace(
         })?;
     }
 
-    copy_directory_tree(&source_root, &workspace_root)?;
+    if let Some(bundle_path) = resolve_snapshot_bundle_path(snapshot_artifact)? {
+        extract_workspace_bundle(&bundle_path, &workspace_root)?;
+    } else {
+        copy_directory_tree(&source_root, &workspace_root)?;
+    }
 
     workspace_root.canonicalize().with_context(|| {
         format!(
@@ -171,6 +185,67 @@ pub fn prepare_task_workspace(
             workspace_root.display()
         )
     })
+}
+
+pub fn resolve_snapshot_bundle_path(
+    snapshot_artifact: &ArtifactSummary,
+) -> Result<Option<PathBuf>> {
+    let Some(bundle_path_value) = snapshot_artifact
+        .metadata
+        .get("bundle_path")
+        .and_then(|value| value.as_str())
+    else {
+        return Ok(None);
+    };
+
+    ensure!(
+        !bundle_path_value.trim().is_empty(),
+        "task workspace artifact {} metadata.bundle_path must not be empty when set",
+        snapshot_artifact.artifact_id
+    );
+
+    let bundle_path = PathBuf::from(bundle_path_value);
+    ensure!(
+        bundle_path.is_file(),
+        "task workspace bundle path does not exist: {}",
+        bundle_path.display()
+    );
+
+    bundle_path
+        .canonicalize()
+        .with_context(|| {
+            format!(
+                "failed to canonicalize task workspace bundle path: {}",
+                bundle_path.display()
+            )
+        })
+        .map(Some)
+}
+
+pub fn extract_workspace_bundle(bundle_path: &Path, target_root: &Path) -> Result<()> {
+    fs::create_dir_all(target_root).with_context(|| {
+        format!(
+            "failed to create task workspace directory for extracted bundle: {}",
+            target_root.display()
+        )
+    })?;
+
+    let bundle_file = File::open(bundle_path).with_context(|| {
+        format!(
+            "failed to open workspace bundle for extraction: {}",
+            bundle_path.display()
+        )
+    })?;
+    let mut archive = Archive::new(bundle_file);
+    archive.unpack(target_root).with_context(|| {
+        format!(
+            "failed to extract workspace bundle `{}` into `{}`",
+            bundle_path.display(),
+            target_root.display()
+        )
+    })?;
+
+    Ok(())
 }
 
 pub fn compose_code_workspace_patch(
@@ -443,6 +518,228 @@ fn metadata_uuid(metadata: &serde_json::Value, key: &str) -> Option<Uuid> {
         .and_then(|value| Uuid::parse_str(value).ok())
 }
 
+fn workspace_snapshot_bundle_path(run_id: Uuid, artifact_root: &Path) -> PathBuf {
+    artifact_root
+        .join("runs")
+        .join(run_id.to_string())
+        .join("workspace-snapshot")
+        .join(format!("current.{SNAPSHOT_BUNDLE_EXTENSION}"))
+}
+
+fn compose_workspace_bundle(snapshot_root: &Path, bundle_path: &Path) -> Result<WorkspaceBundle> {
+    if let Some(parent) = bundle_path.parent() {
+        fs::create_dir_all(parent).with_context(|| {
+            format!(
+                "failed to create workspace bundle parent directory: {}",
+                parent.display()
+            )
+        })?;
+    }
+    if bundle_path.exists() {
+        fs::remove_file(bundle_path).with_context(|| {
+            format!(
+                "failed to clear existing workspace bundle: {}",
+                bundle_path.display()
+            )
+        })?;
+    }
+
+    let bundle_file = File::create(bundle_path).with_context(|| {
+        format!(
+            "failed to create workspace bundle output file: {}",
+            bundle_path.display()
+        )
+    })?;
+    let mut builder = Builder::new(bundle_file);
+    let mut directories = Vec::new();
+    let mut files = Vec::new();
+    collect_bundle_entries(snapshot_root, snapshot_root, &mut directories, &mut files)?;
+
+    for relative_dir in &directories {
+        append_bundle_directory(
+            &mut builder,
+            &snapshot_root.join(relative_dir),
+            relative_dir,
+        )?;
+    }
+    for relative_file in &files {
+        append_bundle_file(
+            &mut builder,
+            &snapshot_root.join(relative_file),
+            relative_file,
+        )?;
+    }
+
+    builder
+        .finish()
+        .context("failed to finish workspace bundle archive")?;
+    drop(builder);
+
+    let bundle_path = bundle_path.canonicalize().with_context(|| {
+        format!(
+            "failed to canonicalize workspace bundle output path: {}",
+            bundle_path.display()
+        )
+    })?;
+    let bundle_bytes = fs::read(&bundle_path).with_context(|| {
+        format!(
+            "failed to read workspace bundle for digest calculation: {}",
+            bundle_path.display()
+        )
+    })?;
+
+    Ok(WorkspaceBundle {
+        path: bundle_path,
+        content_digest: format!("sha256:{:x}", Sha256::digest(&bundle_bytes)),
+        byte_count: bundle_bytes.len() as u64,
+        entry_count: directories.len() + files.len(),
+    })
+}
+
+fn collect_bundle_entries(
+    source_root: &Path,
+    current_dir: &Path,
+    directories: &mut Vec<PathBuf>,
+    files: &mut Vec<PathBuf>,
+) -> Result<()> {
+    let mut entries = fs::read_dir(current_dir)
+        .with_context(|| {
+            format!(
+                "failed to read bundle source directory: {}",
+                current_dir.display()
+            )
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .with_context(|| {
+            format!(
+                "failed to read bundle source directory entries: {}",
+                current_dir.display()
+            )
+        })?;
+    entries.sort_by_key(|entry| entry.file_name());
+
+    for entry in entries {
+        let source_path = entry.path();
+        let relative_path = source_path.strip_prefix(source_root).with_context(|| {
+            format!(
+                "failed to derive relative bundle path for source entry: {}",
+                source_path.display()
+            )
+        })?;
+        let file_type = entry.file_type().with_context(|| {
+            format!(
+                "failed to inspect bundle source entry type: {}",
+                source_path.display()
+            )
+        })?;
+
+        if file_type.is_dir() {
+            directories.push(relative_path.to_path_buf());
+            collect_bundle_entries(source_root, &source_path, directories, files)?;
+            continue;
+        }
+
+        if file_type.is_file() {
+            files.push(relative_path.to_path_buf());
+            continue;
+        }
+
+        bail!(
+            "unsupported workspace bundle source entry: {}",
+            source_path.display()
+        );
+    }
+
+    Ok(())
+}
+
+fn append_bundle_directory<W: io::Write>(
+    builder: &mut Builder<W>,
+    source_dir: &Path,
+    relative_dir: &Path,
+) -> Result<()> {
+    let metadata = fs::metadata(source_dir).with_context(|| {
+        format!(
+            "failed to read workspace bundle directory metadata: {}",
+            source_dir.display()
+        )
+    })?;
+    let mut header = Header::new_gnu();
+    header.set_entry_type(tar::EntryType::Directory);
+    header.set_mode(archived_entry_mode(&metadata, true));
+    header.set_uid(0);
+    header.set_gid(0);
+    header.set_mtime(0);
+    header.set_size(0);
+    header.set_cksum();
+    builder
+        .append_data(&mut header, relative_dir, io::empty())
+        .with_context(|| {
+            format!(
+                "failed to append workspace bundle directory entry: {}",
+                relative_dir.display()
+            )
+        })?;
+
+    Ok(())
+}
+
+fn append_bundle_file<W: io::Write>(
+    builder: &mut Builder<W>,
+    source_file: &Path,
+    relative_file: &Path,
+) -> Result<()> {
+    let metadata = fs::metadata(source_file).with_context(|| {
+        format!(
+            "failed to read workspace bundle file metadata: {}",
+            source_file.display()
+        )
+    })?;
+    let mut header = Header::new_gnu();
+    header.set_entry_type(tar::EntryType::Regular);
+    header.set_mode(archived_entry_mode(&metadata, false));
+    header.set_uid(0);
+    header.set_gid(0);
+    header.set_mtime(0);
+    header.set_size(metadata.len());
+    header.set_cksum();
+    let mut file = File::open(source_file).with_context(|| {
+        format!(
+            "failed to open workspace bundle source file: {}",
+            source_file.display()
+        )
+    })?;
+    builder
+        .append_data(&mut header, relative_file, &mut file)
+        .with_context(|| {
+            format!(
+                "failed to append workspace bundle file entry: {}",
+                relative_file.display()
+            )
+        })?;
+
+    Ok(())
+}
+
+fn archived_entry_mode(metadata: &fs::Metadata, is_dir: bool) -> u32 {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        let mode = metadata.permissions().mode() & 0o777;
+        if mode == 0 {
+            if is_dir { 0o755 } else { 0o644 }
+        } else {
+            mode
+        }
+    }
+
+    #[cfg(not(unix))]
+    {
+        if is_dir { 0o755 } else { 0o644 }
+    }
+}
+
 fn copy_directory_tree(source_root: &Path, target_root: &Path) -> Result<()> {
     fs::create_dir_all(target_root).with_context(|| {
         format!(
@@ -681,6 +978,14 @@ struct WorkspaceSnapshotManifest {
     files: Vec<WorkspaceSnapshotFile>,
 }
 
+#[derive(Debug)]
+struct WorkspaceBundle {
+    path: PathBuf,
+    content_digest: String,
+    byte_count: u64,
+    entry_count: usize,
+}
+
 #[derive(Debug, Serialize)]
 struct WorkspaceSnapshotSource {
     artifact_id: Uuid,
@@ -718,6 +1023,7 @@ mod tests {
             backlog::generate_initial_backlog, materialization::generate_task_artifacts,
             packs::PackDefinition, tasks::materialize_tasks,
         },
+        test_support::assert_json_file_matches_schema,
     };
 
     #[test]
@@ -757,6 +1063,12 @@ mod tests {
         let snapshot = compose_workspace_snapshot(&run_context, &sources, &temp_root)
             .expect("workspace snapshot should compose");
         let snapshot_root = PathBuf::from(&snapshot.location_value);
+        let bundle_path = PathBuf::from(
+            snapshot.metadata["bundle_path"]
+                .as_str()
+                .expect("workspace snapshot bundle path should exist"),
+        );
+        let manifest_path = snapshot_root.join(".continuum/workspace-snapshot.json");
 
         assert_eq!(snapshot.artifact_type, SNAPSHOT_ARTIFACT_TYPE);
         assert!(snapshot_root.join("README.md").exists());
@@ -765,15 +1077,22 @@ mod tests {
         assert!(snapshot_root.join("docs/app-1.md").exists());
         assert!(snapshot_root.join("requirements/app-1.json").exists());
         assert!(!snapshot_root.join("manifest.json").exists());
-        assert!(
-            snapshot_root
-                .join(".continuum/workspace-snapshot.json")
-                .exists()
+        assert!(manifest_path.exists());
+        assert!(bundle_path.is_file());
+        assert_eq!(
+            snapshot.metadata["bundle_format"],
+            SNAPSHOT_BUNDLE_EXTENSION
+        );
+        assert!(snapshot.metadata["bundle_content_digest"].is_string());
+        assert!(snapshot.metadata["bundle_byte_count"].as_u64().is_some());
+        assert!(snapshot.metadata["bundle_entry_count"].as_u64().is_some());
+        assert_json_file_matches_schema(
+            "schemas/artifacts/workspace-snapshot.schema.yaml",
+            &manifest_path,
         );
 
         let manifest: serde_json::Value = serde_json::from_slice(
-            &fs::read(snapshot_root.join(".continuum/workspace-snapshot.json"))
-                .expect("snapshot manifest should be readable"),
+            &fs::read(&manifest_path).expect("snapshot manifest should be readable"),
         )
         .expect("snapshot manifest should parse");
         assert_eq!(manifest["source_count"], 2);
@@ -824,6 +1143,7 @@ mod tests {
         let workspace_path = prepare_task_workspace(&test_task, &snapshot_summary, &temp_root)
             .expect("task workspace should prepare");
 
+        assert!(snapshot_summary.metadata["bundle_path"].as_str().is_some());
         assert!(workspace_path.is_absolute());
         assert!(workspace_path.join("README.md").exists());
         assert!(workspace_path.join("src/main.rs").exists());
@@ -831,6 +1151,54 @@ mod tests {
         assert!(workspace_path.join("requirements/app-1.json").exists());
         assert!(
             workspace_path
+                .join(".continuum/workspace-snapshot.json")
+                .exists()
+        );
+
+        let _ = fs::remove_dir_all(&temp_root);
+    }
+
+    #[test]
+    fn extracts_workspace_bundle_into_a_fresh_directory() {
+        let brief = sample_brief();
+        let run = RunDraft::from_brief(&brief, "examples/brief.yaml".to_string());
+        let pack = PackDefinition::load(Some("container-service")).expect("pack should load");
+        let generated =
+            generate_initial_backlog(&brief, &run, &pack, Path::new(".tmp-artifacts"), false)
+                .expect("backlog should generate");
+        let tasks =
+            materialize_tasks(&run, &pack, &generated.document).expect("tasks should build");
+        let run_context = RunContext::from_draft(&run);
+        let temp_root =
+            std::env::temp_dir().join(format!("continuum-workspace-bundle-{}", Uuid::new_v4()));
+
+        let scaffold_task = TaskSummary::from_draft(&tasks[1]);
+        let scaffold_artifact =
+            generate_task_artifacts(&scaffold_task, &run_context, &pack, &temp_root)
+                .expect("scaffold materialization should succeed")
+                .into_iter()
+                .next()
+                .expect("scaffold bundle should exist");
+        let snapshot_sources = vec![
+            ArtifactSummary::from_draft(&scaffold_artifact)
+                .with_created_at("2026-04-17T10:00:00.000Z".to_string()),
+        ];
+        let snapshot = compose_workspace_snapshot(&run_context, &snapshot_sources, &temp_root)
+            .expect("workspace snapshot should compose");
+        let bundle_path = PathBuf::from(
+            snapshot.metadata["bundle_path"]
+                .as_str()
+                .expect("workspace snapshot bundle path should exist"),
+        );
+        let extracted_root = temp_root.join("bundle-extracted");
+
+        extract_workspace_bundle(&bundle_path, &extracted_root)
+            .expect("workspace bundle should extract");
+
+        assert!(extracted_root.join("README.md").exists());
+        assert!(extracted_root.join("src/main.rs").exists());
+        assert!(
+            extracted_root
                 .join(".continuum/workspace-snapshot.json")
                 .exists()
         );
@@ -883,6 +1251,7 @@ mod tests {
             source_path,
             host_path: workspace_path,
             container_path: "/workspace".to_string(),
+            bundle_path: None,
         };
 
         let patch_artifact =

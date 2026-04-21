@@ -64,6 +64,7 @@ pub struct TaskWorkspace {
     pub source_path: PathBuf,
     pub host_path: PathBuf,
     pub container_path: String,
+    pub bundle_path: Option<PathBuf>,
 }
 
 pub trait RuntimeProvider: Send + Sync {

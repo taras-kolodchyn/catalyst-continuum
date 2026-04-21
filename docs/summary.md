@@ -49,6 +49,10 @@ Planned providers:
 - Proxmox provider next using linked-clone VMs and Cloud-Init.
 - Kubernetes provider later using Jobs or Pods.
 
+Provider expansion should keep one provider-neutral workspace handoff contract.
+The control plane should not assume future providers can rely on a local host mount the way the Docker-first baseline does.
+Workspace snapshot artifacts should therefore remain transportable so remote runtimes can hydrate the same prepared input reproducibly.
+
 ### LiteLLM AI Edge Gateway
 
 LiteLLM is the AI edge gateway, not only a thin local proxy. It provides model routing, rate limiting, caching, persistent proxy state, and gateway-level observability for multiple model providers.
