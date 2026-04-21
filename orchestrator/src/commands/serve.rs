@@ -24,6 +24,7 @@ use crate::{
         GitHubWebhookActionRequestSummary, GitHubWebhookDeliveryDraft,
         GitHubWebhookDeliverySummary, GitHubWebhookListFilters,
     },
+    operator_ui,
     planning::{
         brief_validation::validate_brief_document_with_external_mcp_servers,
         pack_catalog::build_pack_catalog, packs::PackDefinition, pr_candidate,
@@ -81,6 +82,7 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                     status: "ok",
                     endpoints: vec![
                         "/",
+                        "/ui",
                         "/livez",
                         "/healthz",
                         "/readyz",
@@ -117,6 +119,8 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                     ],
                 },
             ),
+            ("GET", _) if operator_ui::route_label(path).is_some() => operator_ui::response(path)
+                .expect("operator UI route guard should resolve a static response"),
             ("GET", "/livez") => json_response(
                 StatusCode(200),
                 &LivenessResponse {
@@ -1642,6 +1646,12 @@ fn readiness_payload(probe: anyhow::Result<DatabaseReadiness>) -> (StatusCode, R
 }
 
 fn route_label(method: &str, path: &str) -> &'static str {
+    if method == "GET"
+        && let Some(label) = operator_ui::route_label(path)
+    {
+        return label;
+    }
+
     match (method, path) {
         ("GET", "/") => "/",
         ("GET", "/livez") => "/livez",
@@ -1923,6 +1933,9 @@ mod tests {
 
     #[test]
     fn labels_new_health_routes() {
+        assert_eq!(route_label("GET", "/ui"), "/ui");
+        assert_eq!(route_label("GET", "/ui/app.js"), "/ui/app.js");
+        assert_eq!(route_label("GET", "/ui/styles.css"), "/ui/styles.css");
         assert_eq!(route_label("GET", "/livez"), "/livez");
         assert_eq!(route_label("GET", "/healthz"), "/healthz");
         assert_eq!(route_label("GET", "/readyz"), "/readyz");

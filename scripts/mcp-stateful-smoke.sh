@@ -177,6 +177,8 @@ export CATALYST_GITHUB_APP_WEBHOOK_SECRET="$GITHUB_WEBHOOK_SECRET"
 export CATALYST_GITHUB_APP_INSTALLATION_ID="$GITHUB_APP_INSTALLATION_ID"
 ORCHESTRATOR_LOG_FILE="$ARTIFACT_ROOT/mcp-smoke-orchestrator.log"
 ORCHESTRATOR_READYZ_FILE="$ARTIFACT_ROOT/mcp-smoke-orchestrator-readyz.json"
+ORCHESTRATOR_UI_FILE="$ARTIFACT_ROOT/mcp-smoke-orchestrator-ui.html"
+ORCHESTRATOR_UI_JS_FILE="$ARTIFACT_ROOT/mcp-smoke-orchestrator-ui.js"
 "$BIN" \
   serve \
   --bind-addr "127.0.0.1:${ORCHESTRATOR_HTTP_PORT}" \
@@ -194,6 +196,30 @@ if ! wait_for_http_capture \
   exit 1
 fi
 log_phase "orchestrator ready"
+
+curl "${CURL_ARGS[@]}" \
+  "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/ui" >"$ORCHESTRATOR_UI_FILE"
+curl "${CURL_ARGS[@]}" \
+  "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/ui/app.js" >"$ORCHESTRATOR_UI_JS_FILE"
+
+python3 - "$ORCHESTRATOR_UI_FILE" "$ORCHESTRATOR_UI_JS_FILE" <<'PY'
+import pathlib
+import sys
+
+html = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+js = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
+
+if "<title>Catalyst Continuum Control Surface</title>" not in html:
+    raise SystemExit("operator UI smoke failed: missing control-surface title")
+if 'id="statusGrid"' not in html:
+    raise SystemExit("operator UI smoke failed: missing status grid mount")
+if 'src="/ui/app.js"' not in html:
+    raise SystemExit("operator UI smoke failed: missing app.js asset reference")
+if "refreshDashboard" not in js:
+    raise SystemExit("operator UI smoke failed: missing dashboard refresh client logic")
+if "submitBriefRequest" not in js:
+    raise SystemExit("operator UI smoke failed: missing brief submission client logic")
+PY
 
 WEBHOOK_PAYLOAD_FILE="$ARTIFACT_ROOT/mcp-webhook-ping.json"
 WEBHOOK_RESPONSE_FILE="$ARTIFACT_ROOT/mcp-webhook-response.json"

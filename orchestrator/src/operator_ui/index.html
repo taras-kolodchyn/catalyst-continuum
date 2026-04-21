@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Catalyst Continuum Control Surface</title>
+    <link rel="stylesheet" href="/ui/styles.css">
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="panel hero-panel" data-stagger="1">
+        <div class="hero-copy">
+          <p class="eyebrow">Catalyst Continuum</p>
+          <h1>Operator Control Surface</h1>
+          <p class="hero-summary">
+            Inspect run health, validate or submit briefs, and drive the current
+            draft-PR flow without leaving the orchestrator.
+          </p>
+        </div>
+        <div class="hero-actions">
+          <button id="refreshButton" class="button button-primary" type="button">
+            Refresh
+          </button>
+          <label class="toggle">
+            <input id="autoRefreshToggle" type="checkbox" checked>
+            <span>Auto refresh</span>
+          </label>
+          <p id="lastRefresh" class="microcopy">Waiting for first snapshot...</p>
+        </div>
+      </header>
+
+      <section id="statusGrid" class="status-grid" data-stagger="2"></section>
+
+      <main class="dashboard-grid">
+        <section class="panel brief-panel" data-stagger="3">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">Brief Intake</p>
+              <h2>Validate and submit</h2>
+            </div>
+            <div id="packChips" class="chip-row"></div>
+          </div>
+          <label class="field-label" for="briefEditor">Product brief YAML</label>
+          <textarea
+            id="briefEditor"
+            spellcheck="false"
+            placeholder="Paste a structured product brief here to validate or submit it."
+          ></textarea>
+          <div class="control-row">
+            <button id="validateBriefButton" class="button button-primary" type="button">
+              Validate
+            </button>
+            <button id="submitBriefButton" class="button button-secondary" type="button">
+              Submit
+            </button>
+            <button id="clearBriefButton" class="button button-ghost" type="button">
+              Clear
+            </button>
+          </div>
+          <div class="console-wrap">
+            <div class="console-head">
+              <p class="panel-kicker">Validation Output</p>
+              <span id="briefConsoleStatus" class="badge badge-neutral">Idle</span>
+            </div>
+            <pre id="briefConsole" class="console">No brief request yet.</pre>
+          </div>
+        </section>
+
+        <section class="panel runs-panel" data-stagger="4">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">Run Ledger</p>
+              <h2>Recent runs</h2>
+            </div>
+            <label class="inline-select">
+              <span>Status</span>
+              <select id="runStatusFilter">
+                <option value="">All</option>
+                <option value="queued">Queued</option>
+                <option value="running">Running</option>
+                <option value="succeeded">Succeeded</option>
+                <option value="failed">Failed</option>
+                <option value="approval_required">Approval required</option>
+              </select>
+            </label>
+          </div>
+          <div id="runsList" class="run-list"></div>
+        </section>
+
+        <aside class="panel rail-panel" data-stagger="5">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">Automation Queue</p>
+              <h2>Signals and webhooks</h2>
+            </div>
+          </div>
+          <section class="rail-section">
+            <div class="rail-section-head">
+              <h3>Webhook actions</h3>
+              <span id="webhookActionCount" class="badge badge-neutral">0</span>
+            </div>
+            <div id="webhookActionsList" class="rail-list"></div>
+          </section>
+          <section class="rail-section">
+            <div class="rail-section-head">
+              <h3>Repository signals</h3>
+              <span id="signalCount" class="badge badge-neutral">0</span>
+            </div>
+            <div id="repositorySignalsList" class="rail-list"></div>
+          </section>
+          <section class="rail-section">
+            <div class="rail-section-head">
+              <h3>Webhook deliveries</h3>
+              <span id="deliveryCount" class="badge badge-neutral">0</span>
+            </div>
+            <div id="webhookDeliveriesList" class="rail-list"></div>
+          </section>
+        </aside>
+
+        <section class="panel detail-panel" data-stagger="6">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">Selected Run</p>
+              <h2>Detail and actions</h2>
+            </div>
+            <p id="selectedRunLabel" class="microcopy">No run selected.</p>
+          </div>
+
+          <div id="detailEmptyState" class="empty-state">
+            Choose a run from the ledger to inspect tasks, artifacts, events, and
+            operator actions.
+          </div>
+
+          <div id="runDetailShell" class="detail-shell hidden">
+            <section class="detail-section">
+              <div id="runSummaryCards" class="summary-grid"></div>
+            </section>
+
+            <section class="detail-section action-section">
+              <div class="detail-section-head">
+                <h3>Run controls</h3>
+                <p class="microcopy">
+                  These buttons hit the same HTTP control-plane actions used by
+                  scripts and operators.
+                </p>
+              </div>
+              <div class="action-grid">
+                <button data-run-action="tasks-next" class="button button-primary" type="button">
+                  Run next task
+                </button>
+                <button data-run-action="worker-once" class="button button-primary" type="button">
+                  Worker once
+                </button>
+                <button data-run-action="evaluate-policy" class="button button-secondary" type="button">
+                  Evaluate policy
+                </button>
+                <button data-run-action="evaluate-quality" class="button button-secondary" type="button">
+                  Evaluate quality
+                </button>
+                <button data-run-action="export-pr" class="button button-secondary" type="button">
+                  Export PR candidate
+                </button>
+                <button data-run-action="draft-pr" class="button button-primary" type="button">
+                  Create draft PR
+                </button>
+              </div>
+              <div class="form-grid">
+                <label class="field-label" for="branchNameInput">
+                  Preferred branch name
+                </label>
+                <input id="branchNameInput" type="text" placeholder="feature/continuum-run">
+                <label class="field-label" for="remoteUrlInput">
+                  Remote URL
+                </label>
+                <input id="remoteUrlInput" type="text" placeholder="git@github.com:owner/repo.git">
+                <label class="toggle toggle-inline">
+                  <input id="publishPushToggle" type="checkbox">
+                  <span>Push during publish</span>
+                </label>
+                <button data-run-action="publish-pr" class="button button-ghost" type="button">
+                  Publish PR export
+                </button>
+              </div>
+              <div class="console-wrap">
+                <div class="console-head">
+                  <p class="panel-kicker">Action Output</p>
+                  <span id="actionConsoleStatus" class="badge badge-neutral">Idle</span>
+                </div>
+                <pre id="actionConsole" class="console">No run action executed yet.</pre>
+              </div>
+            </section>
+
+            <section class="detail-section">
+              <div class="detail-section-head">
+                <h3>Tasks</h3>
+                <p id="taskHeadline" class="microcopy"></p>
+              </div>
+              <div id="taskTableWrap" class="table-wrap"></div>
+            </section>
+
+            <section class="detail-section">
+              <div class="detail-section-head">
+                <h3>Artifacts</h3>
+                <p id="artifactHeadline" class="microcopy"></p>
+              </div>
+              <div id="artifactHighlights" class="artifact-grid"></div>
+              <div id="artifactTableWrap" class="table-wrap"></div>
+            </section>
+
+            <section class="detail-section">
+              <div class="detail-section-head">
+                <h3>Run events</h3>
+                <p id="eventHeadline" class="microcopy"></p>
+              </div>
+              <div id="eventTimeline" class="timeline"></div>
+            </section>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <noscript>
+      <div class="noscript-banner">
+        The operator UI needs JavaScript enabled to fetch live orchestrator data.
+      </div>
+    </noscript>
+
+    <script src="/ui/app.js" defer></script>
+  </body>
+</html>

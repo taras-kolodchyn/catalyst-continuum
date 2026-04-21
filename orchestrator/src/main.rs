@@ -7,6 +7,7 @@ mod github_app;
 mod github_webhook_routing;
 mod github_webhooks;
 mod models;
+mod operator_ui;
 mod planning;
 mod runtime;
 mod storage;
