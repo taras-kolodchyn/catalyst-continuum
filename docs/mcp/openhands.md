@@ -314,7 +314,7 @@ That renderer:
 - defaults to only the orchestrator MCP server
 - can add exact external MCP servers with `--external-server-allowlist`
 - can add the full instance-allowed external MCP server set with `--instance-external-mcp-servers`
-- materializes the pinned launch arguments declared in `config/mcp-servers.yaml` for any rendered external servers, for example the shipped `Fetch` contract
+- materializes the pinned launch arguments declared in `config/mcp-servers.yaml` for any rendered external servers, for example the shipped `Fetch` contract via `uvx --from mcp-server-fetch==2025.4.7 mcp-server-fetch`
 
 If you want the rendered config to expose the full internal tool surface instead
 of the default validation-focused allowlist, pass `--full-mcp-surface`.
