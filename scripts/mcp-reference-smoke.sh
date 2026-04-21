@@ -18,6 +18,7 @@ import subprocess
 import sys
 
 everything_version = sys.argv[1]
+REQUEST_TIMEOUT_SECONDS = 90
 
 messages = [
     {
@@ -98,8 +99,26 @@ proc = subprocess.Popen(
     text=True,
 )
 
+def communicate_with_timeout(proc, payload, timeout_seconds, label):
+    try:
+        return proc.communicate(payload, timeout=timeout_seconds)
+    except subprocess.TimeoutExpired as exc:
+        proc.kill()
+        stdout, stderr = proc.communicate()
+        partial_stdout = exc.stdout or stdout or ""
+        partial_stderr = exc.stderr or stderr or ""
+        raise SystemExit(
+            f"{label} timed out after {timeout_seconds}s\n"
+            f"STDERR:\n{partial_stderr}\nSTDOUT:\n{partial_stdout}"
+        ) from exc
+
 payload = "".join(json.dumps(message) + "\n" for message in messages)
-stdout, stderr = proc.communicate(payload, timeout=90)
+stdout, stderr = communicate_with_timeout(
+    proc,
+    payload,
+    REQUEST_TIMEOUT_SECONDS,
+    "mcp reference smoke",
+)
 
 if proc.returncode != 0:
     raise SystemExit(

@@ -17,6 +17,7 @@ import subprocess
 root = pathlib.Path.cwd()
 fetch_version = os.environ["MCP_FETCH_PYPI_VERSION"]
 brief_path = root / "examples" / "briefs" / "minimal-cli-tool.yaml"
+REQUEST_TIMEOUT_SECONDS = 60
 
 messages = [
     {
@@ -93,8 +94,26 @@ proc = subprocess.Popen(
     text=True,
 )
 
+def communicate_with_timeout(proc, payload, timeout_seconds, label):
+    try:
+        return proc.communicate(payload, timeout=timeout_seconds)
+    except subprocess.TimeoutExpired as exc:
+        proc.kill()
+        stdout, stderr = proc.communicate()
+        partial_stdout = exc.stdout or stdout or ""
+        partial_stderr = exc.stderr or stderr or ""
+        raise SystemExit(
+            f"{label} timed out after {timeout_seconds}s\n"
+            f"STDERR:\n{partial_stderr}\nSTDOUT:\n{partial_stdout}"
+        ) from exc
+
 payload = "".join(json.dumps(message) + "\n" for message in messages)
-stdout, stderr = proc.communicate(payload, timeout=60)
+stdout, stderr = communicate_with_timeout(
+    proc,
+    payload,
+    REQUEST_TIMEOUT_SECONDS,
+    "mcp smoke",
+)
 
 if proc.returncode != 0:
     raise SystemExit(
