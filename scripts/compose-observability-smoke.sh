@@ -78,6 +78,10 @@ PROJECT_NAME="${COMPOSE_OBSERVABILITY_SMOKE_PROJECT_NAME:-catalyst-continuum-obs
 TEMP_DIR="$(mktemp -d)"
 COMPOSE_ENV_FILE="$TEMP_DIR/compose.env"
 SUCCESS=0
+HTTP_WAIT_ATTEMPTS="${COMPOSE_OBSERVABILITY_SMOKE_HTTP_WAIT_ATTEMPTS:-90}"
+LAST_HTTP_PROBE_RESULT="not yet probed"
+LAST_PROMETHEUS_TARGET_SUMMARY="not yet probed"
+LAST_GRAFANA_PROVISIONING_SUMMARY="not yet probed"
 
 compose_cmd() {
   docker compose -p "$PROJECT_NAME" --env-file "$COMPOSE_ENV_FILE" -f "$COMPOSE_FILE" "$@"
@@ -118,15 +122,138 @@ wait_for_http() {
   local name="$1"
   local url="$2"
   shift 2
+  local http_code
+  local curl_exit
 
-  for _ in $(seq 1 90); do
-    if curl -fsS "$@" "$url" >/dev/null; then
-      return 0
+  for _ in $(seq 1 "$HTTP_WAIT_ATTEMPTS"); do
+    if http_code="$(curl -s -o /dev/null -w '%{http_code}' "$@" "$url" 2>/dev/null)"; then
+      LAST_HTTP_PROBE_RESULT="HTTP ${http_code}"
+      case "$http_code" in
+        2*|3*)
+          return 0
+          ;;
+      esac
+    else
+      curl_exit=$?
+      LAST_HTTP_PROBE_RESULT="curl exit ${curl_exit} (http ${http_code:-000})"
     fi
     sleep 1
   done
 
-  echo "$name did not become ready at $url" >&2
+  echo \
+    "$name did not become ready at $url after ${HTTP_WAIT_ATTEMPTS}s (last probe: $LAST_HTTP_PROBE_RESULT)" >&2
+  return 1
+}
+
+prometheus_target_summary() {
+  python3 - "$PROMETHEUS_TARGETS_FILE" <<'PY'
+import json
+import pathlib
+import sys
+
+payload = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+active_targets = payload.get("data", {}).get("activeTargets", [])
+healthy_jobs = {
+    target.get("labels", {}).get("job")
+    for target in active_targets
+    if target.get("health") == "up"
+}
+healthy_job_names = sorted(job for job in healthy_jobs if job)
+required_jobs = {"prometheus", "otel-collector", "loki", "tempo"}
+missing_jobs = sorted(required_jobs - healthy_jobs)
+healthy_display = ",".join(healthy_job_names) if healthy_job_names else "none"
+missing_display = ",".join(missing_jobs) if missing_jobs else "none"
+print(f"healthyJobs={healthy_display} missingJobs={missing_display}")
+raise SystemExit(0 if not missing_jobs else 1)
+PY
+}
+
+wait_for_prometheus_targets() {
+  local summary
+
+  for _ in $(seq 1 "$HTTP_WAIT_ATTEMPTS"); do
+    if curl -fsS \
+      "http://127.0.0.1:${PROMETHEUS_PORT}/api/v1/targets?state=active" >"$PROMETHEUS_TARGETS_FILE" \
+      2>/dev/null; then
+      if summary="$(prometheus_target_summary)"; then
+        LAST_PROMETHEUS_TARGET_SUMMARY="$summary"
+        return 0
+      fi
+      LAST_PROMETHEUS_TARGET_SUMMARY="$summary"
+    else
+      LAST_PROMETHEUS_TARGET_SUMMARY="probe failed"
+    fi
+    sleep 1
+  done
+
+  echo \
+    "Prometheus active targets did not converge after ${HTTP_WAIT_ATTEMPTS}s (last probe: $LAST_PROMETHEUS_TARGET_SUMMARY)" >&2
+  return 1
+}
+
+grafana_provisioning_summary() {
+  python3 - "$GRAFANA_DATASOURCES_FILE" "$GRAFANA_DASHBOARD_FILE" <<'PY'
+import json
+import pathlib
+import sys
+
+datasources = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+dashboard = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
+uids = {entry.get("uid") for entry in datasources}
+required_uids = {"prometheus", "loki", "tempo"}
+missing_uids = sorted(required_uids - uids)
+datasource_display = ",".join(sorted(uid for uid in uids if uid)) or "none"
+missing_display = ",".join(missing_uids) if missing_uids else "none"
+dashboard_payload = dashboard.get("dashboard", {})
+dashboard_uid = dashboard_payload.get("uid") or "missing"
+dashboard_title = dashboard_payload.get("title") or "missing"
+print(
+    "datasources="
+    f"{datasource_display} "
+    f"missingDatasources={missing_display} "
+    f"dashboardUid={dashboard_uid} "
+    f"dashboardTitle={dashboard_title}"
+)
+raise SystemExit(
+    0
+    if not missing_uids and dashboard_uid == "catalyst-continuum-overview"
+    else 1
+)
+PY
+}
+
+wait_for_grafana_provisioning() {
+  local summary
+
+  for _ in $(seq 1 "$HTTP_WAIT_ATTEMPTS"); do
+    if ! curl -fsS \
+      -u "${GRAFANA_ADMIN_USER}:${GRAFANA_ADMIN_PASSWORD}" \
+      "http://127.0.0.1:${GRAFANA_PORT}/api/datasources" >"$GRAFANA_DATASOURCES_FILE" 2>/dev/null; then
+      LAST_GRAFANA_PROVISIONING_SUMMARY="datasource probe failed"
+      sleep 1
+      continue
+    fi
+
+    if ! curl -fsS \
+      -u "${GRAFANA_ADMIN_USER}:${GRAFANA_ADMIN_PASSWORD}" \
+      "http://127.0.0.1:${GRAFANA_PORT}/api/dashboards/uid/catalyst-continuum-overview" >"$GRAFANA_DASHBOARD_FILE" \
+      2>/dev/null; then
+      LAST_GRAFANA_PROVISIONING_SUMMARY="dashboard probe failed"
+      sleep 1
+      continue
+    fi
+
+    if summary="$(grafana_provisioning_summary)"; then
+      LAST_GRAFANA_PROVISIONING_SUMMARY="$summary"
+      return 0
+    fi
+
+    LAST_GRAFANA_PROVISIONING_SUMMARY="$summary"
+    sleep 1
+  done
+
+  echo \
+    "Grafana provisioning did not converge after ${HTTP_WAIT_ATTEMPTS}s (last probe: $LAST_GRAFANA_PROVISIONING_SUMMARY)" >&2
   return 1
 }
 
@@ -207,59 +334,8 @@ curl -fsS \
   -u "${GRAFANA_ADMIN_USER}:${GRAFANA_ADMIN_PASSWORD}" \
   "http://127.0.0.1:${GRAFANA_PORT}/api/health" >"$GRAFANA_HEALTH_FILE"
 
-for _ in $(seq 1 90); do
-  curl -fsS "http://127.0.0.1:${PROMETHEUS_PORT}/api/v1/targets?state=active" >"$PROMETHEUS_TARGETS_FILE"
-  if python3 - "$PROMETHEUS_TARGETS_FILE" <<'PY'
-import json
-import pathlib
-import sys
-
-payload = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
-active_targets = payload.get("data", {}).get("activeTargets", [])
-healthy_jobs = {
-    target.get("labels", {}).get("job")
-    for target in active_targets
-    if target.get("health") == "up"
-}
-required_jobs = {"prometheus", "otel-collector", "loki", "tempo"}
-raise SystemExit(0 if required_jobs.issubset(healthy_jobs) else 1)
-PY
-  then
-    break
-  fi
-  sleep 1
-done
-
-for _ in $(seq 1 90); do
-  curl -fsS \
-    -u "${GRAFANA_ADMIN_USER}:${GRAFANA_ADMIN_PASSWORD}" \
-    "http://127.0.0.1:${GRAFANA_PORT}/api/datasources" >"$GRAFANA_DATASOURCES_FILE"
-  if curl -fsS \
-    -u "${GRAFANA_ADMIN_USER}:${GRAFANA_ADMIN_PASSWORD}" \
-    "http://127.0.0.1:${GRAFANA_PORT}/api/dashboards/uid/catalyst-continuum-overview" >"$GRAFANA_DASHBOARD_FILE"; then
-    if python3 - "$GRAFANA_DATASOURCES_FILE" "$GRAFANA_DASHBOARD_FILE" <<'PY'
-import json
-import pathlib
-import sys
-
-datasources = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
-dashboard = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
-uids = {entry.get("uid") for entry in datasources}
-required_uids = {"prometheus", "loki", "tempo"}
-dashboard_payload = dashboard.get("dashboard", {})
-raise SystemExit(
-    0
-    if required_uids.issubset(uids)
-    and dashboard_payload.get("uid") == "catalyst-continuum-overview"
-    else 1
-)
-PY
-    then
-      break
-    fi
-  fi
-  sleep 1
-done
+wait_for_prometheus_targets
+wait_for_grafana_provisioning
 
 for service_name in postgres redis otel-collector loki tempo prometheus grafana litellm orchestrator worker; do
   require_running_service "$service_name"
