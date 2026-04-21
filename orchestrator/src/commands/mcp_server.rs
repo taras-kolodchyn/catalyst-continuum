@@ -693,10 +693,12 @@ impl StdioMcpServer {
         call_tool(|| {
             let _args: EmptyToolArgs = parse_tool_arguments(arguments)?;
             let api_key = describe_ai_gateway_status::gateway_api_key_from_env();
+            let probe_base_url = describe_ai_gateway_status::gateway_probe_base_url_from_env();
             let status = describe_ai_gateway_status::describe_ai_gateway_status(
                 &self.config.instance_config.ai_gateway,
                 2_000,
                 api_key.as_deref(),
+                probe_base_url.as_deref(),
             );
             let structured = serde_json::to_value(&status)
                 .context("failed to serialize AI gateway status report")?;

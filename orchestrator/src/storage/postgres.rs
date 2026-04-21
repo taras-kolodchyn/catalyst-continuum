@@ -24,6 +24,7 @@ use crate::models::{
 
 const INIT_SQL: &str = include_str!("../../sql/001_init.sql");
 const RFC3339_SQL: &str = "YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"";
+const SCHEMA_BOOTSTRAP_LOCK_KEY: i64 = 0x4343_5f53_4348_454d;
 
 fn task_summary_projection_sql() -> String {
     format!(
@@ -118,9 +119,22 @@ impl PostgresRunStore {
     }
 
     pub fn ensure_schema(&mut self) -> Result<()> {
-        self.client
+        let mut transaction = self
+            .client
+            .transaction()
+            .context("failed to start postgres schema bootstrap transaction")?;
+        transaction
+            .query_one(
+                "SELECT pg_advisory_xact_lock($1)",
+                &[&SCHEMA_BOOTSTRAP_LOCK_KEY],
+            )
+            .context("failed to acquire postgres schema bootstrap lock")?;
+        transaction
             .batch_execute(INIT_SQL)
             .context("failed to bootstrap postgres schema")?;
+        transaction
+            .commit()
+            .context("failed to commit postgres schema bootstrap transaction")?;
 
         Ok(())
     }

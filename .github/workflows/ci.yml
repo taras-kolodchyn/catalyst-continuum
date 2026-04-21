@@ -97,7 +97,7 @@ jobs:
       - versions
       - shell
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
@@ -107,6 +107,9 @@ jobs:
 
       - name: Validate compose runtime contract
         run: ./scripts/compose-runtime-check.sh
+
+      - name: Validate compose observability stack
+        run: ./scripts/compose-observability-smoke.sh --no-build
 
   eval:
     needs:

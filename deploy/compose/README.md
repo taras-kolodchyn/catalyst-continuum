@@ -39,7 +39,13 @@ docker compose --env-file deploy/compose/.env.example -f deploy/compose/compose.
 ./scripts/compose-runtime-check.sh
 ```
 
-6. Validate the local LiteLLM gateway and print the OpenHands model settings:
+6. Validate the pinned stack's readiness, Prometheus scrape topology, Grafana provisioning, and live AI-gateway wiring through an isolated compose project name and ephemeral host ports:
+
+```bash
+./scripts/compose-observability-smoke.sh
+```
+
+7. Validate the local LiteLLM gateway and print the OpenHands model settings:
 
 ```bash
 ./scripts/litellm-default-model.sh
@@ -81,7 +87,7 @@ ollama pull qwen2.5-coder:7b
 ollama serve
 ```
 
-7. Open the local interfaces:
+8. Open the local interfaces:
 
 - Orchestrator HTTP: `http://127.0.0.1:8080`
   - Liveness: `http://127.0.0.1:8080/livez`
@@ -100,14 +106,17 @@ ollama serve
 - Use project-specific env vars from `.env` to avoid accidental overrides from host shell variables.
 - The orchestrator exports OpenTelemetry traces, metrics, and logs over OTLP HTTP when the collector endpoint env vars are configured.
 - The compose stack now runs a dedicated long-lived `worker` service alongside the HTTP `orchestrator`, so background run progression works in the local stack without shelling into the container manually.
+- The long-lived `worker` now waits for a healthy HTTP `orchestrator` before starting, and the shared Postgres schema bootstrap is serialized with an advisory lock so the shipped local stack does not race its own schema initialization during cold start.
 - The compose stack now also runs a pinned `LiteLLM` gateway service. The gateway is bundled; the actual local model backend remains host-run and operator-managed through `LITELLM_MACOS_NATIVE_API_BASE` or `LITELLM_OLLAMA_API_BASE`.
 - The bundled LiteLLM gateway now enables the official `otel` callback and exports proxy traces plus semantic log events over OTLP HTTP to the local `otel-collector`, following LiteLLM's official [OpenTelemetry integration guide](https://docs.litellm.ai/docs/observability/opentelemetry_integration), so LiteLLM activity lands in the same Tempo and Loki baseline as the orchestrator.
 - A one-shot `litellm-db-init` helper now ensures the dedicated LiteLLM database exists on the shared local Postgres server before the gateway starts. This follows the official LiteLLM proxy database contract around `DATABASE_URL` and Prisma-backed proxy state from [docs.litellm.ai](https://docs.litellm.ai/).
 - `orchestrator` and `worker` now share one named `artifacts-data` volume mounted at `/app/.continuum/artifacts`, so persisted manifests, snapshots, reports, and publication artifacts stay visible to both processes.
 - The runtime image now carries the baseline `config/runtime-providers.yaml`, `config/mcp-servers.yaml`, and `config/ai-gateway.yaml`, and the compose services point at those files explicitly so containerized `serve` and `worker` execution resolve the same instance contract.
+- The compose `orchestrator` and `worker` also set `CATALYST_AI_GATEWAY_STATUS_BASE_URL=http://litellm:4000`, so live `describe-ai-gateway-status` checks use the in-stack LiteLLM service route instead of container loopback while still keeping the published host/operator contract in `config/ai-gateway.yaml`.
 - Redis now has two active `v0.1` roles in the compose stack: promotion requests take a short-lived run-scoped lock through `CATALYST_REDIS_URL`, and LiteLLM keeps proxy-side completion cache entries in Redis under the configured `LITELLM_CACHE_NAMESPACE`.
 - The local collector forwards traces to Tempo, logs to Loki through the native OTLP endpoint, and exposes Prometheus-scrapable metrics.
 - Grafana is provisioned with Prometheus, Loki, and Tempo datasources plus a starter `Catalyst Continuum Overview` dashboard.
+- `prometheus`, `grafana`, and the HTTP `orchestrator` service now expose compose healthchecks, so `docker compose ps` and the isolated observability smoke surface a real ready/not-ready signal for the operator-facing stack instead of only process-started state.
 - The overview dashboard now includes dedicated panels for promotion throughput/latency, runtime timeout events, stale task reclaim outcomes, and repository-signal lifecycle/materialization rates.
 - Postgres and Redis are pinned to explicit image tags for reproducible local runs.
 - LiteLLM is pinned by tag and digest through `.env.example`, and the mounted `litellm-config.yaml` keeps the local model aliases stable for OpenHands and other open-source agents even though the actual MLX-LM or Ollama backend remains operator-managed. The same shared Postgres server now also carries a dedicated `LITELLM_DATABASE_NAME` database for LiteLLM state and migrations.

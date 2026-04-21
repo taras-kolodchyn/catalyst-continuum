@@ -141,10 +141,12 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
             ("GET", "/config") => json_response(StatusCode(200), &instance_config),
             ("GET", "/ai-gateway/status") => {
                 let api_key = describe_ai_gateway_status::gateway_api_key_from_env();
+                let probe_base_url = describe_ai_gateway_status::gateway_probe_base_url_from_env();
                 let report = describe_ai_gateway_status::describe_ai_gateway_status(
                     &instance_config.ai_gateway,
                     2_000,
                     api_key.as_deref(),
+                    probe_base_url.as_deref(),
                 );
                 json_response(
                     if report.ready {

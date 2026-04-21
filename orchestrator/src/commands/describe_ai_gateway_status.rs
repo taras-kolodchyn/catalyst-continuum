@@ -15,12 +15,19 @@ use crate::{
 };
 
 const AI_GATEWAY_API_KEY_ENV: &str = "CATALYST_AI_GATEWAY_API_KEY";
+const AI_GATEWAY_STATUS_BASE_URL_ENV: &str = "CATALYST_AI_GATEWAY_STATUS_BASE_URL";
 const LITELLM_MASTER_KEY_ENV: &str = "LITELLM_MASTER_KEY";
 
 pub fn execute(args: DescribeAiGatewayStatusArgs) -> anyhow::Result<()> {
     let config = AiGatewayConfig::load(args.ai_gateway_file.as_deref())?;
     let api_key = gateway_api_key_from_env();
-    let report = describe_ai_gateway_status(&config, args.timeout_ms, api_key.as_deref());
+    let probe_base_url = gateway_probe_base_url_from_env();
+    let report = describe_ai_gateway_status(
+        &config,
+        args.timeout_ms,
+        api_key.as_deref(),
+        probe_base_url.as_deref(),
+    );
 
     if args.json {
         println!("{}", serde_json::to_string_pretty(&report)?);
@@ -35,9 +42,11 @@ pub fn describe_ai_gateway_status(
     config: &AiGatewayConfig,
     timeout_ms: u64,
     api_key: Option<&str>,
+    probe_base_url_override: Option<&str>,
 ) -> AiGatewayStatusReport {
     let timeout_ms = timeout_ms.max(1);
-    let probe_url = format!("{}/v1/models", config.host_base_url.trim_end_matches('/'));
+    let probe_base_url = probe_base_url_override.unwrap_or(&config.host_base_url);
+    let probe_url = format!("{}/v1/models", probe_base_url.trim_end_matches('/'));
     let current_host_default_model_alias = current_host_default_model_alias(config);
     let mut report = AiGatewayStatusReport {
         source_path: config.source_path.clone(),
@@ -190,6 +199,10 @@ pub fn describe_ai_gateway_status(
 pub fn gateway_api_key_from_env() -> Option<String> {
     read_non_empty_env(AI_GATEWAY_API_KEY_ENV)
         .or_else(|| read_non_empty_env(LITELLM_MASTER_KEY_ENV))
+}
+
+pub fn gateway_probe_base_url_from_env() -> Option<String> {
+    read_non_empty_env(AI_GATEWAY_STATUS_BASE_URL_ENV)
 }
 
 pub fn render_text(report: &AiGatewayStatusReport) -> anyhow::Result<String> {
@@ -462,7 +475,7 @@ mod tests {
         });
 
         let config = sample_config(&server_url);
-        let report = describe_ai_gateway_status(&config, 2_000, Some("sk-test"));
+        let report = describe_ai_gateway_status(&config, 2_000, Some("sk-test"), None);
 
         handle.join().expect("test server thread should join");
 
@@ -506,7 +519,7 @@ mod tests {
         });
 
         let config = sample_config(&server_url);
-        let report = describe_ai_gateway_status(&config, 2_000, Some("sk-test"));
+        let report = describe_ai_gateway_status(&config, 2_000, Some("sk-test"), None);
 
         handle.join().expect("test server thread should join");
 
@@ -547,7 +560,7 @@ mod tests {
         });
 
         let config = sample_config(&server_url);
-        let report = describe_ai_gateway_status(&config, 2_000, None);
+        let report = describe_ai_gateway_status(&config, 2_000, None, None);
 
         handle.join().expect("test server thread should join");
 
@@ -565,7 +578,7 @@ mod tests {
     #[test]
     fn renders_text_report() {
         let config = sample_config("http://127.0.0.1:4000");
-        let report = describe_ai_gateway_status(&config, 1, Some("sk-test"));
+        let report = describe_ai_gateway_status(&config, 1, Some("sk-test"), None);
         let rendered = render_text(&report).expect("text render should succeed");
 
         assert!(rendered.contains("status: unreachable"));
@@ -578,6 +591,37 @@ mod tests {
         let summary = summarize_error_body(&"x".repeat(250));
         assert_eq!(summary.len(), 203);
         assert!(summary.ends_with("..."));
+    }
+
+    #[test]
+    fn uses_probe_base_url_override_when_provided() {
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let server = Server::http("127.0.0.1:0").expect("test server should bind");
+        let server_url = format!("http://{}", listen_addr(&server));
+        let requests_for_thread = Arc::clone(&requests);
+
+        let handle = thread::spawn(move || {
+            respond_with_json(
+                &server,
+                &requests_for_thread,
+                r#"{"data":[{"id":"local-macos-native"},{"id":"local-ollama-coder"}]}"#,
+                StatusCode(200),
+            );
+        });
+
+        let config = sample_config("http://127.0.0.1:4000");
+        let report = describe_ai_gateway_status(&config, 2_000, Some("sk-test"), Some(&server_url));
+
+        handle.join().expect("test server thread should join");
+
+        assert_eq!(report.status, AiGatewayLiveStatus::Ready);
+        assert_eq!(report.probe_url, format!("{server_url}/v1/models"));
+        assert_eq!(report.host_base_url, "http://127.0.0.1:4000");
+
+        let recorded = requests.lock().expect("recorded requests should lock");
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(recorded[0].url, "/v1/models");
+        assert_eq!(recorded[0].authorization.as_deref(), Some("Bearer sk-test"));
     }
 
     fn sample_config(host_base_url: &str) -> AiGatewayConfig {

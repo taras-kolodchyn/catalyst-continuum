@@ -94,6 +94,12 @@ services:
     volumes:
       - ./prometheus.yaml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
+    healthcheck:
+      test: ["CMD", "/bin/wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9090/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
     ports:
       - "${PROMETHEUS_PORT}:9090"
 
@@ -101,9 +107,12 @@ services:
     image: grafana/grafana:${GRAFANA_VERSION}@${GRAFANA_IMAGE_DIGEST}
     restart: unless-stopped
     depends_on:
-      - prometheus
-      - loki
-      - tempo
+      prometheus:
+        condition: service_healthy
+      loki:
+        condition: service_started
+      tempo:
+        condition: service_started
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
@@ -113,6 +122,12 @@ services:
       - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
       - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    healthcheck:
+      test: ["CMD", "/usr/bin/wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
     ports:
       - "${GRAFANA_PORT}:3000"
 
@@ -190,6 +205,7 @@ services:
       CATALYST_MCP_SERVERS_FILE: /app/config/mcp-servers.yaml
       CATALYST_AI_GATEWAY_FILE: /app/config/ai-gateway.yaml
       CATALYST_AI_GATEWAY_API_KEY: ${LITELLM_MASTER_KEY}
+      CATALYST_AI_GATEWAY_STATUS_BASE_URL: http://litellm:4000
       CATALYST_REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       CATALYST_OTEL_EXPORT_INTERVAL_SECONDS: ${CATALYST_OTEL_EXPORT_INTERVAL_SECONDS}
       CATALYST_SERVICE_VERSION: ${ORCHESTRATOR_IMAGE_TAG}
@@ -199,6 +215,12 @@ services:
     volumes:
       - artifacts-data:/app/.continuum/artifacts
     command: ["serve", "--bind-addr", "0.0.0.0:8080"]
+    healthcheck:
+      test: ["CMD", "/usr/bin/wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/readyz"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
     ports:
       - "${ORCHESTRATOR_PORT}:8080"
 
@@ -218,6 +240,8 @@ services:
         condition: service_healthy
       otel-collector:
         condition: service_started
+      orchestrator:
+        condition: service_healthy
     environment:
       RUST_LOG: ${ORCHESTRATOR_LOG_LEVEL}
       CATALYST_ARTIFACT_ROOT: /app/.continuum/artifacts
@@ -226,6 +250,7 @@ services:
       CATALYST_MCP_SERVERS_FILE: /app/config/mcp-servers.yaml
       CATALYST_AI_GATEWAY_FILE: /app/config/ai-gateway.yaml
       CATALYST_AI_GATEWAY_API_KEY: ${LITELLM_MASTER_KEY}
+      CATALYST_AI_GATEWAY_STATUS_BASE_URL: http://litellm:4000
       CATALYST_REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       CATALYST_OTEL_EXPORT_INTERVAL_SECONDS: ${CATALYST_OTEL_EXPORT_INTERVAL_SECONDS}
       CATALYST_SERVICE_VERSION: ${ORCHESTRATOR_IMAGE_TAG}

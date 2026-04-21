@@ -85,6 +85,19 @@ def has_named_mount(service: dict, source: str, target: str) -> bool:
     return False
 
 
+def require_healthcheck(service_name: str, expected_test: list[str]) -> None:
+    service = services[service_name]
+    healthcheck = service.get("healthcheck")
+    if not isinstance(healthcheck, dict):
+        raise SystemExit(f"{service_name} must declare a healthcheck")
+    actual_test = healthcheck.get("test")
+    if actual_test != expected_test:
+        raise SystemExit(
+            f"{service_name} healthcheck drifted from the v0.1 baseline: "
+            f"{actual_test!r}"
+        )
+
+
 expected_env = {
     "CATALYST_ARTIFACT_ROOT": "/app/.continuum/artifacts",
     "CATALYST_RUNTIME_PROVIDERS_FILE": "/app/config/runtime-providers.yaml",
@@ -108,6 +121,10 @@ for service_name in ("orchestrator", "worker"):
     if not env.get("CATALYST_AI_GATEWAY_API_KEY"):
         raise SystemExit(
             f"{service_name} must set CATALYST_AI_GATEWAY_API_KEY for live AI gateway inspection"
+        )
+    if env.get("CATALYST_AI_GATEWAY_STATUS_BASE_URL") != "http://litellm:4000":
+        raise SystemExit(
+            f"{service_name} must set CATALYST_AI_GATEWAY_STATUS_BASE_URL=http://litellm:4000"
         )
 
 orchestrator_command = services["orchestrator"].get("command")
@@ -208,4 +225,33 @@ if not any(
     for mount in litellm_db_init.get("volumes", [])
 ):
     raise SystemExit("litellm-db-init must mount litellm-db-init.sh")
+
+require_healthcheck(
+    "prometheus",
+    ["CMD", "/bin/wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9090/-/healthy"],
+)
+require_healthcheck(
+    "grafana",
+    ["CMD", "/usr/bin/wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/api/health"],
+)
+require_healthcheck(
+    "orchestrator",
+    ["CMD", "/usr/bin/wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/readyz"],
+)
+
+grafana_dependency = services["grafana"].get("depends_on", {})
+prometheus_dependency = grafana_dependency.get("prometheus", {})
+if prometheus_dependency.get("condition") != "service_healthy":
+    raise SystemExit("grafana must depend on a healthy prometheus service")
+
+for dependency_name in ("loki", "tempo"):
+    dependency = grafana_dependency.get(dependency_name, {})
+    if dependency.get("condition") != "service_started":
+        raise SystemExit(
+            f"grafana must keep {dependency_name} as a service_started dependency"
+        )
+
+worker_dependency = services["worker"].get("depends_on", {}).get("orchestrator", {})
+if worker_dependency.get("condition") != "service_healthy":
+    raise SystemExit("worker must depend on a healthy orchestrator service in compose")
 PY
