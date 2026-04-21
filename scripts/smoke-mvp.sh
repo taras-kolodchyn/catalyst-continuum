@@ -1128,6 +1128,8 @@ PREPARE_OUTPUT="$("$BIN" prepare-agent-task-workspace \
 printf '%s\n' "$PREPARE_OUTPUT"
 printf '%s\n' "$PREPARE_OUTPUT" | grep -q '^workspace_prepared: yes$'
 printf '%s\n' "$PREPARE_OUTPUT" | grep -q '^source_kind: empty$'
+printf '%s\n' "$PREPARE_OUTPUT" | grep -q '^task_workspace_input_artifact:$'
+printf '%s\n' "$PREPARE_OUTPUT" | grep -q '^bundle_path: '
 CLAIMED_WORKSPACE_ROOT="$(printf '%s\n' "$PREPARE_OUTPUT" | awk '/^workspace_root:/ {print $2; exit}')"
 test -n "$CLAIMED_WORKSPACE_ROOT"
 python3 - "$PACK_ID" "$CLAIMED_WORKSPACE_ROOT" "$RUST_VERSION" <<'PY'

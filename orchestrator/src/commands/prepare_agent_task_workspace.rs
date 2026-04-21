@@ -45,6 +45,7 @@ pub struct PreparedAgentTaskWorkspaceReport {
     workspace_root: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     source_artifact: Option<ArtifactSummary>,
+    task_workspace_input_artifact: ArtifactSummary,
     #[serde(skip_serializing_if = "Option::is_none")]
     bundle_path: Option<String>,
     task: TaskSummary,
@@ -110,8 +111,23 @@ pub(crate) fn prepare_agent_task_workspace(
 
     let snapshot_artifact =
         store.find_latest_run_artifact(task.run_id, workspace_snapshot::SNAPSHOT_ARTIFACT_TYPE)?;
-    let (source_kind, source_artifact, bundle_path, workspace_root) =
+    let (source_kind, source_artifact, workspace_root) =
         prepare_workspace_root(&task, snapshot_artifact, artifact_root)?;
+    let task_workspace_input = workspace_snapshot::compose_task_workspace_input_artifact(
+        &task,
+        source_kind,
+        source_artifact.as_ref(),
+        &workspace_root,
+        artifact_root,
+    )?;
+    let task_workspace_input_artifact = store.upsert_artifact(&task_workspace_input)?;
+    let bundle_path = Some(
+        workspace_snapshot::resolve_task_workspace_input_bundle_path(
+            &task_workspace_input_artifact,
+        )?
+        .display()
+        .to_string(),
+    );
     let run_status = store.refresh_run_status(task.run_id)?;
 
     Ok(PreparedAgentTaskWorkspaceReport {
@@ -122,9 +138,10 @@ pub(crate) fn prepare_agent_task_workspace(
             .executor_id
             .clone()
             .or_else(|| executor_id.map(str::to_string)),
-        source_kind,
+        source_kind: source_kind.as_str().to_string(),
         workspace_root: workspace_root.display().to_string(),
         source_artifact,
+        task_workspace_input_artifact,
         bundle_path,
         task,
     })
@@ -158,6 +175,14 @@ impl PreparedAgentTaskWorkspaceReport {
             writeln!(&mut output, "{}", source_artifact.render_text()?)
                 .context("failed to render prepared agent task workspace")?;
         }
+        writeln!(&mut output, "task_workspace_input_artifact:")
+            .context("failed to render prepared agent task workspace")?;
+        writeln!(
+            &mut output,
+            "{}",
+            self.task_workspace_input_artifact.render_text()?
+        )
+        .context("failed to render prepared agent task workspace")?;
         if let Some(bundle_path) = &self.bundle_path {
             writeln!(&mut output, "bundle_path: {}", bundle_path)
                 .context("failed to render prepared agent task workspace")?;
@@ -174,16 +199,17 @@ fn prepare_workspace_root(
     task: &TaskSummary,
     snapshot_artifact: Option<ArtifactSummary>,
     artifact_root: &Path,
-) -> anyhow::Result<(String, Option<ArtifactSummary>, Option<String>, PathBuf)> {
+) -> anyhow::Result<(
+    workspace_snapshot::TaskWorkspaceSourceKind,
+    Option<ArtifactSummary>,
+    PathBuf,
+)> {
     if let Some(snapshot_artifact) = snapshot_artifact {
         let workspace_root =
             workspace_snapshot::prepare_task_workspace(task, &snapshot_artifact, artifact_root)?;
-        let bundle_path = workspace_snapshot::resolve_snapshot_bundle_path(&snapshot_artifact)?
-            .map(|path| path.display().to_string());
         return Ok((
-            "snapshot".to_string(),
+            workspace_snapshot::TaskWorkspaceSourceKind::Snapshot,
             Some(snapshot_artifact),
-            bundle_path,
             workspace_root,
         ));
     }
@@ -211,8 +237,7 @@ fn prepare_workspace_root(
     })?;
 
     Ok((
-        "empty".to_string(),
-        None,
+        workspace_snapshot::TaskWorkspaceSourceKind::Empty,
         None,
         workspace_root.canonicalize().with_context(|| {
             format!(

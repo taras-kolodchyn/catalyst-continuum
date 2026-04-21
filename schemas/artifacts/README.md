@@ -6,6 +6,7 @@ Current published set:
 
 - `backlog.schema.yaml`
 - `workspace-snapshot.schema.yaml`
+- `task-workspace-input.schema.yaml`
 - `agent-dispatch-plan.schema.yaml`
 - `policy-report.schema.yaml`
 - `quality-report.schema.yaml`

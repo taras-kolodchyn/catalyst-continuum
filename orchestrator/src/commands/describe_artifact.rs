@@ -76,7 +76,11 @@ pub struct ArtifactDetailReport {
 }
 
 fn build_artifact_detail(run_id: uuid::Uuid, artifact: ArtifactSummary) -> ArtifactDetailReport {
-    let inspection = inspect_artifact_location(&artifact.location_kind, &artifact.location_value);
+    let inspection = inspect_artifact_location(
+        &artifact.location_kind,
+        &artifact.location_value,
+        &artifact.metadata,
+    );
 
     ArtifactDetailReport {
         run_id,
@@ -173,7 +177,11 @@ struct ArtifactInspection {
     warnings: Vec<String>,
 }
 
-fn inspect_artifact_location(location_kind: &str, location_value: &str) -> ArtifactInspection {
+fn inspect_artifact_location(
+    location_kind: &str,
+    location_value: &str,
+    metadata: &Value,
+) -> ArtifactInspection {
     let mut inspection = ArtifactInspection {
         location_exists: false,
         resolved_path: None,
@@ -204,11 +212,14 @@ fn inspect_artifact_location(location_kind: &str, location_value: &str) -> Artif
 
     let resolved_path = fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
     inspection.resolved_path = Some(resolved_path.display().to_string());
+    let explicit_manifest_path = resolve_metadata_manifest_path(metadata, &mut inspection);
 
     if resolved_path.is_dir() {
         inspection.directory_entries = list_directory_entries(&resolved_path, &mut inspection);
 
-        if let Some(manifest_path) = resolve_directory_manifest_path(&resolved_path) {
+        if let Some(manifest_path) =
+            explicit_manifest_path.or_else(|| resolve_directory_manifest_path(&resolved_path))
+        {
             inspection.manifest_path = Some(manifest_path.display().to_string());
             inspection.manifest = load_json_file(&manifest_path, &mut inspection);
         }
@@ -226,7 +237,10 @@ fn inspect_artifact_location(location_kind: &str, location_value: &str) -> Artif
             .and_then(|value| value.to_str())
             .unwrap_or_default();
 
-        if extension.eq_ignore_ascii_case("json") {
+        if let Some(manifest_path) = explicit_manifest_path {
+            inspection.manifest_path = Some(manifest_path.display().to_string());
+            inspection.manifest = load_json_file(&manifest_path, &mut inspection);
+        } else if extension.eq_ignore_ascii_case("json") {
             inspection.manifest_path = Some(resolved_path.display().to_string());
             inspection.manifest = load_json_file(&resolved_path, &mut inspection);
         } else if matches!(
@@ -247,6 +261,31 @@ fn inspect_artifact_location(location_kind: &str, location_value: &str) -> Artif
         resolved_path.display()
     ));
     inspection
+}
+
+fn resolve_metadata_manifest_path(
+    metadata: &Value,
+    inspection: &mut ArtifactInspection,
+) -> Option<PathBuf> {
+    let manifest_path = metadata.get("manifest_path").and_then(Value::as_str)?;
+    let manifest_path = PathBuf::from(manifest_path);
+
+    if !manifest_path.exists() {
+        inspection.warnings.push(format!(
+            "artifact metadata manifest_path does not exist: {}",
+            manifest_path.display()
+        ));
+        return None;
+    }
+    if !manifest_path.is_file() {
+        inspection.warnings.push(format!(
+            "artifact metadata manifest_path is not a file: {}",
+            manifest_path.display()
+        ));
+        return None;
+    }
+
+    Some(fs::canonicalize(&manifest_path).unwrap_or(manifest_path))
 }
 
 fn list_directory_entries(path: &Path, inspection: &mut ArtifactInspection) -> Vec<String> {
@@ -416,7 +455,11 @@ mod tests {
         .expect("manifest should be written");
         fs::write(root.join("notes.txt"), "policy report notes").expect("notes should be written");
 
-        let inspection = inspect_artifact_location("path", root.to_str().expect("utf-8 path"));
+        let inspection = inspect_artifact_location(
+            "path",
+            root.to_str().expect("utf-8 path"),
+            &serde_json::json!({}),
+        );
 
         assert!(inspection.location_exists);
         assert_eq!(
@@ -443,7 +486,11 @@ mod tests {
         fs::write(&path, r#"{"artifact_type":"quality_report","passed":true}"#)
             .expect("json file should be written");
 
-        let inspection = inspect_artifact_location("path", path.to_str().expect("utf-8 path"));
+        let inspection = inspect_artifact_location(
+            "path",
+            path.to_str().expect("utf-8 path"),
+            &serde_json::json!({}),
+        );
 
         assert!(inspection.location_exists);
         assert_eq!(
@@ -471,7 +518,11 @@ mod tests {
         fs::write(&path, "--- a/file\n+++ b/file\n@@ -1 +1 @@\n-old\n+new\n")
             .expect("patch should be written");
 
-        let inspection = inspect_artifact_location("path", path.to_str().expect("utf-8 path"));
+        let inspection = inspect_artifact_location(
+            "path",
+            path.to_str().expect("utf-8 path"),
+            &serde_json::json!({}),
+        );
 
         assert!(inspection.location_exists);
         assert!(
@@ -488,7 +539,11 @@ mod tests {
     #[test]
     fn reports_missing_artifact_path() {
         let path = temp_path("artifact-missing");
-        let inspection = inspect_artifact_location("path", path.to_str().expect("utf-8 path"));
+        let inspection = inspect_artifact_location(
+            "path",
+            path.to_str().expect("utf-8 path"),
+            &serde_json::json!({}),
+        );
 
         assert!(!inspection.location_exists);
         assert!(inspection.manifest.is_none());
@@ -498,6 +553,46 @@ mod tests {
                 .iter()
                 .any(|warning| warning.contains("does not exist"))
         );
+    }
+
+    #[test]
+    fn prefers_metadata_manifest_path_for_directory_artifact() {
+        let root = temp_path("artifact-directory-explicit");
+        let manifest_dir = temp_path("artifact-directory-explicit-manifest");
+        fs::create_dir_all(&root).expect("directory root should be created");
+        fs::create_dir_all(&manifest_dir).expect("manifest root should be created");
+        fs::write(root.join("README.md"), "# prepared workspace\n").expect("readme should write");
+        fs::write(
+            manifest_dir.join("input-manifest.json"),
+            r#"{"artifact_type":"task_workspace_input","source_kind":"empty"}"#,
+        )
+        .expect("explicit manifest should be written");
+
+        let inspection = inspect_artifact_location(
+            "path",
+            root.to_str().expect("utf-8 path"),
+            &serde_json::json!({
+                "manifest_path": manifest_dir.join("input-manifest.json"),
+            }),
+        );
+
+        assert_eq!(
+            inspection
+                .manifest
+                .as_ref()
+                .and_then(|manifest| manifest.get("artifact_type"))
+                .and_then(Value::as_str),
+            Some("task_workspace_input")
+        );
+        assert!(
+            inspection
+                .manifest_path
+                .as_deref()
+                .is_some_and(|manifest_path| manifest_path.ends_with("/input-manifest.json"))
+        );
+
+        fs::remove_dir_all(root).expect("directory root should be removed");
+        fs::remove_dir_all(manifest_dir).expect("manifest root should be removed");
     }
 
     fn temp_path(label: &str) -> PathBuf {

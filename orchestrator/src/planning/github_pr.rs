@@ -795,6 +795,7 @@ esac
         .expect("task workspace should prepare");
         let workspace = TaskWorkspace {
             source_artifact_id: base_snapshot.artifact_id,
+            input_artifact_id: None,
             source_path: PathBuf::from(&base_snapshot.location_value)
                 .canonicalize()
                 .expect("base snapshot path should canonicalize"),

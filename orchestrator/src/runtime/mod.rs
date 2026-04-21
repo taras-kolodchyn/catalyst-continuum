@@ -61,6 +61,7 @@ impl TaskExecutionContext {
 #[derive(Debug, Clone)]
 pub struct TaskWorkspace {
     pub source_artifact_id: Uuid,
+    pub input_artifact_id: Option<Uuid>,
     pub source_path: PathBuf,
     pub host_path: PathBuf,
     pub container_path: String,

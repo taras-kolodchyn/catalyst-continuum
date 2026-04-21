@@ -450,6 +450,7 @@ fn capture_success_artifacts_from_workspace(
             })?;
             let task_workspace = TaskWorkspace {
                 source_artifact_id: snapshot_artifact.artifact_id,
+                input_artifact_id: None,
                 source_path,
                 host_path: prepared_workspace_root,
                 container_path: "/workspace".to_string(),

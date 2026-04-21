@@ -262,6 +262,10 @@ impl RuntimeProvider for DockerRuntimeProvider {
                 .workspace
                 .as_ref()
                 .map(|workspace| workspace.source_artifact_id),
+            workspace_input_artifact_id: execution_context
+                .workspace
+                .as_ref()
+                .and_then(|workspace| workspace.input_artifact_id),
             workspace_bundle_path: execution_context
                 .workspace
                 .as_ref()
@@ -330,6 +334,10 @@ impl RuntimeProvider for DockerRuntimeProvider {
                     .workspace
                     .as_ref()
                     .map(|workspace| workspace.source_artifact_id),
+                "workspace_input_artifact_id": execution_context
+                    .workspace
+                    .as_ref()
+                    .and_then(|workspace| workspace.input_artifact_id),
                 "workspace_bundle_path": execution_context
                     .workspace
                     .as_ref()
@@ -367,6 +375,7 @@ struct ExecutionArtifactPayload {
     working_directory: Option<String>,
     workspace_path: Option<String>,
     workspace_source_artifact_id: Option<Uuid>,
+    workspace_input_artifact_id: Option<Uuid>,
     workspace_bundle_path: Option<String>,
     sandbox_profile: Option<String>,
     sandbox_flags: Vec<String>,
@@ -620,6 +629,7 @@ mod tests {
         };
         let execution_context = TaskExecutionContext::default().with_workspace(TaskWorkspace {
             source_artifact_id: Uuid::new_v4(),
+            input_artifact_id: None,
             source_path: workspace_path.clone(),
             host_path: workspace_path.clone(),
             container_path: "/workspace".to_string(),

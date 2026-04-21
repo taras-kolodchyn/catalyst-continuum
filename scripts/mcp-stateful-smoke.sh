@@ -1326,12 +1326,51 @@ policy:
         },
         "workspace",
     )
-    workspace_root = pathlib.Path(prepared_workspace["workspace_root"])
     if prepared_workspace.get("source_kind") != "empty":
         fail(
             "stateful MCP smoke failed: expected scaffold workspace source_kind=empty, got "
             f"{prepared_workspace.get('source_kind')}"
         )
+    task_workspace_input_artifact = prepared_workspace.get("task_workspace_input_artifact") or {}
+    task_workspace_input_artifact_id = task_workspace_input_artifact.get("artifact_id")
+    if task_workspace_input_artifact.get("artifact_type") != "task_workspace_input":
+        fail(
+            "stateful MCP smoke failed: expected prepare_agent_task_workspace to return "
+            f"task_workspace_input artifact, got {task_workspace_input_artifact.get('artifact_type')!r}"
+        )
+    if not task_workspace_input_artifact_id:
+        fail(
+            "stateful MCP smoke failed: prepare_agent_task_workspace did not return "
+            "task_workspace_input artifact_id"
+        )
+    bundle_path = pathlib.Path(prepared_workspace.get("bundle_path", ""))
+    if not bundle_path.is_file():
+        fail(
+            "stateful MCP smoke failed: expected prepare_agent_task_workspace bundle_path "
+            f"to point at a real file, got {bundle_path}"
+        )
+    task_workspace_input_detail = call_tool(
+        "describe_artifact",
+        {"artifact_id": task_workspace_input_artifact_id},
+        "artifact",
+    )
+    if task_workspace_input_detail["artifact"]["artifact_type"] != "task_workspace_input":
+        fail(
+            "stateful MCP smoke failed: expected described prepared workspace artifact type "
+            f"task_workspace_input, got {task_workspace_input_detail['artifact']['artifact_type']!r}"
+        )
+    task_workspace_input_manifest = task_workspace_input_detail.get("manifest") or {}
+    if task_workspace_input_manifest.get("task_id") != claimed_task_id:
+        fail(
+            "stateful MCP smoke failed: prepared workspace manifest returned wrong task_id "
+            f"{task_workspace_input_manifest.get('task_id')!r}"
+        )
+    if task_workspace_input_manifest.get("source_kind") != "empty":
+        fail(
+            "stateful MCP smoke failed: prepared workspace manifest should preserve source_kind "
+            f"empty, got {task_workspace_input_manifest.get('source_kind')!r}"
+        )
+    workspace_root = pathlib.Path(prepared_workspace["workspace_root"])
     workspace_root.mkdir(parents=True, exist_ok=True)
     (workspace_root / "src").mkdir(parents=True, exist_ok=True)
     (workspace_root / "README.md").write_text(

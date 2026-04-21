@@ -22,8 +22,24 @@ use crate::runtime::TaskWorkspace;
 
 pub const SOURCE_ARTIFACT_TYPES: &[&str] = &["scaffold_bundle", "code_bundle"];
 pub const SNAPSHOT_ARTIFACT_TYPE: &str = "workspace_snapshot";
+pub const TASK_WORKSPACE_INPUT_ARTIFACT_TYPE: &str = "task_workspace_input";
 pub const PATCH_ARTIFACT_TYPE: &str = "workspace_patch";
 const SNAPSHOT_BUNDLE_EXTENSION: &str = "tar";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TaskWorkspaceSourceKind {
+    Snapshot,
+    Empty,
+}
+
+impl TaskWorkspaceSourceKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Snapshot => "snapshot",
+            Self::Empty => "empty",
+        }
+    }
+}
 
 pub fn should_refresh_workspace_snapshot(artifacts: &[ArtifactSummary]) -> bool {
     artifacts
@@ -187,10 +203,143 @@ pub fn prepare_task_workspace(
     })
 }
 
+pub fn compose_task_workspace_input_artifact(
+    task: &TaskSummary,
+    source_kind: TaskWorkspaceSourceKind,
+    source_artifact: Option<&ArtifactSummary>,
+    workspace_root: &Path,
+    artifact_root: &Path,
+) -> Result<ArtifactDraft> {
+    ensure!(
+        workspace_root.is_dir(),
+        "prepared task workspace root does not exist: {}",
+        workspace_root.display()
+    );
+
+    match source_kind {
+        TaskWorkspaceSourceKind::Snapshot => {
+            let source_artifact = source_artifact.with_context(|| {
+                format!(
+                    "task workspace input artifact for task {} requires a workspace_snapshot source artifact",
+                    task.task_id
+                )
+            })?;
+            validate_snapshot_artifact(source_artifact)?;
+        }
+        TaskWorkspaceSourceKind::Empty => ensure!(
+            source_artifact.is_none(),
+            "empty prepared task workspace for task {} must not carry a source artifact",
+            task.task_id
+        ),
+    }
+
+    let workspace_root = workspace_root.canonicalize().with_context(|| {
+        format!(
+            "failed to canonicalize prepared task workspace root: {}",
+            workspace_root.display()
+        )
+    })?;
+    let bundle_path = task_workspace_input_bundle_path(task.run_id, task.task_id, artifact_root);
+    let bundle = compose_workspace_bundle(&workspace_root, &bundle_path)?;
+    let mut directories = Vec::new();
+    let mut files = Vec::new();
+    collect_bundle_entries(
+        &workspace_root,
+        &workspace_root,
+        &mut directories,
+        &mut files,
+    )?;
+
+    let manifest = TaskWorkspaceInputManifest {
+        schema_version: "v0.1".to_string(),
+        artifact_type: TASK_WORKSPACE_INPUT_ARTIFACT_TYPE.to_string(),
+        run_id: task.run_id,
+        task_id: task.task_id,
+        backlog_item_id: task.backlog_item_id.clone(),
+        source_kind: source_kind.as_str().to_string(),
+        source_artifact_id: source_artifact.map(|artifact| artifact.artifact_id),
+        source_artifact_type: source_artifact.map(|artifact| artifact.artifact_type.clone()),
+        workspace_root: workspace_root.display().to_string(),
+        bundle_path: bundle.path.display().to_string(),
+        bundle_format: SNAPSHOT_BUNDLE_EXTENSION.to_string(),
+        bundle_content_digest: bundle.content_digest.clone(),
+        bundle_byte_count: bundle.byte_count,
+        bundle_entry_count: bundle.entry_count,
+        file_count: bundle.file_count,
+    };
+    let manifest_path =
+        task_workspace_input_manifest_path(task.run_id, task.task_id, artifact_root);
+    if let Some(parent) = manifest_path.parent() {
+        fs::create_dir_all(parent).with_context(|| {
+            format!(
+                "failed to create task workspace input manifest directory: {}",
+                parent.display()
+            )
+        })?;
+    }
+    let serialized_manifest = serde_json::to_vec_pretty(&manifest)
+        .context("failed to serialize task workspace input manifest")?;
+    fs::write(&manifest_path, &serialized_manifest).with_context(|| {
+        format!(
+            "failed to write task workspace input manifest: {}",
+            manifest_path.display()
+        )
+    })?;
+
+    Ok(ArtifactDraft {
+        artifact_id: task_workspace_input_artifact_id(task.task_id),
+        run_id: task.run_id,
+        artifact_type: TASK_WORKSPACE_INPUT_ARTIFACT_TYPE.to_string(),
+        format: "directory".to_string(),
+        location_kind: "path".to_string(),
+        location_value: workspace_root.display().to_string(),
+        content_digest: format!("sha256:{:x}", Sha256::digest(&serialized_manifest)),
+        labels: json!([
+            "workspace",
+            "input",
+            "prepared",
+            task.kind,
+            task.backlog_item_id
+        ]),
+        metadata: json!({
+            "task_id": task.task_id,
+            "backlog_item_id": task.backlog_item_id,
+            "source_kind": source_kind.as_str(),
+            "source_artifact_id": source_artifact.map(|artifact| artifact.artifact_id),
+            "source_artifact_type": source_artifact.map(|artifact| artifact.artifact_type.clone()),
+            "workspace_root": workspace_root.display().to_string(),
+            "manifest_path": manifest_path.display().to_string(),
+            "bundle_path": bundle.path.display().to_string(),
+            "bundle_format": SNAPSHOT_BUNDLE_EXTENSION,
+            "bundle_content_digest": bundle.content_digest,
+            "bundle_byte_count": bundle.byte_count,
+            "bundle_entry_count": bundle.entry_count,
+            "file_count": bundle.file_count,
+        }),
+    })
+}
+
 pub fn resolve_snapshot_bundle_path(
     snapshot_artifact: &ArtifactSummary,
 ) -> Result<Option<PathBuf>> {
-    let Some(bundle_path_value) = snapshot_artifact
+    validate_snapshot_artifact(snapshot_artifact)?;
+    resolve_bundle_path(snapshot_artifact)
+}
+
+pub fn resolve_task_workspace_input_bundle_path(
+    task_workspace_input_artifact: &ArtifactSummary,
+) -> Result<PathBuf> {
+    validate_task_workspace_input_artifact(task_workspace_input_artifact)?;
+    resolve_bundle_path(task_workspace_input_artifact)?.with_context(|| {
+        format!(
+            "prepared task workspace artifact {} is missing bundle metadata",
+            task_workspace_input_artifact.artifact_id
+        )
+    })
+}
+
+fn resolve_bundle_path(artifact: &ArtifactSummary) -> Result<Option<PathBuf>> {
+    let Some(bundle_path_value) = artifact
         .metadata
         .get("bundle_path")
         .and_then(|value| value.as_str())
@@ -201,7 +350,7 @@ pub fn resolve_snapshot_bundle_path(
     ensure!(
         !bundle_path_value.trim().is_empty(),
         "task workspace artifact {} metadata.bundle_path must not be empty when set",
-        snapshot_artifact.artifact_id
+        artifact.artifact_id
     );
 
     let bundle_path = PathBuf::from(bundle_path_value);
@@ -516,6 +665,33 @@ fn validate_snapshot_artifact(artifact: &ArtifactSummary) -> Result<()> {
     Ok(())
 }
 
+fn validate_task_workspace_input_artifact(artifact: &ArtifactSummary) -> Result<()> {
+    ensure!(
+        artifact.artifact_type == TASK_WORKSPACE_INPUT_ARTIFACT_TYPE,
+        "unsupported prepared task workspace artifact type: {}",
+        artifact.artifact_type
+    );
+    ensure!(
+        artifact.location_kind == "path",
+        "prepared task workspace artifact {} must use path location kind",
+        artifact.artifact_id
+    );
+    ensure!(
+        artifact.format == "directory",
+        "prepared task workspace artifact {} must be a directory",
+        artifact.artifact_id
+    );
+
+    let source_root = Path::new(&artifact.location_value);
+    ensure!(
+        source_root.is_dir(),
+        "prepared task workspace source path does not exist: {}",
+        source_root.display()
+    );
+
+    Ok(())
+}
+
 fn copy_source_artifact(
     artifact: &ArtifactSummary,
     source_root: &Path,
@@ -658,6 +834,30 @@ fn workspace_snapshot_bundle_path(run_id: Uuid, artifact_root: &Path) -> PathBuf
         .join(format!("current.{SNAPSHOT_BUNDLE_EXTENSION}"))
 }
 
+fn task_workspace_input_bundle_path(run_id: Uuid, task_id: Uuid, artifact_root: &Path) -> PathBuf {
+    artifact_root
+        .join("runs")
+        .join(run_id.to_string())
+        .join("tasks")
+        .join(task_id.to_string())
+        .join("workspace")
+        .join(format!("input.{SNAPSHOT_BUNDLE_EXTENSION}"))
+}
+
+fn task_workspace_input_manifest_path(
+    run_id: Uuid,
+    task_id: Uuid,
+    artifact_root: &Path,
+) -> PathBuf {
+    artifact_root
+        .join("runs")
+        .join(run_id.to_string())
+        .join("tasks")
+        .join(task_id.to_string())
+        .join("workspace")
+        .join("input-manifest.json")
+}
+
 fn compose_workspace_bundle(snapshot_root: &Path, bundle_path: &Path) -> Result<WorkspaceBundle> {
     if let Some(parent) = bundle_path.parent() {
         fs::create_dir_all(parent).with_context(|| {
@@ -725,6 +925,7 @@ fn compose_workspace_bundle(snapshot_root: &Path, bundle_path: &Path) -> Result<
         content_digest: format!("sha256:{:x}", Sha256::digest(&bundle_bytes)),
         byte_count: bundle_bytes.len() as u64,
         entry_count: directories.len() + files.len(),
+        file_count: files.len(),
     })
 }
 
@@ -1238,6 +1439,15 @@ fn workspace_snapshot_artifact_id(run_id: Uuid) -> Uuid {
     Uuid::from_bytes(bytes)
 }
 
+fn task_workspace_input_artifact_id(task_id: Uuid) -> Uuid {
+    let digest = Sha256::digest(format!("task-workspace-input:{task_id}").as_bytes());
+    let mut bytes = [0_u8; 16];
+    bytes.copy_from_slice(&digest[..16]);
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    Uuid::from_bytes(bytes)
+}
+
 #[derive(Debug, Serialize)]
 struct WorkspaceSnapshotManifest {
     schema_version: String,
@@ -1252,12 +1462,32 @@ struct WorkspaceSnapshotManifest {
     files: Vec<WorkspaceSnapshotFile>,
 }
 
+#[derive(Debug, Serialize)]
+struct TaskWorkspaceInputManifest {
+    schema_version: String,
+    artifact_type: String,
+    run_id: Uuid,
+    task_id: Uuid,
+    backlog_item_id: String,
+    source_kind: String,
+    source_artifact_id: Option<Uuid>,
+    source_artifact_type: Option<String>,
+    workspace_root: String,
+    bundle_path: String,
+    bundle_format: String,
+    bundle_content_digest: String,
+    bundle_byte_count: u64,
+    bundle_entry_count: usize,
+    file_count: usize,
+}
+
 #[derive(Debug)]
 struct WorkspaceBundle {
     path: PathBuf,
     content_digest: String,
     byte_count: u64,
     entry_count: usize,
+    file_count: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -1501,6 +1731,138 @@ mod tests {
     }
 
     #[test]
+    fn composes_task_workspace_input_artifact_from_snapshot_workspace() {
+        let brief = sample_brief();
+        let run = RunDraft::from_brief(&brief, "examples/brief.yaml".to_string());
+        let pack = PackDefinition::load(Some("container-service")).expect("pack should load");
+        let generated =
+            generate_initial_backlog(&brief, &run, &pack, Path::new(".tmp-artifacts"), false)
+                .expect("backlog should generate");
+        let tasks =
+            materialize_tasks(&run, &pack, &generated.document).expect("tasks should build");
+        let run_context = RunContext::from_draft(&run);
+        let temp_root = std::env::temp_dir().join(format!(
+            "continuum-task-workspace-input-snapshot-{}",
+            Uuid::new_v4()
+        ));
+
+        let scaffold_task = TaskSummary::from_draft(&tasks[1]);
+        let scaffold_artifact =
+            generate_task_artifacts(&scaffold_task, &run_context, &pack, &temp_root)
+                .expect("scaffold materialization should succeed")
+                .into_iter()
+                .next()
+                .expect("scaffold bundle should exist");
+        let snapshot_sources = vec![
+            ArtifactSummary::from_draft(&scaffold_artifact)
+                .with_created_at("2026-04-17T10:00:00.000Z".to_string()),
+        ];
+        let snapshot = compose_workspace_snapshot(&run_context, &snapshot_sources, &temp_root)
+            .expect("workspace snapshot should compose");
+        let snapshot_summary = ArtifactSummary::from_draft(&snapshot)
+            .with_created_at("2026-04-17T10:10:00.000Z".to_string());
+        let code_task = TaskSummary::from_draft(&tasks[2]);
+        let workspace_root = prepare_task_workspace(&code_task, &snapshot_summary, &temp_root)
+            .expect("task workspace should prepare");
+
+        let prepared_workspace = compose_task_workspace_input_artifact(
+            &code_task,
+            TaskWorkspaceSourceKind::Snapshot,
+            Some(&snapshot_summary),
+            &workspace_root,
+            &temp_root,
+        )
+        .expect("task workspace input artifact should compose");
+        let manifest_path = PathBuf::from(
+            prepared_workspace.metadata["manifest_path"]
+                .as_str()
+                .expect("task workspace input manifest path should exist"),
+        );
+        let bundle_path = PathBuf::from(
+            prepared_workspace.metadata["bundle_path"]
+                .as_str()
+                .expect("task workspace input bundle path should exist"),
+        );
+
+        assert_eq!(
+            prepared_workspace.artifact_type,
+            TASK_WORKSPACE_INPUT_ARTIFACT_TYPE
+        );
+        assert!(bundle_path.is_file());
+        assert_json_file_matches_schema(
+            "schemas/artifacts/task-workspace-input.schema.yaml",
+            &manifest_path,
+        );
+
+        let manifest: serde_json::Value = serde_json::from_slice(
+            &fs::read(&manifest_path).expect("task workspace input manifest should be readable"),
+        )
+        .expect("task workspace input manifest should parse");
+        assert_eq!(manifest["source_kind"], "snapshot");
+        assert_eq!(
+            manifest["source_artifact_id"],
+            snapshot_summary.artifact_id.to_string()
+        );
+        assert!(manifest["file_count"].as_u64().unwrap_or_default() >= 1);
+
+        let _ = fs::remove_dir_all(&temp_root);
+    }
+
+    #[test]
+    fn composes_task_workspace_input_artifact_for_empty_workspace() {
+        let brief = sample_brief();
+        let run = RunDraft::from_brief(&brief, "examples/brief.yaml".to_string());
+        let pack = PackDefinition::load(Some("container-service")).expect("pack should load");
+        let generated =
+            generate_initial_backlog(&brief, &run, &pack, Path::new(".tmp-artifacts"), false)
+                .expect("backlog should generate");
+        let tasks =
+            materialize_tasks(&run, &pack, &generated.document).expect("tasks should build");
+        let temp_root = std::env::temp_dir().join(format!(
+            "continuum-task-workspace-input-empty-{}",
+            Uuid::new_v4()
+        ));
+        let workspace_root = temp_root.join("workspace-empty");
+        fs::create_dir_all(&workspace_root).expect("empty workspace should create");
+        let scaffold_task = TaskSummary::from_draft(&tasks[1]);
+
+        let prepared_workspace = compose_task_workspace_input_artifact(
+            &scaffold_task,
+            TaskWorkspaceSourceKind::Empty,
+            None,
+            &workspace_root,
+            &temp_root,
+        )
+        .expect("empty task workspace input artifact should compose");
+        let manifest_path = PathBuf::from(
+            prepared_workspace.metadata["manifest_path"]
+                .as_str()
+                .expect("empty task workspace input manifest path should exist"),
+        );
+        let bundle_path = PathBuf::from(
+            prepared_workspace.metadata["bundle_path"]
+                .as_str()
+                .expect("empty task workspace input bundle path should exist"),
+        );
+
+        assert!(bundle_path.is_file());
+        assert_json_file_matches_schema(
+            "schemas/artifacts/task-workspace-input.schema.yaml",
+            &manifest_path,
+        );
+
+        let manifest: serde_json::Value = serde_json::from_slice(
+            &fs::read(&manifest_path).expect("empty task workspace input manifest should read"),
+        )
+        .expect("empty task workspace input manifest should parse");
+        assert_eq!(manifest["source_kind"], "empty");
+        assert!(manifest["source_artifact_id"].is_null());
+        assert_eq!(manifest["file_count"], 0);
+
+        let _ = fs::remove_dir_all(&temp_root);
+    }
+
+    #[test]
     fn composes_code_workspace_patch_from_code_bundle_overlay() {
         let brief = sample_brief();
         let run = RunDraft::from_brief(&brief, "examples/brief.yaml".to_string());
@@ -1542,6 +1904,7 @@ mod tests {
             .expect("snapshot path should canonicalize");
         let workspace = TaskWorkspace {
             source_artifact_id: snapshot.artifact_id,
+            input_artifact_id: None,
             source_path,
             host_path: workspace_path,
             container_path: "/workspace".to_string(),

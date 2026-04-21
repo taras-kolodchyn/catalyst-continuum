@@ -403,7 +403,17 @@ fn build_execution_context(
     if let Some(snapshot_artifact) = snapshot_artifact {
         let host_path =
             workspace_snapshot::prepare_task_workspace(task, &snapshot_artifact, artifact_root)?;
-        let bundle_path = workspace_snapshot::resolve_snapshot_bundle_path(&snapshot_artifact)?;
+        let task_workspace_input = workspace_snapshot::compose_task_workspace_input_artifact(
+            task,
+            workspace_snapshot::TaskWorkspaceSourceKind::Snapshot,
+            Some(&snapshot_artifact),
+            &host_path,
+            artifact_root,
+        )?;
+        let task_workspace_input = store.upsert_artifact(&task_workspace_input)?;
+        let bundle_path = Some(
+            workspace_snapshot::resolve_task_workspace_input_bundle_path(&task_workspace_input)?,
+        );
         let source_path = std::path::PathBuf::from(&snapshot_artifact.location_value)
             .canonicalize()
             .with_context(|| {
@@ -414,6 +424,7 @@ fn build_execution_context(
             })?;
         execution_context = execution_context.with_workspace(TaskWorkspace {
             source_artifact_id: snapshot_artifact.artifact_id,
+            input_artifact_id: Some(task_workspace_input.artifact_id),
             source_path,
             host_path,
             container_path: "/workspace".to_string(),
