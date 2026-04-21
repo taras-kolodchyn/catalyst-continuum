@@ -18,6 +18,7 @@ VALIDATE=0
 DRY_RUN=0
 PRINT_ENV=0
 ENV_FILE=""
+FULL_MCP_SURFACE=0
 
 WORKSPACE="${OPENHANDS_WORKSPACE:-$ROOT_DIR}"
 STATE_DIR=""
@@ -52,6 +53,7 @@ Options:
   --workspace PATH               Repository or workspace root to mount/use
   --state-dir PATH               Repo-local OpenHands persistence directory
   --env-file PATH                Compose env file used for Postgres/LiteLLM defaults
+  --full-mcp-surface             Disable the pinned OpenHands MCP tool allowlist and expose the full orchestrator MCP surface
   --launchers-file PATH          Agent launcher profile config file
   --artifact-root PATH           Artifact root passed to the orchestrator MCP server
   --runtime-providers-file PATH  Runtime providers config path
@@ -134,6 +136,10 @@ while [ "$#" -gt 0 ]; do
       fi
       ENV_FILE="$2"
       shift 2
+      ;;
+    --full-mcp-surface)
+      FULL_MCP_SURFACE=1
+      shift
       ;;
     --launchers-file)
       if [ "$#" -lt 2 ]; then
@@ -283,6 +289,7 @@ values = {
     "PROFILE_PASS_USER_ID": "1" if profile.get("pass_user_id", False) else "0",
     "PROFILE_DEFAULT_TASK_FILE": agent.get("default_task_file", ""),
     "PROFILE_WORKSPACE_MOUNT_PATH": agent.get("workspace_mount_path", "/workspace"),
+    "AGENT_MCP_TOOL_ALLOWLIST": ",".join(agent.get("mcp_tool_allowlist", [])),
 }
 
 for key, value in values.items():
@@ -351,13 +358,23 @@ if [ "$BOOTSTRAP" -eq 1 ]; then
   "$ROOT_DIR/scripts/openhands-bootstrap.sh" "${bootstrap_args[@]}"
 fi
 
-"$ROOT_DIR/scripts/openhands-render-mcp-config.sh" \
-  --output "$STATE_DIR/mcp.json" \
-  --artifact-root "$ARTIFACT_ROOT" \
-  --runtime-providers-file "$RUNTIME_PROVIDERS_FILE" \
-  --mcp-servers-file "$MCP_SERVERS_FILE" \
-  --ai-gateway-file "$AI_GATEWAY_FILE" \
-  --database-url "$DATABASE_URL" >/dev/null
+render_mcp_args=(
+  --output "$STATE_DIR/mcp.json"
+  --artifact-root "$ARTIFACT_ROOT"
+  --runtime-providers-file "$RUNTIME_PROVIDERS_FILE"
+  --mcp-servers-file "$MCP_SERVERS_FILE"
+  --ai-gateway-file "$AI_GATEWAY_FILE"
+  --database-url "$DATABASE_URL"
+  --launchers-file "$LAUNCHERS_FILE"
+)
+
+if [ "$FULL_MCP_SURFACE" -eq 1 ]; then
+  render_mcp_args+=(--full-mcp-surface)
+elif [ -n "$AGENT_MCP_TOOL_ALLOWLIST" ]; then
+  render_mcp_args+=(--tool-allowlist "$AGENT_MCP_TOOL_ALLOWLIST")
+fi
+
+"$ROOT_DIR/scripts/openhands-render-mcp-config.sh" "${render_mcp_args[@]}" >/dev/null
 
 export OPENHANDS_SUPPRESS_BANNER=1
 export OPENHANDS_PERSISTENCE_DIR="$STATE_DIR"
@@ -441,6 +458,14 @@ print_contract() {
   echo "artifact_root=$ARTIFACT_ROOT"
   echo "database_url=$DATABASE_URL"
   echo "mcp_config=$STATE_DIR/mcp.json"
+  if [ "$FULL_MCP_SURFACE" -eq 1 ]; then
+    echo "mcp_surface=full"
+  else
+    echo "mcp_surface=validation"
+  fi
+  if [ "$FULL_MCP_SURFACE" -ne 1 ] && [ -n "$AGENT_MCP_TOOL_ALLOWLIST" ]; then
+    echo "mcp_tool_allowlist=$AGENT_MCP_TOOL_ALLOWLIST"
+  fi
   echo "llm_model=openai/$LITELLM_MODEL"
   echo "llm_base_url=$HOST_BASE_URL"
   echo "launch_command=$(quote_command "${launch_command[@]}")"

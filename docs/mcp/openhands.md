@@ -81,12 +81,43 @@ The launcher also keeps the session repo-local instead of mutating global
 - it applies `LLM_MODEL`, `LLM_BASE_URL`, and `LLM_API_KEY` through `--override-with-envs`
 - it keeps the LiteLLM, Postgres, runtime-provider, MCP allowlist, and AI-gateway paths aligned with the same repository config files used by the orchestrator
 
+The pinned launcher path now also narrows the orchestrator's internal MCP tool
+surface by default through the OpenHands-specific allowlist in
+`config/agent-launchers.toml`.
+That default surface is intentionally aligned to
+[examples/openhands/first-task.md](../../examples/openhands/first-task.md) so a
+local code model does not have to reason over the full control-plane tool set
+just to validate the first end-to-end flow.
+The default allowlist covers:
+
+- `list_packs`
+- `validate_brief`
+- `submit_brief`
+- `list_runs`
+- `describe_run`
+- `run_next_task`
+- `claim_next_agent_task`
+- `heartbeat_agent_task`
+- `complete_agent_task`
+- `run_worker_once`
+- `evaluate_run_policy`
+- `evaluate_run_quality`
+- `describe_artifact`
+
 Use `--dry-run` when you want to inspect the exact resolved contract before
 launching:
 
 ```bash
 ./scripts/openhands-launch.sh --profile container-sandbox --dry-run
 ./scripts/openhands-launch.sh --profile host-full-access --dry-run
+```
+
+If you explicitly need the full orchestrator MCP tool surface for debugging or
+an advanced local session, opt out of that default narrowing:
+
+```bash
+./scripts/openhands-launch.sh --profile container-sandbox --full-mcp-surface
+./scripts/openhands-launch.sh --profile host-full-access --full-mcp-surface
 ```
 
 ## LiteLLM Local Model Path
@@ -203,12 +234,20 @@ The helper script:
 - uses the official `openhands mcp add` CLI flow
 - uses `cargo --manifest-path <repo>/Cargo.toml` instead of relying on the current working directory
 - reads `CATALYST_DATABASE_URL` when you want stateful tools
+- applies the same default OpenHands MCP tool allowlist from `config/agent-launchers.toml`
 - reads `CATALYST_RUNTIME_PROVIDERS_FILE` when you want OpenHands pinned to a specific instance config path
 - reads `CATALYST_MCP_SERVERS_FILE` when you want OpenHands pinned to a specific external MCP allowlist
 - reads `CATALYST_AI_GATEWAY_FILE` when you want OpenHands pinned to a specific LiteLLM AI gateway contract file
 - defaults the server name to `catalyst-continuum`
 - can be renamed with `OPENHANDS_MCP_SERVER_NAME`
 - defaults to absolute repository paths for the artifact root and config files so the stored OpenHands command does not depend on launching from the repo root later
+
+If you want that global OpenHands registration to expose the full internal
+orchestrator surface instead, use:
+
+```bash
+./scripts/openhands-register-mcp.sh --full-mcp-surface
+```
 
 ## Manual OpenHands Config
 
@@ -227,8 +266,12 @@ That renderer:
 - emits absolute artifact and config paths
 - uses `cargo --manifest-path <repo>/Cargo.toml` for the orchestrator command
 - carries over `CATALYST_DATABASE_URL` when you export it before rendering
+- applies the pinned OpenHands MCP tool allowlist from `config/agent-launchers.toml` by default
 - includes the OpenHands-allowed external MCP servers from `config/mcp-servers.yaml`
 - materializes the pinned launch arguments declared in `config/mcp-servers.yaml` for those servers, for example the shipped `Fetch` contract
+
+If you want the rendered config to expose the full internal tool surface instead
+of the default validation-focused allowlist, pass `--full-mcp-surface`.
 
 Use [examples/mcp/openhands.mcp.json](../../examples/mcp/openhands.mcp.json) only as a minimal shape reference when you want to hand-edit the file yourself.
 

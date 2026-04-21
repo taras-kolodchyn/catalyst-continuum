@@ -109,9 +109,13 @@ Many open-source agents use slightly different configuration formats, but the tr
 
 - command: `cargo` or the built orchestrator binary
 - args: `run -q --manifest-path /absolute/path/to/Cargo.toml -p catalyst-continuum-orchestrator -- mcp-server ...`
-- env: optional `CATALYST_DATABASE_URL`, `CATALYST_RUNTIME_PROVIDERS_FILE`, `CATALYST_MCP_SERVERS_FILE`, and `CATALYST_AI_GATEWAY_FILE`
+- env: optional `CATALYST_DATABASE_URL`, `CATALYST_RUNTIME_PROVIDERS_FILE`, `CATALYST_MCP_SERVERS_FILE`, `CATALYST_AI_GATEWAY_FILE`, and `CATALYST_MCP_TOOL_ALLOWLIST`
 
 Prefer absolute paths for `--manifest-path`, `--artifact-root`, and the config files when the client persists its MCP registration separately from the repository working directory. Use `--runtime-providers-file` when the agent should target a non-default runtime-provider config path, `--mcp-servers-file` when the same session should use an explicit external MCP server allowlist, and `--ai-gateway-file` or `CATALYST_AI_GATEWAY_FILE` when the session should pin a non-default LiteLLM AI gateway contract file. That keeps MCP, HTTP, and local worker execution aligned to the same instance contract during validation.
+If you need to narrow the internal tool surface for one client or one session,
+set `CATALYST_MCP_TOOL_ALLOWLIST` to a comma-separated list of tool names.
+The server will hide the rest from `tools/list` and reject direct `tools/call`
+attempts against tools outside that allowlist.
 
 A neutral example config is available at [examples/mcp/stdio-server.example.json](../../examples/mcp/stdio-server.example.json).
 

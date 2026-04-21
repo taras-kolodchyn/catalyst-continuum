@@ -1,4 +1,7 @@
-use std::io::{BufRead, Write};
+use std::{
+    collections::BTreeSet,
+    io::{BufRead, Write},
+};
 
 use anyhow::{Context, anyhow, bail};
 use serde::Deserialize;
@@ -61,6 +64,7 @@ struct McpServerConfig {
     database_url: Option<String>,
     artifact_root: std::path::PathBuf,
     instance_config: InstanceConfigReport,
+    tool_allowlist: Option<BTreeSet<String>>,
 }
 
 #[derive(Default)]
@@ -367,12 +371,15 @@ impl StdioMcpServer {
             args.mcp_servers_file.as_deref(),
             args.ai_gateway_file.as_deref(),
         )?;
+        let tool_allowlist = normalize_tool_allowlist(args.tool_allowlist);
+        validate_tool_allowlist(tool_allowlist.as_ref())?;
 
         Ok(Self {
             config: McpServerConfig {
                 database_url: args.database_url,
                 artifact_root: args.artifact_root,
                 instance_config: instance_config.clone(),
+                tool_allowlist,
             },
             state: SessionState::default(),
             runtime_registry: RuntimeRegistry::from_runtime_providers_config(
@@ -577,7 +584,7 @@ impl StdioMcpServer {
         Ok(jsonrpc_result_response(
             id,
             json!({
-                "tools": tool_definitions()
+                "tools": filtered_tool_definitions(self.config.tool_allowlist.as_ref())
             }),
         ))
     }
@@ -586,6 +593,14 @@ impl StdioMcpServer {
         self.ensure_initialized()?;
         let params: CallToolParams = parse_params(params)?;
         let arguments = normalize_arguments(params.arguments)?;
+
+        if !self.tool_is_allowed(&params.name) {
+            return Ok(jsonrpc_error_response(
+                id,
+                JSONRPC_INVALID_PARAMS,
+                &format!("tool is not enabled for this MCP session: {}", params.name),
+            ));
+        }
 
         let result = match params.name.as_str() {
             "list_packs" => self.call_list_packs(arguments),
@@ -656,6 +671,13 @@ impl StdioMcpServer {
         }
 
         Ok(())
+    }
+
+    fn tool_is_allowed(&self, tool_name: &str) -> bool {
+        match &self.config.tool_allowlist {
+            Some(allowlist) => allowlist.contains(tool_name),
+            None => true,
+        }
     }
 
     fn open_store(&self) -> anyhow::Result<PostgresRunStore> {
@@ -1484,6 +1506,60 @@ fn pretty_json(value: &Value) -> String {
     serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string())
 }
 
+fn normalize_tool_allowlist(entries: Vec<String>) -> Option<BTreeSet<String>> {
+    let allowlist = entries
+        .into_iter()
+        .map(|entry| entry.trim().to_string())
+        .filter(|entry| !entry.is_empty())
+        .collect::<BTreeSet<_>>();
+    if allowlist.is_empty() {
+        None
+    } else {
+        Some(allowlist)
+    }
+}
+
+fn validate_tool_allowlist(allowlist: Option<&BTreeSet<String>>) -> anyhow::Result<()> {
+    let Some(allowlist) = allowlist else {
+        return Ok(());
+    };
+
+    let known_tools = tool_definitions()
+        .into_iter()
+        .filter_map(|tool| {
+            tool.get("name")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned)
+        })
+        .collect::<BTreeSet<_>>();
+    let unknown_tools = allowlist
+        .difference(&known_tools)
+        .cloned()
+        .collect::<Vec<_>>();
+
+    if unknown_tools.is_empty() {
+        Ok(())
+    } else {
+        bail!(
+            "unknown MCP tool allowlist entries: {}; known tools: {}",
+            unknown_tools.join(", "),
+            known_tools.into_iter().collect::<Vec<_>>().join(", ")
+        );
+    }
+}
+
+fn filtered_tool_definitions(allowlist: Option<&BTreeSet<String>>) -> Vec<Value> {
+    let mut definitions = tool_definitions();
+    if let Some(allowlist) = allowlist {
+        definitions.retain(|tool| {
+            tool.get("name")
+                .and_then(Value::as_str)
+                .is_some_and(|name| allowlist.contains(name))
+        });
+    }
+    definitions
+}
+
 fn tool_definitions() -> Vec<Value> {
     vec![
         tool_definition(
@@ -1938,6 +2014,7 @@ mod tests {
             runtime_providers_file: None,
             mcp_servers_file: None,
             ai_gateway_file: None,
+            tool_allowlist: Vec::new(),
         })
         .expect("server should initialize");
         let input = concat!(
@@ -1961,6 +2038,7 @@ mod tests {
             runtime_providers_file: None,
             mcp_servers_file: None,
             ai_gateway_file: None,
+            tool_allowlist: Vec::new(),
         })
         .expect("server should initialize");
         let input = concat!(
@@ -2103,6 +2181,87 @@ mod tests {
     }
 
     #[test]
+    fn filters_tools_list_when_allowlist_is_set() {
+        let mut server = StdioMcpServer::new(McpServerArgs {
+            database_url: None,
+            artifact_root: PathBuf::from(".continuum/artifacts"),
+            runtime_providers_file: None,
+            mcp_servers_file: None,
+            ai_gateway_file: None,
+            tool_allowlist: vec![
+                "list_packs".to_string(),
+                "validate_brief".to_string(),
+                "describe_run".to_string(),
+            ],
+        })
+        .expect("server should initialize");
+        let input = concat!(
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{},\"clientInfo\":{\"name\":\"test-client\",\"version\":\"0.1.0\"}}}\n",
+            "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n",
+            "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\",\"params\":{}}\n"
+        );
+
+        let output = run_session(&mut server, input);
+        let tool_names = output[1]["result"]["tools"]
+            .as_array()
+            .expect("tools/list should return an array")
+            .iter()
+            .filter_map(|tool| tool["name"].as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            tool_names,
+            vec!["list_packs", "validate_brief", "describe_run"]
+        );
+    }
+
+    #[test]
+    fn rejects_disallowed_tool_calls_when_allowlist_is_set() {
+        let mut server = StdioMcpServer::new(McpServerArgs {
+            database_url: None,
+            artifact_root: PathBuf::from(".continuum/artifacts"),
+            runtime_providers_file: None,
+            mcp_servers_file: None,
+            ai_gateway_file: None,
+            tool_allowlist: vec!["list_packs".to_string()],
+        })
+        .expect("server should initialize");
+        let input = concat!(
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{},\"clientInfo\":{\"name\":\"test-client\",\"version\":\"0.1.0\"}}}\n",
+            "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n",
+            "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"validate_brief\",\"arguments\":{}}}\n"
+        );
+
+        let output = run_session(&mut server, input);
+
+        assert_eq!(output[1]["error"]["code"], JSONRPC_INVALID_PARAMS);
+        assert_eq!(
+            output[1]["error"]["message"],
+            "tool is not enabled for this MCP session: validate_brief"
+        );
+    }
+
+    #[test]
+    fn rejects_unknown_tool_allowlist_entries_at_startup() {
+        let error = StdioMcpServer::new(McpServerArgs {
+            database_url: None,
+            artifact_root: PathBuf::from(".continuum/artifacts"),
+            runtime_providers_file: None,
+            mcp_servers_file: None,
+            ai_gateway_file: None,
+            tool_allowlist: vec!["unknown_tool".to_string()],
+        })
+        .err()
+        .expect("unknown allowlist entries should fail fast");
+
+        assert!(
+            error
+                .to_string()
+                .contains("unknown MCP tool allowlist entries: unknown_tool")
+        );
+    }
+
+    #[test]
     fn rejects_tool_calls_before_initialized_notification() {
         let mut server = StdioMcpServer::new(McpServerArgs {
             database_url: None,
@@ -2110,6 +2269,7 @@ mod tests {
             runtime_providers_file: None,
             mcp_servers_file: None,
             ai_gateway_file: None,
+            tool_allowlist: Vec::new(),
         })
         .expect("server should initialize");
         let input = concat!(
@@ -2137,6 +2297,7 @@ mod tests {
             runtime_providers_file: None,
             mcp_servers_file: None,
             ai_gateway_file: None,
+            tool_allowlist: Vec::new(),
         })
         .expect("server should initialize");
         let brief = sample_brief().replace('\n', "\\n");
@@ -2195,6 +2356,7 @@ servers:
             runtime_providers_file: None,
             mcp_servers_file: Some(mcp_servers_file.clone()),
             ai_gateway_file: None,
+            tool_allowlist: Vec::new(),
         })
         .expect("server should initialize");
         let brief = sample_brief().replace('\n', "\\n");

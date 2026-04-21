@@ -11,13 +11,20 @@ SMOKE_ROOT="${CATALYST_OPENHANDS_LAUNCH_SMOKE_ROOT:-$ROOT_DIR/.continuum/openhan
 HOST_STATE_DIR="$SMOKE_ROOT/state/host-full-access"
 CONTAINER_STATE_DIR="$SMOKE_ROOT/state/container-sandbox"
 OVERRIDE_STATE_DIR="$SMOKE_ROOT/state/override-model"
+FULL_STATE_DIR="$SMOKE_ROOT/state/full-mcp-surface"
 ARTIFACT_ROOT="$SMOKE_ROOT/artifacts"
 HOST_OUTPUT="$SMOKE_ROOT/host-full-access.txt"
 CONTAINER_OUTPUT="$SMOKE_ROOT/container-sandbox.txt"
 OVERRIDE_OUTPUT="$SMOKE_ROOT/override-model.txt"
+FULL_OUTPUT="$SMOKE_ROOT/full-mcp-surface.txt"
 
 rm -rf "$SMOKE_ROOT"
-mkdir -p "$HOST_STATE_DIR" "$CONTAINER_STATE_DIR" "$OVERRIDE_STATE_DIR" "$ARTIFACT_ROOT"
+mkdir -p \
+  "$HOST_STATE_DIR" \
+  "$CONTAINER_STATE_DIR" \
+  "$OVERRIDE_STATE_DIR" \
+  "$FULL_STATE_DIR" \
+  "$ARTIFACT_ROOT"
 
 "$ROOT_DIR/scripts/openhands-launch.sh" \
   --profile host-full-access \
@@ -41,13 +48,23 @@ LITELLM_DEFAULT_MODEL=local-ollama-coder \
     --state-dir "$OVERRIDE_STATE_DIR" \
     --dry-run >"$OVERRIDE_OUTPUT"
 
+"$ROOT_DIR/scripts/openhands-launch.sh" \
+  --profile container-sandbox \
+  --task-file "$ROOT_DIR/examples/openhands/first-task.md" \
+  --artifact-root "$ARTIFACT_ROOT" \
+  --state-dir "$FULL_STATE_DIR" \
+  --full-mcp-surface \
+  --dry-run >"$FULL_OUTPUT"
+
 python3 - \
   "$HOST_OUTPUT" \
   "$CONTAINER_OUTPUT" \
   "$OVERRIDE_OUTPUT" \
+  "$FULL_OUTPUT" \
   "$HOST_STATE_DIR" \
   "$CONTAINER_STATE_DIR" \
   "$OVERRIDE_STATE_DIR" \
+  "$FULL_STATE_DIR" \
   "$OPENHANDS_CLI_VERSION" \
   "$OPENHANDS_AGENT_SERVER_REPOSITORY" \
   "$OPENHANDS_AGENT_SERVER_TAG" <<'PY'
@@ -57,12 +74,14 @@ import sys
 host_output = pathlib.Path(sys.argv[1])
 container_output = pathlib.Path(sys.argv[2])
 override_output = pathlib.Path(sys.argv[3])
-host_state_dir = pathlib.Path(sys.argv[4])
-container_state_dir = pathlib.Path(sys.argv[5])
-override_state_dir = pathlib.Path(sys.argv[6])
-cli_version = sys.argv[7]
-agent_server_repository = sys.argv[8]
-agent_server_tag = sys.argv[9]
+full_output = pathlib.Path(sys.argv[4])
+host_state_dir = pathlib.Path(sys.argv[5])
+container_state_dir = pathlib.Path(sys.argv[6])
+override_state_dir = pathlib.Path(sys.argv[7])
+full_state_dir = pathlib.Path(sys.argv[8])
+cli_version = sys.argv[9]
+agent_server_repository = sys.argv[10]
+agent_server_tag = sys.argv[11]
 
 
 def parse_output(path: pathlib.Path) -> dict[str, str]:
@@ -78,6 +97,7 @@ def parse_output(path: pathlib.Path) -> dict[str, str]:
 host = parse_output(host_output)
 container = parse_output(container_output)
 override = parse_output(override_output)
+full = parse_output(full_output)
 
 if host.get("profile") != "host-full-access":
     raise SystemExit("host profile smoke failed: expected profile=host-full-access")
@@ -142,6 +162,12 @@ if host.get("mcp_config") != str(host_state_dir / "mcp.json"):
 if container.get("mcp_config") != str(container_state_dir / "mcp.json"):
     raise SystemExit("container profile smoke failed: unexpected mcp_config path")
 
+if host.get("mcp_surface") != "validation":
+    raise SystemExit("host profile smoke failed: expected validation MCP surface")
+
+if container.get("mcp_surface") != "validation":
+    raise SystemExit("container profile smoke failed: expected validation MCP surface")
+
 if not host.get("llm_model", "").startswith("openai/"):
     raise SystemExit("host profile smoke failed: expected OpenAI-compatible model alias")
 
@@ -165,6 +191,45 @@ if override.get("mcp_config") != str(override_state_dir / "mcp.json"):
 
 if not (override_state_dir / "mcp.json").exists():
     raise SystemExit("override profile smoke failed: expected repo-local mcp.json")
+
+expected_allowlist = ",".join(
+    [
+        "list_packs",
+        "validate_brief",
+        "submit_brief",
+        "list_runs",
+        "describe_run",
+        "run_next_task",
+        "claim_next_agent_task",
+        "heartbeat_agent_task",
+        "complete_agent_task",
+        "run_worker_once",
+        "evaluate_run_policy",
+        "evaluate_run_quality",
+        "describe_artifact",
+    ]
+)
+
+if host.get("mcp_tool_allowlist") != expected_allowlist:
+    raise SystemExit("host profile smoke failed: unexpected MCP tool allowlist")
+
+if container.get("mcp_tool_allowlist") != expected_allowlist:
+    raise SystemExit("container profile smoke failed: unexpected MCP tool allowlist")
+
+if override.get("mcp_tool_allowlist") != expected_allowlist:
+    raise SystemExit("override profile smoke failed: unexpected MCP tool allowlist")
+
+if full.get("mcp_surface") != "full":
+    raise SystemExit("full-surface smoke failed: expected mcp_surface=full")
+
+if "mcp_tool_allowlist" in full:
+    raise SystemExit("full-surface smoke failed: allowlist should be omitted")
+
+if full.get("mcp_config") != str(full_state_dir / "mcp.json"):
+    raise SystemExit("full-surface smoke failed: unexpected mcp_config path")
+
+if not (full_state_dir / "mcp.json").exists():
+    raise SystemExit("full-surface smoke failed: expected repo-local mcp.json")
 PY
 
 echo "OpenHands launch profiles resolve correctly"

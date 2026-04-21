@@ -11,6 +11,9 @@ RUNTIME_PROVIDERS_FILE="${CATALYST_RUNTIME_PROVIDERS_FILE:-$ROOT_DIR/config/runt
 MCP_SERVERS_FILE="${CATALYST_MCP_SERVERS_FILE:-$ROOT_DIR/config/mcp-servers.yaml}"
 AI_GATEWAY_FILE="${CATALYST_AI_GATEWAY_FILE:-$ROOT_DIR/config/ai-gateway.yaml}"
 DATABASE_URL="${CATALYST_DATABASE_URL:-}"
+LAUNCHERS_FILE="${CATALYST_AGENT_LAUNCHERS_FILE:-$ROOT_DIR/config/agent-launchers.toml}"
+TOOL_ALLOWLIST="${CATALYST_MCP_TOOL_ALLOWLIST:-}"
+FULL_MCP_SURFACE=0
 
 usage() {
   cat <<'EOF'
@@ -26,6 +29,9 @@ Options:
   --mcp-servers-file PATH        Override external MCP servers config path
   --ai-gateway-file PATH         Override AI gateway config path
   --database-url URL             Include a specific CATALYST_DATABASE_URL in the rendered env block
+  --launchers-file PATH          Agent launcher config file used to derive the default OpenHands MCP tool allowlist
+  --tool-allowlist CSV           Override the OpenHands MCP tool allowlist passed to the orchestrator
+  --full-mcp-surface             Omit the default OpenHands MCP tool allowlist and expose the full orchestrator MCP surface
   -h, --help                     Show this help
 EOF
 }
@@ -88,6 +94,26 @@ while [ "$#" -gt 0 ]; do
       DATABASE_URL="$2"
       shift 2
       ;;
+    --launchers-file)
+      if [ "$#" -lt 2 ]; then
+        echo "--launchers-file requires a path" >&2
+        exit 1
+      fi
+      LAUNCHERS_FILE="$2"
+      shift 2
+      ;;
+    --tool-allowlist)
+      if [ "$#" -lt 2 ]; then
+        echo "--tool-allowlist requires a CSV value" >&2
+        exit 1
+      fi
+      TOOL_ALLOWLIST="$2"
+      shift 2
+      ;;
+    --full-mcp-surface)
+      FULL_MCP_SURFACE=1
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -99,6 +125,26 @@ while [ "$#" -gt 0 ]; do
       ;;
   esac
 done
+
+if [ "$FULL_MCP_SURFACE" -eq 1 ] && [ -n "$TOOL_ALLOWLIST" ]; then
+  echo "--tool-allowlist and --full-mcp-surface are mutually exclusive" >&2
+  exit 1
+fi
+
+if [ "$FULL_MCP_SURFACE" -eq 0 ] && [ -z "$TOOL_ALLOWLIST" ] && [ -f "$LAUNCHERS_FILE" ]; then
+  TOOL_ALLOWLIST="$(
+    python3 - "$LAUNCHERS_FILE" <<'PY'
+import pathlib
+import sys
+import tomllib
+
+config = tomllib.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+agent = config.get("agents", {}).get("openhands", {})
+allowlist = agent.get("mcp_tool_allowlist", [])
+print(",".join(allowlist))
+PY
+  )"
+fi
 
 if ! command -v cargo >/dev/null 2>&1; then
   echo "cargo is required to inspect the orchestrator instance config" >&2
@@ -127,7 +173,8 @@ rendered_config="$(
     "$RUNTIME_PROVIDERS_FILE" \
     "$MCP_SERVERS_FILE" \
     "$AI_GATEWAY_FILE" \
-    "$DATABASE_URL" <<'PY'
+    "$DATABASE_URL" \
+    "$TOOL_ALLOWLIST" <<'PY'
 import json
 import pathlib
 import sys
@@ -140,6 +187,7 @@ runtime_providers_file = str(pathlib.Path(sys.argv[5]).resolve())
 mcp_servers_file = str(pathlib.Path(sys.argv[6]).resolve())
 ai_gateway_file = str(pathlib.Path(sys.argv[7]).resolve())
 database_url = sys.argv[8]
+tool_allowlist = sys.argv[9]
 
 instance_config = json.loads(instance_config_path.read_text(encoding="utf-8"))
 
@@ -150,6 +198,8 @@ orchestrator_env = {
 }
 if database_url:
     orchestrator_env["CATALYST_DATABASE_URL"] = database_url
+if tool_allowlist:
+    orchestrator_env["CATALYST_MCP_TOOL_ALLOWLIST"] = tool_allowlist
 
 mcp_servers = {
     server_name: {
