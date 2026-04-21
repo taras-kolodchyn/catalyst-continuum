@@ -606,8 +606,11 @@ impl PostgresRunStore {
     ) -> Result<TaskSummary> {
         let lease_window_seconds =
             i64::try_from(lease_window_seconds).context("task lease window exceeds i64 range")?;
-        let row = self
+        let mut transaction = self
             .client
+            .transaction()
+            .context("failed to start agent task heartbeat transaction")?;
+        let row = transaction
             .query_one(
                 &format!(
                     "UPDATE tasks
@@ -622,7 +625,30 @@ impl PostgresRunStore {
             )
             .with_context(|| format!("failed to refresh agent task lease: {task_id}"))?;
 
-        Ok(row_to_task_summary(&row))
+        let task = row_to_task_summary(&row);
+        let event = RunEventDraft::for_task(
+            task.run_id,
+            task.task_id,
+            "task_heartbeat",
+            Some(task.status.clone()),
+            format!("task {} heartbeat accepted", task.backlog_item_id),
+            serde_json::json!({
+                "backlog_item_id": task.backlog_item_id,
+                "kind": task.kind,
+                "priority": task.priority,
+                "title": task.title,
+                "lease_expires_at": task.lease_expires_at,
+                "assigned_agent": task.assigned_agent,
+                "orchestrator_model": task.orchestrator_model,
+                "agent_execution": task.agent_execution,
+            }),
+        );
+        let _ = insert_run_event_record(&mut transaction, &event)?;
+        transaction
+            .commit()
+            .context("failed to commit agent task heartbeat transaction")?;
+
+        Ok(task)
     }
 
     pub fn mark_task_finished(

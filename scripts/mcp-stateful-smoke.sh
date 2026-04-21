@@ -1592,6 +1592,8 @@ policy:
         "run_submitted",
         "run_status_changed",
         "task_started",
+        "task_workspace_prepared",
+        "task_heartbeat",
         "task_succeeded",
         "run_policy_evaluated",
     }
@@ -1618,9 +1620,9 @@ policy:
             f"{task_events}"
         )
     task_event_types = {event["event_type"] for event in task_events}
-    if {"task_started", "task_succeeded"} - task_event_types:
+    if {"task_started", "task_workspace_prepared", "task_heartbeat", "task_succeeded"} - task_event_types:
         fail(
-            "stateful MCP smoke failed: claimed task is missing task_started/task_succeeded "
+            "stateful MCP smoke failed: claimed task is missing expected external-agent lifecycle "
             f"events: {sorted(task_event_types)}"
         )
 

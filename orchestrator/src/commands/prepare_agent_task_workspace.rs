@@ -8,7 +8,7 @@ use serde::Serialize;
 
 use crate::{
     cli::PrepareAgentTaskWorkspaceArgs,
-    models::{artifact::ArtifactSummary, task::TaskSummary},
+    models::{artifact::ArtifactSummary, run_event::RunEventDraft, task::TaskSummary},
     planning::workspace_snapshot,
     storage::postgres::PostgresRunStore,
 };
@@ -128,6 +128,32 @@ pub(crate) fn prepare_agent_task_workspace(
         .display()
         .to_string(),
     );
+    let _ = store.insert_run_event(&RunEventDraft::for_task(
+        task.run_id,
+        task.task_id,
+        "task_workspace_prepared",
+        Some(task.status.clone()),
+        format!(
+            "prepared workspace for task {} owned by agent {}",
+            task.backlog_item_id, agent
+        ),
+        serde_json::json!({
+            "backlog_item_id": &task.backlog_item_id,
+            "kind": &task.kind,
+            "priority": &task.priority,
+            "title": &task.title,
+            "agent": agent,
+            "executor_id": agent_execution.executor_id.clone(),
+            "source_kind": source_kind.as_str(),
+            "workspace_root": workspace_root.display().to_string(),
+            "task_workspace_input_artifact_id": task_workspace_input_artifact.artifact_id,
+            "bundle_path": bundle_path.clone(),
+            "source_artifact_id": source_artifact.as_ref().map(|artifact| artifact.artifact_id),
+            "source_artifact_type": source_artifact
+                .as_ref()
+                .map(|artifact| artifact.artifact_type.clone()),
+        }),
+    ));
     let run_status = store.refresh_run_status(task.run_id)?;
 
     Ok(PreparedAgentTaskWorkspaceReport {

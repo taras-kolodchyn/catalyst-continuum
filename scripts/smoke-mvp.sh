@@ -1499,6 +1499,8 @@ assert http_events["count"] >= 1, http_events
 required_event_types = {
     "run_submitted",
     "task_started",
+    "task_workspace_prepared",
+    "task_heartbeat",
     "task_succeeded",
     "run_policy_evaluated",
     "run_quality_evaluated",
