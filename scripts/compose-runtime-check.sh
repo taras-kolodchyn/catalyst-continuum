@@ -8,8 +8,15 @@ PROJECT_NAME="${COMPOSE_RUNTIME_CHECK_PROJECT_NAME:-catalyst-continuum-runtime-c
 ENV_FILE="deploy/compose/.env.example"
 COMPOSE_FILE="deploy/compose/compose.yaml"
 TEMP_DIR="$(mktemp -d)"
+SUCCESS=0
 
 cleanup() {
+  if [ "$SUCCESS" -ne 1 ]; then
+    echo "compose runtime check failed; docker compose ps follows" >&2
+    compose_cmd ps >&2 || true
+    echo "compose runtime check failed; recent docker compose logs follow" >&2
+    compose_cmd logs --no-color --tail 200 >&2 || true
+  fi
   docker compose -p "$PROJECT_NAME" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" down -v --remove-orphans >/dev/null 2>&1 || true
   rm -rf "$TEMP_DIR"
 }
@@ -62,3 +69,5 @@ for path in sys.argv[1:]:
 
 print("compose runtime check OK")
 PY
+
+SUCCESS=1
