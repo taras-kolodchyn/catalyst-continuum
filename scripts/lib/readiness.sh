@@ -43,6 +43,31 @@ wait_for_docker_container_status() {
   return 1
 }
 
+probe_http_capture() {
+  local url="$1"
+  local output_file="$2"
+  shift 2
+
+  local http_code=""
+  local curl_exit=0
+  WAIT_LAST_HTTP_RESULT="not yet probed"
+  : >"$output_file"
+
+  if http_code="$(curl -sS -o "$output_file" -w '%{http_code}' "$@" "$url" 2>/dev/null)"; then
+    WAIT_LAST_HTTP_RESULT="HTTP ${http_code}"
+    case "$http_code" in
+      2*|3*)
+        return 0
+        ;;
+    esac
+  else
+    curl_exit=$?
+    WAIT_LAST_HTTP_RESULT="curl exit ${curl_exit} (http ${http_code:-000})"
+  fi
+
+  return 1
+}
+
 wait_for_http_capture() {
   local name="$1"
   local url="$2"
@@ -50,23 +75,9 @@ wait_for_http_capture() {
   local attempts="$4"
   shift 4
 
-  local http_code=""
-  local curl_exit=0
-  WAIT_LAST_HTTP_RESULT="not yet probed"
-  : >"$output_file"
-
   for _ in $(seq 1 "$attempts"); do
-    http_code=""
-    if http_code="$(curl -sS -o "$output_file" -w '%{http_code}' "$@" "$url" 2>/dev/null)"; then
-      WAIT_LAST_HTTP_RESULT="HTTP ${http_code}"
-      case "$http_code" in
-        2*|3*)
-          return 0
-          ;;
-      esac
-    else
-      curl_exit=$?
-      WAIT_LAST_HTTP_RESULT="curl exit ${curl_exit} (http ${http_code:-000})"
+    if probe_http_capture "$url" "$output_file" "$@"; then
+      return 0
     fi
     sleep 1
   done

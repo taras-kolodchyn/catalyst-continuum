@@ -200,6 +200,43 @@ READINESS_FILE="$ARTIFACT_ROOT/orchestrator-readyz.json"
 HEALTH_FILE="$ARTIFACT_ROOT/orchestrator-healthz.json"
 CONFIG_FILE="$ARTIFACT_ROOT/orchestrator-config.json"
 
+wait_for_orchestrator_http_ready() {
+  local attempts="$1"
+  local livez_result="not yet probed"
+  local readyz_result="not yet probed"
+
+  for _ in $(seq 1 "$attempts"); do
+    if probe_http_capture \
+      "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/livez" \
+      "$LIVENESS_FILE"; then
+      livez_result="$WAIT_LAST_HTTP_RESULT"
+      if probe_http_capture \
+        "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/readyz" \
+        "$READINESS_FILE"; then
+        readyz_result="$WAIT_LAST_HTTP_RESULT"
+        return 0
+      fi
+      readyz_result="$WAIT_LAST_HTTP_RESULT"
+    else
+      livez_result="$WAIT_LAST_HTTP_RESULT"
+    fi
+
+    if ! kill -0 "$ORCHESTRATOR_PID" >/dev/null 2>&1; then
+      cat "$ORCHESTRATOR_LOG" >&2 || true
+      echo \
+        "orchestrator HTTP server exited before becoming ready (last livez: ${livez_result}; last readyz: ${readyz_result})" >&2
+      return 1
+    fi
+
+    sleep 1
+  done
+
+  cat "$ORCHESTRATOR_LOG" >&2 || true
+  echo \
+    "orchestrator HTTP server did not become ready after ${attempts}s (last livez: ${livez_result}; last readyz: ${readyz_result})" >&2
+  return 1
+}
+
 CATALYST_GITHUB_APP_WEBHOOK_SECRET="$GITHUB_WEBHOOK_SECRET" \
 CATALYST_GITHUB_APP_INSTALLATION_ID="$GITHUB_APP_INSTALLATION_ID" \
   "$BIN" serve \
@@ -208,20 +245,7 @@ CATALYST_GITHUB_APP_INSTALLATION_ID="$GITHUB_APP_INSTALLATION_ID" \
   --artifact-root "$ARTIFACT_ROOT" >"$ORCHESTRATOR_LOG" 2>&1 &
 ORCHESTRATOR_PID="$!"
 
-for _ in $(seq 1 30); do
-  if curl -fsS "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/livez" >"$LIVENESS_FILE" 2>/dev/null \
-    && curl -fsS "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/readyz" >"$READINESS_FILE" 2>/dev/null; then
-    break
-  fi
-
-  if ! kill -0 "$ORCHESTRATOR_PID" >/dev/null 2>&1; then
-    cat "$ORCHESTRATOR_LOG" >&2
-    echo "orchestrator HTTP server exited before becoming ready" >&2
-    exit 1
-  fi
-
-  sleep 1
-done
+wait_for_orchestrator_http_ready 30
 
 curl -fsS "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/healthz" >"$HEALTH_FILE"
 curl -fsS "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/config" >"$CONFIG_FILE"
