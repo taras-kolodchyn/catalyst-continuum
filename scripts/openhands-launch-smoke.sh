@@ -201,6 +201,7 @@ expected_allowlist = ",".join(
         "describe_run",
         "run_next_task",
         "claim_next_agent_task",
+        "prepare_agent_task_workspace",
         "heartbeat_agent_task",
         "complete_agent_task",
         "run_worker_once",

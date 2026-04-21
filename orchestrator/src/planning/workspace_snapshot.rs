@@ -222,6 +222,138 @@ pub fn resolve_snapshot_bundle_path(
         .map(Some)
 }
 
+pub fn capture_scaffold_bundle_from_workspace(
+    task: &TaskSummary,
+    workspace_root: &Path,
+    artifact_root: &Path,
+) -> Result<ArtifactDraft> {
+    capture_workspace_bundle_artifact(
+        task,
+        workspace_root,
+        None,
+        "scaffold_bundle",
+        "scaffold-bundle",
+        artifact_root,
+    )
+}
+
+pub fn capture_code_bundle_from_workspace(
+    task: &TaskSummary,
+    snapshot_artifact: &ArtifactSummary,
+    workspace_root: &Path,
+    artifact_root: &Path,
+) -> Result<ArtifactDraft> {
+    validate_snapshot_artifact(snapshot_artifact)?;
+    let source_root = PathBuf::from(&snapshot_artifact.location_value)
+        .canonicalize()
+        .with_context(|| {
+            format!(
+                "failed to canonicalize source snapshot path for captured code bundle: {}",
+                snapshot_artifact.location_value
+            )
+        })?;
+
+    capture_workspace_bundle_artifact(
+        task,
+        workspace_root,
+        Some(source_root.as_path()),
+        "code_bundle",
+        "code-bundle",
+        artifact_root,
+    )
+}
+
+fn capture_workspace_bundle_artifact(
+    task: &TaskSummary,
+    workspace_root: &Path,
+    source_root: Option<&Path>,
+    artifact_type: &str,
+    output_dir_name: &str,
+    artifact_root: &Path,
+) -> Result<ArtifactDraft> {
+    ensure!(
+        workspace_root.is_dir(),
+        "captured workspace root does not exist: {}",
+        workspace_root.display()
+    );
+
+    let workspace_root = workspace_root.canonicalize().with_context(|| {
+        format!(
+            "failed to canonicalize captured workspace root: {}",
+            workspace_root.display()
+        )
+    })?;
+    let output_root = artifact_root
+        .join("runs")
+        .join(task.run_id.to_string())
+        .join("tasks")
+        .join(task.task_id.to_string())
+        .join(output_dir_name);
+    if output_root.exists() {
+        fs::remove_dir_all(&output_root).with_context(|| {
+            format!(
+                "failed to clear existing captured workspace bundle output: {}",
+                output_root.display()
+            )
+        })?;
+    }
+    fs::create_dir_all(&output_root).with_context(|| {
+        format!(
+            "failed to create captured workspace bundle output: {}",
+            output_root.display()
+        )
+    })?;
+
+    let mut captured_files = Vec::new();
+    copy_workspace_capture_entries(
+        &workspace_root,
+        &workspace_root,
+        source_root,
+        &output_root,
+        &mut captured_files,
+    )?;
+
+    let manifest = CapturedWorkspaceBundleManifest {
+        schema_version: "v0.1".to_string(),
+        artifact_type: artifact_type.to_string(),
+        run_id: task.run_id,
+        task_id: task.task_id,
+        backlog_item_id: task.backlog_item_id.clone(),
+        workspace_root: workspace_root.display().to_string(),
+        source_root: source_root.map(|path| path.display().to_string()),
+        file_count: captured_files.len(),
+        files: captured_files,
+    };
+    let manifest_path = output_root.join("manifest.json");
+    let serialized_manifest = serde_json::to_vec_pretty(&manifest)
+        .context("failed to serialize captured workspace bundle manifest")?;
+    fs::write(&manifest_path, &serialized_manifest).with_context(|| {
+        format!(
+            "failed to write captured workspace bundle manifest: {}",
+            manifest_path.display()
+        )
+    })?;
+
+    Ok(ArtifactDraft {
+        artifact_id: Uuid::new_v4(),
+        run_id: task.run_id,
+        artifact_type: artifact_type.to_string(),
+        format: "directory".to_string(),
+        location_kind: "path".to_string(),
+        location_value: output_root.display().to_string(),
+        content_digest: format!("sha256:{:x}", Sha256::digest(&serialized_manifest)),
+        labels: json!(["workspace", "captured", artifact_type, task.backlog_item_id]),
+        metadata: json!({
+            "task_id": task.task_id,
+            "backlog_item_id": task.backlog_item_id,
+            "workspace_root": workspace_root.display().to_string(),
+            "source_root": source_root.map(|path| path.display().to_string()),
+            "manifest_path": manifest_path.display().to_string(),
+            "file_count": manifest.file_count,
+        }),
+    })
+}
+
 pub fn extract_workspace_bundle(bundle_path: &Path, target_root: &Path) -> Result<()> {
     fs::create_dir_all(target_root).with_context(|| {
         format!(
@@ -795,6 +927,148 @@ fn copy_directory_tree(source_root: &Path, target_root: &Path) -> Result<()> {
     Ok(())
 }
 
+fn copy_workspace_capture_entries(
+    workspace_root: &Path,
+    current_dir: &Path,
+    source_root: Option<&Path>,
+    output_root: &Path,
+    captured_files: &mut Vec<CapturedWorkspaceBundleFile>,
+) -> Result<()> {
+    let mut entries = fs::read_dir(current_dir)
+        .with_context(|| {
+            format!(
+                "failed to read captured workspace directory: {}",
+                current_dir.display()
+            )
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .with_context(|| {
+            format!(
+                "failed to read captured workspace directory entries: {}",
+                current_dir.display()
+            )
+        })?;
+    entries.sort_by_key(|entry| entry.file_name());
+
+    for entry in entries {
+        let workspace_path = entry.path();
+        let file_type = entry.file_type().with_context(|| {
+            format!(
+                "failed to inspect captured workspace entry type: {}",
+                workspace_path.display()
+            )
+        })?;
+        let relative_path = workspace_path
+            .strip_prefix(workspace_root)
+            .with_context(|| {
+                format!(
+                    "failed to derive relative captured workspace path: {}",
+                    workspace_path.display()
+                )
+            })?;
+
+        if should_skip_captured_workspace_path(relative_path) {
+            continue;
+        }
+
+        if file_type.is_dir() {
+            copy_workspace_capture_entries(
+                workspace_root,
+                &workspace_path,
+                source_root,
+                output_root,
+                captured_files,
+            )?;
+            continue;
+        }
+
+        if !file_type.is_file() {
+            bail!(
+                "unsupported captured workspace entry: {}",
+                workspace_path.display()
+            );
+        }
+
+        if !should_capture_workspace_file(&workspace_path, relative_path, source_root)? {
+            continue;
+        }
+
+        let output_path = output_root.join(relative_path);
+        if let Some(parent) = output_path.parent() {
+            fs::create_dir_all(parent).with_context(|| {
+                format!(
+                    "failed to create captured workspace bundle parent directory: {}",
+                    parent.display()
+                )
+            })?;
+        }
+
+        let content = fs::read(&workspace_path).with_context(|| {
+            format!(
+                "failed to read captured workspace file: {}",
+                workspace_path.display()
+            )
+        })?;
+        fs::write(&output_path, &content).with_context(|| {
+            format!(
+                "failed to write captured workspace bundle file: {}",
+                output_path.display()
+            )
+        })?;
+
+        captured_files.push(CapturedWorkspaceBundleFile {
+            path: relative_path.to_string_lossy().replace('\\', "/"),
+            content_digest: format!("sha256:{:x}", Sha256::digest(&content)),
+            byte_count: content.len(),
+        });
+    }
+
+    Ok(())
+}
+
+fn should_capture_workspace_file(
+    workspace_path: &Path,
+    relative_path: &Path,
+    source_root: Option<&Path>,
+) -> Result<bool> {
+    let Some(source_root) = source_root else {
+        return Ok(true);
+    };
+
+    let source_path = source_root.join(relative_path);
+    if !source_path.exists() {
+        return Ok(true);
+    }
+    if !source_path.is_file() {
+        return Ok(true);
+    }
+
+    let workspace_content = fs::read(workspace_path).with_context(|| {
+        format!(
+            "failed to read captured workspace file for comparison: {}",
+            workspace_path.display()
+        )
+    })?;
+    let source_content = fs::read(&source_path).with_context(|| {
+        format!(
+            "failed to read source workspace file for comparison: {}",
+            source_path.display()
+        )
+    })?;
+
+    Ok(workspace_content != source_content)
+}
+
+fn should_skip_captured_workspace_path(relative_path: &Path) -> bool {
+    relative_path
+        .components()
+        .filter_map(|component| match component {
+            std::path::Component::Normal(value) => value.to_str(),
+            _ => None,
+        })
+        .any(|component| matches!(component, ".continuum" | ".git"))
+}
+
 fn overlay_directory_tree(source_root: &Path, target_root: &Path) -> Result<()> {
     for entry in fs::read_dir(source_root)
         .with_context(|| format!("failed to read source directory: {}", source_root.display()))?
@@ -1000,6 +1274,26 @@ struct WorkspaceSnapshotSource {
 struct WorkspaceSnapshotFile {
     path: String,
     source_artifact_id: Uuid,
+    content_digest: String,
+    byte_count: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct CapturedWorkspaceBundleManifest {
+    schema_version: String,
+    artifact_type: String,
+    run_id: Uuid,
+    task_id: Uuid,
+    backlog_item_id: String,
+    workspace_root: String,
+    source_root: Option<String>,
+    file_count: usize,
+    files: Vec<CapturedWorkspaceBundleFile>,
+}
+
+#[derive(Debug, Serialize)]
+struct CapturedWorkspaceBundleFile {
+    path: String,
     content_digest: String,
     byte_count: usize,
 }
@@ -1280,6 +1574,121 @@ mod tests {
             patch_artifact.metadata["code_bundle_artifact_id"],
             code_artifact.artifact_id.to_string()
         );
+
+        let _ = fs::remove_dir_all(&temp_root);
+    }
+
+    #[test]
+    fn captures_scaffold_bundle_from_workspace_without_internal_directories() {
+        let brief = sample_brief();
+        let run = RunDraft::from_brief(&brief, "examples/brief.yaml".to_string());
+        let pack = PackDefinition::load(Some("container-service")).expect("pack should load");
+        let generated =
+            generate_initial_backlog(&brief, &run, &pack, Path::new(".tmp-artifacts"), false)
+                .expect("backlog should generate");
+        let tasks =
+            materialize_tasks(&run, &pack, &generated.document).expect("tasks should build");
+        let temp_root = std::env::temp_dir().join(format!(
+            "continuum-captured-scaffold-bundle-{}",
+            Uuid::new_v4()
+        ));
+        let workspace_root = temp_root.join("workspace");
+        fs::create_dir_all(workspace_root.join("src")).expect("workspace src should create");
+        fs::create_dir_all(workspace_root.join(".git")).expect("workspace git dir should create");
+        fs::create_dir_all(workspace_root.join(".continuum"))
+            .expect("workspace continuum dir should create");
+        fs::write(workspace_root.join("README.md"), "# Captured Scaffold\n")
+            .expect("workspace readme should write");
+        fs::write(workspace_root.join("src/main.rs"), "fn main() {}\n")
+            .expect("workspace main should write");
+        fs::write(workspace_root.join(".git/config"), "[core]\n").expect("git config should write");
+        fs::write(workspace_root.join(".continuum/state.json"), "{}")
+            .expect("continuum state should write");
+
+        let scaffold_task = TaskSummary::from_draft(&tasks[1]);
+        let scaffold_bundle =
+            capture_scaffold_bundle_from_workspace(&scaffold_task, &workspace_root, &temp_root)
+                .expect("scaffold bundle should capture");
+        let bundle_root = PathBuf::from(&scaffold_bundle.location_value);
+        let manifest: serde_json::Value = serde_json::from_slice(
+            &fs::read(bundle_root.join("manifest.json")).expect("manifest should be readable"),
+        )
+        .expect("manifest should parse");
+
+        assert!(bundle_root.join("README.md").exists());
+        assert!(bundle_root.join("src/main.rs").exists());
+        assert!(!bundle_root.join(".git").exists());
+        assert!(!bundle_root.join(".continuum").exists());
+        assert_eq!(manifest["artifact_type"], "scaffold_bundle");
+        assert_eq!(manifest["file_count"], 2);
+
+        let _ = fs::remove_dir_all(&temp_root);
+    }
+
+    #[test]
+    fn captures_code_bundle_from_workspace_only_for_changed_files() {
+        let brief = sample_brief();
+        let run = RunDraft::from_brief(&brief, "examples/brief.yaml".to_string());
+        let pack = PackDefinition::load(Some("container-service")).expect("pack should load");
+        let generated =
+            generate_initial_backlog(&brief, &run, &pack, Path::new(".tmp-artifacts"), false)
+                .expect("backlog should generate");
+        let tasks =
+            materialize_tasks(&run, &pack, &generated.document).expect("tasks should build");
+        let run_context = RunContext::from_draft(&run);
+        let temp_root =
+            std::env::temp_dir().join(format!("continuum-captured-code-bundle-{}", Uuid::new_v4()));
+
+        let scaffold_task = TaskSummary::from_draft(&tasks[1]);
+        let scaffold_artifact =
+            generate_task_artifacts(&scaffold_task, &run_context, &pack, &temp_root)
+                .expect("scaffold materialization should succeed")
+                .into_iter()
+                .next()
+                .expect("scaffold bundle should exist");
+        let snapshot_sources = vec![
+            ArtifactSummary::from_draft(&scaffold_artifact)
+                .with_created_at("2026-04-17T10:00:00.000Z".to_string()),
+        ];
+        let snapshot = compose_workspace_snapshot(&run_context, &snapshot_sources, &temp_root)
+            .expect("workspace snapshot should compose");
+        let snapshot_summary = ArtifactSummary::from_draft(&snapshot)
+            .with_created_at("2026-04-17T10:10:00.000Z".to_string());
+        let code_task = TaskSummary::from_draft(&tasks[2]);
+        let workspace_root = prepare_task_workspace(&code_task, &snapshot_summary, &temp_root)
+            .expect("task workspace should prepare");
+        fs::create_dir_all(workspace_root.join("src/features"))
+            .expect("features dir should create");
+        fs::create_dir_all(workspace_root.join(".continuum")).expect("continuum dir should create");
+        fs::write(workspace_root.join("README.md"), "# Modified README\n")
+            .expect("workspace readme should write");
+        fs::write(
+            workspace_root.join("src/features/custom.rs"),
+            "pub fn custom_feature() {}\n",
+        )
+        .expect("workspace feature should write");
+        fs::write(workspace_root.join(".continuum/ignored.json"), "{}")
+            .expect("continuum state should write");
+
+        let code_bundle = capture_code_bundle_from_workspace(
+            &code_task,
+            &snapshot_summary,
+            &workspace_root,
+            &temp_root,
+        )
+        .expect("code bundle should capture");
+        let bundle_root = PathBuf::from(&code_bundle.location_value);
+        let manifest: serde_json::Value = serde_json::from_slice(
+            &fs::read(bundle_root.join("manifest.json")).expect("manifest should be readable"),
+        )
+        .expect("manifest should parse");
+
+        assert!(bundle_root.join("README.md").exists());
+        assert!(bundle_root.join("src/features/custom.rs").exists());
+        assert!(!bundle_root.join("src/main.rs").exists());
+        assert!(!bundle_root.join(".continuum").exists());
+        assert_eq!(manifest["artifact_type"], "code_bundle");
+        assert_eq!(manifest["file_count"], 2);
 
         let _ = fs::remove_dir_all(&temp_root);
     }

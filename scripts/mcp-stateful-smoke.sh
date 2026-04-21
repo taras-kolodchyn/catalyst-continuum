@@ -522,6 +522,7 @@ try:
         "describe_run",
         "list_run_events",
         "claim_next_agent_task",
+        "prepare_agent_task_workspace",
         "heartbeat_agent_task",
         "complete_agent_task",
         "run_next_task",
@@ -1265,6 +1266,11 @@ policy:
             "stateful MCP smoke failed: expected claimed task assigned_agent=openhands, got "
             f"{claimed_task.get('assigned_agent')}"
         )
+    if claimed_task.get("kind") != "scaffold":
+        fail(
+            "stateful MCP smoke failed: expected first claimed external task kind=scaffold, got "
+            f"{claimed_task.get('kind')}"
+        )
     if not claimed_task.get("lease_expires_at"):
         fail("stateful MCP smoke failed: claimed task should expose lease_expires_at")
     claim_external_mcp_contract = claim.get("external_mcp_contract") or {}
@@ -1289,6 +1295,37 @@ policy:
             "stateful MCP smoke failed: expected claimed Fetch OpenHands launch args "
             f"{expected_fetch_args!r}, got {claim_openhands_launch['args']!r}"
         )
+
+    prepared_workspace = call_tool(
+        "prepare_agent_task_workspace",
+        {
+            "task_id": claimed_task_id,
+            "agent": "openhands",
+            "executor_id": "mcp-stateful-smoke",
+        },
+        "workspace",
+    )
+    workspace_root = pathlib.Path(prepared_workspace["workspace_root"])
+    if prepared_workspace.get("source_kind") != "empty":
+        fail(
+            "stateful MCP smoke failed: expected scaffold workspace source_kind=empty, got "
+            f"{prepared_workspace.get('source_kind')}"
+        )
+    workspace_root.mkdir(parents=True, exist_ok=True)
+    (workspace_root / "src").mkdir(parents=True, exist_ok=True)
+    (workspace_root / "README.md").write_text(
+        "# Stateful MCP Smoke CLI\\n\\nGenerated through the external-agent scaffold path.\\n",
+        encoding="utf-8",
+    )
+    (workspace_root / "Cargo.toml").write_text(
+        "[package]\\nname = \"stateful-mcp-smoke-cli\"\\nversion = \"0.1.0\"\\nedition = \"2021\"\\n\\n[workspace]\\n\\n[[bin]]\\nname = \"stateful-mcp-smoke-cli\"\\npath = \"src/main.rs\"\\n\\n[dependencies]\\nserde = { version = \"1.0\", features = [\"derive\"] }\\nserde_json = \"1.0\"\\n",
+        encoding="utf-8",
+    )
+    (workspace_root / "src" / "main.rs").write_text(
+        "use serde_json::{json, Value};\\nuse std::{fs, io::{self, Write}};\\n\\nfn load_requirements() -> Vec<Value> {\\n    let mut items = fs::read_dir(\"requirements\")\\n        .ok()\\n        .into_iter()\\n        .flat_map(|entries| entries.filter_map(Result::ok))\\n        .map(|entry| entry.path())\\n        .filter(|path| path.extension().and_then(|value| value.to_str()) == Some(\"json\"))\\n        .filter_map(|path| fs::read_to_string(path).ok())\\n        .filter_map(|content| serde_json::from_str::<Value>(&content).ok())\\n        .collect::<Vec<_>>();\\n    items.sort_by(|left, right| {\\n        left.get(\"id\")\\n            .and_then(Value::as_str)\\n            .cmp(&right.get(\"id\").and_then(Value::as_str))\\n    });\\n    items\\n}\\n\\nfn main() {\\n    let requirements = load_requirements();\\n    let payload = match std::env::args().nth(1).as_deref() {\\n        Some(\"requirements\") => json!({\"tool\": \"stateful-mcp-smoke-cli\", \"items\": requirements}),\\n        _ => json!({\\n            \"tool\": \"stateful-mcp-smoke-cli\",\\n            \"pack\": \"cli-tool\",\\n            \"requirement_count\": requirements.len(),\\n            \"commands\": [\"summary\", \"requirements\"]\\n        }),\\n    };\\n    let mut stdout = io::stdout().lock();\\n    serde_json::to_writer_pretty(&mut stdout, &payload).expect(\"json output should serialize\");\\n    stdout.write_all(b\"\\\\n\").expect(\"newline should write\");\\n}\\n",
+        encoding="utf-8",
+    )
+    (workspace_root / ".gitignore").write_text("target/\\n", encoding="utf-8")
 
     heartbeat = call_tool(
         "heartbeat_agent_task",
@@ -1321,6 +1358,7 @@ policy:
             "executor_id": "mcp-stateful-smoke",
             "status": "succeeded",
             "summary": "stateful smoke external-agent handoff completed",
+            "workspace_root": str(workspace_root),
         },
         "completion",
     )

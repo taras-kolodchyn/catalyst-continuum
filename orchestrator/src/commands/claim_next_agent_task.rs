@@ -20,7 +20,9 @@ pub fn execute(args: ClaimNextAgentTaskArgs) -> anyhow::Result<()> {
         args.executor_id.as_deref(),
     )?;
 
-    if args.pretty {
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&outcome)?);
+    } else if args.pretty {
         print!("{}", serde_yaml::to_string(&outcome)?);
     } else {
         println!("{}", outcome.render_text()?);

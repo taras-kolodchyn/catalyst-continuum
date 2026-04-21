@@ -18,6 +18,7 @@ pub enum Command {
     Serve(ServeArgs),
     McpServer(McpServerArgs),
     ClaimNextAgentTask(ClaimNextAgentTaskArgs),
+    PrepareAgentTaskWorkspace(PrepareAgentTaskWorkspaceArgs),
     HeartbeatAgentTask(HeartbeatAgentTaskArgs),
     CompleteAgentTask(CompleteAgentTaskArgs),
     DescribeAiGatewayStatus(DescribeAiGatewayStatusArgs),
@@ -61,6 +62,7 @@ impl Command {
             Self::Serve(_) => "serve",
             Self::McpServer(_) => "mcp-server",
             Self::ClaimNextAgentTask(_) => "claim-next-agent-task",
+            Self::PrepareAgentTaskWorkspace(_) => "prepare-agent-task-workspace",
             Self::HeartbeatAgentTask(_) => "heartbeat-agent-task",
             Self::CompleteAgentTask(_) => "complete-agent-task",
             Self::DescribeAiGatewayStatus(_) => "describe-ai-gateway-status",
@@ -166,6 +168,37 @@ pub struct ClaimNextAgentTaskArgs {
 
     #[arg(long)]
     pub pretty: bool,
+
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct PrepareAgentTaskWorkspaceArgs {
+    #[arg(long, env = "CATALYST_DATABASE_URL")]
+    pub database_url: String,
+
+    #[arg(
+        long,
+        env = "CATALYST_ARTIFACT_ROOT",
+        default_value = ".continuum/artifacts"
+    )]
+    pub artifact_root: PathBuf,
+
+    #[arg(long)]
+    pub task_id: Uuid,
+
+    #[arg(long)]
+    pub agent: String,
+
+    #[arg(long)]
+    pub executor_id: Option<String>,
+
+    #[arg(long)]
+    pub pretty: bool,
+
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Debug, Args)]
@@ -184,6 +217,9 @@ pub struct HeartbeatAgentTaskArgs {
 
     #[arg(long)]
     pub pretty: bool,
+
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Debug, Args)]
@@ -217,10 +253,16 @@ pub struct CompleteAgentTaskArgs {
     pub executor_id: Option<String>,
 
     #[arg(long)]
+    pub workspace_root: Option<PathBuf>,
+
+    #[arg(long)]
     pub retryable: bool,
 
     #[arg(long)]
     pub pretty: bool,
+
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Debug, Args)]

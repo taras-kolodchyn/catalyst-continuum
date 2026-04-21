@@ -19,7 +19,9 @@ pub fn execute(args: HeartbeatAgentTaskArgs) -> anyhow::Result<()> {
         args.executor_id.as_deref(),
     )?;
 
-    if args.pretty {
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else if args.pretty {
         print!("{}", serde_yaml::to_string(&report)?);
     } else {
         println!("{}", report.render_text()?);

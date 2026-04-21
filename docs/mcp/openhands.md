@@ -97,6 +97,7 @@ The default allowlist covers:
 - `describe_run`
 - `run_next_task`
 - `claim_next_agent_task`
+- `prepare_agent_task_workspace`
 - `heartbeat_agent_task`
 - `complete_agent_task`
 - `run_worker_once`
@@ -355,6 +356,7 @@ Stateful tools need `CATALYST_DATABASE_URL`:
 - `describe_run`
 - `list_run_events`
 - `claim_next_agent_task`
+- `prepare_agent_task_workspace`
 - `heartbeat_agent_task`
 - `complete_agent_task`
 - `run_next_task`
@@ -380,8 +382,9 @@ Stateful tools need `CATALYST_DATABASE_URL`:
 `run_next_repository_automation` is the higher-level safe automation step for OpenHands control loops: it validates the brief first, advances at most one pending webhook action, and then materializes the freshest matching repository signal into a run when possible, so the client can drive one auditable automation cycle with a single tool call.
 `list_run_events` is the shared audit trail for OpenHands when it needs durable visibility into run status changes, task starts/completions, and policy or quality checkpoints without reverse-engineering them from artifact timestamps.
 `claim_next_agent_task` is the queue-safe MCP handoff for OpenHands when the control plane has already assigned runnable work to `openhands`. Its claim response now also echoes the run-level `external_mcp_contract`, so OpenHands can see the same allowed or denied external MCP servers and pinned launch contracts that were persisted into `agent_dispatch_plan` without making a second inspection call first.
+`prepare_agent_task_workspace` is the matching workspace handoff: for scaffold tasks it creates an empty run-scoped workspace, and for later tasks it rehydrates the latest `workspace_snapshot` into a task-scoped directory that OpenHands can edit directly.
 `heartbeat_agent_task` is the matching lease-refresh path for longer OpenHands sessions: it extends the claimed task's reclaim deadline without changing terminal state, so the worker does not mistake an active session for a stale `running` task.
-`complete_agent_task` is the matching completion path: OpenHands reports success or failure, the orchestrator persists an `agent_task_report` artifact, and the task moves through the same retry and run-event model as worker-managed execution.
+`complete_agent_task` is the matching completion path: OpenHands reports success or failure, the orchestrator persists an `agent_task_report` artifact, and the task moves through the same retry and run-event model as worker-managed execution. When `workspace_root` is supplied for a successful scaffold or code task, the orchestrator also captures the real workspace output into source artifacts before it refreshes snapshot and PR-candidate lineage.
 `describe_artifact` is the general inspection tool for OpenHands when it needs the persisted manifest or metadata behind a `backlog`, `agent_dispatch_plan`, `policy_report`, `quality_report`, `pr_export`, or publication artifact referenced by `describe_run`.
 `describe_latest_artifact` is the shortest path when OpenHands already knows the run and only needs the newest `agent_dispatch_plan`, `policy_report`, `quality_report`, `pr_candidate`, or promotion artifact by type.
 `evaluate_run_policy` is the visibility tool for OpenHands when it needs to inspect whether the current run still satisfies control-plane policy constraints such as runtime provider, sandbox profile, and planned timeout budget.
@@ -412,7 +415,27 @@ Before wiring OpenHands, validate the server locally:
 
 `./scripts/mcp-smoke.sh` validates the stateless handshake and tool discovery path.
 `./scripts/mcp-reference-smoke.sh` validates that the current client/runtime can still interoperate with the pinned upstream `Everything` reference server before you blame OpenHands-specific behavior on Catalyst Continuum's MCP adapter.
-`./scripts/mcp-stateful-smoke.sh` validates the safe stateful path: `describe_instance_config`, `describe_ai_gateway_status`, GitHub webhook inspection plus receipt inspection and execution, webhook execution-report inspection, default-branch-state inspection, repository-signal inspection plus payload inspection, queue-safe repository-signal materialization through `submit_next_repository_signal`, the higher-level idle-path check for `run_next_repository_automation`, brief submission, run listing, one `run_next_task` execution for the codex-owned planning step, one `claim_next_agent_task`, `heartbeat_agent_task`, and `complete_agent_task` cycle for the OpenHands-owned step, a follow-on `run_worker_once` execution, policy evaluation, persisted policy-artifact inspection, and run-event inspection. The heavier full-run quality-gate path stays in `./scripts/smoke-mvp.sh` and `./scripts/ci-smoke.sh`, so the MCP smoke stays focused on agent-facing transport and stateful tool contracts.
+`./scripts/mcp-stateful-smoke.sh` validates the safe stateful path: `describe_instance_config`, `describe_ai_gateway_status`, GitHub webhook inspection plus receipt inspection and execution, webhook execution-report inspection, default-branch-state inspection, repository-signal inspection plus payload inspection, queue-safe repository-signal materialization through `submit_next_repository_signal`, the higher-level idle-path check for `run_next_repository_automation`, brief submission, run listing, one `run_next_task` execution for the codex-owned planning step, one `claim_next_agent_task`, `prepare_agent_task_workspace`, `heartbeat_agent_task`, and `complete_agent_task` cycle for the OpenHands-owned step, a follow-on `run_worker_once` execution, policy evaluation, persisted policy-artifact inspection, and run-event inspection. The heavier full-run quality-gate path stays in `./scripts/smoke-mvp.sh` and `./scripts/ci-smoke.sh`, so the MCP smoke stays focused on agent-facing transport and stateful tool contracts.
+
+## Scripted Executor Loop
+
+For a control-plane-driven OpenHands executor cycle instead of a manual MCP conversation, use:
+
+```bash
+./scripts/openhands-run-agent-task.sh \
+  --database-url "$CATALYST_DATABASE_URL" \
+  --profile container-sandbox
+```
+
+That wrapper:
+
+- claims one OpenHands-assigned task through the orchestrator CLI
+- prepares the real task workspace through `prepare-agent-task-workspace`
+- launches the pinned headless OpenHands profile against that workspace
+- keeps the claim lease alive with `heartbeat-agent-task`
+- completes the task with `workspace_root` so successful scaffold or code work is captured into real source artifacts before run quality continues
+
+Switch to `--profile host-full-access` only when you explicitly want the unsafe host-process path for debugging.
 
 Then launch one of the repo-pinned profiles with [examples/openhands/first-task.md](../../examples/openhands/first-task.md). That is the shortest path to confirming the integration end to end without publishing or opening a GitHub PR:
 

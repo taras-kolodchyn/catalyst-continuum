@@ -1117,6 +1117,248 @@ printf '%s\n' "$CLAIM_OUTPUT" | grep -q '^external_mcp_server_count: 1$'
 printf '%s\n' "$CLAIM_OUTPUT" | grep -q '^external_mcp_allowed_server_count: 1$'
 printf '%s\n' "$CLAIM_OUTPUT" | grep -q '^external_mcp_server: fetch (allowed)$'
 printf '%s\n' "$CLAIM_OUTPUT" | grep -q '^external_mcp_launch: openhands -> uvx$'
+printf '%s\n' "$CLAIM_OUTPUT" | grep -q '^kind: scaffold$'
+
+PREPARE_OUTPUT="$("$BIN" prepare-agent-task-workspace \
+  --database-url "$DATABASE_URL" \
+  --artifact-root "$ARTIFACT_ROOT" \
+  --task-id "$CLAIMED_TASK_ID" \
+  --agent openhands \
+  --executor-id smoke-mvp)"
+printf '%s\n' "$PREPARE_OUTPUT"
+printf '%s\n' "$PREPARE_OUTPUT" | grep -q '^workspace_prepared: yes$'
+printf '%s\n' "$PREPARE_OUTPUT" | grep -q '^source_kind: empty$'
+CLAIMED_WORKSPACE_ROOT="$(printf '%s\n' "$PREPARE_OUTPUT" | awk '/^workspace_root:/ {print $2; exit}')"
+test -n "$CLAIMED_WORKSPACE_ROOT"
+python3 - "$PACK_ID" "$CLAIMED_WORKSPACE_ROOT" "$RUST_VERSION" <<'PY'
+import pathlib
+import sys
+
+pack_id = sys.argv[1]
+workspace_root = pathlib.Path(sys.argv[2])
+rust_version = sys.argv[3]
+workspace_root.mkdir(parents=True, exist_ok=True)
+(workspace_root / "src").mkdir(parents=True, exist_ok=True)
+(workspace_root / "config").mkdir(parents=True, exist_ok=True)
+
+readme = "# Smoke MVP\n\nGenerated through the external-agent scaffold handoff smoke path.\n"
+cargo_toml = """[package]
+name = "smoke-mvp-generated"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[[bin]]
+name = "smoke-mvp-generated"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+"""
+dockerfile = f"""FROM rust:{rust_version}-bookworm
+WORKDIR /app
+COPY . .
+RUN cargo build --release
+CMD ["./target/release/smoke-mvp-generated"]
+"""
+worker_config = """[worker]
+name = "smoke-mvp-generated"
+pack_id = "worker-service"
+concurrency = 1
+"""
+
+container_service_main = """use serde_json::{json, Value};
+use std::{
+    env,
+    fs,
+    io::{self, BufRead, BufReader, Write},
+    net::{TcpListener, TcpStream},
+};
+
+fn main() -> io::Result<()> {
+    let port = env::var("PORT")
+        .ok()
+        .and_then(|value| value.parse::<u16>().ok())
+        .unwrap_or(8080);
+    let listener = TcpListener::bind(("0.0.0.0", port))?;
+
+    for stream in listener.incoming() {
+        if let Ok(stream) = stream {
+            let _ = handle_connection(stream);
+        }
+    }
+
+    Ok(())
+}
+
+fn load_requirements() -> Vec<Value> {
+    let mut items = fs::read_dir("requirements")
+        .ok()
+        .into_iter()
+        .flat_map(|entries| entries.filter_map(Result::ok))
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().and_then(|value| value.to_str()) == Some("json"))
+        .filter_map(|path| fs::read_to_string(path).ok())
+        .filter_map(|content| serde_json::from_str::<Value>(&content).ok())
+        .collect::<Vec<_>>();
+    items.sort_by(|left, right| {
+        left.get("id")
+            .and_then(Value::as_str)
+            .cmp(&right.get("id").and_then(Value::as_str))
+    });
+    items
+}
+
+fn handle_connection(mut stream: TcpStream) -> io::Result<()> {
+    let mut reader = BufReader::new(stream.try_clone()?);
+    let mut request_line = String::new();
+    if reader.read_line(&mut request_line)? == 0 {
+        return Ok(());
+    }
+
+    let mut parts = request_line.split_whitespace();
+    let method = parts.next().unwrap_or("");
+    let path = parts.next().unwrap_or("/");
+    let requirements = load_requirements();
+
+    match (method, path) {
+        ("GET", "/healthz") => write_json_response(&mut stream, "200 OK", json!({
+            "status": "ok",
+            "service": "smoke-mvp-generated",
+            "pack": "container-service",
+            "requirement_count": requirements.len()
+        })),
+        ("GET", "/requirements") => write_json_response(&mut stream, "200 OK", json!({
+            "items": requirements
+        })),
+        _ => write_json_response(&mut stream, "200 OK", json!({
+            "service": "smoke-mvp-generated",
+            "pack": "container-service"
+        })),
+    }
+}
+
+fn write_json_response(
+    stream: &mut TcpStream,
+    status: &str,
+    payload: serde_json::Value,
+) -> io::Result<()> {
+    let body = serde_json::to_vec_pretty(&payload)?;
+    write!(
+        stream,
+        "HTTP/1.1 {}\\r\\nContent-Type: application/json\\r\\nContent-Length: {}\\r\\nConnection: close\\r\\n\\r\\n",
+        status,
+        body.len()
+    )?;
+    stream.write_all(&body)
+}
+"""
+
+cli_tool_main = """use serde_json::{json, Value};
+use std::{fs, io::{self, Write}};
+
+fn load_requirements() -> Vec<Value> {
+    let mut items = fs::read_dir("requirements")
+        .ok()
+        .into_iter()
+        .flat_map(|entries| entries.filter_map(Result::ok))
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().and_then(|value| value.to_str()) == Some("json"))
+        .filter_map(|path| fs::read_to_string(path).ok())
+        .filter_map(|content| serde_json::from_str::<Value>(&content).ok())
+        .collect::<Vec<_>>();
+    items.sort_by(|left, right| {
+        left.get("id")
+            .and_then(Value::as_str)
+            .cmp(&right.get("id").and_then(Value::as_str))
+    });
+    items
+}
+
+fn main() {
+    let requirements = load_requirements();
+    let payload = match std::env::args().nth(1).as_deref() {
+        Some("requirements") => json!({"tool": "smoke-mvp-generated", "items": requirements}),
+        _ => json!({
+            "tool": "smoke-mvp-generated",
+            "pack": "cli-tool",
+            "requirement_count": requirements.len(),
+            "commands": ["summary", "requirements"]
+        }),
+    };
+    let mut stdout = io::stdout().lock();
+    serde_json::to_writer_pretty(&mut stdout, &payload).expect("json output should serialize");
+    stdout.write_all(b"\\n").expect("newline should write");
+}
+"""
+
+worker_service_main = """use serde_json::{json, Value};
+use std::{fs, io::{self, Write}};
+
+fn load_requirements() -> Vec<Value> {
+    let mut items = fs::read_dir("requirements")
+        .ok()
+        .into_iter()
+        .flat_map(|entries| entries.filter_map(Result::ok))
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().and_then(|value| value.to_str()) == Some("json"))
+        .filter_map(|path| fs::read_to_string(path).ok())
+        .filter_map(|content| serde_json::from_str::<Value>(&content).ok())
+        .collect::<Vec<_>>();
+    items.sort_by(|left, right| {
+        left.get("id")
+            .and_then(Value::as_str)
+            .cmp(&right.get("id").and_then(Value::as_str))
+    });
+    items
+}
+
+fn main() {
+    let requirements = load_requirements();
+    let payload = match std::env::args().nth(1).as_deref() {
+        Some("requirements") => json!({"tool": "smoke-mvp-generated", "items": requirements}),
+        Some("run-once") => json!({
+            "worker": "smoke-mvp-generated",
+            "pack": "worker-service",
+            "status": "processed",
+            "processed_count": requirements.len(),
+            "processed_ids": requirements
+                .iter()
+                .filter_map(|item| item.get("id").and_then(Value::as_str))
+                .collect::<Vec<_>>()
+        }),
+        _ => json!({
+            "tool": "smoke-mvp-generated",
+            "pack": "worker-service",
+            "requirement_count": requirements.len(),
+            "commands": ["summary", "requirements", "run-once"]
+        }),
+    };
+    let mut stdout = io::stdout().lock();
+    serde_json::to_writer_pretty(&mut stdout, &payload).expect("json output should serialize");
+    stdout.write_all(b"\\n").expect("newline should write");
+}
+"""
+
+main_rs = {
+    "container-service": container_service_main,
+    "cli-tool": cli_tool_main,
+    "worker-service": worker_service_main,
+}.get(pack_id)
+
+if main_rs is None:
+    raise SystemExit(f"unsupported smoke pack id for scaffold fixture: {pack_id}")
+
+(workspace_root / "README.md").write_text(readme, encoding="utf-8")
+(workspace_root / "Cargo.toml").write_text(cargo_toml, encoding="utf-8")
+(workspace_root / "src" / "main.rs").write_text(main_rs, encoding="utf-8")
+(workspace_root / ".gitignore").write_text("target/\\n", encoding="utf-8")
+(workspace_root / "config" / "worker.toml").write_text(worker_config, encoding="utf-8")
+if pack_id in {"container-service", "worker-service"}:
+    (workspace_root / "Dockerfile").write_text(dockerfile, encoding="utf-8")
+PY
 
 HEARTBEAT_OUTPUT="$("$BIN" heartbeat-agent-task \
   --database-url "$DATABASE_URL" \
@@ -1135,7 +1377,8 @@ COMPLETE_OUTPUT="$("$BIN" complete-agent-task \
   --agent openhands \
   --executor-id smoke-mvp \
   --status succeeded \
-  --summary "smoke external-agent handoff completed")"
+  --summary "smoke external-agent handoff completed" \
+  --workspace-root "$CLAIMED_WORKSPACE_ROOT")"
 printf '%s\n' "$COMPLETE_OUTPUT"
 printf '%s\n' "$COMPLETE_OUTPUT" | grep -q '^reported_status: succeeded$'
 printf '%s\n' "$COMPLETE_OUTPUT" | grep -q '^task_status: succeeded$'

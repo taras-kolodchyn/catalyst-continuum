@@ -16,8 +16,8 @@ use crate::{
         describe_github_webhook_action_report, describe_github_webhook_receipt,
         describe_latest_artifact, describe_repository_signal_payload, evaluate_run_policy,
         evaluate_run_quality, export_pr_candidate, heartbeat_agent_task, open_github_pr,
-        publish_pr_export, run_next_github_webhook_action, run_next_repository_automation,
-        run_next_task, submit_next_repository_signal,
+        prepare_agent_task_workspace, publish_pr_export, run_next_github_webhook_action,
+        run_next_repository_automation, run_next_task, submit_next_repository_signal,
         submit_repository_signal::BriefSubmissionContext,
         worker,
     },
@@ -299,6 +299,15 @@ struct ClaimNextAgentTaskToolArgs {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct PrepareAgentTaskWorkspaceToolArgs {
+    task_id: uuid::Uuid,
+    agent: String,
+    #[serde(default)]
+    executor_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct HeartbeatAgentTaskToolArgs {
     task_id: uuid::Uuid,
     agent: String,
@@ -317,6 +326,8 @@ struct CompleteAgentTaskToolArgs {
     details: Option<String>,
     #[serde(default)]
     executor_id: Option<String>,
+    #[serde(default)]
+    workspace_root: Option<std::path::PathBuf>,
     #[serde(default)]
     retryable: bool,
 }
@@ -640,6 +651,7 @@ impl StdioMcpServer {
             "describe_run" => self.call_describe_run(arguments),
             "list_run_events" => self.call_list_run_events(arguments),
             "claim_next_agent_task" => self.call_claim_next_agent_task(arguments),
+            "prepare_agent_task_workspace" => self.call_prepare_agent_task_workspace(arguments),
             "heartbeat_agent_task" => self.call_heartbeat_agent_task(arguments),
             "complete_agent_task" => self.call_complete_agent_task(arguments),
             "run_next_github_webhook_action" => self.call_run_next_github_webhook_action(arguments),
@@ -1165,6 +1177,27 @@ impl StdioMcpServer {
         })
     }
 
+    fn call_prepare_agent_task_workspace(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: PrepareAgentTaskWorkspaceToolArgs = parse_tool_arguments(arguments)?;
+            let mut store = self.open_store()?;
+            let report = prepare_agent_task_workspace::prepare_agent_task_workspace(
+                &mut store,
+                args.task_id,
+                &args.agent,
+                args.executor_id.as_deref(),
+                &self.config.artifact_root,
+            )?;
+            let structured = serde_json::to_value(&report)
+                .context("failed to serialize prepared agent task workspace")?;
+            Ok(tool_success_with_text(
+                "workspace",
+                structured,
+                report.render_text()?,
+            ))
+        })
+    }
+
     fn call_heartbeat_agent_task(&self, arguments: Value) -> Value {
         call_tool(|| {
             let args: HeartbeatAgentTaskToolArgs = parse_tool_arguments(arguments)?;
@@ -1195,6 +1228,7 @@ impl StdioMcpServer {
                 status: args.status,
                 summary: args.summary,
                 details: args.details,
+                workspace_root: args.workspace_root,
                 retryable: args.retryable,
             };
             let mut store = self.open_store()?;
@@ -1826,6 +1860,21 @@ fn tool_definitions() -> Vec<Value> {
             ]),
         ),
         tool_definition(
+            "prepare_agent_task_workspace",
+            "Prepare a real workspace directory for one externally claimed task so an agent can edit files before completion.",
+            json_schema_object(&[
+                required_string_property("task_id", "Task UUID."),
+                required_string_property(
+                    "agent",
+                    "Assigned agent identifier, for example openhands.",
+                ),
+                optional_string_property(
+                    "executor_id",
+                    "Optional external executor identifier. Required when the claim recorded one.",
+                ),
+            ]),
+        ),
+        tool_definition(
             "heartbeat_agent_task",
             "Refresh the reclaim lease for one externally claimed running task.",
             json_schema_object(&[
@@ -1858,6 +1907,10 @@ fn tool_definitions() -> Vec<Value> {
                 optional_string_property(
                     "executor_id",
                     "Optional external executor identifier. Required when the claim recorded one.",
+                ),
+                optional_string_property(
+                    "workspace_root",
+                    "Optional host workspace path to capture as real task output when status is succeeded.",
                 ),
                 optional_boolean_property(
                     "retryable",
@@ -2051,7 +2104,7 @@ mod tests {
 
         assert_eq!(
             output[1]["result"]["tools"].as_array().map(Vec::len),
-            Some(35)
+            Some(36)
         );
         assert_eq!(output[1]["result"]["tools"][0]["name"], "list_packs");
         assert!(
@@ -2074,6 +2127,13 @@ mod tests {
                 .is_some_and(|tools| tools
                     .iter()
                     .any(|tool| tool["name"] == "claim_next_agent_task"))
+        );
+        assert!(
+            output[1]["result"]["tools"]
+                .as_array()
+                .is_some_and(|tools| tools
+                    .iter()
+                    .any(|tool| tool["name"] == "prepare_agent_task_workspace"))
         );
         assert!(
             output[1]["result"]["tools"]

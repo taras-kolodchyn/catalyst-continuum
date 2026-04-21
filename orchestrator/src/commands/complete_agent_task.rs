@@ -1,7 +1,10 @@
 use anyhow::{Context, ensure};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use std::{fs, path::Path};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use crate::{
     cli::CompleteAgentTaskArgs,
@@ -11,6 +14,7 @@ use crate::{
         task::{TaskSummary, metadata_with_agent_execution_state},
     },
     planning::{materialization, packs::PackDefinition, pr_candidate, workspace_snapshot},
+    runtime::TaskWorkspace,
     storage::postgres::PostgresRunStore,
 };
 
@@ -24,6 +28,7 @@ pub(crate) struct AgentTaskCompletionRequest {
     pub(crate) status: String,
     pub(crate) summary: String,
     pub(crate) details: Option<String>,
+    pub(crate) workspace_root: Option<PathBuf>,
     pub(crate) retryable: bool,
 }
 
@@ -37,11 +42,14 @@ pub fn execute(args: CompleteAgentTaskArgs) -> anyhow::Result<()> {
         status: args.status,
         summary: args.summary,
         details: args.details,
+        workspace_root: args.workspace_root,
         retryable: args.retryable,
     };
     let report = complete_agent_task(&mut store, &args.artifact_root, &request)?;
 
-    if args.pretty {
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else if args.pretty {
         print!("{}", serde_yaml::to_string(&report)?);
     } else {
         println!("{}", report.render_text()?);
@@ -92,6 +100,7 @@ pub(crate) fn complete_agent_task(
     let status = request.status.as_str();
     let summary = request.summary.as_str();
     let details = request.details.as_deref();
+    let workspace_root = request.workspace_root.as_deref();
     let retryable = request.retryable;
 
     ensure!(
@@ -160,7 +169,8 @@ pub(crate) fn complete_agent_task(
     let mut effective_retryable = retryable;
 
     if status == "succeeded"
-        && let Err(error) = persist_success_artifacts(store, &task, &run_context, artifact_root)
+        && let Err(error) =
+            persist_success_artifacts(store, &task, &run_context, artifact_root, workspace_root)
     {
         effective_status = "failed".to_string();
         effective_failure_reason = Some(format!("agent task post-processing failed: {error:#}"));
@@ -333,14 +343,29 @@ fn persist_success_artifacts(
     task: &TaskSummary,
     run_context: &crate::models::run::RunContext,
     artifact_root: &Path,
+    workspace_root: Option<&Path>,
 ) -> anyhow::Result<()> {
-    let selected_pack = task
-        .assigned_pack
-        .clone()
-        .or(run_context.selected_pack.clone());
-    let pack = PackDefinition::load(selected_pack.as_deref())?;
-    let task_artifacts =
-        materialization::generate_task_artifacts(task, run_context, &pack, artifact_root)?;
+    let task_artifacts = if let Some(workspace_root) = workspace_root {
+        let captured =
+            capture_success_artifacts_from_workspace(store, task, artifact_root, workspace_root)?;
+        if captured.is_empty() {
+            let selected_pack = task
+                .assigned_pack
+                .clone()
+                .or(run_context.selected_pack.clone());
+            let pack = PackDefinition::load(selected_pack.as_deref())?;
+            materialization::generate_task_artifacts(task, run_context, &pack, artifact_root)?
+        } else {
+            captured
+        }
+    } else {
+        let selected_pack = task
+            .assigned_pack
+            .clone()
+            .or(run_context.selected_pack.clone());
+        let pack = PackDefinition::load(selected_pack.as_deref())?;
+        materialization::generate_task_artifacts(task, run_context, &pack, artifact_root)?
+    };
     let mut persisted_artifacts = task_artifacts
         .iter()
         .map(|artifact| store.insert_artifact(artifact))
@@ -378,6 +403,68 @@ fn persist_success_artifacts(
     }
 
     Ok(())
+}
+
+fn capture_success_artifacts_from_workspace(
+    store: &mut PostgresRunStore,
+    task: &TaskSummary,
+    artifact_root: &Path,
+    workspace_root: &Path,
+) -> anyhow::Result<Vec<ArtifactDraft>> {
+    match task.kind.as_str() {
+        "scaffold" => Ok(vec![
+            workspace_snapshot::capture_scaffold_bundle_from_workspace(
+                task,
+                workspace_root,
+                artifact_root,
+            )?,
+        ]),
+        "code" => {
+            let snapshot_artifact = store
+                .find_latest_run_artifact(task.run_id, workspace_snapshot::SNAPSHOT_ARTIFACT_TYPE)?
+                .with_context(|| {
+                    format!(
+                        "capturing external code task {} requires a workspace_snapshot artifact",
+                        task.task_id
+                    )
+                })?;
+            let code_bundle = workspace_snapshot::capture_code_bundle_from_workspace(
+                task,
+                &snapshot_artifact,
+                workspace_root,
+                artifact_root,
+            )?;
+            let source_path = PathBuf::from(&snapshot_artifact.location_value)
+                .canonicalize()
+                .with_context(|| {
+                    format!(
+                        "failed to canonicalize source snapshot path for external code task capture: {}",
+                        snapshot_artifact.location_value
+                    )
+                })?;
+            let prepared_workspace_root = workspace_root.canonicalize().with_context(|| {
+                format!(
+                    "failed to canonicalize external task workspace root: {}",
+                    workspace_root.display()
+                )
+            })?;
+            let task_workspace = TaskWorkspace {
+                source_artifact_id: snapshot_artifact.artifact_id,
+                source_path,
+                host_path: prepared_workspace_root,
+                container_path: "/workspace".to_string(),
+                bundle_path: workspace_snapshot::resolve_snapshot_bundle_path(&snapshot_artifact)?,
+            };
+            let patch_artifact = workspace_snapshot::compose_code_workspace_patch(
+                task,
+                &task_workspace,
+                &code_bundle,
+                artifact_root,
+            )?;
+            Ok(vec![code_bundle, patch_artifact])
+        }
+        _ => Ok(Vec::new()),
+    }
 }
 
 #[cfg(test)]
