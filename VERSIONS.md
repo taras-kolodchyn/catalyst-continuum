@@ -11,7 +11,7 @@ source it directly are validated by `./scripts/check-versions.sh` in CI.
 
 ### Toolchain and Build
 
-- Rust toolchain: `1.94.1`
+- Rust toolchain: `1.95.0`
   - Declared in [rust-toolchain.toml](rust-toolchain.toml)
   - Reused by [orchestrator/Dockerfile](orchestrator/Dockerfile)
   - Reused by [deploy/compose/.env.example](deploy/compose/.env.example)
@@ -56,7 +56,7 @@ source it directly are validated by `./scripts/check-versions.sh` in CI.
 - Orchestrator local image tag: `0.1.0-dev`
   - Declared in [deploy/compose/.env.example](deploy/compose/.env.example)
 
-- Rust base image: `rust:1.94.1@sha256:652612f07bfbbdfa3af34761c1e435094c00dde4a98036132fca28c7bb2b165c`
+- Rust base image: `rust:1.95.0@sha256:4a7e3a0c309c9bab658e469f842711bd595fae484936bc5d605e08ca0c631bf4`
   - Declared in [versions.env](versions.env), [deploy/compose/.env.example](deploy/compose/.env.example), and [orchestrator/Dockerfile](orchestrator/Dockerfile)
 
 - Pack execution image: `busybox:1.37.0@sha256:1487d0af5f52b4ba31c7e465126ee2123fe3f2305d638e7827681e7cf6c83d5e`

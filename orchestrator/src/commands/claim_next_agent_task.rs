@@ -267,7 +267,7 @@ mod tests {
                 description: "Implement the requested feature.".to_string(),
                 execution: TaskExecutionSpec {
                     provider: "docker".to_string(),
-                    image: Some("rust:1.94.1".to_string()),
+                    image: Some("rust:1.95.0".to_string()),
                     command: vec!["cargo".to_string(), "test".to_string()],
                     working_directory: Some("/workspace".to_string()),
                     sandbox_profile: Some("restricted".to_string()),
