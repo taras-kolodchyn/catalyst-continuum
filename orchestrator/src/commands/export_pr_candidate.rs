@@ -6,7 +6,10 @@ use crate::{
     cli::ExportPrCandidateArgs,
     commands::evaluate_run_quality,
     coordination,
-    models::{artifact::ArtifactSummary, run_event::RunEventDraft},
+    models::{
+        artifact::ArtifactSummary,
+        run_event::{PR_CANDIDATE_EXPORTED_EVENT_TYPE, RunEventDraft},
+    },
     planning::{pr_candidate, pr_export},
     storage::postgres::PostgresRunStore,
     telemetry,
@@ -149,7 +152,7 @@ pub(crate) fn export_pr_candidate_unlocked(
         })?;
     let _ = store.insert_run_event(&RunEventDraft::for_run(
         run_id,
-        "pr_candidate_exported",
+        PR_CANDIDATE_EXPORTED_EVENT_TYPE,
         Some("exported".to_string()),
         format!("PR candidate exported to branch {branch_name}"),
         serde_json::json!({

@@ -5,7 +5,10 @@ use crate::commands::evaluate_run_quality;
 use crate::{
     cli::OpenGithubPrArgs,
     coordination,
-    models::{artifact::ArtifactSummary, run_event::RunEventDraft},
+    models::{
+        artifact::ArtifactSummary,
+        run_event::{GITHUB_PR_OPENED_EVENT_TYPE, RunEventDraft},
+    },
     planning::{github_pr, pr_publication, quality_gate},
     storage::postgres::PostgresRunStore,
     telemetry,
@@ -118,7 +121,7 @@ pub(crate) fn open_github_pr_unlocked(
         })?;
     let _ = store.insert_run_event(&RunEventDraft::for_run(
         run_id,
-        "github_pr_opened",
+        GITHUB_PR_OPENED_EVENT_TYPE,
         Some(resolution.clone()),
         format!("GitHub pull request {resolution}: #{pr_number}"),
         serde_json::json!({

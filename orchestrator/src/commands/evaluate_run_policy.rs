@@ -5,7 +5,10 @@ use uuid::Uuid;
 
 use crate::{
     cli::EvaluateRunPolicyArgs,
-    models::{artifact::ArtifactSummary, run_event::RunEventDraft},
+    models::{
+        artifact::ArtifactSummary,
+        run_event::{RUN_POLICY_EVALUATED_EVENT_TYPE, RunEventDraft},
+    },
     planning::{packs::PackDefinition, policy},
     storage::postgres::PostgresRunStore,
 };
@@ -41,7 +44,7 @@ pub(crate) fn evaluate_run_policy(
     let evaluation_pack_id = evaluation.pack_id.clone();
     let _ = store.insert_run_event(&RunEventDraft::for_run(
         run_id,
-        "run_policy_evaluated",
+        RUN_POLICY_EVALUATED_EVENT_TYPE,
         Some(if evaluation.passed {
             "passed".to_string()
         } else {

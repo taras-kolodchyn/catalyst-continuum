@@ -10,7 +10,12 @@ use crate::models::{
         RepositorySignalDraft, RepositorySignalListFilters, RepositorySignalSummary,
     },
     run::{RunContext, RunDetail, RunDraft, RunSummary, RunTaskCounts, SubmissionRecord},
-    run_event::{RunEventDraft, RunEventSummary},
+    run_event::{
+        RUN_STATUS_CHANGED_EVENT_TYPE, RUN_SUBMITTED_EVENT_TYPE, RunEventDraft, RunEventSummary,
+        TASK_FAILED_EVENT_TYPE, TASK_HEARTBEAT_EVENT_TYPE, TASK_REQUEUED_EVENT_TYPE,
+        TASK_STARTED_EVENT_TYPE, TASK_SUCCEEDED_EVENT_TYPE, is_known_event_type, is_run_event_type,
+        is_task_event_type,
+    },
     task::{
         AgentTaskExecutionState, TaskDraft, TaskExecutionSpec, TaskSummary,
         metadata_with_agent_execution_state, task_reclaim_deadline_seconds,
@@ -207,7 +212,7 @@ impl PostgresRunStore {
         let submission = insert_submission_records(&mut transaction, draft, artifacts, tasks)?;
         let event = RunEventDraft::for_run(
             draft.run_id,
-            "run_submitted",
+            RUN_SUBMITTED_EVENT_TYPE,
             Some(draft.status.clone()),
             format!("run accepted with trigger {}", draft.trigger),
             serde_json::json!({
@@ -244,7 +249,7 @@ impl PostgresRunStore {
         let submission = insert_submission_records(&mut transaction, draft, artifacts, tasks)?;
         let event = RunEventDraft::for_run(
             draft.run_id,
-            "run_submitted",
+            RUN_SUBMITTED_EVENT_TYPE,
             Some(draft.status.clone()),
             format!("run materialized from repository signal {}", signal_id),
             serde_json::json!({
@@ -473,7 +478,7 @@ impl PostgresRunStore {
         let event = RunEventDraft::for_task(
             task.run_id,
             task.task_id,
-            "task_started",
+            TASK_STARTED_EVENT_TYPE,
             Some(task.status.clone()),
             format!("task {} claimed by agent {}", task.backlog_item_id, agent),
             serde_json::json!({
@@ -576,7 +581,7 @@ impl PostgresRunStore {
         let event = RunEventDraft::for_task(
             task.run_id,
             task.task_id,
-            "task_started",
+            TASK_STARTED_EVENT_TYPE,
             Some(task.status.clone()),
             format!("task {} started", task.backlog_item_id),
             serde_json::json!({
@@ -629,7 +634,7 @@ impl PostgresRunStore {
         let event = RunEventDraft::for_task(
             task.run_id,
             task.task_id,
-            "task_heartbeat",
+            TASK_HEARTBEAT_EVENT_TYPE,
             Some(task.status.clone()),
             format!("task {} heartbeat accepted", task.backlog_item_id),
             serde_json::json!({
@@ -681,8 +686,8 @@ impl PostgresRunStore {
 
         let task = row_to_task_summary(&row);
         let event_type = match status {
-            "succeeded" => "task_succeeded",
-            "failed" => "task_failed",
+            "succeeded" => TASK_SUCCEEDED_EVENT_TYPE,
+            "failed" => TASK_FAILED_EVENT_TYPE,
             other => other,
         };
         let event = RunEventDraft::for_task(
@@ -743,7 +748,7 @@ impl PostgresRunStore {
         let event = RunEventDraft::for_task(
             task.run_id,
             task.task_id,
-            "task_requeued",
+            TASK_REQUEUED_EVENT_TYPE,
             Some(task.status.clone()),
             format!("task {} requeued", task.backlog_item_id),
             serde_json::json!({
@@ -2442,7 +2447,7 @@ impl PostgresRunStore {
         if previous_status != status {
             let event = RunEventDraft::for_run(
                 run_id,
-                "run_status_changed",
+                RUN_STATUS_CHANGED_EVENT_TYPE,
                 Some(status.clone()),
                 format!("run status changed from {previous_status} to {status}"),
                 serde_json::json!({
@@ -2576,6 +2581,31 @@ fn insert_run_event_record(
     client: &mut impl GenericClient,
     event: &RunEventDraft,
 ) -> Result<RunEventSummary> {
+    ensure!(
+        is_known_event_type(&event.event_type),
+        "unknown run event type `{}`",
+        event.event_type
+    );
+    let expected_scope = if is_task_event_type(&event.event_type) {
+        "task"
+    } else if is_run_event_type(&event.event_type) {
+        "run"
+    } else {
+        unreachable!("known run event type must have a known scope")
+    };
+    ensure!(
+        event.scope == expected_scope,
+        "run event `{}` uses scope `{}` but expected `{}`",
+        event.event_type,
+        event.scope,
+        expected_scope
+    );
+    ensure!(
+        event.task_id.is_some() == (expected_scope == "task"),
+        "run event `{}` has invalid task binding for scope `{}`",
+        event.event_type,
+        event.scope
+    );
     let row = client
         .query_one(
             &format!(

@@ -5,7 +5,10 @@ use uuid::Uuid;
 
 use crate::{
     cli::EvaluateRunQualityArgs,
-    models::{artifact::ArtifactSummary, run_event::RunEventDraft},
+    models::{
+        artifact::ArtifactSummary,
+        run_event::{RUN_QUALITY_EVALUATED_EVENT_TYPE, RunEventDraft},
+    },
     planning::{packs::PackDefinition, quality_gate},
     storage::postgres::PostgresRunStore,
 };
@@ -47,7 +50,7 @@ pub(crate) fn evaluate_run_quality(
     let evaluation_pack_id = evaluation.pack_id.clone();
     let _ = store.insert_run_event(&RunEventDraft::for_run(
         run_id,
-        "run_quality_evaluated",
+        RUN_QUALITY_EVALUATED_EVENT_TYPE,
         Some(if evaluation.passed {
             "passed".to_string()
         } else {

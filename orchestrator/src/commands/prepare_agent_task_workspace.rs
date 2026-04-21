@@ -8,7 +8,11 @@ use serde::Serialize;
 
 use crate::{
     cli::PrepareAgentTaskWorkspaceArgs,
-    models::{artifact::ArtifactSummary, run_event::RunEventDraft, task::TaskSummary},
+    models::{
+        artifact::ArtifactSummary,
+        run_event::{RunEventDraft, TASK_WORKSPACE_PREPARED_EVENT_TYPE},
+        task::TaskSummary,
+    },
     planning::workspace_snapshot,
     storage::postgres::PostgresRunStore,
 };
@@ -131,7 +135,7 @@ pub(crate) fn prepare_agent_task_workspace(
     let _ = store.insert_run_event(&RunEventDraft::for_task(
         task.run_id,
         task.task_id,
-        "task_workspace_prepared",
+        TASK_WORKSPACE_PREPARED_EVENT_TYPE,
         Some(task.status.clone()),
         format!(
             "prepared workspace for task {} owned by agent {}",

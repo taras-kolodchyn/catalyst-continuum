@@ -37,6 +37,21 @@ properties:
   event_type:
     type: string
     minLength: 1
+    description: "Explicit v0.1 run-event taxonomy shared by CLI, HTTP, MCP, and persisted audit history."
+    enum:
+      - run_submitted
+      - run_status_changed
+      - run_policy_evaluated
+      - run_quality_evaluated
+      - pr_candidate_exported
+      - pr_export_published
+      - github_pr_opened
+      - task_started
+      - task_workspace_prepared
+      - task_heartbeat
+      - task_succeeded
+      - task_failed
+      - task_requeued
   status:
     anyOf:
       - type: string

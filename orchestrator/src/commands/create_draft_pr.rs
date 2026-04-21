@@ -6,7 +6,13 @@ use crate::{
     cli::CreateDraftPrArgs,
     commands::evaluate_run_quality,
     coordination,
-    models::{artifact::ArtifactSummary, run_event::RunEventDraft},
+    models::{
+        artifact::ArtifactSummary,
+        run_event::{
+            GITHUB_PR_OPENED_EVENT_TYPE, PR_CANDIDATE_EXPORTED_EVENT_TYPE,
+            PR_EXPORT_PUBLISHED_EVENT_TYPE, RunEventDraft,
+        },
+    },
     planning::{github_pr, pr_candidate, pr_export, pr_publication},
     storage::postgres::PostgresRunStore,
     telemetry,
@@ -148,7 +154,7 @@ pub(crate) fn create_draft_pr_unlocked(
         })?;
     let _ = store.insert_run_event(&RunEventDraft::for_run(
         run_id,
-        "pr_candidate_exported",
+        PR_CANDIDATE_EXPORTED_EVENT_TYPE,
         Some("exported".to_string()),
         format!("PR candidate exported to branch {branch_name}"),
         serde_json::json!({
@@ -194,7 +200,7 @@ pub(crate) fn create_draft_pr_unlocked(
         })?;
     let _ = store.insert_run_event(&RunEventDraft::for_run(
         run_id,
-        "pr_export_published",
+        PR_EXPORT_PUBLISHED_EVENT_TYPE,
         Some(push_status.clone()),
         format!("PR export {push_status} for branch {branch_name}"),
         serde_json::json!({
@@ -242,7 +248,7 @@ pub(crate) fn create_draft_pr_unlocked(
         })?;
     let _ = store.insert_run_event(&RunEventDraft::for_run(
         run_id,
-        "github_pr_opened",
+        GITHUB_PR_OPENED_EVENT_TYPE,
         Some(resolution.clone()),
         format!("GitHub pull request {resolution}: #{pr_number}"),
         serde_json::json!({

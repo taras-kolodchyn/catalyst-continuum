@@ -6,7 +6,10 @@ use crate::commands::evaluate_run_quality;
 use crate::{
     cli::PublishPrExportArgs,
     coordination,
-    models::{artifact::ArtifactSummary, run_event::RunEventDraft},
+    models::{
+        artifact::ArtifactSummary,
+        run_event::{PR_EXPORT_PUBLISHED_EVENT_TYPE, RunEventDraft},
+    },
     planning::{pr_export, pr_publication, quality_gate},
     storage::postgres::PostgresRunStore,
     telemetry,
@@ -187,7 +190,7 @@ pub(crate) fn publish_pr_export_unlocked(
         })?;
     let _ = store.insert_run_event(&RunEventDraft::for_run(
         run_id,
-        "pr_export_published",
+        PR_EXPORT_PUBLISHED_EVENT_TYPE,
         Some(push_status.clone()),
         format!("PR export {push_status} for branch {head_branch}"),
         serde_json::json!({
