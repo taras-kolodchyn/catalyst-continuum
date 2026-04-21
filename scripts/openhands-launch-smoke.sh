@@ -10,12 +10,14 @@ source "$ROOT_DIR/versions.env"
 SMOKE_ROOT="${CATALYST_OPENHANDS_LAUNCH_SMOKE_ROOT:-$ROOT_DIR/.continuum/openhands-launch-smoke}"
 HOST_STATE_DIR="$SMOKE_ROOT/state/host-full-access"
 CONTAINER_STATE_DIR="$SMOKE_ROOT/state/container-sandbox"
+OVERRIDE_STATE_DIR="$SMOKE_ROOT/state/override-model"
 ARTIFACT_ROOT="$SMOKE_ROOT/artifacts"
 HOST_OUTPUT="$SMOKE_ROOT/host-full-access.txt"
 CONTAINER_OUTPUT="$SMOKE_ROOT/container-sandbox.txt"
+OVERRIDE_OUTPUT="$SMOKE_ROOT/override-model.txt"
 
 rm -rf "$SMOKE_ROOT"
-mkdir -p "$HOST_STATE_DIR" "$CONTAINER_STATE_DIR" "$ARTIFACT_ROOT"
+mkdir -p "$HOST_STATE_DIR" "$CONTAINER_STATE_DIR" "$OVERRIDE_STATE_DIR" "$ARTIFACT_ROOT"
 
 "$ROOT_DIR/scripts/openhands-launch.sh" \
   --profile host-full-access \
@@ -31,11 +33,21 @@ mkdir -p "$HOST_STATE_DIR" "$CONTAINER_STATE_DIR" "$ARTIFACT_ROOT"
   --state-dir "$CONTAINER_STATE_DIR" \
   --dry-run >"$CONTAINER_OUTPUT"
 
+LITELLM_DEFAULT_MODEL=local-ollama-coder \
+  "$ROOT_DIR/scripts/openhands-launch.sh" \
+    --profile container-sandbox \
+    --task-file "$ROOT_DIR/examples/openhands/first-task.md" \
+    --artifact-root "$ARTIFACT_ROOT" \
+    --state-dir "$OVERRIDE_STATE_DIR" \
+    --dry-run >"$OVERRIDE_OUTPUT"
+
 python3 - \
   "$HOST_OUTPUT" \
   "$CONTAINER_OUTPUT" \
+  "$OVERRIDE_OUTPUT" \
   "$HOST_STATE_DIR" \
   "$CONTAINER_STATE_DIR" \
+  "$OVERRIDE_STATE_DIR" \
   "$OPENHANDS_CLI_VERSION" \
   "$OPENHANDS_AGENT_SERVER_REPOSITORY" \
   "$OPENHANDS_AGENT_SERVER_TAG" <<'PY'
@@ -44,11 +56,13 @@ import sys
 
 host_output = pathlib.Path(sys.argv[1])
 container_output = pathlib.Path(sys.argv[2])
-host_state_dir = pathlib.Path(sys.argv[3])
-container_state_dir = pathlib.Path(sys.argv[4])
-cli_version = sys.argv[5]
-agent_server_repository = sys.argv[6]
-agent_server_tag = sys.argv[7]
+override_output = pathlib.Path(sys.argv[3])
+host_state_dir = pathlib.Path(sys.argv[4])
+container_state_dir = pathlib.Path(sys.argv[5])
+override_state_dir = pathlib.Path(sys.argv[6])
+cli_version = sys.argv[7]
+agent_server_repository = sys.argv[8]
+agent_server_tag = sys.argv[9]
 
 
 def parse_output(path: pathlib.Path) -> dict[str, str]:
@@ -63,6 +77,7 @@ def parse_output(path: pathlib.Path) -> dict[str, str]:
 
 host = parse_output(host_output)
 container = parse_output(container_output)
+override = parse_output(override_output)
 
 if host.get("profile") != "host-full-access":
     raise SystemExit("host profile smoke failed: expected profile=host-full-access")
@@ -134,6 +149,22 @@ if not container.get("llm_model", "").startswith("openai/"):
     raise SystemExit(
         "container profile smoke failed: expected OpenAI-compatible model alias"
     )
+
+if override.get("llm_model") != "openai/local-ollama-coder":
+    raise SystemExit(
+        "override profile smoke failed: expected explicit LITELLM_DEFAULT_MODEL to win"
+    )
+
+if override.get("env.LLM_MODEL") != "openai/local-ollama-coder":
+    raise SystemExit(
+        "override profile smoke failed: expected env.LLM_MODEL to use explicit override"
+    )
+
+if override.get("mcp_config") != str(override_state_dir / "mcp.json"):
+    raise SystemExit("override profile smoke failed: unexpected mcp_config path")
+
+if not (override_state_dir / "mcp.json").exists():
+    raise SystemExit("override profile smoke failed: expected repo-local mcp.json")
 PY
 
 echo "OpenHands launch profiles resolve correctly"

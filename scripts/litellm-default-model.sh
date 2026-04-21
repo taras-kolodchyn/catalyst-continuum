@@ -6,6 +6,7 @@ cd "$ROOT_DIR"
 
 ENV_FILE=""
 AI_GATEWAY_FILE=""
+EXPLICIT_LITELLM_DEFAULT_MODEL="${LITELLM_DEFAULT_MODEL:-}"
 
 usage() {
   cat <<'EOF'
@@ -17,8 +18,9 @@ from the AI gateway contract:
 - macOS Apple Silicon: local-macos-native
 - all other hosts: local-ollama-coder
 
-If `LITELLM_DEFAULT_MODEL` is set in the selected env file, that override wins.
-Otherwise the script resolves `describe-instance-config --json` and reads
+If `LITELLM_DEFAULT_MODEL` is set in the current shell, that override wins.
+Otherwise the selected env file may provide an override. If neither is set, the
+script resolves `describe-instance-config --json` and reads
 `ai_gateway.default_model_aliases`.
 EOF
 }
@@ -64,6 +66,10 @@ fi
 if [ -f "$ENV_FILE" ]; then
   # shellcheck disable=SC1090
   source "$ENV_FILE"
+fi
+
+if [ -n "$EXPLICIT_LITELLM_DEFAULT_MODEL" ]; then
+  LITELLM_DEFAULT_MODEL="$EXPLICIT_LITELLM_DEFAULT_MODEL"
 fi
 
 if [ -n "${LITELLM_DEFAULT_MODEL:-}" ]; then

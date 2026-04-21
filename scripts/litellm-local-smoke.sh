@@ -114,7 +114,7 @@ LITELLM_MASTER_KEY="${LITELLM_MASTER_KEY:-sk-continuum-dev}"
 CATALYST_AI_GATEWAY_FILE="${CATALYST_AI_GATEWAY_FILE:-}"
 LITELLM_DEFAULT_MODEL="${LITELLM_DEFAULT_MODEL:-}"
 LITELLM_MACOS_NATIVE_MODEL="${LITELLM_MACOS_NATIVE_MODEL:-openai/mlx-community/Qwen2.5-Coder-3B-Instruct-4bit}"
-LITELLM_MACOS_NATIVE_API_BASE="${LITELLM_MACOS_NATIVE_API_BASE:-http://host.docker.internal:8080/v1}"
+LITELLM_MACOS_NATIVE_API_BASE="${LITELLM_MACOS_NATIVE_API_BASE:-http://host.docker.internal:8081/v1}"
 LITELLM_MACOS_NATIVE_API_KEY="${LITELLM_MACOS_NATIVE_API_KEY:-local-mlx}"
 LITELLM_OLLAMA_MODEL="${LITELLM_OLLAMA_MODEL:-ollama/qwen2.5-coder:7b}"
 LITELLM_OLLAMA_API_BASE="${LITELLM_OLLAMA_API_BASE:-http://host.docker.internal:11434}"
@@ -130,6 +130,13 @@ compose_args=(
   --env-file "$ENV_FILE"
   -f deploy/compose/compose.yaml
 )
+
+if [ "$LITELLM_MACOS_NATIVE_API_BASE" = "http://host.docker.internal:${ORCHESTRATOR_PORT:-8080}/v1" ]; then
+  echo \
+    "LITELLM_MACOS_NATIVE_API_BASE points at the orchestrator port ${ORCHESTRATOR_PORT:-8080}; " \
+    "use a dedicated MLX backend port such as 8081 instead" >&2
+  exit 1
+fi
 
 if [ -z "$MODEL" ]; then
   default_model_args=(

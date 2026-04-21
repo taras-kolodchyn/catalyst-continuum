@@ -105,24 +105,37 @@ The repository scripts resolve the default alias this way:
 - `local-macos-native` on macOS Apple Silicon
 - `local-ollama-coder` on every other host
 
-If you want a different default on your machine, set `LITELLM_DEFAULT_MODEL` in `deploy/compose/.env`.
+If you want a different default on your machine, set `LITELLM_DEFAULT_MODEL` in
+`deploy/compose/.env` or export it for a single launch:
+
+```bash
+LITELLM_DEFAULT_MODEL=local-ollama-coder ./scripts/openhands-launch.sh \
+  --profile container-sandbox \
+  --task-file examples/openhands/first-task.md
+```
 
 The default aliases are:
 
-- `local-macos-native` for a host-run MLX-LM server at `http://host.docker.internal:8080/v1`
+- `local-macos-native` for a host-run MLX-LM server at `http://host.docker.internal:8081/v1`
 - `local-ollama-coder` for a host-run Ollama backend at `http://host.docker.internal:11434`
 
 Recommended macOS Apple Silicon native backend:
 
 ```bash
 pip install mlx-lm
-mlx_lm.server --model mlx-community/Qwen2.5-Coder-3B-Instruct-4bit
+mlx_lm.server --port 8081 --model mlx-community/Qwen2.5-Coder-3B-Instruct-4bit
 ```
 
 That follows the official [`mlx-lm` install guide](https://github.com/ml-explore/mlx-lm) plus the official [`mlx_lm.server` HTTP server docs](https://github.com/ml-explore/mlx-lm/blob/main/mlx_lm/SERVER.md).
 The default macOS-native example now also points at the published coding model
 card for [`mlx-community/Qwen2.5-Coder-3B-Instruct-4bit`](https://huggingface.co/mlx-community/Qwen2.5-Coder-3B-Instruct-4bit),
 so the first local OpenHands validation uses a code-oriented backend by default.
+That path is suitable for gateway reachability and basic completion smoke tests,
+but a full OpenHands tool-using session also depends on the backend returning
+native OpenAI `tool_calls`.
+If your local MLX backend answers with plain-text JSON instead of structured
+`tool_calls`, switch the launch to `local-ollama-coder` or another tool-calling
+backend for the live agent proof.
 
 Recommended non-macOS backend:
 

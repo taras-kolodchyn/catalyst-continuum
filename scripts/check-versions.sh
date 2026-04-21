@@ -80,6 +80,8 @@ compose_grafana_image_digest="$(sed -nE 's/^GRAFANA_IMAGE_DIGEST=(.+)$/\1/p' dep
 compose_litellm_version="$(sed -nE 's/^LITELLM_VERSION=(.+)$/\1/p' deploy/compose/.env.example)"
 compose_litellm_image_digest="$(sed -nE 's/^LITELLM_IMAGE_DIGEST=(.+)$/\1/p' deploy/compose/.env.example)"
 compose_orchestrator_image_tag="$(sed -nE 's/^ORCHESTRATOR_IMAGE_TAG=(.+)$/\1/p' deploy/compose/.env.example)"
+compose_orchestrator_port="$(sed -nE 's/^ORCHESTRATOR_PORT=(.+)$/\1/p' deploy/compose/.env.example)"
+compose_litellm_macos_native_api_base="$(sed -nE 's/^LITELLM_MACOS_NATIVE_API_BASE=(.+)$/\1/p' deploy/compose/.env.example)"
 pack_template_rust_image="$(sed -nE 's/^FROM (rust:[^ ]+) AS builder$/\1/p' packs/container-service/templates/Dockerfile.tmpl)"
 declared_shellcheck_image="$(sed -nE 's/^SHELLCHECK_IMAGE=(.+)$/\1/p' versions.env)"
 declared_syft_image="$(sed -nE 's/^SYFT_IMAGE=(.+)$/\1/p' versions.env)"
@@ -283,6 +285,13 @@ if ! grep -Fq "$expected_inspector_package" docs/mcp/fetch.md; then
     "docs/mcp/fetch.md inspector pin" \
     "$expected_inspector_package" \
     "hardcoded or missing"
+fi
+
+if [ "$compose_litellm_macos_native_api_base" = "http://host.docker.internal:${compose_orchestrator_port}/v1" ]; then
+  report_mismatch \
+    "deploy/compose/.env.example macOS-native LiteLLM backend port" \
+    "a dedicated backend port distinct from ORCHESTRATOR_PORT=${compose_orchestrator_port}" \
+    "$compose_litellm_macos_native_api_base"
 fi
 
 expected_openhands_pin="openhands==\${OPENHANDS_CLI_VERSION}"

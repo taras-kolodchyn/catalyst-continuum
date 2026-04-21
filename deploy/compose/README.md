@@ -72,7 +72,7 @@ Recommended macOS Apple Silicon native backend:
 
 ```bash
 pip install mlx-lm
-mlx_lm.server --model mlx-community/Qwen2.5-Coder-3B-Instruct-4bit
+mlx_lm.server --port 8081 --model mlx-community/Qwen2.5-Coder-3B-Instruct-4bit
 ```
 
 The macOS-native example intentionally uses the published coding-tuned
