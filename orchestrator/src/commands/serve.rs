@@ -11,8 +11,9 @@ use crate::{
         describe_github_default_branch_state, describe_github_webhook_action_report,
         describe_github_webhook_receipt, describe_latest_artifact,
         describe_repository_signal_payload, evaluate_run_policy, evaluate_run_quality,
-        export_pr_candidate, publish_pr_export, run_next_github_webhook_action, run_next_task,
-        submit_brief::submit_validated_brief, worker,
+        export_pr_candidate, publish_pr_export, run_next_github_webhook_action,
+        run_next_repository_automation, run_next_task, submit_brief::submit_validated_brief,
+        submit_next_repository_signal, submit_repository_signal::BriefSubmissionContext, worker,
     },
     config::{InstanceConfigReport, load_github_app_webhook_secret},
     coordination,
@@ -95,6 +96,8 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                         "/github/webhook-actions",
                         "/github/webhook-actions/{request_id}",
                         "/github/webhook-actions/{request_id}/report",
+                        "POST /repository-signals/next",
+                        "POST /repository-automation/next",
                         "/github/repositories/{owner}/{repo}/default-branch-state",
                         "/repository-signals",
                         "/repository-signals/{signal_id}",
@@ -281,6 +284,79 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                             error: format!(
                                 "failed to parse github webhook action request body: {error}"
                             ),
+                        },
+                    ),
+                }
+            }
+            ("POST", "/repository-signals/next") => {
+                let signal_request = parse_submit_next_repository_signal_request(query);
+                match read_request_body(&mut request) {
+                    Ok(body) => {
+                        let context = BriefSubmissionContext {
+                            external_mcp_servers: &instance_config.external_mcp_servers,
+                            artifact_root: &args.artifact_root,
+                        };
+                        match submit_next_repository_signal::submit_next_repository_signal_document(
+                            &body,
+                            "http:POST /repository-signals/next",
+                            &args.database_url,
+                            context,
+                            signal_request.signal_kind.as_deref(),
+                            "http",
+                        ) {
+                            Ok(submission) => {
+                                next_repository_signal_submission_response(&submission)
+                            }
+                            Err(error) => json_response(
+                                StatusCode(500),
+                                &ErrorResponse {
+                                    error: format!(
+                                        "failed to materialize next repository signal: {error}"
+                                    ),
+                                },
+                            ),
+                        }
+                    }
+                    Err(error) => json_response(
+                        StatusCode(400),
+                        &ErrorResponse {
+                            error: format!("failed to read request body: {error}"),
+                        },
+                    ),
+                }
+            }
+            ("POST", "/repository-automation/next") => {
+                let automation_request = parse_run_next_repository_automation_request(query);
+                match read_request_body(&mut request) {
+                    Ok(body) => {
+                        let context = BriefSubmissionContext {
+                            external_mcp_servers: &instance_config.external_mcp_servers,
+                            artifact_root: &args.artifact_root,
+                        };
+                        match run_next_repository_automation::run_next_repository_automation_document(
+                            &body,
+                            "http:POST /repository-automation/next",
+                            &args.database_url,
+                            context,
+                            automation_request.action.as_deref(),
+                            automation_request.signal_kind.as_deref(),
+                            "http",
+                        ) {
+                            Ok(report) => repository_automation_response(&report),
+                            Err(error) => json_response(
+                                StatusCode(500),
+                                &ErrorResponse {
+                                    error: format!(
+                                        "failed to run next repository automation cycle: {error}"
+                                    ),
+                                },
+                            ),
+                        }
+                    }
+                    Err(error) => json_response(
+                        StatusCode(400),
+                        &ErrorResponse {
+                            error: format!("failed to read request body: {error}"),
                         },
                     ),
                 }
@@ -1453,6 +1529,50 @@ fn github_webhook_response(
     )
 }
 
+fn next_repository_signal_submission_response(
+    submission: &submit_next_repository_signal::NextRepositorySignalSubmission,
+) -> Response<std::io::Cursor<Vec<u8>>> {
+    match submission {
+        submit_next_repository_signal::NextRepositorySignalSubmission::Submitted(report) => {
+            json_response_with_headers(
+                StatusCode(201),
+                submission,
+                &[header(
+                    "Location",
+                    format!("/runs/{}", report.submission.run_id),
+                )],
+            )
+        }
+        submit_next_repository_signal::NextRepositorySignalSubmission::Idle(_) => {
+            json_response(StatusCode(200), submission)
+        }
+    }
+}
+
+fn repository_automation_response(
+    report: &run_next_repository_automation::RepositoryAutomationReport,
+) -> Response<std::io::Cursor<Vec<u8>>> {
+    if let Some(submit_next_repository_signal::NextRepositorySignalSubmission::Submitted(
+        submission,
+    )) = &report.signal_submission
+    {
+        return json_response_with_headers(
+            StatusCode(201),
+            report,
+            &[header(
+                "Location",
+                format!("/runs/{}", submission.submission.run_id),
+            )],
+        );
+    }
+
+    if report.webhook_action.was_executed() {
+        return json_response(StatusCode(202), report);
+    }
+
+    json_response(StatusCode(200), report)
+}
+
 fn webhook_error_status(kind: GitHubWebhookErrorKind) -> StatusCode {
     match kind {
         GitHubWebhookErrorKind::BadRequest => StatusCode(400),
@@ -1586,6 +1706,29 @@ fn parse_list_repository_signals_request(
     Ok(ListRepositorySignalsRequest { limit, filters })
 }
 
+fn parse_submit_next_repository_signal_request(
+    query: Option<&str>,
+) -> SubmitNextRepositorySignalRequest {
+    let query_pairs = parse_query_pairs(query);
+
+    SubmitNextRepositorySignalRequest {
+        signal_kind: non_empty_option(query_pairs.get("signal_kind").map(String::as_str))
+            .map(str::to_string),
+    }
+}
+
+fn parse_run_next_repository_automation_request(
+    query: Option<&str>,
+) -> RunNextRepositoryAutomationRequest {
+    let query_pairs = parse_query_pairs(query);
+
+    RunNextRepositoryAutomationRequest {
+        action: non_empty_option(query_pairs.get("action").map(String::as_str)).map(str::to_string),
+        signal_kind: non_empty_option(query_pairs.get("signal_kind").map(String::as_str))
+            .map(str::to_string),
+    }
+}
+
 fn parse_query_pairs(query: Option<&str>) -> HashMap<String, String> {
     let mut pairs = HashMap::new();
 
@@ -1682,6 +1825,8 @@ fn route_label(method: &str, path: &str) -> &'static str {
         }
         ("POST", "/github/webhooks") => "/github/webhooks",
         ("POST", "/github/webhook-actions/next") => "/github/webhook-actions/next",
+        ("POST", "/repository-signals/next") => "/repository-signals/next",
+        ("POST", "/repository-automation/next") => "/repository-automation/next",
         ("GET", _) if single_path_segment(path, "/github/webhooks/").is_some() => {
             "/github/webhooks/{delivery_id}"
         }
@@ -1820,6 +1965,17 @@ struct ListRepositorySignalsRequest {
     filters: RepositorySignalListFilters,
 }
 
+#[derive(Debug)]
+struct SubmitNextRepositorySignalRequest {
+    signal_kind: Option<String>,
+}
+
+#[derive(Debug)]
+struct RunNextRepositoryAutomationRequest {
+    action: Option<String>,
+    signal_kind: Option<String>,
+}
+
 #[derive(Debug, Serialize)]
 struct RecentGithubWebhookDeliveriesResponse {
     count: usize,
@@ -1883,8 +2039,9 @@ mod tests {
         github_webhook_receipt_path_delivery_id, latest_artifact_path_parts,
         parse_list_github_webhook_action_requests_request, parse_list_github_webhooks_request,
         parse_list_repository_signals_request, parse_list_run_events_request,
-        parse_list_runs_request, readiness_payload, repository_signal_payload_path_signal_id,
-        route_label,
+        parse_list_runs_request, parse_run_next_repository_automation_request,
+        parse_submit_next_repository_signal_request, readiness_payload,
+        repository_signal_payload_path_signal_id, route_label,
     };
     use crate::storage::postgres::DatabaseReadiness;
     use anyhow::anyhow;
@@ -1964,6 +2121,14 @@ mod tests {
         assert_eq!(
             route_label("POST", "/github/webhook-actions/next"),
             "/github/webhook-actions/next"
+        );
+        assert_eq!(
+            route_label("POST", "/repository-signals/next"),
+            "/repository-signals/next"
+        );
+        assert_eq!(
+            route_label("POST", "/repository-automation/next"),
+            "/repository-automation/next"
         );
         assert_eq!(
             route_label("GET", "/github/webhooks/delivery-1"),
@@ -2074,6 +2239,30 @@ mod tests {
             Some(
                 uuid::Uuid::parse_str("11111111-1111-1111-1111-111111111111").expect("valid uuid")
             )
+        );
+    }
+
+    #[test]
+    fn parses_submit_next_repository_signal_query_filters() {
+        let request =
+            parse_submit_next_repository_signal_request(Some("signal_kind=default_branch_updated"));
+
+        assert_eq!(
+            request.signal_kind.as_deref(),
+            Some("default_branch_updated")
+        );
+    }
+
+    #[test]
+    fn parses_repository_automation_query_filters() {
+        let request = parse_run_next_repository_automation_request(Some(
+            "action=sync_default_branch&signal_kind=default_branch_updated",
+        ));
+
+        assert_eq!(request.action.as_deref(), Some("sync_default_branch"));
+        assert_eq!(
+            request.signal_kind.as_deref(),
+            Some("default_branch_updated")
         );
     }
 

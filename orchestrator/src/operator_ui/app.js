@@ -47,6 +47,10 @@ function cacheElements() {
     "artifactHeadline",
     "artifactHighlights",
     "artifactTableWrap",
+    "automationActionFilter",
+    "automationConsole",
+    "automationConsoleStatus",
+    "automationSignalKindInput",
     "autoRefreshToggle",
     "branchNameInput",
     "briefConsole",
@@ -63,6 +67,8 @@ function cacheElements() {
     "refreshButton",
     "remoteUrlInput",
     "repositorySignalsList",
+    "runNextWebhookButton",
+    "runRepositoryAutomationButton",
     "runDetailShell",
     "runStatusFilter",
     "runSummaryCards",
@@ -70,6 +76,7 @@ function cacheElements() {
     "selectedRunLabel",
     "signalCount",
     "statusGrid",
+    "submitNextSignalButton",
     "submitBriefButton",
     "taskHeadline",
     "taskTableWrap",
@@ -137,6 +144,24 @@ function bindEvents() {
   elements.submitBriefButton.addEventListener("click", () => {
     submitBriefRequest("submit").catch((error) => {
       console.error("brief submission failed", error);
+    });
+  });
+
+  elements.runNextWebhookButton.addEventListener("click", () => {
+    runNextWebhookRequest().catch((error) => {
+      console.error("next webhook execution failed", error);
+    });
+  });
+
+  elements.submitNextSignalButton.addEventListener("click", () => {
+    submitNextSignalRequest().catch((error) => {
+      console.error("next repository signal submission failed", error);
+    });
+  });
+
+  elements.runRepositoryAutomationButton.addEventListener("click", () => {
+    runRepositoryAutomationRequest().catch((error) => {
+      console.error("repository automation cycle failed", error);
     });
   });
 
@@ -281,6 +306,86 @@ async function submitBriefRequest(mode) {
   }
 }
 
+async function runNextWebhookRequest() {
+  const action = elements.automationActionFilter.value.trim();
+  const envelope = await fetchJsonEnvelope("/github/webhook-actions/next", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+    },
+    body: JSON.stringify(action ? { action } : {}),
+  });
+
+  writeConsole(
+    elements.automationConsole,
+    elements.automationConsoleStatus,
+    envelope.ok ? "success" : "error",
+    envelope.data
+  );
+
+  await refreshDashboard();
+}
+
+async function submitNextSignalRequest() {
+  const brief = requireAutomationBrief();
+  if (!brief) {
+    return;
+  }
+
+  const query = automationQuery({ includeAction: false, includeSignalKind: true });
+  const envelope = await fetchJsonEnvelope(`/repository-signals/next${query}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/yaml; charset=utf-8",
+    },
+    body: brief,
+  });
+
+  writeConsole(
+    elements.automationConsole,
+    elements.automationConsoleStatus,
+    envelope.ok ? "success" : "error",
+    envelope.data
+  );
+
+  const submittedRunId = nextSubmittedRunId(envelope.data);
+  if (envelope.ok && submittedRunId) {
+    state.selectedRunId = submittedRunId;
+  }
+
+  await refreshDashboard();
+}
+
+async function runRepositoryAutomationRequest() {
+  const brief = requireAutomationBrief();
+  if (!brief) {
+    return;
+  }
+
+  const query = automationQuery({ includeAction: true, includeSignalKind: true });
+  const envelope = await fetchJsonEnvelope(`/repository-automation/next${query}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/yaml; charset=utf-8",
+    },
+    body: brief,
+  });
+
+  writeConsole(
+    elements.automationConsole,
+    elements.automationConsoleStatus,
+    envelope.ok ? "success" : "error",
+    envelope.data
+  );
+
+  const submittedRunId = automationSubmittedRunId(envelope.data);
+  if (envelope.ok && submittedRunId) {
+    state.selectedRunId = submittedRunId;
+  }
+
+  await refreshDashboard();
+}
+
 async function executeRunAction(actionId) {
   if (!state.selectedRunId) {
     writeConsole(
@@ -353,6 +458,49 @@ function buildRunActionBody(actionId) {
     default:
       return null;
   }
+}
+
+function requireAutomationBrief() {
+  const brief = elements.briefEditor.value.trim();
+  if (brief) {
+    return brief;
+  }
+
+  writeConsole(
+    elements.automationConsole,
+    elements.automationConsoleStatus,
+    "warning",
+    { error: "Brief editor is empty." }
+  );
+  return null;
+}
+
+function automationQuery(options) {
+  const params = new URLSearchParams();
+  const action = elements.automationActionFilter.value.trim();
+  const signalKind = elements.automationSignalKindInput.value.trim();
+
+  if (options.includeAction && action) {
+    params.set("action", action);
+  }
+  if (options.includeSignalKind && signalKind) {
+    params.set("signal_kind", signalKind);
+  }
+
+  const rendered = params.toString();
+  return rendered ? `?${rendered}` : "";
+}
+
+function nextSubmittedRunId(payload) {
+  return payload?.submission?.run_id ?? null;
+}
+
+function automationSubmittedRunId(payload) {
+  if (payload?.signal_submission?.outcome !== "submitted") {
+    return null;
+  }
+
+  return payload.signal_submission.submission?.run_id ?? null;
 }
 
 function renderStatusGrid(payload) {

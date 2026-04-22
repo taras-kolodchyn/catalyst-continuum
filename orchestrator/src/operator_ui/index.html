@@ -94,6 +94,44 @@
               <h2>Signals and webhooks</h2>
             </div>
           </div>
+          <section class="rail-section rail-controls">
+            <div class="rail-section-head">
+              <h3>Automation controls</h3>
+            </div>
+            <p class="microcopy rail-copy">
+              Use the current brief draft to materialize the freshest repository
+              signal or run one full automation cycle.
+            </p>
+            <label class="field-label" for="automationActionFilter">Webhook action filter</label>
+            <select id="automationActionFilter">
+              <option value="">Any action</option>
+              <option value="sync_default_branch">sync_default_branch</option>
+            </select>
+            <label class="field-label" for="automationSignalKindInput">Signal kind filter</label>
+            <input
+              id="automationSignalKindInput"
+              type="text"
+              placeholder="default_branch_updated"
+            >
+            <div class="rail-control-grid">
+              <button id="runNextWebhookButton" class="button button-secondary" type="button">
+                Run next webhook
+              </button>
+              <button id="submitNextSignalButton" class="button button-secondary" type="button">
+                Submit next signal
+              </button>
+              <button id="runRepositoryAutomationButton" class="button button-primary" type="button">
+                Run automation cycle
+              </button>
+            </div>
+            <div class="console-wrap console-wrap-compact">
+              <div class="console-head">
+                <p class="panel-kicker">Automation Output</p>
+                <span id="automationConsoleStatus" class="badge badge-neutral">Idle</span>
+              </div>
+              <pre id="automationConsole" class="console console-compact">No automation action executed yet.</pre>
+            </div>
+          </section>
           <section class="rail-section">
             <div class="rail-section-head">
               <h3>Webhook actions</h3>

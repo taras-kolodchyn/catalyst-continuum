@@ -372,6 +372,10 @@ textarea {
   padding: 14px;
 }
 
+.console-wrap-compact {
+  margin-top: 0;
+}
+
 .console {
   margin-top: 12px;
   min-height: 168px;
@@ -386,6 +390,11 @@ textarea {
   line-height: 1.5;
 }
 
+.console-compact {
+  min-height: 128px;
+  max-height: 260px;
+}
+
 .run-list,
 .rail-list,
 .timeline,
@@ -395,6 +404,16 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.rail-copy {
+  margin-top: -2px;
+}
+
+.rail-control-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
 }
 
 .run-card {

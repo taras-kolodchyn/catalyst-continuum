@@ -213,12 +213,16 @@ if "<title>Catalyst Continuum Control Surface</title>" not in html:
     raise SystemExit("operator UI smoke failed: missing control-surface title")
 if 'id="statusGrid"' not in html:
     raise SystemExit("operator UI smoke failed: missing status grid mount")
+if 'id="runRepositoryAutomationButton"' not in html:
+    raise SystemExit("operator UI smoke failed: missing repository automation control")
 if 'src="/ui/app.js"' not in html:
     raise SystemExit("operator UI smoke failed: missing app.js asset reference")
 if "refreshDashboard" not in js:
     raise SystemExit("operator UI smoke failed: missing dashboard refresh client logic")
 if "submitBriefRequest" not in js:
     raise SystemExit("operator UI smoke failed: missing brief submission client logic")
+if "runRepositoryAutomationRequest" not in js:
+    raise SystemExit("operator UI smoke failed: missing automation-cycle client logic")
 PY
 
 WEBHOOK_PAYLOAD_FILE="$ARTIFACT_ROOT/mcp-webhook-ping.json"
