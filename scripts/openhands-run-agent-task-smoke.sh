@@ -53,6 +53,55 @@ log_phase() {
   printf '[openhands-run-agent-task-smoke] %s\n' "$1"
 }
 
+is_transient_postgres_startup_error() {
+  local output="$1"
+  printf '%s' "$output" | grep -Eq \
+    'failed to connect to postgres|error communicating with the server|Connection reset by peer|Connection refused'
+}
+
+run_with_transient_postgres_retry() {
+  local label="$1"
+  shift
+
+  local attempt=1
+  local max_attempts=5
+  local stdout_file=""
+  local stderr_file=""
+  local combined_output=""
+
+  stdout_file="$(mktemp)"
+  stderr_file="$(mktemp)"
+
+  while [ "$attempt" -le "$max_attempts" ]; do
+    if "$@" >"$stdout_file" 2>"$stderr_file"; then
+      cat "$stdout_file"
+      rm -f "$stdout_file" "$stderr_file"
+      return 0
+    fi
+
+    combined_output="$(
+      {
+        cat "$stdout_file"
+        cat "$stderr_file"
+      } 2>/dev/null
+    )"
+
+    if [ "$attempt" -lt "$max_attempts" ] && is_transient_postgres_startup_error "$combined_output"; then
+      log_phase \
+        "retrying ${label} after transient postgres startup failure (attempt $((attempt + 1))/${max_attempts})"
+      attempt=$((attempt + 1))
+      sleep 1
+      continue
+    fi
+
+    cat "$stderr_file" >&2
+    rm -f "$stdout_file" "$stderr_file"
+    return 1
+  done
+
+  rm -f "$stdout_file" "$stderr_file"
+}
+
 print_postgres_debug() {
   if docker ps -a --format '{{.Names}}' | grep -Fx "$POSTGRES_CONTAINER_NAME" >/dev/null 2>&1; then
     echo "--- postgres logs: $POSTGRES_CONTAINER_NAME ---" >&2
@@ -250,20 +299,24 @@ run_executor_scenario() {
   mkdir -p "$scenario_artifact_root" "$scenario_state_root"
 
   log_phase "submit brief for scenario ${scenario_name}"
-  submission_output="$("$BIN" submit-brief \
-    --database-url "$DATABASE_URL" \
-    --artifact-root "$scenario_artifact_root" \
-    --file "$BRIEF_FILE" \
-    --mcp-servers-file "$mcp_servers_file")"
+  submission_output="$(run_with_transient_postgres_retry \
+    "submit brief for scenario ${scenario_name}" \
+    "$BIN" submit-brief \
+      --database-url "$DATABASE_URL" \
+      --artifact-root "$scenario_artifact_root" \
+      --file "$BRIEF_FILE" \
+      --mcp-servers-file "$mcp_servers_file")"
   printf '%s\n' "$submission_output" >"$submission_output_file"
   run_id="$(printf '%s\n' "$submission_output" | awk '/^run_id:/ {print $2; exit}')"
   test -n "$run_id"
 
-  "$BIN" describe-latest-artifact \
-    --database-url "$DATABASE_URL" \
-    --run-id "$run_id" \
-    --artifact-type agent_dispatch_plan \
-    --json >"$dispatch_json_file"
+  run_with_transient_postgres_retry \
+    "describe latest artifact for scenario ${scenario_name}" \
+    "$BIN" describe-latest-artifact \
+      --database-url "$DATABASE_URL" \
+      --run-id "$run_id" \
+      --artifact-type agent_dispatch_plan \
+      --json >"$dispatch_json_file"
 
   python3 - \
     "$dispatch_json_file" \
@@ -312,13 +365,15 @@ else:
 PY
 
   log_phase "execute initial planning task for scenario ${scenario_name}"
-  plan_output="$("$BIN" run-next-task \
-    --database-url "$DATABASE_URL" \
-    --artifact-root "$scenario_artifact_root" \
-    --runtime-providers-file "$ROOT_DIR/config/runtime-providers.yaml" \
-    --mcp-servers-file "$mcp_servers_file" \
-    --ai-gateway-file "$ROOT_DIR/config/ai-gateway.yaml" \
-    --run-id "$run_id")"
+  plan_output="$(run_with_transient_postgres_retry \
+    "run next task for scenario ${scenario_name}" \
+    "$BIN" run-next-task \
+      --database-url "$DATABASE_URL" \
+      --artifact-root "$scenario_artifact_root" \
+      --runtime-providers-file "$ROOT_DIR/config/runtime-providers.yaml" \
+      --mcp-servers-file "$mcp_servers_file" \
+      --ai-gateway-file "$ROOT_DIR/config/ai-gateway.yaml" \
+      --run-id "$run_id")"
   printf '%s\n' "$plan_output" >"$plan_output_file"
   printf '%s\n' "$plan_output" | grep -q '^execution_status: succeeded$'
 
@@ -326,14 +381,16 @@ PY
   OPENHANDS_LAUNCH_SCRIPT="$FAKE_LAUNCH_SCRIPT" \
   REAL_OPENHANDS_LAUNCH_SCRIPT="$ROOT_DIR/scripts/openhands-launch.sh" \
   CATALYST_SKIP_WORKSPACE_BUILD=1 \
-    "$ROOT_DIR/scripts/openhands-run-agent-task.sh" \
-      --database-url "$DATABASE_URL" \
-      --artifact-root "$scenario_artifact_root" \
-      --state-root "$scenario_state_root" \
-      --mcp-servers-file "$mcp_servers_file" \
-      --profile container-sandbox \
-      --run-id "$run_id" \
-      --executor-id "executor-${scenario_name}" >"$completion_json_file"
+    run_with_transient_postgres_retry \
+      "run OpenHands executor wrapper for scenario ${scenario_name}" \
+      "$ROOT_DIR/scripts/openhands-run-agent-task.sh" \
+        --database-url "$DATABASE_URL" \
+        --artifact-root "$scenario_artifact_root" \
+        --state-root "$scenario_state_root" \
+        --mcp-servers-file "$mcp_servers_file" \
+        --profile container-sandbox \
+        --run-id "$run_id" \
+        --executor-id "executor-${scenario_name}" >"$completion_json_file"
 
   fake_report_path="$(find "$scenario_state_root" -name fake-launch-report.json -print -quit)"
   test -n "$fake_report_path"
