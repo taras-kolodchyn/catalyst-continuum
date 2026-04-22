@@ -231,6 +231,10 @@ if "loadQueueItemDetail" not in js:
     raise SystemExit("operator UI smoke failed: missing queue inspector client logic")
 if "syncSelectedRunUrl" not in js:
     raise SystemExit("operator UI smoke failed: missing selected-run URL sync logic")
+if "setAutomationControlsBusyState" not in js:
+    raise SystemExit("operator UI smoke failed: missing automation busy-state guard")
+if "setRunActionControlsBusyState" not in js:
+    raise SystemExit("operator UI smoke failed: missing run-action busy-state guard")
 PY
 
 WEBHOOK_PAYLOAD_FILE="$ARTIFACT_ROOT/mcp-webhook-ping.json"

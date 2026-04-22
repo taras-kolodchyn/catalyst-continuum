@@ -8,12 +8,33 @@ const DASHBOARD_LOADING_CARD_TITLES = [
   "External MCP",
   "Repository packs",
 ];
+const BRIEF_BUSY_LABELS = {
+  validate: "Validating...",
+  submit: "Submitting...",
+};
+const AUTOMATION_BUSY_LABELS = {
+  webhook: "Running webhook...",
+  signal: "Submitting signal...",
+  cycle: "Running cycle...",
+};
+const RUN_ACTION_BUSY_LABELS = {
+  "tasks-next": "Running next task...",
+  "worker-once": "Running worker...",
+  "evaluate-policy": "Evaluating policy...",
+  "evaluate-quality": "Evaluating quality...",
+  "export-pr": "Exporting PR...",
+  "publish-pr": "Publishing PR...",
+  "draft-pr": "Creating draft PR...",
+};
 
 const state = {
   selectedRunId: new URL(window.location.href).searchParams.get("run"),
   selectedRunStatus: "",
   autoRefresh: true,
   refreshInFlight: false,
+  briefRequestInFlight: false,
+  automationRequestInFlight: false,
+  runActionInFlight: false,
   latestRuns: [],
   latestWebhookActions: [],
   latestRepositorySignals: [],
@@ -327,6 +348,10 @@ async function loadRunDetail(runId) {
 }
 
 async function submitBriefRequest(mode) {
+  if (state.briefRequestInFlight) {
+    return;
+  }
+
   const body = elements.briefEditor.value.trim();
   if (!body) {
     writeConsole(
@@ -338,106 +363,184 @@ async function submitBriefRequest(mode) {
     return;
   }
 
-  const path = mode === "submit" ? "/briefs/submit" : "/briefs/validate";
-  const envelope = await fetchJsonEnvelope(path, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/yaml; charset=utf-8",
-    },
-    body,
-  });
-
-  writeConsole(
+  state.briefRequestInFlight = true;
+  setBriefControlsBusyState(mode, true);
+  writeBusyConsole(
     elements.briefConsole,
     elements.briefConsoleStatus,
-    envelope.ok ? "success" : "error",
-    envelope.data
+    mode === "submit" ? "Submitting" : "Validating",
+    {
+      status: mode === "submit" ? "submitting" : "validating",
+    }
   );
 
-  if (envelope.ok && mode === "submit" && envelope.data?.run_id) {
-    state.selectedRunId = envelope.data.run_id;
-    await refreshDashboard();
+  const path = mode === "submit" ? "/briefs/submit" : "/briefs/validate";
+  try {
+    const envelope = await fetchJsonEnvelope(path, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/yaml; charset=utf-8",
+      },
+      body,
+    });
+
+    writeConsole(
+      elements.briefConsole,
+      elements.briefConsoleStatus,
+      envelope.ok ? "success" : "error",
+      envelope.data
+    );
+
+    if (envelope.ok && mode === "submit" && envelope.data?.run_id) {
+      state.selectedRunId = envelope.data.run_id;
+      await refreshDashboard();
+    }
+  } finally {
+    state.briefRequestInFlight = false;
+    setBriefControlsBusyState(mode, false);
   }
 }
 
 async function runNextWebhookRequest() {
-  const action = elements.automationActionFilter.value.trim();
-  const envelope = await fetchJsonEnvelope("/github/webhook-actions/next", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json; charset=utf-8",
-    },
-    body: JSON.stringify(action ? { action } : {}),
-  });
+  if (state.automationRequestInFlight) {
+    return;
+  }
 
-  writeConsole(
+  state.automationRequestInFlight = true;
+  setAutomationControlsBusyState(elements.runNextWebhookButton, AUTOMATION_BUSY_LABELS.webhook, true);
+  writeBusyConsole(
     elements.automationConsole,
     elements.automationConsoleStatus,
-    envelope.ok ? "success" : "error",
-    envelope.data
+    "Running",
+    { status: "running_webhook_action" }
   );
 
-  await refreshDashboard();
+  const action = elements.automationActionFilter.value.trim();
+  try {
+    const envelope = await fetchJsonEnvelope("/github/webhook-actions/next", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+      },
+      body: JSON.stringify(action ? { action } : {}),
+    });
+
+    writeConsole(
+      elements.automationConsole,
+      elements.automationConsoleStatus,
+      envelope.ok ? "success" : "error",
+      envelope.data
+    );
+
+    await refreshDashboard();
+  } finally {
+    state.automationRequestInFlight = false;
+    setAutomationControlsBusyState(elements.runNextWebhookButton, AUTOMATION_BUSY_LABELS.webhook, false);
+  }
 }
 
 async function submitNextSignalRequest() {
+  if (state.automationRequestInFlight) {
+    return;
+  }
+
   const brief = requireAutomationBrief();
   if (!brief) {
     return;
   }
 
-  const query = automationQuery({ includeAction: false, includeSignalKind: true });
-  const envelope = await fetchJsonEnvelope(`/repository-signals/next${query}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/yaml; charset=utf-8",
-    },
-    body: brief,
-  });
-
-  writeConsole(
+  state.automationRequestInFlight = true;
+  setAutomationControlsBusyState(elements.submitNextSignalButton, AUTOMATION_BUSY_LABELS.signal, true);
+  writeBusyConsole(
     elements.automationConsole,
     elements.automationConsoleStatus,
-    envelope.ok ? "success" : "error",
-    envelope.data
+    "Running",
+    { status: "submitting_repository_signal" }
   );
 
-  const submittedRunId = nextSubmittedRunId(envelope.data);
-  if (envelope.ok && submittedRunId) {
-    state.selectedRunId = submittedRunId;
-  }
+  const query = automationQuery({ includeAction: false, includeSignalKind: true });
+  try {
+    const envelope = await fetchJsonEnvelope(`/repository-signals/next${query}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/yaml; charset=utf-8",
+      },
+      body: brief,
+    });
 
-  await refreshDashboard();
+    writeConsole(
+      elements.automationConsole,
+      elements.automationConsoleStatus,
+      envelope.ok ? "success" : "error",
+      envelope.data
+    );
+
+    const submittedRunId = nextSubmittedRunId(envelope.data);
+    if (envelope.ok && submittedRunId) {
+      state.selectedRunId = submittedRunId;
+    }
+
+    await refreshDashboard();
+  } finally {
+    state.automationRequestInFlight = false;
+    setAutomationControlsBusyState(elements.submitNextSignalButton, AUTOMATION_BUSY_LABELS.signal, false);
+  }
 }
 
 async function runRepositoryAutomationRequest() {
+  if (state.automationRequestInFlight) {
+    return;
+  }
+
   const brief = requireAutomationBrief();
   if (!brief) {
     return;
   }
 
-  const query = automationQuery({ includeAction: true, includeSignalKind: true });
-  const envelope = await fetchJsonEnvelope(`/repository-automation/next${query}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/yaml; charset=utf-8",
-    },
-    body: brief,
-  });
-
-  writeConsole(
+  state.automationRequestInFlight = true;
+  setAutomationControlsBusyState(
+    elements.runRepositoryAutomationButton,
+    AUTOMATION_BUSY_LABELS.cycle,
+    true
+  );
+  writeBusyConsole(
     elements.automationConsole,
     elements.automationConsoleStatus,
-    envelope.ok ? "success" : "error",
-    envelope.data
+    "Running",
+    { status: "running_repository_automation_cycle" }
   );
 
-  const submittedRunId = automationSubmittedRunId(envelope.data);
-  if (envelope.ok && submittedRunId) {
-    state.selectedRunId = submittedRunId;
-  }
+  const query = automationQuery({ includeAction: true, includeSignalKind: true });
+  try {
+    const envelope = await fetchJsonEnvelope(`/repository-automation/next${query}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/yaml; charset=utf-8",
+      },
+      body: brief,
+    });
 
-  await refreshDashboard();
+    writeConsole(
+      elements.automationConsole,
+      elements.automationConsoleStatus,
+      envelope.ok ? "success" : "error",
+      envelope.data
+    );
+
+    const submittedRunId = automationSubmittedRunId(envelope.data);
+    if (envelope.ok && submittedRunId) {
+      state.selectedRunId = submittedRunId;
+    }
+
+    await refreshDashboard();
+  } finally {
+    state.automationRequestInFlight = false;
+    setAutomationControlsBusyState(
+      elements.runRepositoryAutomationButton,
+      AUTOMATION_BUSY_LABELS.cycle,
+      false
+    );
+  }
 }
 
 function handleQueueItemClick(event) {
@@ -455,6 +558,10 @@ function handleQueueItemClick(event) {
 }
 
 async function executeRunAction(actionId) {
+  if (state.runActionInFlight) {
+    return;
+  }
+
   if (!state.selectedRunId) {
     writeConsole(
       elements.actionConsole,
@@ -465,22 +572,40 @@ async function executeRunAction(actionId) {
     return;
   }
 
-  const body = buildRunActionBody(actionId);
-  const action = actionSpec(actionId, state.selectedRunId);
-  const envelope = await fetchJsonEnvelope(action.path, {
-    method: "POST",
-    headers: body ? { "Content-Type": "application/json; charset=utf-8" } : undefined,
-    body: body ? JSON.stringify(body) : undefined,
-  });
-
-  writeConsole(
+  state.runActionInFlight = true;
+  setRunActionControlsBusyState(actionId, true);
+  writeBusyConsole(
     elements.actionConsole,
     elements.actionConsoleStatus,
-    envelope.ok ? "success" : "error",
-    envelope.data
+    "Running",
+    {
+      status: "running",
+      action: actionId,
+      run_id: state.selectedRunId,
+    }
   );
 
-  await refreshDashboard();
+  const body = buildRunActionBody(actionId);
+  const action = actionSpec(actionId, state.selectedRunId);
+  try {
+    const envelope = await fetchJsonEnvelope(action.path, {
+      method: "POST",
+      headers: body ? { "Content-Type": "application/json; charset=utf-8" } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+
+    writeConsole(
+      elements.actionConsole,
+      elements.actionConsoleStatus,
+      envelope.ok ? "success" : "error",
+      envelope.data
+    );
+
+    await refreshDashboard();
+  } finally {
+    state.runActionInFlight = false;
+    setRunActionControlsBusyState(actionId, false);
+  }
 }
 
 function actionSpec(actionId, runId) {
@@ -1120,6 +1245,7 @@ function renderRunDetail(runDetail, eventsResponse) {
   renderTasks(runDetail.tasks || []);
   renderArtifacts(runDetail);
   renderEvents(eventsResponse?.events || []);
+  syncRunActionControlsWithState();
 }
 
 function renderTasks(tasks) {
@@ -1285,6 +1411,12 @@ function writeConsole(target, badge, tone, payload) {
   setBadge(badge, tone, toneLabel(tone));
 }
 
+function writeBusyConsole(target, badge, badgeText, payload) {
+  target.textContent =
+    typeof payload === "string" ? payload : JSON.stringify(payload, null, 2);
+  setBadge(badge, "warning", badgeText);
+}
+
 function summaryCard(title, primary, secondary) {
   return `
     <article class="summary-card">
@@ -1370,6 +1502,7 @@ function restoreBriefDraft() {
   state.autoRefresh = elements.autoRefreshToggle.checked;
   renderDashboardLoadingState();
   renderQueueInspectorEmpty();
+  syncRunActionControlsWithState();
 }
 
 function renderDashboardLoadingState() {
@@ -1493,6 +1626,96 @@ function formatTimestamp(value) {
   }
 
   return parsed.toLocaleString();
+}
+
+function buttonIdleLabel(button) {
+  return button?.dataset.idleLabel ?? button?.textContent ?? "";
+}
+
+function setButtonBusyState(button, busyLabel, busy) {
+  if (!button) {
+    return;
+  }
+
+  if (!button.dataset.idleLabel) {
+    button.dataset.idleLabel = button.textContent;
+  }
+
+  button.disabled = busy;
+  button.textContent = busy ? busyLabel : buttonIdleLabel(button);
+}
+
+function runActionButtons() {
+  return Array.from(elements.runDetailShell.querySelectorAll("[data-run-action]"));
+}
+
+function setBriefControlsBusyState(mode, busy) {
+  const activeButton =
+    mode === "submit" ? elements.submitBriefButton : elements.validateBriefButton;
+  const otherButton =
+    mode === "submit" ? elements.validateBriefButton : elements.submitBriefButton;
+
+  setButtonBusyState(activeButton, BRIEF_BUSY_LABELS[mode], busy);
+  if (otherButton) {
+    otherButton.disabled = busy;
+  }
+  if (elements.clearBriefButton) {
+    elements.clearBriefButton.disabled = busy;
+  }
+}
+
+function setAutomationControlsBusyState(activeButton, busyLabel, busy) {
+  setButtonBusyState(activeButton, busyLabel, busy);
+  for (const button of [
+    elements.runNextWebhookButton,
+    elements.submitNextSignalButton,
+    elements.runRepositoryAutomationButton,
+  ]) {
+    if (button && button !== activeButton) {
+      button.disabled = busy;
+    }
+  }
+  elements.automationActionFilter.disabled = busy;
+  elements.automationSignalKindInput.disabled = busy;
+}
+
+function runActionBusyLabel(actionId) {
+  return RUN_ACTION_BUSY_LABELS[actionId] ?? "Running action...";
+}
+
+function setRunActionControlsBusyState(actionId, busy) {
+  const activeButton = elements.runDetailShell.querySelector(
+    `[data-run-action="${actionId}"]`
+  );
+
+  for (const button of runActionButtons()) {
+    setButtonBusyState(
+      button,
+      button === activeButton ? runActionBusyLabel(actionId) : buttonIdleLabel(button),
+      busy && button === activeButton
+    );
+    if (button !== activeButton) {
+      button.disabled = busy;
+    }
+  }
+
+  elements.branchNameInput.disabled = busy;
+  elements.remoteUrlInput.disabled = busy;
+  elements.publishPushToggle.disabled = busy;
+}
+
+function syncRunActionControlsWithState() {
+  for (const button of runActionButtons()) {
+    if (!button.dataset.idleLabel) {
+      button.dataset.idleLabel = button.textContent;
+    }
+    button.textContent = buttonIdleLabel(button);
+    button.disabled = state.runActionInFlight;
+  }
+
+  elements.branchNameInput.disabled = state.runActionInFlight;
+  elements.remoteUrlInput.disabled = state.runActionInFlight;
+  elements.publishPushToggle.disabled = state.runActionInFlight;
 }
 
 function uniqueValue(value, index, items) {
