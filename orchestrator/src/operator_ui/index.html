@@ -23,7 +23,13 @@
           </p>
         </div>
         <div class="hero-actions">
-          <button id="refreshButton" class="button button-primary" type="button">
+          <button
+            id="refreshButton"
+            class="button button-primary"
+            type="button"
+            aria-label="Refresh dashboard"
+            data-ui-action="refresh-dashboard"
+          >
             Refresh
           </button>
           <label class="toggle">
@@ -59,16 +65,35 @@
             id="briefEditor"
             spellcheck="false"
             placeholder="Paste a structured product brief here to validate or submit it."
+            data-ui-input="brief-editor"
           ></textarea>
           <div class="control-row">
-            <button id="validateBriefButton" class="button button-primary" type="button">
-              Validate
+            <button
+              id="validateBriefButton"
+              class="button button-primary"
+              type="button"
+              aria-label="Validate brief"
+              data-ui-action="validate-brief"
+            >
+              Validate brief
             </button>
-            <button id="submitBriefButton" class="button button-secondary" type="button">
-              Submit
+            <button
+              id="submitBriefButton"
+              class="button button-secondary"
+              type="button"
+              aria-label="Submit brief"
+              data-ui-action="submit-brief"
+            >
+              Submit brief
             </button>
-            <button id="clearBriefButton" class="button button-ghost" type="button">
-              Clear
+            <button
+              id="clearBriefButton"
+              class="button button-ghost"
+              type="button"
+              aria-label="Clear brief"
+              data-ui-action="clear-brief"
+            >
+              Clear brief
             </button>
           </div>
             <div class="console-wrap">
@@ -76,7 +101,7 @@
                 <p class="panel-kicker">Validation Output</p>
                 <span id="briefConsoleStatus" class="badge badge-neutral">Idle</span>
               </div>
-              <div id="briefConsole" class="console">No brief request yet.</div>
+              <div id="briefConsole" class="console" data-ui-console="brief-output">No brief request yet.</div>
             </div>
         </section>
 
@@ -97,7 +122,7 @@
               </select>
             </label>
           </div>
-          <div id="runsList" class="run-list"></div>
+          <div id="runsList" class="run-list" data-ui-region="runs-list"></div>
         </section>
 
         <aside class="panel rail-panel" data-stagger="5">
@@ -206,7 +231,7 @@
               <p class="panel-kicker">Selected Run</p>
               <h2>Detail and actions</h2>
             </div>
-            <p id="selectedRunLabel" class="microcopy">No run selected.</p>
+            <p id="selectedRunLabel" class="microcopy" data-selected-run-label="true">No run selected.</p>
           </div>
 
           <div id="detailEmptyState" class="empty-state">
@@ -216,7 +241,7 @@
 
           <div id="runDetailShell" class="detail-shell hidden">
             <section class="detail-section">
-              <div id="runSummaryCards" class="summary-grid"></div>
+              <div id="runSummaryCards" class="summary-grid" data-ui-region="run-summary"></div>
             </section>
 
             <section class="detail-section action-section">
@@ -281,7 +306,7 @@
                   Run a control to surface branch, PR, quality, and task execution details here.
                 </p>
               </div>
-              <div id="actionHighlights" class="summary-grid">
+              <div id="actionHighlights" class="summary-grid" data-ui-region="action-highlights">
                 <div class="empty-state compact">
                   No run action summary captured for this run yet.
                 </div>
@@ -291,7 +316,7 @@
                   <p class="panel-kicker">Action Output</p>
                   <span id="actionConsoleStatus" class="badge badge-neutral">Idle</span>
                 </div>
-                <div id="actionConsole" class="console">No run action executed yet.</div>
+                <div id="actionConsole" class="console" data-ui-console="run-action-output">No run action executed yet.</div>
               </div>
             </section>
 
@@ -300,7 +325,7 @@
                 <h3>Tasks</h3>
                 <p id="taskHeadline" class="microcopy"></p>
               </div>
-              <div id="taskTableWrap" class="table-wrap"></div>
+              <div id="taskTableWrap" class="table-wrap" data-ui-region="task-results"></div>
             </section>
 
             <section class="detail-section">
@@ -308,8 +333,8 @@
                 <h3>Artifacts</h3>
                 <p id="artifactHeadline" class="microcopy"></p>
               </div>
-              <div id="artifactHighlights" class="artifact-grid"></div>
-              <div id="artifactTableWrap" class="table-wrap"></div>
+              <div id="artifactHighlights" class="artifact-grid" data-ui-region="artifact-highlights"></div>
+              <div id="artifactTableWrap" class="table-wrap" data-ui-region="artifact-results"></div>
             </section>
 
             <section class="detail-section">
@@ -317,7 +342,7 @@
                 <h3>Run events</h3>
                 <p id="eventHeadline" class="microcopy"></p>
               </div>
-              <div id="eventTimeline" class="timeline"></div>
+              <div id="eventTimeline" class="timeline" data-ui-region="event-timeline"></div>
             </section>
           </div>
         </section>

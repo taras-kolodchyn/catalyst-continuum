@@ -1146,6 +1146,8 @@ function renderBriefExamples() {
           class="chip chip-button"
           type="button"
           data-brief-example-id="${escapeHtml(example.example_id)}"
+          data-ui-brief-example="true"
+          aria-label="${escapeHtml(`Load ${example.label} starter brief`)}"
           title="${escapeHtml(
             example.summary || `${example.target_pack} starter from ${example.source_path}`
           )}"
@@ -1224,7 +1226,9 @@ function renderRuns(response) {
           class="run-card${isSelected ? " is-selected" : ""}"
           type="button"
           data-run-id="${escapeHtml(run.run_id)}"
+          data-ui-run-card="true"
           aria-pressed="${isSelected ? "true" : "false"}"
+          aria-label="${escapeHtml(`Open run ${shortId(run.run_id)} ${run.title}`)}"
         >
           <div class="run-card-head">
             <span class="badge badge-${escapeHtml(statusTone(run.status))}">
@@ -1699,7 +1703,7 @@ function renderTasks(tasks) {
       ${tasks
         .map(
           (task) => `
-            <article class="data-card">
+            <article class="data-card" data-ui-task-card="true">
               <div class="data-card-head">
                 <div>
                   <span class="badge badge-${escapeHtml(statusTone(task.status))}">${escapeHtml(
@@ -1820,7 +1824,7 @@ function renderArtifacts(runDetail) {
       ${artifacts
         .map(
           (artifact) => `
-            <article class="data-card">
+            <article class="data-card" data-ui-artifact-card="true">
               <div class="data-card-head">
                 <div>
                   <p class="panel-kicker">${escapeHtml(artifact.artifact_type)}</p>

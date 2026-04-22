@@ -228,6 +228,24 @@ if 'id="briefExamples"' not in html:
     raise SystemExit("operator UI smoke failed: missing brief example quick-start mount")
 if 'id="briefExampleHint"' not in html:
     raise SystemExit("operator UI smoke failed: missing brief example hint")
+if 'data-ui-action="validate-brief"' not in html or "Validate brief" not in html:
+    raise SystemExit("operator UI smoke failed: missing explicit validate-brief control label")
+if 'data-ui-action="submit-brief"' not in html or "Submit brief" not in html:
+    raise SystemExit("operator UI smoke failed: missing explicit submit-brief control label")
+if 'data-ui-action="clear-brief"' not in html or "Clear brief" not in html:
+    raise SystemExit("operator UI smoke failed: missing explicit clear-brief control label")
+if 'data-ui-console="brief-output"' not in html:
+    raise SystemExit("operator UI smoke failed: missing brief-output console hook")
+if 'data-ui-region="runs-list"' not in html:
+    raise SystemExit("operator UI smoke failed: missing runs-list region hook")
+if 'data-selected-run-label="true"' not in html:
+    raise SystemExit("operator UI smoke failed: missing selected-run label hook")
+if 'data-ui-region="run-summary"' not in html:
+    raise SystemExit("operator UI smoke failed: missing run-summary region hook")
+if 'data-ui-region="task-results"' not in html:
+    raise SystemExit("operator UI smoke failed: missing task-results region hook")
+if 'data-ui-region="artifact-results"' not in html:
+    raise SystemExit("operator UI smoke failed: missing artifact-results region hook")
 if 'id="actionHighlights"' not in html:
     raise SystemExit("operator UI smoke failed: missing structured action highlights mount")
 if 'id="actionSummaryHeadline"' not in html:
@@ -250,6 +268,12 @@ if "loadBriefExamples" not in js:
     raise SystemExit("operator UI smoke failed: missing brief example fetch logic")
 if "loadBriefExampleIntoEditor" not in js:
     raise SystemExit("operator UI smoke failed: missing quick-start brief loader")
+if "data-ui-brief-example" not in js:
+    raise SystemExit("operator UI smoke failed: missing brief-example selector hook")
+if "data-ui-run-card" not in js:
+    raise SystemExit("operator UI smoke failed: missing run-card selector hook")
+if "data-ui-task-card" not in js or "data-ui-artifact-card" not in js:
+    raise SystemExit("operator UI smoke failed: missing responsive task/artifact card hooks")
 if "renderConsolePayload" not in js:
     raise SystemExit("operator UI smoke failed: missing summary-first console renderer")
 if "console-summary-grid" not in js or "Raw JSON" not in js:
