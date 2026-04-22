@@ -8,6 +8,8 @@ const DASHBOARD_LOADING_CARD_TITLES = [
   "External MCP",
   "Repository packs",
 ];
+const PR_CANDIDATE_ARTIFACT_TYPE = "pr_candidate";
+const PR_EXPORT_ARTIFACT_TYPE = "pr_export";
 const BRIEF_BUSY_LABELS = {
   validate: "Validating...",
   submit: "Submitting...",
@@ -30,6 +32,7 @@ const RUN_ACTION_BUSY_LABELS = {
 const state = {
   selectedRunId: new URL(window.location.href).searchParams.get("run"),
   selectedRunStatus: "",
+  selectedRunDetail: null,
   autoRefresh: true,
   refreshInFlight: false,
   briefRequestInFlight: false,
@@ -110,6 +113,7 @@ function cacheElements() {
     "refreshButton",
     "remoteUrlInput",
     "repositorySignalsList",
+    "runActionHint",
     "runNextWebhookButton",
     "runRepositoryAutomationButton",
     "runDetailShell",
@@ -334,6 +338,8 @@ function syncSelectedRunUrl(runId) {
 }
 
 async function loadRunDetail(runId) {
+  state.selectedRunDetail = null;
+  syncRunActionControlsWithState();
   const [runEnvelope, eventsEnvelope] = await Promise.all([
     fetchJsonEnvelope(`/runs/${encodeURIComponent(runId)}`),
     fetchJsonEnvelope(`/runs/${encodeURIComponent(runId)}/events?limit=30`),
@@ -1215,6 +1221,7 @@ function queueInspectorLinkedDocumentLabel(queueKind) {
 }
 
 function renderRunDetail(runDetail, eventsResponse) {
+  state.selectedRunDetail = runDetail;
   elements.detailEmptyState.classList.add("hidden");
   elements.runDetailShell.classList.remove("hidden");
   elements.selectedRunLabel.textContent = `${runDetail.title} · ${shortId(runDetail.run_id)}`;
@@ -1391,10 +1398,12 @@ function renderEvents(events) {
 
 function clearRunSelection(message) {
   state.selectedRunId = null;
+  state.selectedRunDetail = null;
   elements.selectedRunLabel.textContent = "No run selected.";
   elements.detailEmptyState.textContent = message;
   elements.detailEmptyState.classList.remove("hidden");
   elements.runDetailShell.classList.add("hidden");
+  syncRunActionControlsWithState();
   const nextUrl = new URL(window.location.href);
   nextUrl.searchParams.delete("run");
   window.history.replaceState({}, "", nextUrl);
@@ -1688,34 +1697,171 @@ function setRunActionControlsBusyState(actionId, busy) {
     `[data-run-action="${actionId}"]`
   );
 
+  if (!busy) {
+    syncRunActionControlsWithState();
+    return;
+  }
+
   for (const button of runActionButtons()) {
     setButtonBusyState(
       button,
       button === activeButton ? runActionBusyLabel(actionId) : buttonIdleLabel(button),
-      busy && button === activeButton
+      button === activeButton
     );
     if (button !== activeButton) {
-      button.disabled = busy;
+      button.disabled = true;
     }
+    button.title = "";
   }
 
-  elements.branchNameInput.disabled = busy;
-  elements.remoteUrlInput.disabled = busy;
-  elements.publishPushToggle.disabled = busy;
+  elements.branchNameInput.disabled = true;
+  elements.remoteUrlInput.disabled = true;
+  elements.publishPushToggle.disabled = true;
+  elements.branchNameInput.title = "";
+  elements.remoteUrlInput.title = "";
+  elements.publishPushToggle.title = "";
+}
+
+function disabledRunAction(reason) {
+  return {
+    enabled: false,
+    reason,
+  };
+}
+
+function enabledRunAction() {
+  return {
+    enabled: true,
+    reason: "",
+  };
+}
+
+function runArtifactTypes(runDetail) {
+  return new Set(
+    (runDetail?.artifacts ?? runDetail?.artifact_highlights ?? []).map(
+      (artifact) => artifact.artifact_type
+    )
+  );
+}
+
+function prCandidateAvailability(runDetail, artifactTypes, actionLabel) {
+  if (runDetail.status !== "succeeded") {
+    return disabledRunAction(
+      `Run status is ${runDetail.status}; ${actionLabel} unlocks after the run succeeds.`
+    );
+  }
+
+  if (!artifactTypes.has(PR_CANDIDATE_ARTIFACT_TYPE)) {
+    return disabledRunAction(
+      `${actionLabel} requires a pr_candidate artifact. Complete the run before promoting it.`
+    );
+  }
+
+  return enabledRunAction();
+}
+
+function runActionAvailability(runDetail) {
+  if (!runDetail) {
+    return {
+      "tasks-next": disabledRunAction("Select a run to use operator actions."),
+      "worker-once": disabledRunAction("Select a run to use operator actions."),
+      "evaluate-policy": disabledRunAction("Select a run to use operator actions."),
+      "evaluate-quality": disabledRunAction("Select a run to use operator actions."),
+      "export-pr": disabledRunAction("Select a run to use operator actions."),
+      "publish-pr": disabledRunAction("Select a run to use operator actions."),
+      "draft-pr": disabledRunAction("Select a run to use operator actions."),
+    };
+  }
+
+  const queuedTaskCount = Number(runDetail.task_counts?.queued ?? 0);
+  const artifactTypes = runArtifactTypes(runDetail);
+
+  return {
+    "tasks-next":
+      queuedTaskCount > 0
+        ? enabledRunAction()
+        : disabledRunAction("No queued tasks remain for this run."),
+    "worker-once":
+      queuedTaskCount > 0
+        ? enabledRunAction()
+        : disabledRunAction("No queued tasks remain for this run."),
+    "evaluate-policy": enabledRunAction(),
+    "evaluate-quality": enabledRunAction(),
+    "export-pr": prCandidateAvailability(runDetail, artifactTypes, "PR export"),
+    "publish-pr":
+      runDetail.status !== "succeeded"
+        ? disabledRunAction(
+            `Run status is ${runDetail.status}; PR publication unlocks after the run succeeds.`
+          )
+        : !artifactTypes.has(PR_EXPORT_ARTIFACT_TYPE)
+          ? disabledRunAction(
+              "PR publication requires a pr_export artifact. Export the PR candidate first."
+            )
+          : enabledRunAction(),
+    "draft-pr": prCandidateAvailability(runDetail, artifactTypes, "Draft PR creation"),
+  };
+}
+
+function runActionHintText(runDetail, availability) {
+  if (!runDetail) {
+    return "Select a run to inspect which operator actions are currently available.";
+  }
+
+  const artifactTypes = runArtifactTypes(runDetail);
+  const messages = [];
+
+  if (!availability["tasks-next"].enabled) {
+    messages.push("Task execution controls lock once no queued tasks remain.");
+  }
+
+  if (runDetail.status !== "succeeded") {
+    messages.push("PR promotion actions unlock after the run succeeds.");
+  } else if (!artifactTypes.has(PR_CANDIDATE_ARTIFACT_TYPE)) {
+    messages.push("PR export and draft PR require a pr_candidate artifact.");
+  } else if (!artifactTypes.has(PR_EXPORT_ARTIFACT_TYPE)) {
+    messages.push("PR publication unlocks after exporting the PR candidate.");
+  }
+
+  return messages.join(" ") || "All selected run actions are currently available.";
 }
 
 function syncRunActionControlsWithState() {
+  const availability = runActionAvailability(state.selectedRunDetail);
+
   for (const button of runActionButtons()) {
+    const actionId = button.dataset.runAction;
+    const actionState = availability[actionId] ?? disabledRunAction("Action unavailable.");
+
     if (!button.dataset.idleLabel) {
       button.dataset.idleLabel = button.textContent;
     }
     button.textContent = buttonIdleLabel(button);
-    button.disabled = state.runActionInFlight;
+    button.disabled = state.runActionInFlight || !actionState.enabled;
+    button.title = actionState.enabled ? "" : actionState.reason;
   }
 
-  elements.branchNameInput.disabled = state.runActionInFlight;
-  elements.remoteUrlInput.disabled = state.runActionInFlight;
-  elements.publishPushToggle.disabled = state.runActionInFlight;
+  const branchActionsEnabled =
+    availability["export-pr"].enabled || availability["draft-pr"].enabled;
+  const remoteActionsEnabled =
+    availability["publish-pr"].enabled || availability["draft-pr"].enabled;
+
+  elements.branchNameInput.disabled = state.runActionInFlight || !branchActionsEnabled;
+  elements.remoteUrlInput.disabled = state.runActionInFlight || !remoteActionsEnabled;
+  elements.publishPushToggle.disabled =
+    state.runActionInFlight || !availability["publish-pr"].enabled;
+  elements.branchNameInput.title = branchActionsEnabled
+    ? ""
+    : availability["draft-pr"].reason || availability["export-pr"].reason;
+  elements.remoteUrlInput.title = remoteActionsEnabled
+    ? ""
+    : availability["draft-pr"].reason || availability["publish-pr"].reason;
+  elements.publishPushToggle.title = availability["publish-pr"].enabled
+    ? ""
+    : availability["publish-pr"].reason;
+  elements.runActionHint.textContent = runActionHintText(
+    state.selectedRunDetail,
+    availability
+  );
 }
 
 function uniqueValue(value, index, items) {

@@ -217,6 +217,8 @@ if 'id="runRepositoryAutomationButton"' not in html:
     raise SystemExit("operator UI smoke failed: missing repository automation control")
 if 'id="queueInspectorConsole"' not in html:
     raise SystemExit("operator UI smoke failed: missing queue inspector console")
+if 'id="runActionHint"' not in html:
+    raise SystemExit("operator UI smoke failed: missing run-action availability hint")
 if 'src="/ui/app.js"' not in html:
     raise SystemExit("operator UI smoke failed: missing app.js asset reference")
 if 'rel="icon"' not in html:
@@ -235,6 +237,8 @@ if "setAutomationControlsBusyState" not in js:
     raise SystemExit("operator UI smoke failed: missing automation busy-state guard")
 if "setRunActionControlsBusyState" not in js:
     raise SystemExit("operator UI smoke failed: missing run-action busy-state guard")
+if "runActionAvailability" not in js:
+    raise SystemExit("operator UI smoke failed: missing run-action availability gating")
 PY
 
 WEBHOOK_PAYLOAD_FILE="$ARTIFACT_ROOT/mcp-webhook-ping.json"
