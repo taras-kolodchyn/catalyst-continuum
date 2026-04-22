@@ -250,6 +250,14 @@ if 'data-selected-run-label="true"' not in html:
     raise SystemExit("operator UI smoke failed: missing selected-run label hook")
 if 'data-ui-region="run-summary"' not in html:
     raise SystemExit("operator UI smoke failed: missing run-summary region hook")
+if 'id="runGuideHeadline"' not in html:
+    raise SystemExit("operator UI smoke failed: missing run-guide headline")
+if 'id="runGuideNextAction"' not in html:
+    raise SystemExit("operator UI smoke failed: missing run-guide next-action card")
+if 'id="runGuideStages"' not in html:
+    raise SystemExit("operator UI smoke failed: missing run-guide stages mount")
+if 'data-ui-region="run-guide-stages"' not in html:
+    raise SystemExit("operator UI smoke failed: missing run-guide stage region hook")
 if 'data-ui-region="task-results"' not in html:
     raise SystemExit("operator UI smoke failed: missing task-results region hook")
 if 'data-ui-region="artifact-results"' not in html:
@@ -298,6 +306,12 @@ if "setRunActionControlsBusyState" not in js:
     raise SystemExit("operator UI smoke failed: missing run-action busy-state guard")
 if "runActionAvailability" not in js:
     raise SystemExit("operator UI smoke failed: missing run-action availability gating")
+if "renderRunGuide" not in js or "buildRunGuide" not in js:
+    raise SystemExit("operator UI smoke failed: missing selected-run orchestration guide logic")
+if "renderDetailEmptyStateMarkup" not in js:
+    raise SystemExit("operator UI smoke failed: missing guided detail empty-state renderer")
+if "renderSectionEmptyState" not in js:
+    raise SystemExit("operator UI smoke failed: missing section empty-state renderer")
 if "renderRunActionHighlights" not in js:
     raise SystemExit("operator UI smoke failed: missing structured run-action highlight rendering")
 if "safeExternalUrl" not in js:
@@ -306,6 +320,8 @@ if "envelopeBadgePresentation" not in js:
     raise SystemExit("operator UI smoke failed: missing domain-aware console badge presentation")
 if "displayRunStatus" not in js:
     raise SystemExit("operator UI smoke failed: missing run-status display normalization")
+if "friendlySourcePath" not in js or "summarizeValues" not in js:
+    raise SystemExit("operator UI smoke failed: missing compact status-card detail helpers")
 examples = brief_examples.get("examples")
 if not isinstance(examples, list) or len(examples) < 3:
     raise SystemExit("operator UI smoke failed: missing curated brief examples payload")

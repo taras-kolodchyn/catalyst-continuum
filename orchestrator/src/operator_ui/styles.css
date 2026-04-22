@@ -217,6 +217,7 @@ textarea,
 .status-card h3 {
   font-size: 1.15rem;
   margin-top: 14px;
+  overflow-wrap: anywhere;
 }
 
 .status-card p,
@@ -230,6 +231,10 @@ textarea,
   margin: 0;
   color: var(--muted);
   line-height: 1.45;
+}
+
+.status-card p {
+  overflow-wrap: anywhere;
 }
 
 .dashboard-grid {
@@ -645,6 +650,93 @@ textarea {
   gap: 12px;
 }
 
+.guide-section {
+  padding: 18px;
+  border: 1px solid rgba(23, 79, 67, 0.12);
+  border-radius: var(--radius-xl);
+  background:
+    linear-gradient(135deg, rgba(23, 79, 67, 0.08), rgba(255, 251, 244, 0.76));
+}
+
+.guide-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.guide-card,
+.guide-stage {
+  min-width: 0;
+  border: 1px solid rgba(24, 35, 29, 0.1);
+  border-radius: var(--radius-lg);
+  background: rgba(255, 251, 244, 0.82);
+  padding: 16px;
+}
+
+.guide-card-emphasis {
+  background:
+    linear-gradient(135deg, rgba(226, 241, 235, 0.92), rgba(255, 251, 244, 0.9));
+  box-shadow: inset 0 0 0 1px rgba(23, 79, 67, 0.1);
+}
+
+.guide-card h4,
+.guide-stage h4 {
+  margin: 8px 0 6px;
+  font-family: var(--serif);
+  font-size: 1.02rem;
+}
+
+.guide-stage-list {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.guide-stage {
+  position: relative;
+  padding-top: 44px;
+}
+
+.guide-stage::before {
+  content: attr(data-stage-index);
+  position: absolute;
+  top: 14px;
+  left: 16px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.guide-stage-complete {
+  border-color: rgba(23, 79, 67, 0.2);
+  background: rgba(226, 241, 235, 0.82);
+}
+
+.guide-stage-active {
+  border-color: rgba(180, 95, 47, 0.2);
+  background: rgba(248, 234, 223, 0.82);
+}
+
+.guide-stage-blocked {
+  border-color: rgba(141, 48, 48, 0.22);
+  background: rgba(244, 225, 225, 0.84);
+}
+
+.guide-stage-pending {
+  border-color: rgba(24, 35, 29, 0.1);
+}
+
+.guide-stage-copy {
+  overflow-wrap: anywhere;
+}
+
+.status-card-detail {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+}
+
 .summary-card h3 {
   font-size: 1.05rem;
   margin: 10px 0 4px;
@@ -872,6 +964,25 @@ textarea {
   background: rgba(255, 251, 244, 0.6);
 }
 
+.empty-state h3 {
+  margin: 0 0 10px;
+  font-family: var(--serif);
+  font-size: 1.2rem;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+
+.empty-state-steps {
+  margin: 12px 0 0;
+  padding-left: 18px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.empty-state-steps li + li {
+  margin-top: 6px;
+}
+
 .empty-state.compact {
   padding: 16px;
 }
@@ -929,6 +1040,11 @@ textarea {
   .summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .guide-grid,
+  .guide-stage-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 960px) {
@@ -949,7 +1065,9 @@ textarea {
   .status-grid,
   .dashboard-grid,
   .summary-grid,
-  .form-grid {
+  .form-grid,
+  .guide-grid,
+  .guide-stage-list {
     grid-template-columns: minmax(0, 1fr);
   }
 

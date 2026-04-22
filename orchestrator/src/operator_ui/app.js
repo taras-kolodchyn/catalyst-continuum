@@ -11,6 +11,16 @@ const DASHBOARD_LOADING_CARD_TITLES = [
 ];
 const PR_CANDIDATE_ARTIFACT_TYPE = "pr_candidate";
 const PR_EXPORT_ARTIFACT_TYPE = "pr_export";
+const BACKLOG_ARTIFACT_TYPE = "backlog";
+const POLICY_REPORT_ARTIFACT_TYPE = "policy_report";
+const DISPATCH_PLAN_ARTIFACT_TYPE = "agent_dispatch_plan";
+const QUALITY_REPORT_ARTIFACT_TYPE = "quality_report";
+const PR_PUBLICATION_ARTIFACT_TYPE = "pr_publication";
+const GITHUB_PULL_REQUEST_ARTIFACT_TYPE = "github_pull_request";
+const RUN_QUALITY_EVALUATED_EVENT_TYPE = "run_quality_evaluated";
+const PR_CANDIDATE_EXPORTED_EVENT_TYPE = "pr_candidate_exported";
+const PR_EXPORT_PUBLISHED_EVENT_TYPE = "pr_export_published";
+const GITHUB_PR_OPENED_EVENT_TYPE = "github_pr_opened";
 const BRIEF_BUSY_LABELS = {
   validate: "Validating...",
   submit: "Submitting...",
@@ -43,6 +53,7 @@ const state = {
   selectedRunStatus: normalizeRunStatusFilter(initialUiUrl.searchParams.get("status")),
   runSearchQuery: normalizeRunSearchQuery(initialUiUrl.searchParams.get("run_query")),
   selectedRunDetail: null,
+  selectedRunEvents: [],
   briefExamples: [],
   autoRefresh: true,
   refreshInFlight: false,
@@ -136,6 +147,15 @@ function cacheElements() {
     "repositorySignalsList",
     "runActionHint",
     "runActionDraftHint",
+    "runGuideBadge",
+    "runGuideBlockers",
+    "runGuideCurrentStage",
+    "runGuideCurrentStageDetail",
+    "runGuideHeadline",
+    "runGuideNextAction",
+    "runGuideProgressSummary",
+    "runGuideRecommendation",
+    "runGuideStages",
     "runLedgerHint",
     "runSearchInput",
     "runNextWebhookButton",
@@ -363,7 +383,8 @@ async function refreshDashboard() {
 
     if (runs.length === 0) {
       clearRunSelection(
-        "No runs available yet. Load a quick-start brief above or submit your own YAML to materialize the first run."
+        "Load a quick-start brief, validate it, submit it, then open the new run from this ledger.",
+        "No runs materialized yet"
       );
     } else if (state.selectedRunId && runs.some((run) => run.run_id === state.selectedRunId)) {
       syncUiUrlState();
@@ -452,7 +473,7 @@ async function loadRunDetail(runId) {
   ]);
 
   if (!runEnvelope.ok) {
-    clearRunSelection(formatEnvelopeError(runEnvelope));
+    clearRunSelection(formatEnvelopeError(runEnvelope), "Run detail unavailable");
     return;
   }
 
@@ -1101,17 +1122,21 @@ function renderStatusGrid(payload) {
       badge: gateway.status ?? "unreachable",
       primary: gateway.current_host_default_model_alias ?? "No model alias",
       secondary: gateway.error ?? `${gateway.available_model_count ?? 0} model(s) visible`,
-      detail: gateway.host_base_url ?? "No base URL configured",
+      detail: `Host ${friendlyConfigValue(gateway.host_base_url, "not configured")}`,
     }),
     renderStatusCard({
       title: "Runtime provider",
       statusClass: config.runtime_providers?.default_provider ? "success" : "warning",
       badge: config.runtime_providers?.default_provider ?? "unknown",
       primary: `${enabledRuntimeCount} enabled / ${runtimeStatuses.length} declared`,
-      secondary: runtimeStatuses
-        .map((status) => `${status.provider}:${status.registered ? "ready" : "disabled"}`)
-        .join(" · "),
-      detail: config.runtime_providers?.source_path ?? "Embedded defaults",
+      secondary:
+        summarizeValues(
+          runtimeStatuses.map(
+            (status) => `${status.provider}:${status.registered ? "ready" : "disabled"}`
+          ),
+          "No runtime providers declared"
+        ),
+      detail: `Config ${friendlySourcePath(config.runtime_providers?.source_path)}`,
     }),
     renderStatusCard({
       title: "GitHub App",
@@ -1119,23 +1144,28 @@ function renderStatusGrid(payload) {
       badge: githubApp.ready ? "ready" : "incomplete",
       primary: githubApp.publication_ready ? "Publication ready" : "Publication gated",
       secondary: githubApp.missing_fields?.length
-        ? githubApp.missing_fields.join(", ")
+        ? summarizeValues(githubApp.missing_fields, "No missing fields", ", ")
         : "Webhook and publication fields resolved",
-      detail: githubApp.private_key_path ?? "No private key path",
+      detail: `Key ${friendlySourcePath(githubApp.private_key_path, "not configured")}`,
     }),
     renderStatusCard({
       title: "External MCP",
       statusClass: externalServers.length > 0 ? "success" : "warning",
       badge: `${externalServers.length} server(s)`,
-      primary: externalServers
-        .map((server) => server.server_id)
-        .slice(0, 3)
-        .join(" · ") || "No external servers configured",
-      secondary: externalServers
-        .flatMap((server) => server.allowed_agents || [])
-        .filter(uniqueValue)
-        .join(", ") || "No allowed agents declared",
-      detail: config.external_mcp_servers?.source_path ?? "Embedded defaults",
+      primary:
+        summarizeValues(
+          externalServers.map((server) => server.server_id),
+          "No external servers configured"
+        ),
+      secondary:
+        summarizeValues(
+          externalServers
+            .flatMap((server) => server.allowed_agents || [])
+            .filter(uniqueValue),
+          "No allowed agents declared",
+          ", "
+        ),
+      detail: `Config ${friendlySourcePath(config.external_mcp_servers?.source_path)}`,
     }),
     renderStatusCard({
       title: "Repository packs",
@@ -1143,7 +1173,10 @@ function renderStatusGrid(payload) {
       badge: `${packs.pack_count ?? 0} pack(s)`,
       primary: packs.default_pack_id ?? "No default pack",
       secondary: Array.isArray(packs.items)
-        ? packs.items.map((item) => item.pack_id).join(" · ")
+        ? summarizeValues(
+            packs.items.map((item) => item.pack_id),
+            "No catalog available"
+          )
         : "No catalog available",
       detail: "Static catalog loaded through the orchestrator",
     }),
@@ -1159,9 +1192,39 @@ function renderStatusCard(card) {
       </div>
       <h3>${escapeHtml(card.primary)}</h3>
       <p>${escapeHtml(card.secondary)}</p>
-      <p class="microcopy">${escapeHtml(card.detail)}</p>
+      <p class="microcopy status-card-detail">${escapeHtml(card.detail)}</p>
     </article>
   `;
+}
+
+function summarizeValues(values, fallback, separator = " · ", maxItems = 3) {
+  const items = values.filter(Boolean);
+  if (!items.length) {
+    return fallback;
+  }
+
+  if (items.length <= maxItems) {
+    return items.join(separator);
+  }
+
+  return `${items.slice(0, maxItems).join(separator)}${separator}+${items.length - maxItems} more`;
+}
+
+function friendlySourcePath(value, fallback = "embedded defaults") {
+  if (typeof value !== "string" || !value.trim()) {
+    return fallback;
+  }
+
+  const segments = value.split("/");
+  return segments[segments.length - 1] || value;
+}
+
+function friendlyConfigValue(value, fallback) {
+  if (typeof value !== "string" || !value.trim()) {
+    return fallback;
+  }
+
+  return value.trim();
 }
 
 function renderPackChips(packs) {
@@ -1263,10 +1326,15 @@ function renderRuns(response) {
   renderRunLedgerHint(allRuns, visibleRuns, preservedSelectedRun);
 
   if (allRuns.length === 0) {
-    const emptyMessage = state.selectedRunStatus
-      ? `No ${displayRunStatus(state.selectedRunStatus).toLowerCase()} runs are loaded right now.`
-      : "No runs yet. Load a quick-start brief above or submit your own YAML.";
-    elements.runsList.innerHTML = loadingOrEmptyState(emptyMessage);
+    elements.runsList.innerHTML = state.selectedRunStatus
+      ? loadingOrEmptyState(
+          `No ${displayRunStatus(state.selectedRunStatus).toLowerCase()} runs are loaded right now.`
+        )
+      : renderSectionEmptyState(
+          "Run ledger",
+          "No runs materialized yet",
+          "Load a quick-start brief, validate it, submit it, then reopen the new run from this ledger."
+        );
     return;
   }
 
@@ -1417,7 +1485,8 @@ function renderAutomationRailCollections() {
     (item) => item.request_id,
     (item) => item.action,
     (item) => `${item.status} · ${item.repository_full_name ?? item.delivery_id}`,
-    (item) => item.updated_at ?? item.created_at
+    (item) => item.updated_at ?? item.created_at,
+    "No pending webhook actions. Signed GitHub deliveries will queue control-plane work here before a run exists."
   );
   elements.repositorySignalsList.innerHTML = renderRailItems(
     state.latestRepositorySignals,
@@ -1425,7 +1494,8 @@ function renderAutomationRailCollections() {
     (item) => item.signal_id,
     (item) => item.signal_kind,
     (item) => `${item.status} · ${item.repository_full_name}`,
-    (item) => item.updated_at ?? item.created_at
+    (item) => item.updated_at ?? item.created_at,
+    "No repository signals yet. Once a routed webhook action succeeds, the automation handoff will appear here."
   );
   elements.webhookDeliveriesList.innerHTML = renderRailItems(
     state.latestWebhookDeliveries,
@@ -1433,7 +1503,8 @@ function renderAutomationRailCollections() {
     (item) => item.delivery_id,
     (item) => item.event,
     (item) => `${item.routing_status} · ${item.repository_full_name ?? item.delivery_id}`,
-    (item) => item.updated_at ?? item.created_at
+    (item) => item.updated_at ?? item.created_at,
+    "No signed webhook deliveries are loaded yet. Incoming GitHub App traffic will appear here for inspection."
   );
 }
 
@@ -1443,10 +1514,11 @@ function renderRailItems(
   idSelector,
   headingSelector,
   summarySelector,
-  timeSelector
+  timeSelector,
+  emptyMessage
 ) {
   if (!items.length) {
-    return loadingOrEmptyState("Nothing queued right now.");
+    return loadingOrEmptyState(emptyMessage ?? "Nothing queued right now.");
   }
 
   return items
@@ -1764,7 +1836,9 @@ function queueInspectorLinkedDocumentLabel(queueKind) {
 }
 
 function renderRunDetail(runDetail, eventsResponse) {
+  const events = Array.isArray(eventsResponse?.events) ? eventsResponse.events : [];
   state.selectedRunDetail = runDetail;
+  state.selectedRunEvents = events;
   elements.detailEmptyState.classList.add("hidden");
   elements.runDetailShell.classList.remove("hidden");
   elements.selectedRunLabel.textContent = `${runDetail.title} · ${shortId(runDetail.run_id)}`;
@@ -1792,9 +1866,10 @@ function renderRunDetail(runDetail, eventsResponse) {
     summaryCard("Created", formatTimestamp(runDetail.created_at), runDetail.brief_source_path ?? "no brief path"),
   ].join("");
 
+  renderRunGuide(runDetail, events);
   renderTasks(runDetail.tasks || []);
   renderArtifacts(runDetail);
-  renderEvents(eventsResponse?.events || []);
+  renderEvents(events);
   renderRunActionHighlights(runDetail);
   syncRunActionControlsWithState();
 }
@@ -1825,6 +1900,400 @@ function renderRunActionHighlights(runDetail) {
   elements.actionHighlights.innerHTML = items.length
     ? items.map(renderActionSummaryCard).join("")
     : '<div class="empty-state compact">The latest action returned no structured summary fields.</div>';
+}
+
+function renderRunGuide(runDetail, events) {
+  const guide = buildRunGuide(runDetail, events);
+
+  setBadge(elements.runGuideBadge, guide.badgeTone, guide.badgeLabel);
+  elements.runGuideHeadline.textContent = guide.headline;
+  elements.runGuideNextAction.textContent = guide.nextActionTitle;
+  elements.runGuideRecommendation.textContent = guide.nextActionDetail;
+  elements.runGuideCurrentStage.textContent = guide.currentStageTitle;
+  elements.runGuideCurrentStageDetail.textContent = guide.currentStageDetail;
+  elements.runGuideProgressSummary.textContent = guide.progressSummary;
+  elements.runGuideBlockers.textContent = guide.blockerDetail;
+  elements.runGuideStages.innerHTML = guide.stages.length
+    ? guide.stages.map(renderGuideStage).join("")
+    : '<div class="empty-state compact">No run-stage guidance is available for this run yet.</div>';
+}
+
+function buildRunGuide(runDetail, events) {
+  if (!runDetail) {
+    return {
+      badgeTone: "neutral",
+      badgeLabel: "Idle",
+      headline:
+        "Select a run to see which stage is active, what the orchestrator already did, and which operator action should happen next.",
+      nextActionTitle: "Choose a run",
+      nextActionDetail:
+        "Open a run from the ledger after brief submission to unlock execution, quality, and PR guidance.",
+      currentStageTitle: "Waiting for a run",
+      currentStageDetail:
+        "The selected-run guide only activates once a concrete run, task set, and artifact history exist.",
+      progressSummary: "0 of 5 stages complete",
+      blockerDetail:
+        "Execution, quality, and PR handoff stay pending until a run is materialized from the brief.",
+      stages: [],
+    };
+  }
+
+  const artifactTypes = runArtifactTypes(runDetail);
+  const eventTypes = new Set(events.map((event) => event.event_type));
+  const taskCounts = normalizedTaskCounts(runDetail.task_counts);
+  const planningReady =
+    taskCounts.total > 0 ||
+    artifactTypes.has(BACKLOG_ARTIFACT_TYPE) ||
+    artifactTypes.has(POLICY_REPORT_ARTIFACT_TYPE) ||
+    artifactTypes.has(DISPATCH_PLAN_ARTIFACT_TYPE);
+  const executionBlocked = runDetail.status === "failed";
+  const executionComplete = runDetail.status === "succeeded";
+  const queuedTaskCount = taskCounts.queued;
+  const runningTaskCount = taskCounts.running;
+  const qualityReady =
+    artifactTypes.has(QUALITY_REPORT_ARTIFACT_TYPE) ||
+    eventTypes.has(RUN_QUALITY_EVALUATED_EVENT_TYPE);
+  const prCandidateReady = artifactTypes.has(PR_CANDIDATE_ARTIFACT_TYPE);
+  const prExportReady =
+    artifactTypes.has(PR_EXPORT_ARTIFACT_TYPE) ||
+    eventTypes.has(PR_CANDIDATE_EXPORTED_EVENT_TYPE);
+  const publicationReady =
+    artifactTypes.has(PR_PUBLICATION_ARTIFACT_TYPE) ||
+    eventTypes.has(PR_EXPORT_PUBLISHED_EVENT_TYPE);
+  const githubPrReady =
+    artifactTypes.has(GITHUB_PULL_REQUEST_ARTIFACT_TYPE) ||
+    eventTypes.has(GITHUB_PR_OPENED_EVENT_TYPE);
+
+  const stages = [
+    {
+      title: "Brief intake",
+      state: "complete",
+      detail: `Accepted through ${runDetail.trigger} and persisted as run ${shortId(runDetail.run_id)}.`,
+    },
+    {
+      title: "Plan and routing",
+      state: planningReady ? "complete" : "active",
+      detail: planningReady
+        ? `${taskCounts.total} task(s), policy, and agent routing are materialized for execution.`
+        : "The orchestrator is still preparing the backlog, policy report, and agent dispatch plan.",
+    },
+    {
+      title: "Task execution",
+      state: executionBlocked
+        ? "blocked"
+        : executionComplete
+          ? "complete"
+          : "active",
+      detail: executionBlocked
+        ? `${taskCounts.failed} task(s) failed. Inspect tasks and run events before continuing.`
+        : executionComplete
+          ? `All tasks finished. ${taskCounts.succeeded} succeeded and ${taskCounts.failed} failed.`
+          : runningTaskCount > 0
+            ? `${runningTaskCount} task(s) running and ${queuedTaskCount} still queued.`
+            : queuedTaskCount > 0
+              ? `${queuedTaskCount} queued task(s) are waiting for a worker or external agent claim.`
+              : "Execution is ready to start but no active task is recorded yet.",
+    },
+    {
+      title: "Quality gate",
+      state: executionBlocked
+        ? "blocked"
+        : qualityReady
+          ? "complete"
+          : executionComplete
+            ? "active"
+            : "pending",
+      detail: executionBlocked
+        ? "Quality stays blocked until task execution succeeds."
+        : qualityReady
+          ? "A quality report exists for this run. Re-evaluate after any new artifact-changing action."
+          : executionComplete
+            ? "Run Evaluate quality to prove artifact freshness and promotion readiness."
+            : "Quality evaluation unlocks after execution succeeds.",
+    },
+    {
+      title: "PR handoff",
+      state: executionBlocked
+        ? "blocked"
+        : githubPrReady
+          ? "complete"
+          : publicationReady || prExportReady || (qualityReady && prCandidateReady)
+            ? "active"
+            : "pending",
+      detail: executionBlocked
+        ? "PR handoff is blocked because execution did not complete successfully."
+        : githubPrReady
+          ? "The draft PR already exists. Remaining approval now continues in GitHub review."
+          : publicationReady
+            ? "Branch publication is complete. Open or reuse the draft PR when you want review to start."
+            : prExportReady
+              ? "The exported PR bundle is ready. Publish it or create the draft PR for GitHub review."
+              : qualityReady && prCandidateReady
+                ? "The run is promotable. Export or draft the PR when you are ready for remote handoff."
+                : "PR promotion stays locked until execution succeeds and quality is evaluated.",
+    },
+  ];
+
+  const completedStageCount = stages.filter((stage) => stage.state === "complete").length;
+  const currentStage =
+    stages.find((stage) => stage.state === "blocked" || stage.state === "active") ??
+    stages.find((stage) => stage.state === "pending") ??
+    stages[stages.length - 1];
+
+  const nextAction = recommendedRunAction({
+    executionBlocked,
+    executionComplete,
+    githubPrReady,
+    planningReady,
+    prCandidateReady,
+    prExportReady,
+    publicationReady,
+    qualityReady,
+    queuedTaskCount,
+    runDetail,
+    runningTaskCount,
+  });
+
+  return {
+    badgeTone: nextAction.badgeTone,
+    badgeLabel: nextAction.badgeLabel,
+    headline: guideHeadline({
+      executionBlocked,
+      executionComplete,
+      githubPrReady,
+      prExportReady,
+      publicationReady,
+      qualityReady,
+      queuedTaskCount,
+      runDetail,
+      runningTaskCount,
+    }),
+    nextActionTitle: nextAction.title,
+    nextActionDetail: nextAction.detail,
+    currentStageTitle: currentStage.title,
+    currentStageDetail: currentStage.detail,
+    progressSummary: `${completedStageCount} of ${stages.length} stages complete`,
+    blockerDetail: guideBlockerDetail({
+      executionBlocked,
+      executionComplete,
+      githubPrReady,
+      prCandidateReady,
+      prExportReady,
+      publicationReady,
+      qualityReady,
+      queuedTaskCount,
+      runDetail,
+      runningTaskCount,
+    }),
+    stages,
+  };
+}
+
+function renderGuideStage(stage, index) {
+  const tone = guideTone(stage.state);
+  return `
+    <article
+      class="guide-stage guide-stage-${escapeHtml(stage.state)}"
+      data-stage-index="${escapeHtml(`Stage ${index + 1}`)}"
+    >
+      <div class="detail-section-head">
+        <h4>${escapeHtml(stage.title)}</h4>
+        <span class="badge badge-${escapeHtml(tone)}">${escapeHtml(guideBadgeLabel(stage.state))}</span>
+      </div>
+      <p class="guide-stage-copy">${escapeHtml(stage.detail)}</p>
+    </article>
+  `;
+}
+
+function normalizedTaskCounts(taskCounts) {
+  return {
+    total: Number(taskCounts?.total ?? 0),
+    queued: Number(taskCounts?.queued ?? 0),
+    running: Number(taskCounts?.running ?? 0),
+    succeeded: Number(taskCounts?.succeeded ?? 0),
+    failed: Number(taskCounts?.failed ?? 0),
+  };
+}
+
+function recommendedRunAction(context) {
+  if (context.githubPrReady) {
+    return {
+      badgeTone: "success",
+      badgeLabel: "Review",
+      title: "Review the draft PR",
+      detail:
+        "The orchestrator already finished the GitHub handoff. Continue with normal engineering review and approval in GitHub.",
+    };
+  }
+
+  if (context.executionBlocked) {
+    return {
+      badgeTone: "error",
+      badgeLabel: "Blocked",
+      title: "Inspect the failure",
+      detail:
+        "Review the failing task cards and recent run events before retrying, changing the brief, or promoting anything further.",
+    };
+  }
+
+  if (context.runningTaskCount > 0 || context.runDetail.status === "executing") {
+    return {
+      badgeTone: "warning",
+      badgeLabel: "Running",
+      title: "Monitor active work",
+      detail:
+        "At least one task is already running. Let it finish, then refresh or use Worker once if you are manually draining the queue.",
+    };
+  }
+
+  if (context.queuedTaskCount > 0 || context.runDetail.status === "queued") {
+    return {
+      badgeTone: "warning",
+      badgeLabel: "Queued",
+      title: "Run next task",
+      detail:
+        "Backlog, policy, and routing are ready. Use Run next task for one controlled step or Worker once to advance one queued item end-to-end.",
+    };
+  }
+
+  if (context.executionComplete && !context.qualityReady) {
+    return {
+      badgeTone: "warning",
+      badgeLabel: "Quality",
+      title: "Evaluate quality",
+      detail:
+        "Execution finished. Evaluate quality before you export, publish, or open a PR so promotion stays tied to fresh artifacts.",
+    };
+  }
+
+  if (context.publicationReady) {
+    return {
+      badgeTone: "warning",
+      badgeLabel: "Draft PR",
+      title: "Create draft PR",
+      detail:
+        "Branch publication is complete. Create the draft PR now to move the run into GitHub review without bypassing human approval.",
+    };
+  }
+
+  if (context.prExportReady) {
+    return {
+      badgeTone: "warning",
+      badgeLabel: "Publish",
+      title: "Publish PR export",
+      detail:
+        "The PR export bundle is ready. Publish it when you want the remote branch pushed before the GitHub PR handoff.",
+    };
+  }
+
+  if (context.qualityReady && context.prCandidateReady) {
+    return {
+      badgeTone: "warning",
+      badgeLabel: "Promote",
+      title: "Export PR candidate",
+      detail:
+        "The run is promotable. Export the PR candidate for an explicit promotion artifact, or use Create draft PR for the full handoff.",
+    };
+  }
+
+  if (context.planningReady) {
+    return {
+      badgeTone: "warning",
+      badgeLabel: "Ready",
+      title: "Start execution",
+      detail:
+        "The orchestrator already has the plan and routing contract. The next meaningful change is task execution.",
+    };
+  }
+
+  return {
+    badgeTone: "neutral",
+    badgeLabel: "Waiting",
+    title: "Submit a brief",
+    detail:
+      "No durable run state is available yet. Start from brief intake so the orchestrator can materialize a backlog and policy contract.",
+  };
+}
+
+function guideHeadline(context) {
+  if (context.githubPrReady) {
+    return "The orchestrator already completed the GitHub handoff for this run.";
+  }
+  if (context.executionBlocked) {
+    return "This run is blocked in execution and needs investigation before promotion can continue.";
+  }
+  if (context.runningTaskCount > 0 || context.runDetail.status === "executing") {
+    return "The orchestrator is actively executing claimed work for this run.";
+  }
+  if (context.queuedTaskCount > 0 || context.runDetail.status === "queued") {
+    return "Planning is done; the orchestrator is waiting for the next task to be claimed and executed.";
+  }
+  if (context.executionComplete && !context.qualityReady) {
+    return "Task execution is complete, and the next control-plane decision is the quality gate.";
+  }
+  if (context.publicationReady) {
+    return "The branch is already published. The remaining orchestrator handoff is the GitHub draft PR.";
+  }
+  if (context.prExportReady) {
+    return "This run already has an export bundle and is waiting for remote publication or direct draft PR creation.";
+  }
+  if (context.qualityReady) {
+    return "The run is promotable and the control plane can now prepare the remote PR handoff.";
+  }
+
+  return "The orchestrator has accepted the run and is ready to move it through execution, quality, and PR promotion.";
+}
+
+function guideBlockerDetail(context) {
+  if (context.githubPrReady) {
+    return "Merge approval remains outside the orchestrator in GitHub review and branch protection.";
+  }
+  if (context.executionBlocked) {
+    return "Execution failed, so quality and PR promotion stay blocked until the failure path is understood and corrected.";
+  }
+  if (!context.executionComplete) {
+    return "Quality and PR promotion stay blocked until the run finishes successfully.";
+  }
+  if (!context.qualityReady) {
+    return "Remote promotion should wait for a quality evaluation tied to the latest artifacts.";
+  }
+  if (!context.prCandidateReady) {
+    return "Promotion is still blocked because no pr_candidate artifact is available for this run.";
+  }
+  if (!context.prExportReady) {
+    return "Remote branch publication stays blocked until the PR candidate is exported.";
+  }
+  if (!context.publicationReady) {
+    return "GitHub review does not start until the export is published or the draft-PR flow runs.";
+  }
+
+  return "The remaining approval boundary is GitHub review, not another hidden orchestrator step.";
+}
+
+function guideTone(state) {
+  switch (state) {
+    case "complete":
+      return "success";
+    case "active":
+      return "warning";
+    case "blocked":
+      return "error";
+    default:
+      return "neutral";
+  }
+}
+
+function guideBadgeLabel(state) {
+  switch (state) {
+    case "complete":
+      return "Done";
+    case "active":
+      return "Now";
+    case "blocked":
+      return "Blocked";
+    default:
+      return "Next";
+  }
 }
 
 function renderTasks(tasks) {
@@ -2058,17 +2527,69 @@ function renderEvents(events) {
     .join("");
 }
 
-function clearRunSelection(message) {
+function clearRunSelection(message, title = "No run selected") {
   state.selectedRunId = null;
   state.selectedRunDetail = null;
+  state.selectedRunEvents = [];
   elements.selectedRunLabel.textContent = "No run selected.";
-  elements.detailEmptyState.textContent = message;
+  elements.detailEmptyState.innerHTML = renderDetailEmptyStateMarkup({
+    title,
+    message,
+    steps:
+      title === "Run detail unavailable"
+        ? [
+            "Refresh the dashboard if the run should still exist.",
+            "Open another run from the ledger if this selection is stale.",
+            "Re-submit the brief if the run was never materialized successfully.",
+          ]
+        : undefined,
+  });
   elements.detailEmptyState.classList.remove("hidden");
   elements.runDetailShell.classList.add("hidden");
+  renderRunGuide(null, []);
   renderRunActionHighlights(null);
   syncRunActionDraftInputs(null);
   syncRunActionControlsWithState();
   syncUiUrlState();
+}
+
+function renderDetailEmptyStateMarkup(options = {}) {
+  const title = options.title ?? "Start with a brief, then drive the run forward";
+  const message =
+    options.message ??
+    "Load a quick-start brief or paste YAML, validate it, submit it, then open the new run from Recent runs.";
+  const steps = Array.isArray(options.steps)
+    ? options.steps
+    : [
+        "Confirm pack, routing, and policy during validation.",
+        "Submit the brief to materialize the run, backlog, and artifacts.",
+        "Use the selected-run guide to advance execution, quality, and PR handoff.",
+      ];
+
+  return `
+    <p class="panel-kicker">Operator flow</p>
+    <h3>${escapeHtml(title)}</h3>
+    <p>${escapeHtml(message)}</p>
+    ${
+      steps.length
+        ? `
+          <ol class="empty-state-steps">
+            ${steps.map((step) => `<li>${escapeHtml(step)}</li>`).join("")}
+          </ol>
+        `
+        : ""
+    }
+  `;
+}
+
+function renderSectionEmptyState(kicker, title, message) {
+  return `
+    <div class="empty-state compact">
+      <p class="panel-kicker">${escapeHtml(kicker)}</p>
+      <h3>${escapeHtml(title)}</h3>
+      <p>${escapeHtml(message)}</p>
+    </div>
+  `;
 }
 
 function setBadge(target, tone, text) {
@@ -2417,6 +2938,7 @@ function restoreBriefDraft() {
   renderDashboardLoadingState();
   renderBriefExampleHint();
   renderQueueInspectorEmpty();
+  renderRunGuide(null, []);
   renderRunActionHighlights(null);
   syncRunActionDraftInputs(null);
   syncRunActionControlsWithState();
@@ -2450,21 +2972,31 @@ function renderDashboardLoadingState() {
 
   if (state.selectedRunId) {
     elements.selectedRunLabel.textContent = `Loading run ${shortId(state.selectedRunId)}...`;
-    elements.detailEmptyState.textContent =
-      "Loading the selected run snapshot, tasks, artifacts, and events.";
+    elements.detailEmptyState.innerHTML = renderDetailEmptyStateMarkup({
+      title: "Loading selected run",
+      message: "Loading the selected run snapshot, tasks, artifacts, and events.",
+      steps: [],
+    });
   } else {
     elements.selectedRunLabel.textContent = "Loading latest run...";
-    elements.detailEmptyState.textContent =
-      "Loading the latest run snapshot, tasks, artifacts, and events.";
+    elements.detailEmptyState.innerHTML = renderDetailEmptyStateMarkup({
+      title: "Loading latest run",
+      message: "Loading the latest run snapshot, tasks, artifacts, and events.",
+      steps: [],
+    });
   }
 }
 
 function renderQueueInspectorEmpty() {
   state.selectedQueueRunId = null;
   elements.queueInspectorHeadline.textContent =
-    "Select a webhook action, repository signal, or delivery to inspect its persisted detail and linked documents.";
+    "Queue items show what reached the orchestrator before or around run creation. Open one to inspect signed ingress, routed actions, or automation handoff state.";
   elements.queueInspectorSummary.innerHTML =
-    '<div class="empty-state compact">No queue item selected.</div>';
+    renderSectionEmptyState(
+      "Queue inspector",
+      "No queue item selected",
+      "Pick a delivery, action request, or repository signal to see what happened before a run was created or advanced."
+    );
   elements.queueInspectorActions.classList.add("hidden");
   setConsolePayload(elements.queueInspectorConsole, "No queue item selected.");
   setConsolePayload(
@@ -2480,7 +3012,7 @@ function loadingOrEmptyState(message) {
   const loadingMessage = message.includes("Loading");
   return `
     <div class="empty-state compact${loadingMessage ? " is-loading" : ""}">
-      ${escapeHtml(message)}
+      <p>${escapeHtml(message)}</p>
     </div>
   `;
 }
@@ -3049,21 +3581,62 @@ function runActionHintText(runDetail, availability) {
   }
 
   const artifactTypes = runArtifactTypes(runDetail);
-  const messages = [];
+  const eventTypes = new Set(
+    (state.selectedRunEvents ?? []).map((event) => event.event_type)
+  );
+  const runningTaskCount = Number(runDetail.task_counts?.running ?? 0);
+  const queuedTaskCount = Number(runDetail.task_counts?.queued ?? 0);
+  const qualityReady =
+    artifactTypes.has(QUALITY_REPORT_ARTIFACT_TYPE) ||
+    eventTypes.has(RUN_QUALITY_EVALUATED_EVENT_TYPE);
+  const prPublicationReady =
+    artifactTypes.has(PR_PUBLICATION_ARTIFACT_TYPE) ||
+    eventTypes.has(PR_EXPORT_PUBLISHED_EVENT_TYPE);
+  const githubPrReady =
+    artifactTypes.has(GITHUB_PULL_REQUEST_ARTIFACT_TYPE) ||
+    eventTypes.has(GITHUB_PR_OPENED_EVENT_TYPE);
 
-  if (!availability["tasks-next"].enabled) {
-    messages.push("Task execution controls lock once no queued tasks remain.");
+  if (runDetail.status === "failed") {
+    return "This run is blocked. Inspect Tasks and Run events before retrying or promoting anything further.";
+  }
+
+  if (runningTaskCount > 0 || runDetail.status === "executing") {
+    return "A task is currently running. Let it finish, then refresh or use Worker once if you are manually draining the queue.";
+  }
+
+  if (queuedTaskCount > 0 || runDetail.status === "queued") {
+    return "Backlog, routing, and policy are ready. Use Run next task for one controlled step or Worker once to advance the queue.";
   }
 
   if (runDetail.status !== "succeeded") {
-    messages.push("PR promotion actions unlock after the run succeeds.");
-  } else if (!artifactTypes.has(PR_CANDIDATE_ARTIFACT_TYPE)) {
-    messages.push("PR export and draft PR require a pr_candidate artifact.");
-  } else if (!artifactTypes.has(PR_EXPORT_ARTIFACT_TYPE)) {
-    messages.push("PR publication unlocks after exporting the PR candidate.");
+    return "PR promotion actions unlock only after execution succeeds.";
   }
 
-  return messages.join(" ") || "All selected run actions are currently available.";
+  if (!qualityReady) {
+    return "Execution is complete. Evaluate quality before exporting or publishing PR material.";
+  }
+
+  if (!artifactTypes.has(PR_CANDIDATE_ARTIFACT_TYPE)) {
+    return "Promotion stays blocked until the run has a pr_candidate artifact.";
+  }
+
+  if (githubPrReady) {
+    return "The orchestrator already opened or reused the draft PR. Remaining approval now sits in GitHub review.";
+  }
+
+  if (prPublicationReady) {
+    return "Branch publication is done. Create the draft PR next when you want GitHub review to start.";
+  }
+
+  if (!artifactTypes.has(PR_EXPORT_ARTIFACT_TYPE)) {
+    return "Quality is available. Export the PR candidate next, or use Create draft PR for the full GitHub handoff.";
+  }
+
+  if (!availability["publish-pr"].enabled) {
+    return availability["publish-pr"].reason || "PR publication is not ready yet.";
+  }
+
+  return "Promotion controls are available. Publish the export or create the draft PR when you are ready for the GitHub handoff.";
 }
 
 function syncRunActionControlsWithState() {

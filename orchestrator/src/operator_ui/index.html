@@ -261,13 +261,63 @@
           </div>
 
           <div id="detailEmptyState" class="empty-state">
-            Choose a run from the ledger to inspect tasks, artifacts, events, and
-            operator actions.
+            <p class="panel-kicker">Operator flow</p>
+            <h3>Start with a brief, then drive the run forward</h3>
+            <p>
+              Load a quick-start brief or paste YAML, validate it, submit it,
+              then open the new run from Recent runs.
+            </p>
+            <ol class="empty-state-steps">
+              <li>Confirm pack, routing, and policy during validation.</li>
+              <li>Submit the brief to materialize the run, backlog, and artifacts.</li>
+              <li>Use the selected-run guide below to advance execution, quality, and PR handoff.</li>
+            </ol>
           </div>
 
           <div id="runDetailShell" class="detail-shell hidden">
             <section class="detail-section">
               <div id="runSummaryCards" class="summary-grid" data-ui-region="run-summary"></div>
+            </section>
+
+            <section class="detail-section guide-section">
+              <div class="detail-section-head">
+                <div>
+                  <h3>What the orchestrator is doing</h3>
+                  <p id="runGuideHeadline" class="microcopy">
+                    Select a run to see which stage is active, what is already
+                    materialized, and which operator action should happen next.
+                  </p>
+                </div>
+                <span id="runGuideBadge" class="badge badge-neutral">Idle</span>
+              </div>
+              <div class="guide-grid">
+                <article class="guide-card guide-card-emphasis">
+                  <p class="panel-kicker">Next operator step</p>
+                  <h4 id="runGuideNextAction">Choose a run</h4>
+                  <p id="runGuideRecommendation">
+                    Open a run from the ledger to unlock a stage-by-stage recommendation.
+                  </p>
+                </article>
+                <article class="guide-card">
+                  <p class="panel-kicker">Current stage</p>
+                  <h4 id="runGuideCurrentStage">Waiting for a run</h4>
+                  <p id="runGuideCurrentStageDetail">
+                    The guide will explain what the orchestrator has already materialized and what remains blocked.
+                  </p>
+                </article>
+                <article class="guide-card">
+                  <p class="panel-kicker">Progress</p>
+                  <h4 id="runGuideProgressSummary">0 of 5 stages complete</h4>
+                  <p id="runGuideBlockers">
+                    Execution, quality, and PR promotion guidance will appear here once a run is selected.
+                  </p>
+                </article>
+              </div>
+              <div id="runGuideStages" class="guide-stage-list" data-ui-region="run-guide-stages">
+                <div class="empty-state compact">
+                  No run selected yet. Start with brief intake, then open a run from the ledger.
+                </div>
+              </div>
             </section>
 
             <section class="detail-section action-section">
