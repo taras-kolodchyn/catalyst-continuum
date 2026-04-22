@@ -54,6 +54,7 @@ POSTGRES_CONTAINER_NAME="continuum-smoke-postgres-${POSTGRES_CONTAINER_SUFFIX}"
 STARTED_POSTGRES=0
 ORCHESTRATOR_PID=""
 SERVICE_PID=""
+ORCHESTRATOR_READY_FAILURE_MESSAGE=""
 
 cleanup() {
   if [ -n "$ORCHESTRATOR_PID" ]; then
@@ -69,6 +70,16 @@ cleanup() {
   fi
 }
 trap cleanup EXIT
+
+log_phase() {
+  printf '[smoke-mvp] %s\n' "$1"
+}
+
+is_transient_postgres_startup_error() {
+  local output="$1"
+  printf '%s' "$output" | grep -Eq \
+    'failed to connect to postgres|error communicating with the server|Connection reset by peer|Connection refused'
+}
 
 print_postgres_debug() {
   if docker ps -a --format '{{.Names}}' | grep -Fx "$POSTGRES_CONTAINER_NAME" >/dev/null 2>&1; then
@@ -202,8 +213,11 @@ CONFIG_FILE="$ARTIFACT_ROOT/orchestrator-config.json"
 
 wait_for_orchestrator_http_ready() {
   local attempts="$1"
+  local emit_failure_output="${2:-1}"
   local livez_result="not yet probed"
   local readyz_result="not yet probed"
+
+  ORCHESTRATOR_READY_FAILURE_MESSAGE=""
 
   for _ in $(seq 1 "$attempts"); do
     if probe_http_capture \
@@ -222,19 +236,65 @@ wait_for_orchestrator_http_ready() {
     fi
 
     if ! kill -0 "$ORCHESTRATOR_PID" >/dev/null 2>&1; then
-      cat "$ORCHESTRATOR_LOG" >&2 || true
-      echo \
-        "orchestrator HTTP server exited before becoming ready (last livez: ${livez_result}; last readyz: ${readyz_result})" >&2
+      ORCHESTRATOR_READY_FAILURE_MESSAGE="orchestrator HTTP server exited before becoming ready (last livez: ${livez_result}; last readyz: ${readyz_result})"
+      if [ "$emit_failure_output" = "1" ]; then
+        cat "$ORCHESTRATOR_LOG" >&2 || true
+        echo "$ORCHESTRATOR_READY_FAILURE_MESSAGE" >&2
+      fi
       return 1
     fi
 
     sleep 1
   done
 
-  cat "$ORCHESTRATOR_LOG" >&2 || true
-  echo \
-    "orchestrator HTTP server did not become ready after ${attempts}s (last livez: ${livez_result}; last readyz: ${readyz_result})" >&2
+  ORCHESTRATOR_READY_FAILURE_MESSAGE="orchestrator HTTP server did not become ready after ${attempts}s (last livez: ${livez_result}; last readyz: ${readyz_result})"
+  if [ "$emit_failure_output" = "1" ]; then
+    cat "$ORCHESTRATOR_LOG" >&2 || true
+    echo "$ORCHESTRATOR_READY_FAILURE_MESSAGE" >&2
+  fi
   return 1
+}
+
+orchestrator_log_contains_transient_postgres_startup_error() {
+  [ -f "$ORCHESTRATOR_LOG" ] || return 1
+  is_transient_postgres_startup_error "$(cat "$ORCHESTRATOR_LOG")"
+}
+
+start_orchestrator_http_server_with_retry() {
+  local attempt=1
+  local max_attempts=5
+
+  while [ "$attempt" -le "$max_attempts" ]; do
+    : >"$ORCHESTRATOR_LOG"
+    CATALYST_GITHUB_APP_WEBHOOK_SECRET="$GITHUB_WEBHOOK_SECRET" \
+    CATALYST_GITHUB_APP_INSTALLATION_ID="$GITHUB_APP_INSTALLATION_ID" \
+      "$BIN" serve \
+      --bind-addr "127.0.0.1:${ORCHESTRATOR_HTTP_PORT}" \
+      --database-url "$DATABASE_URL" \
+      --artifact-root "$ARTIFACT_ROOT" >"$ORCHESTRATOR_LOG" 2>&1 &
+    ORCHESTRATOR_PID="$!"
+
+    if wait_for_orchestrator_http_ready 30 0; then
+      return 0
+    fi
+
+    wait "$ORCHESTRATOR_PID" >/dev/null 2>&1 || true
+    ORCHESTRATOR_PID=""
+
+    if [ "$attempt" -lt "$max_attempts" ] && orchestrator_log_contains_transient_postgres_startup_error; then
+      log_phase \
+        "retrying orchestrator HTTP startup after transient postgres startup failure (attempt $((attempt + 1))/${max_attempts})"
+      attempt=$((attempt + 1))
+      sleep 1
+      continue
+    fi
+
+    cat "$ORCHESTRATOR_LOG" >&2 || true
+    if [ -n "$ORCHESTRATOR_READY_FAILURE_MESSAGE" ]; then
+      echo "$ORCHESTRATOR_READY_FAILURE_MESSAGE" >&2
+    fi
+    return 1
+  done
 }
 
 wait_for_pid_guarded_http_ready() {
@@ -268,15 +328,7 @@ wait_for_pid_guarded_http_ready() {
   return 1
 }
 
-CATALYST_GITHUB_APP_WEBHOOK_SECRET="$GITHUB_WEBHOOK_SECRET" \
-CATALYST_GITHUB_APP_INSTALLATION_ID="$GITHUB_APP_INSTALLATION_ID" \
-  "$BIN" serve \
-  --bind-addr "127.0.0.1:${ORCHESTRATOR_HTTP_PORT}" \
-  --database-url "$DATABASE_URL" \
-  --artifact-root "$ARTIFACT_ROOT" >"$ORCHESTRATOR_LOG" 2>&1 &
-ORCHESTRATOR_PID="$!"
-
-wait_for_orchestrator_http_ready 30
+start_orchestrator_http_server_with_retry
 
 curl -fsS "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/healthz" >"$HEALTH_FILE"
 curl -fsS "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/config" >"$CONFIG_FILE"
