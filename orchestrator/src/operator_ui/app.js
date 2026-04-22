@@ -83,7 +83,8 @@ const state = {
   autoRefresh: false,
   refreshInFlight: false,
   refreshAnimationsEnabled: false,
-  lastRefreshAt: null,
+  lastHttpRefreshAt: null,
+  lastRealtimeSnapshotAt: null,
   realtimeSupported: typeof window.WebSocket === "function",
   realtimeSocket: null,
   realtimeSocketToken: 0,
@@ -142,20 +143,17 @@ document.addEventListener("DOMContentLoaded", () => {
   }).finally(() => {
     connectRealtime();
   });
-  window.setInterval(() => {
-    if (
-      !state.autoRefresh ||
-      state.refreshInFlight ||
-      state.realtimeConnected ||
-      state.realtimeConnecting
-    ) {
-      return;
-    }
+  if (!supportsRealtimeUpdates()) {
+    window.setInterval(() => {
+      if (!state.autoRefresh || state.refreshInFlight) {
+        return;
+      }
 
-    refreshDashboard().catch((error) => {
-      console.error("operator UI auto refresh failed", error);
-    });
-  }, AUTO_REFRESH_INTERVAL_MS);
+      refreshDashboard().catch((error) => {
+        console.error("operator UI auto refresh failed", error);
+      });
+    }, AUTO_REFRESH_INTERVAL_MS);
+  }
   window.addEventListener("beforeunload", () => {
     cleanupRealtimeSocket();
   });
@@ -175,6 +173,7 @@ function cacheElements() {
     "automationConsoleStatus",
     "automationSignalKindInput",
     "autoRefreshToggle",
+    "autoRefreshToggleShell",
     "branchNameInput",
     "briefConsole",
     "briefConsoleStatus",
@@ -663,26 +662,33 @@ function handleRealtimeMessage(rawMessage) {
     return;
   }
 
-  state.lastRefreshAt = new Date().toISOString();
-  renderLastRefreshStatus();
-
   switch (message.type) {
     case "hello":
     case "heartbeat":
       return;
     case "dashboard_snapshot":
+      state.lastRealtimeSnapshotAt = new Date().toISOString();
+      renderLastRefreshStatus();
       applyRealtimeDashboardSnapshot(message.snapshot);
       return;
     case "runs_snapshot":
+      state.lastRealtimeSnapshotAt = new Date().toISOString();
+      renderLastRefreshStatus();
       applyRealtimeRunsSnapshot(message.response);
       return;
     case "automation_snapshot":
+      state.lastRealtimeSnapshotAt = new Date().toISOString();
+      renderLastRefreshStatus();
       applyRealtimeAutomationSnapshot(message.response);
       return;
     case "run_detail_snapshot":
+      state.lastRealtimeSnapshotAt = new Date().toISOString();
+      renderLastRefreshStatus();
       applyRealtimeRunDetailSnapshot(message.response);
       return;
     case "selected_run_missing":
+      state.lastRealtimeSnapshotAt = new Date().toISOString();
+      renderLastRefreshStatus();
       if (message.run_id === state.selectedRunId) {
         clearRunSelection(message.error, "Run detail unavailable");
         connectRealtime({ force: true });
@@ -810,7 +816,7 @@ async function refreshDashboard() {
       await selectRun(runs[0].run_id);
     }
 
-    state.lastRefreshAt = new Date().toISOString();
+    state.lastHttpRefreshAt = new Date().toISOString();
     renderLastRefreshStatus();
     state.refreshAnimationsEnabled = true;
   } finally {
@@ -1671,9 +1677,11 @@ function renderOperatorPulse() {
 }
 
 function liveTransportPulseCard() {
-  const fallbackMode = state.autoRefresh
-    ? `HTTP polling every ${AUTO_REFRESH_INTERVAL_MS / 1000}s stays ready when live transport drops.`
-    : "Manual HTTP refresh remains the fallback path when live transport drops.";
+  const fallbackMode = supportsRealtimeUpdates()
+    ? "Manual HTTP refresh remains the fallback path when live transport drops."
+    : state.autoRefresh
+      ? `HTTP polling every ${AUTO_REFRESH_INTERVAL_MS / 1000}s stays ready between manual refreshes.`
+      : "Manual HTTP refresh remains the active refresh path.";
 
   if (state.realtimeConnected) {
     return {
@@ -1681,9 +1689,7 @@ function liveTransportPulseCard() {
       badge: "Live",
       kicker: "Transport",
       title: "WebSocket stream is connected",
-      summary: state.lastRefreshAt
-        ? `Latest live message ${new Date(state.lastRefreshAt).toLocaleTimeString()}.`
-        : "Connected and waiting for the first live snapshot.",
+      summary: "Selected-run, run-ledger, and queue surfaces update in place when state changes.",
       detail: `Selected-run, run-ledger, and queue surfaces now update in place. ${fallbackMode}`,
     };
   }
@@ -1701,14 +1707,14 @@ function liveTransportPulseCard() {
 
   if (supportsRealtimeUpdates()) {
     return {
-      tone: state.lastRefreshAt ? "warning" : "neutral",
-      badge: state.lastRefreshAt ? "Fallback" : "Waiting",
+      tone: state.lastHttpRefreshAt ? "warning" : "neutral",
+      badge: state.lastHttpRefreshAt ? "Fallback" : "Waiting",
       kicker: "Transport",
-      title: state.lastRefreshAt
+      title: state.lastHttpRefreshAt
         ? "Fell back to HTTP refresh"
         : "Waiting for the live stream",
-      summary: state.lastRefreshAt
-        ? `Last HTTP snapshot ${new Date(state.lastRefreshAt).toLocaleTimeString()}.`
+      summary: state.lastHttpRefreshAt
+        ? `Last HTTP snapshot ${new Date(state.lastHttpRefreshAt).toLocaleTimeString()}.`
         : "No live snapshot has been received yet.",
       detail: fallbackMode,
     };
@@ -1719,8 +1725,8 @@ function liveTransportPulseCard() {
     badge: "HTTP",
     kicker: "Transport",
     title: "Browser is using the HTTP control surface",
-    summary: state.lastRefreshAt
-      ? `Last refresh ${new Date(state.lastRefreshAt).toLocaleTimeString()}.`
+    summary: state.lastHttpRefreshAt
+      ? `Last refresh ${new Date(state.lastHttpRefreshAt).toLocaleTimeString()}.`
       : "No snapshot has been loaded yet.",
     detail: fallbackMode,
   };
@@ -6090,6 +6096,7 @@ function restoreBriefDraft() {
   state.automationDisclosurePreferences = restoreAutomationDisclosurePreferences();
   state.autoRefresh = restoreAutoRefreshPreference();
   elements.autoRefreshToggle.checked = state.autoRefresh;
+  syncRefreshModeControls();
   renderDashboardLoadingState();
   renderBriefExampleHint();
   renderQueueInspectorEmpty();
@@ -6186,6 +6193,10 @@ function renderDashboardLoadingState() {
 }
 
 function restoreAutoRefreshPreference() {
+  if (supportsRealtimeUpdates()) {
+    return false;
+  }
+
   const saved = window.localStorage.getItem(AUTO_REFRESH_STORAGE_KEY);
   if (saved === "true") {
     return true;
@@ -6197,19 +6208,45 @@ function restoreAutoRefreshPreference() {
 }
 
 function persistAutoRefreshPreference() {
+  if (supportsRealtimeUpdates()) {
+    window.localStorage.removeItem(AUTO_REFRESH_STORAGE_KEY);
+    return;
+  }
+
   window.localStorage.setItem(
     AUTO_REFRESH_STORAGE_KEY,
     state.autoRefresh ? "true" : "false"
   );
 }
 
+function syncRefreshModeControls() {
+  const toggleShell = elements.autoRefreshToggleShell ?? elements.autoRefreshToggle?.closest(".toggle");
+  if (!toggleShell) {
+    return;
+  }
+
+  if (supportsRealtimeUpdates()) {
+    state.autoRefresh = false;
+    elements.autoRefreshToggle.checked = false;
+    elements.autoRefreshToggle.disabled = true;
+    toggleShell.hidden = true;
+    window.localStorage.removeItem(AUTO_REFRESH_STORAGE_KEY);
+    return;
+  }
+
+  elements.autoRefreshToggle.disabled = false;
+  toggleShell.hidden = false;
+}
+
 function renderLastRefreshStatus() {
-  const fallbackSummary = state.autoRefresh
-    ? `polling every ${AUTO_REFRESH_INTERVAL_MS / 1000}s`
-    : "manual mode";
+  const fallbackSummary = supportsRealtimeUpdates()
+    ? "manual HTTP fallback"
+    : state.autoRefresh
+      ? `polling every ${AUTO_REFRESH_INTERVAL_MS / 1000}s`
+      : "manual mode";
 
   if (state.realtimeConnected) {
-    if (!state.lastRefreshAt) {
+    if (!state.lastRealtimeSnapshotAt && !state.lastHttpRefreshAt) {
       setTextContent(elements.lastRefresh, "Live updates connected · waiting for first websocket snapshot", {
         markUpdated: false,
       });
@@ -6218,7 +6255,7 @@ function renderLastRefreshStatus() {
 
     setTextContent(
       elements.lastRefresh,
-      `Live updates connected · latest message ${new Date(state.lastRefreshAt).toLocaleTimeString()}`,
+      "Live updates connected · WebSocket stream active",
       { markUpdated: false }
     );
     return;
@@ -6231,7 +6268,7 @@ function renderLastRefreshStatus() {
     return;
   }
 
-  if (!state.lastRefreshAt) {
+  if (!state.lastHttpRefreshAt) {
     setTextContent(
       elements.lastRefresh,
       supportsRealtimeUpdates()
@@ -6247,8 +6284,8 @@ function renderLastRefreshStatus() {
   setTextContent(
     elements.lastRefresh,
     supportsRealtimeUpdates()
-      ? `Live updates unavailable · last HTTP refresh ${new Date(state.lastRefreshAt).toLocaleTimeString()} · ${fallbackSummary}`
-      : `Last refresh ${new Date(state.lastRefreshAt).toLocaleTimeString()} · ${fallbackSummary}`,
+      ? `Live updates unavailable · last HTTP refresh ${new Date(state.lastHttpRefreshAt).toLocaleTimeString()} · ${fallbackSummary}`
+      : `Last refresh ${new Date(state.lastHttpRefreshAt).toLocaleTimeString()} · ${fallbackSummary}`,
     { markUpdated: false }
   );
   renderOperatorPulse();

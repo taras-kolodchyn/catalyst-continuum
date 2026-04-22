@@ -328,6 +328,8 @@ if "realtimeSocketUrl" not in js or "new window.WebSocket" not in js or "connect
     raise SystemExit("operator UI smoke failed: missing websocket live-update client logic")
 if "Live updates connected" not in js or "scheduleRealtimeReconnect" not in js:
     raise SystemExit("operator UI smoke failed: missing websocket reconnect status rendering")
+if "syncRefreshModeControls" not in js or "lastRealtimeSnapshotAt" not in js or "WebSocket stream active" not in js:
+    raise SystemExit("operator UI smoke failed: missing websocket-first refresh control logic")
 if "renderOperatorPulse" not in js or "buildOperatorPulseFeedItems" not in js:
     raise SystemExit("operator UI smoke failed: missing live operator pulse rendering logic")
 if "renderMissionControl" not in js or "renderMissionFlowPanel" not in js:
