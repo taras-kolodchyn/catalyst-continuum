@@ -179,6 +179,7 @@ ORCHESTRATOR_LOG_FILE="$ARTIFACT_ROOT/mcp-smoke-orchestrator.log"
 ORCHESTRATOR_READYZ_FILE="$ARTIFACT_ROOT/mcp-smoke-orchestrator-readyz.json"
 ORCHESTRATOR_UI_FILE="$ARTIFACT_ROOT/mcp-smoke-orchestrator-ui.html"
 ORCHESTRATOR_UI_JS_FILE="$ARTIFACT_ROOT/mcp-smoke-orchestrator-ui.js"
+ORCHESTRATOR_UI_BRIEF_EXAMPLES_FILE="$ARTIFACT_ROOT/mcp-smoke-orchestrator-ui-brief-examples.json"
 "$BIN" \
   serve \
   --bind-addr "127.0.0.1:${ORCHESTRATOR_HTTP_PORT}" \
@@ -201,13 +202,17 @@ curl "${CURL_ARGS[@]}" \
   "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/ui" >"$ORCHESTRATOR_UI_FILE"
 curl "${CURL_ARGS[@]}" \
   "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/ui/app.js" >"$ORCHESTRATOR_UI_JS_FILE"
+curl "${CURL_ARGS[@]}" \
+  "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/ui/brief-examples" >"$ORCHESTRATOR_UI_BRIEF_EXAMPLES_FILE"
 
-python3 - "$ORCHESTRATOR_UI_FILE" "$ORCHESTRATOR_UI_JS_FILE" <<'PY'
+python3 - "$ORCHESTRATOR_UI_FILE" "$ORCHESTRATOR_UI_JS_FILE" "$ORCHESTRATOR_UI_BRIEF_EXAMPLES_FILE" <<'PY'
+import json
 import pathlib
 import sys
 
 html = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
 js = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
+brief_examples = json.loads(pathlib.Path(sys.argv[3]).read_text(encoding="utf-8"))
 
 if "<title>Catalyst Continuum Control Surface</title>" not in html:
     raise SystemExit("operator UI smoke failed: missing control-surface title")
@@ -219,6 +224,10 @@ if 'id="queueInspectorConsole"' not in html:
     raise SystemExit("operator UI smoke failed: missing queue inspector console")
 if 'id="runActionHint"' not in html:
     raise SystemExit("operator UI smoke failed: missing run-action availability hint")
+if 'id="briefExamples"' not in html:
+    raise SystemExit("operator UI smoke failed: missing brief example quick-start mount")
+if 'id="briefExampleHint"' not in html:
+    raise SystemExit("operator UI smoke failed: missing brief example hint")
 if 'id="actionHighlights"' not in html:
     raise SystemExit("operator UI smoke failed: missing structured action highlights mount")
 if 'id="actionSummaryHeadline"' not in html:
@@ -237,6 +246,10 @@ if "submitBriefRequest" not in js:
     raise SystemExit("operator UI smoke failed: missing brief submission client logic")
 if "runRepositoryAutomationRequest" not in js:
     raise SystemExit("operator UI smoke failed: missing automation-cycle client logic")
+if "loadBriefExamples" not in js:
+    raise SystemExit("operator UI smoke failed: missing brief example fetch logic")
+if "loadBriefExampleIntoEditor" not in js:
+    raise SystemExit("operator UI smoke failed: missing quick-start brief loader")
 if "loadQueueItemDetail" not in js:
     raise SystemExit("operator UI smoke failed: missing queue inspector client logic")
 if "syncSelectedRunUrl" not in js:
@@ -255,6 +268,17 @@ if "envelopeBadgePresentation" not in js:
     raise SystemExit("operator UI smoke failed: missing domain-aware console badge presentation")
 if "displayRunStatus" not in js:
     raise SystemExit("operator UI smoke failed: missing run-status display normalization")
+examples = brief_examples.get("examples")
+if not isinstance(examples, list) or len(examples) < 3:
+    raise SystemExit("operator UI smoke failed: missing curated brief examples payload")
+paths = {example.get("source_path") for example in examples if isinstance(example, dict)}
+required_paths = {
+    "examples/briefs/minimal-container-service.yaml",
+    "examples/briefs/minimal-cli-tool.yaml",
+    "examples/briefs/minimal-worker-service.yaml",
+}
+if not required_paths.issubset(paths):
+    raise SystemExit("operator UI smoke failed: brief example payload is missing expected starter briefs")
 PY
 
 WEBHOOK_PAYLOAD_FILE="$ARTIFACT_ROOT/mcp-webhook-ping.json"

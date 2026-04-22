@@ -34,6 +34,7 @@ const state = {
   selectedRunId: new URL(window.location.href).searchParams.get("run"),
   selectedRunStatus: "",
   selectedRunDetail: null,
+  briefExamples: [],
   autoRefresh: true,
   refreshInFlight: false,
   briefRequestInFlight: false,
@@ -55,6 +56,10 @@ document.addEventListener("DOMContentLoaded", () => {
   cacheElements();
   bindEvents();
   restoreBriefDraft();
+  loadBriefExamples().catch((error) => {
+    console.error("brief example load failed", error);
+    renderBriefExamplesError(error.message);
+  });
   refreshDashboard().catch((error) => {
     renderStatusGrid({
       readyz: failedEnvelope(error),
@@ -98,6 +103,8 @@ function cacheElements() {
     "briefConsole",
     "briefConsoleStatus",
     "briefEditor",
+    "briefExampleHint",
+    "briefExamples",
     "clearBriefButton",
     "deliveryCount",
     "detailEmptyState",
@@ -178,9 +185,19 @@ function bindEvents() {
     window.localStorage.setItem(BRIEF_STORAGE_KEY, elements.briefEditor.value);
   });
 
+  elements.briefExamples.addEventListener("click", (event) => {
+    const exampleButton = event.target.closest("[data-brief-example-id]");
+    if (!exampleButton) {
+      return;
+    }
+
+    loadBriefExampleIntoEditor(exampleButton.dataset.briefExampleId);
+  });
+
   elements.clearBriefButton.addEventListener("click", () => {
     elements.briefEditor.value = "";
     window.localStorage.removeItem(BRIEF_STORAGE_KEY);
+    renderBriefExampleHint();
     writeConsole(
       elements.briefConsole,
       elements.briefConsoleStatus,
@@ -319,7 +336,9 @@ async function refreshDashboard() {
     await refreshQueueInspectorSelection();
 
     if (runs.length === 0) {
-      clearRunSelection("No runs available yet. Submit a brief to materialize the first run.");
+      clearRunSelection(
+        "No runs available yet. Load a quick-start brief above or submit your own YAML to materialize the first run."
+      );
     } else if (state.selectedRunId && runs.some((run) => run.run_id === state.selectedRunId)) {
       syncSelectedRunUrl(state.selectedRunId);
       await loadRunDetail(state.selectedRunId);
@@ -333,6 +352,16 @@ async function refreshDashboard() {
     elements.refreshButton.disabled = false;
     elements.refreshButton.textContent = "Refresh";
   }
+}
+
+async function loadBriefExamples() {
+  const envelope = await fetchJsonEnvelope("/ui/brief-examples");
+  if (!envelope.ok) {
+    throw new Error(formatEnvelopeError(envelope));
+  }
+
+  state.briefExamples = sanitizeBriefExamples(envelope.data?.examples);
+  renderBriefExamples();
 }
 
 function buildRunsPath() {
@@ -728,6 +757,39 @@ function automationSubmittedRunId(payload) {
   return payload.signal_submission.submission?.run_id ?? null;
 }
 
+function sanitizeBriefExamples(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((example) => sanitizeBriefExample(example))
+    .filter((example) => example !== null);
+}
+
+function sanitizeBriefExample(example) {
+  if (!example || typeof example !== "object" || Array.isArray(example)) {
+    return null;
+  }
+
+  const exampleId = typeof example.example_id === "string" ? example.example_id.trim() : "";
+  const label = typeof example.label === "string" ? example.label.trim() : "";
+  const content = typeof example.content === "string" ? example.content : "";
+
+  if (!exampleId || !label || !content.trim()) {
+    return null;
+  }
+
+  return {
+    example_id: exampleId,
+    label,
+    summary: typeof example.summary === "string" ? example.summary.trim() : "",
+    source_path: typeof example.source_path === "string" ? example.source_path.trim() : "",
+    target_pack: typeof example.target_pack === "string" ? example.target_pack.trim() : "",
+    content,
+  };
+}
+
 function restoreRunActionDrafts() {
   const raw = window.localStorage.getItem(RUN_ACTION_DRAFTS_STORAGE_KEY);
   if (!raw) {
@@ -1071,10 +1133,83 @@ function renderPackChips(packs) {
     .join("");
 }
 
+function renderBriefExamples() {
+  if (!state.briefExamples.length) {
+    renderBriefExamplesError("No curated starters are configured for this instance.");
+    return;
+  }
+
+  elements.briefExamples.innerHTML = state.briefExamples
+    .map(
+      (example) => `
+        <button
+          class="chip chip-button"
+          type="button"
+          data-brief-example-id="${escapeHtml(example.example_id)}"
+          title="${escapeHtml(
+            example.summary || `${example.target_pack} starter from ${example.source_path}`
+          )}"
+        >
+          ${escapeHtml(example.label)}
+        </button>
+      `
+    )
+    .join("");
+  renderBriefExampleHint();
+}
+
+function renderBriefExamplesError(message) {
+  elements.briefExamples.innerHTML = '<span class="chip chip-loading">Starters unavailable</span>';
+  elements.briefExampleHint.textContent =
+    `${message} Paste YAML manually or use the repo examples/briefs files directly.`;
+}
+
+function renderBriefExampleHint(activeExample) {
+  if (activeExample) {
+    elements.briefExampleHint.textContent =
+      `Loaded ${activeExample.label} from ${activeExample.source_path}. Review repository owner/name and requested_by before validation or submission.`;
+    return;
+  }
+
+  if (!state.briefExamples.length) {
+    elements.briefExampleHint.textContent = "Loading curated starters...";
+    return;
+  }
+
+  elements.briefExampleHint.textContent =
+    "Load a curated starter, then adjust repository metadata before submission.";
+}
+
+function loadBriefExampleIntoEditor(exampleId) {
+  const example = state.briefExamples.find((candidate) => candidate.example_id === exampleId);
+  if (!example) {
+    return;
+  }
+
+  elements.briefEditor.value = example.content;
+  window.localStorage.setItem(BRIEF_STORAGE_KEY, example.content);
+  renderBriefExampleHint(example);
+  writeConsole(
+    elements.briefConsole,
+    elements.briefConsoleStatus,
+    "neutral",
+    {
+      loaded_example: example.label,
+      source_path: example.source_path,
+      target_pack: example.target_pack,
+    }
+  );
+  elements.briefEditor.focus();
+  elements.briefEditor.setSelectionRange(0, 0);
+}
+
 function renderRuns(response) {
   const runs = Array.isArray(response?.runs) ? response.runs : [];
   if (runs.length === 0) {
-    elements.runsList.innerHTML = loadingOrEmptyState("No runs match the current filter.");
+    const emptyMessage = state.selectedRunStatus
+      ? "No runs match the current filter."
+      : "No runs yet. Load a quick-start brief above or submit your own YAML.";
+    elements.runsList.innerHTML = loadingOrEmptyState(emptyMessage);
     return;
   }
 
@@ -1890,6 +2025,7 @@ function restoreBriefDraft() {
   state.runActionDrafts = restoreRunActionDrafts();
   state.autoRefresh = elements.autoRefreshToggle.checked;
   renderDashboardLoadingState();
+  renderBriefExampleHint();
   renderQueueInspectorEmpty();
   renderRunActionHighlights(null);
   syncRunActionDraftInputs(null);

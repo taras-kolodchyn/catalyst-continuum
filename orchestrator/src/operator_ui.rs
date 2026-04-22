@@ -13,6 +13,14 @@ const INDEX_HTML: &str = include_str!("operator_ui/index.html");
 const APP_JS: &str = include_str!("operator_ui/app.js");
 const STYLES_CSS: &str = include_str!("operator_ui/styles.css");
 pub const DASHBOARD_PATH: &str = "/ui/dashboard";
+pub const BRIEF_EXAMPLES_PATH: &str = "/ui/brief-examples";
+const MINIMAL_CONTAINER_SERVICE_BRIEF: &str =
+    include_str!("../../examples/briefs/minimal-container-service.yaml");
+const MINIMAL_CLI_TOOL_BRIEF: &str = include_str!("../../examples/briefs/minimal-cli-tool.yaml");
+const MINIMAL_WORKER_SERVICE_BRIEF: &str =
+    include_str!("../../examples/briefs/minimal-worker-service.yaml");
+const OPENHANDS_BOOTSTRAP_CLI_BRIEF: &str =
+    include_str!("../../examples/briefs/openhands-bootstrap-cli.yaml");
 
 pub fn route_label(path: &str) -> Option<&'static str> {
     match path {
@@ -63,6 +71,47 @@ pub fn dashboard_snapshot(
         ai_gateway,
         config,
         packs,
+    }
+}
+
+pub fn brief_examples_document() -> OperatorUiBriefExamplesResponse {
+    OperatorUiBriefExamplesResponse {
+        examples: vec![
+            OperatorUiBriefExample {
+                example_id: "minimal-container-service".to_string(),
+                label: "Container Service".to_string(),
+                summary: "Quick-start the baseline containerized service proof of concept."
+                    .to_string(),
+                source_path: "examples/briefs/minimal-container-service.yaml".to_string(),
+                target_pack: "container-service".to_string(),
+                content: MINIMAL_CONTAINER_SERVICE_BRIEF.to_string(),
+            },
+            OperatorUiBriefExample {
+                example_id: "minimal-cli-tool".to_string(),
+                label: "CLI Tool".to_string(),
+                summary: "Quick-start the minimal CLI proof of concept.".to_string(),
+                source_path: "examples/briefs/minimal-cli-tool.yaml".to_string(),
+                target_pack: "cli-tool".to_string(),
+                content: MINIMAL_CLI_TOOL_BRIEF.to_string(),
+            },
+            OperatorUiBriefExample {
+                example_id: "minimal-worker-service".to_string(),
+                label: "Worker Service".to_string(),
+                summary: "Quick-start the background worker proof of concept.".to_string(),
+                source_path: "examples/briefs/minimal-worker-service.yaml".to_string(),
+                target_pack: "worker-service".to_string(),
+                content: MINIMAL_WORKER_SERVICE_BRIEF.to_string(),
+            },
+            OperatorUiBriefExample {
+                example_id: "openhands-bootstrap-cli".to_string(),
+                label: "OpenHands Bootstrap".to_string(),
+                summary: "Shortest deterministic bootstrap path for OpenHands MCP validation."
+                    .to_string(),
+                source_path: "examples/briefs/openhands-bootstrap-cli.yaml".to_string(),
+                target_pack: "cli-tool".to_string(),
+                content: OPENHANDS_BOOTSTRAP_CLI_BRIEF.to_string(),
+            },
+        ],
     }
 }
 
@@ -136,6 +185,21 @@ pub struct OperatorUiDashboardSnapshotResponse {
 }
 
 #[derive(Debug, Serialize)]
+pub struct OperatorUiBriefExamplesResponse {
+    pub examples: Vec<OperatorUiBriefExample>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OperatorUiBriefExample {
+    pub example_id: String,
+    pub label: String,
+    pub summary: String,
+    pub source_path: String,
+    pub target_pack: String,
+    pub content: String,
+}
+
+#[derive(Debug, Serialize)]
 pub struct OperatorUiDataEnvelope<T> {
     pub ok: bool,
     pub status: u16,
@@ -178,7 +242,10 @@ pub struct OperatorUiReadinessResponse {
 
 #[cfg(test)]
 mod tests {
-    use super::{DASHBOARD_PATH, dashboard_snapshot, response, route_label};
+    use super::{
+        BRIEF_EXAMPLES_PATH, DASHBOARD_PATH, brief_examples_document, dashboard_snapshot, response,
+        route_label,
+    };
     use crate::{
         config::{
             AiGatewayCapabilityConfig, AiGatewayConfig, AiGatewayDefaultModelAliases,
@@ -223,6 +290,20 @@ mod tests {
                 .default_provider,
             "docker"
         );
+    }
+
+    #[test]
+    fn exposes_curated_brief_examples_for_operator_quick_start() {
+        let document = brief_examples_document();
+
+        assert_eq!(BRIEF_EXAMPLES_PATH, "/ui/brief-examples");
+        assert_eq!(document.examples.len(), 4);
+        assert!(document.examples.iter().any(|example| example.source_path
+            == "examples/briefs/minimal-cli-tool.yaml"
+            && example.content.contains("repo_pack: cli-tool")));
+        assert!(document.examples.iter().any(|example| example.source_path
+            == "examples/briefs/minimal-container-service.yaml"
+            && example.content.contains("repo_pack: container-service")));
     }
 
     #[test]

@@ -49,7 +49,8 @@ body {
 button,
 input,
 select,
-textarea {
+textarea,
+.chip-button {
   font: inherit;
 }
 
@@ -279,6 +280,22 @@ textarea {
   padding: 7px 12px;
   font-size: 0.83rem;
   font-weight: 600;
+}
+
+.brief-starter-section {
+  margin-bottom: 14px;
+}
+
+.chip-button {
+  appearance: none;
+  cursor: pointer;
+  transition: transform 180ms ease, border-color 180ms ease, background 180ms ease;
+}
+
+.chip-button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(23, 79, 67, 0.28);
+  background: rgba(23, 79, 67, 0.1);
 }
 
 .chip-loading {
