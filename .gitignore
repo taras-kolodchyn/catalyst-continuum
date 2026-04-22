@@ -27,3 +27,4 @@ deploy/compose/.env
 .continuum/
 orchestrator/.tmp/
 orchestrator/.tmp-artifacts/
+.DS_Store
