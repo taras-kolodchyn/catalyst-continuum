@@ -2159,10 +2159,23 @@ function syncMissionTabSelection() {
 function renderMissionControl() {
   syncMissionTabSelection();
   renderMissionTabHint();
-  renderMissionFlowPanel();
-  renderMissionAgentsPanel();
-  renderMissionGrafanaPanel();
-  renderMissionLitellmPanel();
+  renderActiveMissionPanel();
+}
+
+function renderActiveMissionPanel() {
+  switch (state.activeMissionTab) {
+    case "agents":
+      renderMissionAgentsPanel();
+      return;
+    case "grafana":
+      renderMissionGrafanaPanel();
+      return;
+    case "litellm":
+      renderMissionLitellmPanel();
+      return;
+    default:
+      renderMissionFlowPanel();
+  }
 }
 
 function renderMissionTabHint() {
@@ -2199,7 +2212,8 @@ function renderMissionFlowPanel() {
         "Mission flow",
         "Open a run to unlock the full delivery map",
         "The flow tab becomes valuable once one concrete run exists, because it ties stages, artifacts, and the latest run movement together."
-      )
+      ),
+      { markUpdated: false }
     );
     return;
   }
@@ -2289,7 +2303,8 @@ function renderMissionFlowPanel() {
           </div>
         </section>
       </div>
-    `
+    `,
+    { markUpdated: false }
   );
 }
 
@@ -2437,7 +2452,7 @@ function setSelectedAgentActivity(agentId) {
     state.selectedAgentReportArtifactId = null;
     state.selectedAgentLogArtifactId = null;
   }
-  renderMissionControl();
+  renderMissionAgentsPanel();
 }
 
 function setSelectedAgentReport(artifactId) {
@@ -2446,7 +2461,7 @@ function setSelectedAgentReport(artifactId) {
   }
 
   state.selectedAgentReportArtifactId = artifactId;
-  renderMissionControl();
+  renderMissionAgentsPanel();
 }
 
 function setSelectedAgentLog(artifactId) {
@@ -2455,7 +2470,7 @@ function setSelectedAgentLog(artifactId) {
   }
 
   state.selectedAgentLogArtifactId = artifactId;
-  renderMissionControl();
+  renderMissionAgentsPanel();
 }
 
 function runAgents(runDetail) {
@@ -2477,7 +2492,7 @@ function ensureAgentReportDetails(runDetail) {
   const reports = agentTaskReportArtifacts(runDetail);
   if (!reports.length) {
     ensureAgentLogDetails(runDetail);
-    renderMissionControl();
+    renderMissionAgentsPanel();
     return;
   }
 
@@ -2493,7 +2508,7 @@ function ensureAgentReportDetails(runDetail) {
     syncSelectedAgentActivity(runDetail);
     ensureAgentLogDetails(runDetail);
     ensureLinkedAgentArtifactDetails(runDetail);
-    renderMissionControl();
+    renderMissionAgentsPanel();
     return;
   }
 
@@ -2515,7 +2530,7 @@ function ensureAgentReportDetails(runDetail) {
           ensureAgentLogDetails(state.selectedRunDetail);
           ensureLinkedAgentArtifactDetails(state.selectedRunDetail);
           syncSelectedAgentActivity(state.selectedRunDetail);
-          renderMissionControl();
+          renderMissionAgentsPanel();
         }
       });
   });
@@ -2524,7 +2539,7 @@ function ensureAgentReportDetails(runDetail) {
 function ensureAgentLogDetails(runDetail) {
   const logs = agentExecutionLogArtifacts(runDetail);
   if (!logs.length) {
-    renderMissionControl();
+    renderMissionAgentsPanel();
     return;
   }
 
@@ -2539,7 +2554,7 @@ function ensureAgentLogDetails(runDetail) {
   if (!pending.length) {
     syncSelectedAgentActivity(runDetail);
     ensureLinkedAgentArtifactDetails(runDetail);
-    renderMissionControl();
+    renderMissionAgentsPanel();
     return;
   }
 
@@ -2560,7 +2575,7 @@ function ensureAgentLogDetails(runDetail) {
         if (state.selectedRunDetail?.run_id === runDetail.run_id) {
           ensureLinkedAgentArtifactDetails(state.selectedRunDetail);
           syncSelectedAgentActivity(state.selectedRunDetail);
-          renderMissionControl();
+          renderMissionAgentsPanel();
         }
       });
   });
@@ -2591,7 +2606,7 @@ function ensureLinkedAgentArtifactDetails(runDetail) {
       .finally(() => {
         delete state.agentLinkedArtifactLoadsInFlight[artifactId];
         if (state.selectedRunDetail?.run_id === runDetail.run_id) {
-          renderMissionControl();
+          renderMissionAgentsPanel();
         }
       });
   });
@@ -2608,16 +2623,68 @@ function linkedAgentArtifactIdsForRun(runDetail) {
   ];
 }
 
+function ensureMissionAgentsShell() {
+  if (elements.missionAgentsPanel.dataset.mode === "detail") {
+    return;
+  }
+
+  setRenderedHtml(
+    elements.missionAgentsPanel,
+    `
+      <div id="missionAgentsLayout" class="mission-flow-layout">
+        <div id="agentFilterRow" class="agent-filter-row"></div>
+        <div id="agentLaneGrid" class="agent-lane-grid"></div>
+        <section class="agent-log-shell">
+          <div class="detail-section-head">
+            <div>
+              <p class="panel-kicker">Agent event log</p>
+              <h3>Task movement for the filtered agent set</h3>
+            </div>
+            <span id="agentEventCount" class="badge badge-neutral">0</span>
+          </div>
+          <div id="agentEventLogList" class="agent-log-list"></div>
+        </section>
+        <section class="agent-execution-shell">
+          <div class="detail-section-head">
+            <div>
+              <p class="panel-kicker">Execution logs</p>
+              <h3>Runtime stdout, stderr, and command context</h3>
+            </div>
+            <span id="agentExecutionCount" class="badge badge-neutral">0</span>
+          </div>
+          <div id="agentExecutionGrid" class="agent-log-grid"></div>
+          <div id="agentExecutionDetail"></div>
+        </section>
+        <section class="agent-report-shell">
+          <div class="detail-section-head">
+            <div>
+              <p class="panel-kicker">Persisted agent reports</p>
+              <h3>Summaries and raw details from completed agent work</h3>
+            </div>
+            <span id="agentReportCount" class="badge badge-neutral">0</span>
+          </div>
+          <div id="agentReportGrid" class="agent-report-grid"></div>
+          <div id="agentReportDetail"></div>
+        </section>
+      </div>
+    `,
+    { markUpdated: false }
+  );
+  elements.missionAgentsPanel.dataset.mode = "detail";
+}
+
 function renderMissionAgentsPanel() {
   const runDetail = state.selectedRunDetail;
   if (!runDetail) {
+    elements.missionAgentsPanel.dataset.mode = "empty";
     setRenderedHtml(
       elements.missionAgentsPanel,
       renderSectionEmptyState(
         "Agent activity",
         "Open a run to inspect multi-agent execution",
         "Agent lanes become useful only after one run has tasks, run events, and external-agent reports to compare."
-      )
+      ),
+      { markUpdated: false }
     );
     return;
   }
@@ -2654,116 +2721,103 @@ function renderMissionAgentsPanel() {
     !logs.length &&
     !tasks.some((task) => task.agent_execution?.mode === "external_agent")
   ) {
+    elements.missionAgentsPanel.dataset.mode = "empty";
     setRenderedHtml(
       elements.missionAgentsPanel,
       renderSectionEmptyState(
         "Agent activity",
         "No external-agent activity is visible for this run",
         "Tasks are present, but none are currently assigned to an external agent or accompanied by persisted agent_task_report artifacts."
-      )
+      ),
+      { markUpdated: false }
     );
     return;
   }
 
+  ensureMissionAgentsShell();
+
   setRenderedHtml(
-    elements.missionAgentsPanel,
+    document.getElementById("agentFilterRow"),
     `
-      <div class="mission-flow-layout">
-        <div class="agent-filter-row">
-          ${renderAgentFilterChip("all", "All agents", state.selectedAgentActivityId === "all")}
-          ${agents
-            .map((agentId) =>
-              renderAgentFilterChip(
-                agentId,
-                `${agentId}${laneTaskCountSuffix(lanes, agentId)}`,
-                state.selectedAgentActivityId === agentId
-              )
-            )
-            .join("")}
-        </div>
-        <div class="agent-lane-grid">
-          ${
-            filteredLanes.length
-              ? filteredLanes.map(renderAgentLane).join("")
-              : renderSectionEmptyState(
-                  "Agent lanes",
-                  "No agent lanes are available yet",
-                  "Assigned-agent task state will appear here once the run records external-agent work."
-                )
-          }
-        </div>
-        <section class="agent-log-shell">
-          <div class="detail-section-head">
-            <div>
-              <p class="panel-kicker">Agent event log</p>
-              <h3>Task movement for the filtered agent set</h3>
-            </div>
-            <span class="badge badge-neutral">${escapeHtml(String(filteredEvents.length))}</span>
-          </div>
-          <div class="agent-log-list">
-            ${
-              filteredEvents.length
-                ? filteredEvents.map((event) => renderAgentLogItem(runDetail, event)).join("")
-                : renderSectionEmptyState(
-                    "Agent event log",
-                    "No task events match the current agent filter",
-                    "Select another agent or wait for a task event, heartbeat, success, failure, or requeue update."
-                  )
-            }
-          </div>
-        </section>
-        <section class="agent-execution-shell">
-          <div class="detail-section-head">
-            <div>
-              <p class="panel-kicker">Execution logs</p>
-              <h3>Runtime stdout, stderr, and command context</h3>
-            </div>
-            <span class="badge badge-neutral">${escapeHtml(String(logs.length))}</span>
-          </div>
-          <div class="agent-log-grid">
-            ${
-              logs.length
-                ? logs.map((log) => renderAgentExecutionLogCard(runDetail, log)).join("")
-                : renderSectionEmptyState(
-                    "Execution logs",
-                    "No runtime log artifacts match the current agent filter",
-                    "Logs appear when worker or runtime-backed tasks persist execution artifacts for the selected run."
-                  )
-            }
-          </div>
-          ${
-            selectedLog
-              ? renderSelectedAgentExecutionLog(runDetail, selectedLog)
-              : ""
-          }
-        </section>
-        <section class="agent-report-shell">
-          <div class="detail-section-head">
-            <div>
-              <p class="panel-kicker">Persisted agent reports</p>
-              <h3>Summaries and raw details from completed agent work</h3>
-            </div>
-            <span class="badge badge-neutral">${escapeHtml(String(reports.length))}</span>
-          </div>
-          <div class="agent-report-grid">
-            ${
-              reports.length
-                ? reports.map(renderAgentReportCard).join("")
-                : renderSectionEmptyState(
-                    "Agent reports",
-                    "No persisted agent_task_report artifacts match the current filter",
-                    "Reports appear after an external agent completes or retries a claimed task."
-                  )
-            }
-          </div>
-          ${
-            selectedReport
-              ? renderSelectedAgentReportConsole(runDetail, selectedReport)
-              : ""
-          }
-        </section>
-      </div>
-    `
+      ${renderAgentFilterChip("all", "All agents", state.selectedAgentActivityId === "all")}
+      ${agents
+        .map((agentId) =>
+          renderAgentFilterChip(
+            agentId,
+            `${agentId}${laneTaskCountSuffix(lanes, agentId)}`,
+            state.selectedAgentActivityId === agentId
+          )
+        )
+        .join("")}
+    `,
+    { markUpdated: false }
+  );
+
+  setRenderedHtml(
+    document.getElementById("agentLaneGrid"),
+    filteredLanes.length
+      ? filteredLanes.map(renderAgentLane).join("")
+      : renderSectionEmptyState(
+          "Agent lanes",
+          "No agent lanes are available yet",
+          "Assigned-agent task state will appear here once the run records external-agent work."
+        ),
+    { markUpdated: false }
+  );
+
+  setTextContent(document.getElementById("agentEventCount"), String(filteredEvents.length), {
+    markUpdated: false,
+  });
+  setRenderedHtml(
+    document.getElementById("agentEventLogList"),
+    filteredEvents.length
+      ? filteredEvents.map((event) => renderAgentLogItem(runDetail, event)).join("")
+      : renderSectionEmptyState(
+          "Agent event log",
+          "No task events match the current agent filter",
+          "Select another agent or wait for a task event, heartbeat, success, failure, or requeue update."
+        ),
+    { markUpdated: false }
+  );
+
+  setTextContent(document.getElementById("agentExecutionCount"), String(logs.length), {
+    markUpdated: false,
+  });
+  setRenderedHtml(
+    document.getElementById("agentExecutionGrid"),
+    logs.length
+      ? logs.map((log) => renderAgentExecutionLogCard(runDetail, log)).join("")
+      : renderSectionEmptyState(
+          "Execution logs",
+          "No runtime log artifacts match the current agent filter",
+          "Logs appear when worker or runtime-backed tasks persist execution artifacts for the selected run."
+        ),
+    { markUpdated: false }
+  );
+  setRenderedHtml(
+    document.getElementById("agentExecutionDetail"),
+    selectedLog ? renderSelectedAgentExecutionLog(runDetail, selectedLog) : "",
+    { markUpdated: false }
+  );
+
+  setTextContent(document.getElementById("agentReportCount"), String(reports.length), {
+    markUpdated: false,
+  });
+  setRenderedHtml(
+    document.getElementById("agentReportGrid"),
+    reports.length
+      ? reports.map(renderAgentReportCard).join("")
+      : renderSectionEmptyState(
+          "Agent reports",
+          "No persisted agent_task_report artifacts match the current filter",
+          "Reports appear after an external agent completes or retries a claimed task."
+        ),
+    { markUpdated: false }
+  );
+  setRenderedHtml(
+    document.getElementById("agentReportDetail"),
+    selectedReport ? renderSelectedAgentReportConsole(runDetail, selectedReport) : "",
+    { markUpdated: false }
   );
 }
 
@@ -3743,7 +3797,8 @@ function renderMissionGrafanaPanel() {
           </div>
         </section>
       </div>
-    `
+    `,
+    { markUpdated: false }
   );
 }
 
@@ -3849,7 +3904,8 @@ function renderMissionLitellmPanel() {
           </div>
         </section>
       </div>
-    `
+    `,
+    { markUpdated: false }
   );
 }
 
