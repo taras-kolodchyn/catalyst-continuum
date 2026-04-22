@@ -1695,50 +1695,96 @@ function renderTasks(tasks) {
   }
 
   elements.taskTableWrap.innerHTML = `
-    <table class="data-table">
-      <thead>
-        <tr>
-          <th>Status</th>
-          <th>Title</th>
-          <th>Agent</th>
-          <th>Provider</th>
-          <th>Retry</th>
-          <th>Updated</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${tasks
-          .map(
-            (task) => `
-              <tr>
-                <td><span class="badge badge-${escapeHtml(statusTone(task.status))}">${escapeHtml(
-                  task.status
-                )}</span></td>
-                <td>
-                  <strong>${escapeHtml(task.title)}</strong>
-                  <div class="microcopy">${escapeHtml(task.backlog_item_id)}</div>
-                </td>
-                <td>
-                  ${escapeHtml(task.assigned_agent ?? "n/a")}
-                  <div class="microcopy">${escapeHtml(
-                    task.orchestrator_model ?? task.agent_execution?.mode ?? "no model hint"
-                  )}</div>
-                </td>
-                <td>${escapeHtml(task.execution?.provider ?? "n/a")}</td>
-                <td>
-                  ${escapeHtml(task.retry_state?.retry_count ?? 0)} / ${escapeHtml(
+    <div class="data-card-list">
+      ${tasks
+        .map(
+          (task) => `
+            <article class="data-card">
+              <div class="data-card-head">
+                <div>
+                  <span class="badge badge-${escapeHtml(statusTone(task.status))}">${escapeHtml(
+                    task.status
+                  )}</span>
+                  <h4>${escapeHtml(task.title)}</h4>
+                </div>
+                <span class="mono">${escapeHtml(task.backlog_item_id)}</span>
+              </div>
+              <div class="data-card-grid">
+                ${renderDataCardField(
+                  "Agent",
+                  escapeHtml(task.assigned_agent ?? "n/a"),
+                  escapeHtml(task.orchestrator_model ?? task.agent_execution?.mode ?? "no model hint")
+                )}
+                ${renderDataCardField(
+                  "Provider",
+                  escapeHtml(task.execution?.provider ?? "n/a")
+                )}
+                ${renderDataCardField(
+                  "Retry",
+                  `${escapeHtml(task.retry_state?.retry_count ?? 0)} / ${escapeHtml(
                     task.retry_state?.max_retry_count ?? 0
-                  )}
-                </td>
-                <td>${escapeHtml(
-                  formatTimestamp(task.completed_at ?? task.lease_expires_at ?? task.started_at ?? task.created_at)
-                )}</td>
-              </tr>
-            `
-          )
-          .join("")}
-      </tbody>
-    </table>
+                  )}`
+                )}
+                ${renderDataCardField(
+                  "Updated",
+                  escapeHtml(
+                    formatTimestamp(
+                      task.completed_at ?? task.lease_expires_at ?? task.started_at ?? task.created_at
+                    )
+                  )
+                )}
+              </div>
+            </article>
+          `
+        )
+        .join("")}
+    </div>
+    <div class="table-scroll">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Status</th>
+            <th>Title</th>
+            <th>Agent</th>
+            <th>Provider</th>
+            <th>Retry</th>
+            <th>Updated</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${tasks
+            .map(
+              (task) => `
+                <tr>
+                  <td><span class="badge badge-${escapeHtml(statusTone(task.status))}">${escapeHtml(
+                    task.status
+                  )}</span></td>
+                  <td>
+                    <strong>${escapeHtml(task.title)}</strong>
+                    <div class="microcopy">${escapeHtml(task.backlog_item_id)}</div>
+                  </td>
+                  <td>
+                    ${escapeHtml(task.assigned_agent ?? "n/a")}
+                    <div class="microcopy">${escapeHtml(
+                      task.orchestrator_model ?? task.agent_execution?.mode ?? "no model hint"
+                    )}</div>
+                  </td>
+                  <td>${escapeHtml(task.execution?.provider ?? "n/a")}</td>
+                  <td>
+                    ${escapeHtml(task.retry_state?.retry_count ?? 0)} / ${escapeHtml(
+                      task.retry_state?.max_retry_count ?? 0
+                    )}
+                  </td>
+                  <td>${escapeHtml(
+                    formatTimestamp(task.completed_at ?? task.lease_expires_at ?? task.started_at ?? task.created_at)
+                  )}</td>
+                </tr>
+              `
+            )
+            .join("")}
+        </tbody>
+      </table>
+    </div>
   `;
 }
 
@@ -1770,30 +1816,74 @@ function renderArtifacts(runDetail) {
   }
 
   elements.artifactTableWrap.innerHTML = `
-    <table class="data-table">
-      <thead>
-        <tr>
-          <th>Type</th>
-          <th>Format</th>
-          <th>Location</th>
-          <th>Created</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${artifacts
-          .map(
-            (artifact) => `
-              <tr>
-                <td>${escapeHtml(artifact.artifact_type)}</td>
-                <td>${escapeHtml(artifact.format)}</td>
-                <td class="mono">${escapeHtml(artifact.location_value)}</td>
-                <td>${escapeHtml(formatTimestamp(artifact.created_at))}</td>
-              </tr>
-            `
-          )
-          .join("")}
-      </tbody>
-    </table>
+    <div class="data-card-list">
+      ${artifacts
+        .map(
+          (artifact) => `
+            <article class="data-card">
+              <div class="data-card-head">
+                <div>
+                  <p class="panel-kicker">${escapeHtml(artifact.artifact_type)}</p>
+                  <h4>${escapeHtml(artifact.format)}</h4>
+                </div>
+              </div>
+              <div class="data-card-grid data-card-grid-single">
+                ${renderDataCardField(
+                  "Location",
+                  escapeHtml(artifact.location_value),
+                  "",
+                  "mono"
+                )}
+                ${renderDataCardField(
+                  "Created",
+                  escapeHtml(formatTimestamp(artifact.created_at))
+                )}
+              </div>
+            </article>
+          `
+        )
+        .join("")}
+    </div>
+    <div class="table-scroll">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Type</th>
+            <th>Format</th>
+            <th>Location</th>
+            <th>Created</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${artifacts
+            .map(
+              (artifact) => `
+                <tr>
+                  <td>${escapeHtml(artifact.artifact_type)}</td>
+                  <td>${escapeHtml(artifact.format)}</td>
+                  <td class="mono">${escapeHtml(artifact.location_value)}</td>
+                  <td>${escapeHtml(formatTimestamp(artifact.created_at))}</td>
+                </tr>
+              `
+            )
+            .join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderDataCardField(label, value, detail = "", valueClass = "") {
+  const detailMarkup = detail
+    ? `<div class="microcopy">${detail}</div>`
+    : "";
+  const renderedValueClass = valueClass ? ` data-card-value-${valueClass}` : "";
+  return `
+    <div class="data-card-field">
+      <span class="data-card-label">${escapeHtml(label)}</span>
+      <strong class="data-card-value${renderedValueClass}">${value}</strong>
+      ${detailMarkup}
+    </div>
   `;
 }
 
