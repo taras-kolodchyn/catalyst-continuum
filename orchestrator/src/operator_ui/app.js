@@ -1,4 +1,5 @@
 const BRIEF_STORAGE_KEY = "catalystContinuum.operatorUi.brief";
+const RUN_ACTION_DRAFTS_STORAGE_KEY = "catalystContinuum.operatorUi.runActionDrafts";
 const AUTO_REFRESH_INTERVAL_MS = 15000;
 const DASHBOARD_LOADING_CARD_TITLES = [
   "Control plane",
@@ -42,6 +43,7 @@ const state = {
   latestWebhookActions: [],
   latestRepositorySignals: [],
   latestWebhookDeliveries: [],
+  runActionDrafts: {},
   selectedQueueItem: null,
   selectedQueueRunId: null,
 };
@@ -114,6 +116,7 @@ function cacheElements() {
     "remoteUrlInput",
     "repositorySignalsList",
     "runActionHint",
+    "runActionDraftHint",
     "runNextWebhookButton",
     "runRepositoryAutomationButton",
     "runDetailShell",
@@ -131,6 +134,7 @@ function cacheElements() {
     "webhookActionCount",
     "webhookActionsList",
     "webhookDeliveriesList",
+    "resetRunActionDraftButton",
   ];
 
   for (const id of ids) {
@@ -239,6 +243,28 @@ function bindEvents() {
     executeRunAction(actionButton.dataset.runAction).catch((error) => {
       console.error("run action failed", error);
     });
+  });
+
+  elements.branchNameInput.addEventListener("input", () => {
+    updateSelectedRunActionDraft({
+      branchName: elements.branchNameInput.value,
+    });
+  });
+
+  elements.remoteUrlInput.addEventListener("input", () => {
+    updateSelectedRunActionDraft({
+      remoteUrl: elements.remoteUrlInput.value,
+    });
+  });
+
+  elements.publishPushToggle.addEventListener("change", () => {
+    updateSelectedRunActionDraft({
+      push: elements.publishPushToggle.checked,
+    });
+  });
+
+  elements.resetRunActionDraftButton.addEventListener("click", () => {
+    resetSelectedRunActionDraft();
   });
 }
 
@@ -601,6 +627,7 @@ async function executeRunAction(actionId) {
       elements.actionConsoleStatus,
       envelope
     );
+    updateRunActionDraftFromResult(actionId, envelope.data);
 
     await refreshDashboard();
   } finally {
@@ -695,6 +722,229 @@ function automationSubmittedRunId(payload) {
   }
 
   return payload.signal_submission.submission?.run_id ?? null;
+}
+
+function restoreRunActionDrafts() {
+  const raw = window.localStorage.getItem(RUN_ACTION_DRAFTS_STORAGE_KEY);
+  if (!raw) {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    return sanitizeRunActionDraftMap(parsed);
+  } catch (error) {
+    console.error("failed to restore run action drafts", error);
+    return {};
+  }
+}
+
+function sanitizeRunActionDraftMap(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(value).map(([runId, draft]) => [
+      runId,
+      sanitizeRunActionDraft(draft),
+    ])
+  );
+}
+
+function sanitizeRunActionDraft(draft) {
+  if (!draft || typeof draft !== "object" || Array.isArray(draft)) {
+    return {
+      branchName: "",
+      remoteUrl: "",
+      push: false,
+    };
+  }
+
+  return {
+    branchName: typeof draft.branchName === "string" ? draft.branchName : "",
+    remoteUrl: typeof draft.remoteUrl === "string" ? draft.remoteUrl : "",
+    push: draft.push === true,
+  };
+}
+
+function persistRunActionDrafts() {
+  window.localStorage.setItem(
+    RUN_ACTION_DRAFTS_STORAGE_KEY,
+    JSON.stringify(state.runActionDrafts)
+  );
+}
+
+function defaultPromotionBranchName(runId) {
+  if (!runId) {
+    return "";
+  }
+
+  return `continuum/run-${String(runId).slice(0, 8)}`;
+}
+
+function inferredRemoteUrl(runDetail) {
+  const repository = runDetail?.repository;
+  const owner = repository?.owner?.trim();
+  const name = repository?.name?.trim();
+  const host = repository?.host ?? "github";
+
+  if (!owner || !name || host !== "github") {
+    return "";
+  }
+
+  return `https://github.com/${owner}/${name}.git`;
+}
+
+function defaultRunActionDraft(runDetail) {
+  return {
+    branchName: defaultPromotionBranchName(runDetail?.run_id),
+    remoteUrl: inferredRemoteUrl(runDetail),
+    push: false,
+  };
+}
+
+function runActionDraftForRun(runDetail) {
+  if (!runDetail?.run_id) {
+    return defaultRunActionDraft(null);
+  }
+
+  const defaults = defaultRunActionDraft(runDetail);
+  const stored = sanitizeRunActionDraft(state.runActionDrafts[runDetail.run_id]);
+
+  return {
+    branchName: stored.branchName || defaults.branchName,
+    remoteUrl: stored.remoteUrl || defaults.remoteUrl,
+    push: stored.push,
+  };
+}
+
+function saveRunActionDraft(runId, draft) {
+  if (!runId) {
+    return;
+  }
+
+  state.runActionDrafts[runId] = sanitizeRunActionDraft(draft);
+  persistRunActionDrafts();
+}
+
+function updateSelectedRunActionDraft(partialDraft) {
+  if (!state.selectedRunDetail?.run_id) {
+    return;
+  }
+
+  saveRunActionDraft(state.selectedRunDetail.run_id, {
+    ...runActionDraftForRun(state.selectedRunDetail),
+    ...partialDraft,
+  });
+  renderRunActionDraftHint(state.selectedRunDetail);
+}
+
+function resetSelectedRunActionDraft() {
+  if (!state.selectedRunDetail?.run_id) {
+    return;
+  }
+
+  saveRunActionDraft(
+    state.selectedRunDetail.run_id,
+    defaultRunActionDraft(state.selectedRunDetail)
+  );
+  syncRunActionDraftInputs(state.selectedRunDetail);
+}
+
+function updateRunActionDraftFromResult(actionId, payload) {
+  if (!state.selectedRunDetail?.run_id || !payload || typeof payload !== "object") {
+    return;
+  }
+
+  const nextDraft = {};
+  if (actionId === "export-pr" || actionId === "draft-pr") {
+    if (typeof payload.branch_name === "string" && payload.branch_name.trim()) {
+      nextDraft.branchName = payload.branch_name;
+    }
+  }
+  if (actionId === "publish-pr") {
+    if (typeof payload.head_branch === "string" && payload.head_branch.trim()) {
+      nextDraft.branchName = payload.head_branch;
+    }
+    if (typeof payload.remote_url === "string" && payload.remote_url.trim()) {
+      nextDraft.remoteUrl = payload.remote_url;
+    }
+    if (typeof payload.push_status === "string") {
+      nextDraft.push = payload.push_status === "pushed";
+    }
+  }
+  if (actionId === "draft-pr") {
+    if (typeof payload.remote_url === "string" && payload.remote_url.trim()) {
+      nextDraft.remoteUrl = payload.remote_url;
+    }
+    nextDraft.push = true;
+  }
+
+  if (Object.keys(nextDraft).length === 0) {
+    return;
+  }
+
+  saveRunActionDraft(state.selectedRunDetail.run_id, {
+    ...runActionDraftForRun(state.selectedRunDetail),
+    ...nextDraft,
+  });
+  syncRunActionDraftInputs(state.selectedRunDetail);
+}
+
+function syncRunActionDraftInputs(runDetail) {
+  if (!runDetail?.run_id) {
+    elements.branchNameInput.value = "";
+    elements.remoteUrlInput.value = "";
+    elements.publishPushToggle.checked = false;
+    renderRunActionDraftHint(null);
+    return;
+  }
+
+  const draft = runActionDraftForRun(runDetail);
+  elements.branchNameInput.value = draft.branchName;
+  elements.remoteUrlInput.value = draft.remoteUrl;
+  elements.publishPushToggle.checked = draft.push;
+  renderRunActionDraftHint(runDetail);
+}
+
+function renderRunActionDraftHint(runDetail) {
+  if (!runDetail?.run_id) {
+    elements.runActionDraftHint.textContent =
+      "Promotion defaults appear once a run is selected.";
+    return;
+  }
+
+  const defaults = defaultRunActionDraft(runDetail);
+  const draft = runActionDraftForRun(runDetail);
+  const messages = [];
+
+  if (draft.branchName === defaults.branchName) {
+    messages.push(`Branch defaults to ${defaults.branchName}.`);
+  } else if (draft.branchName.trim()) {
+    messages.push(`Branch override active: ${draft.branchName.trim()}.`);
+  } else {
+    messages.push("Branch name will be resolved by the orchestrator.");
+  }
+
+  if (defaults.remoteUrl) {
+    if (draft.remoteUrl === defaults.remoteUrl) {
+      messages.push(`Remote defaults to ${defaults.remoteUrl}.`);
+    } else {
+      messages.push(`Remote override active: ${draft.remoteUrl.trim()}.`);
+    }
+  } else if (draft.remoteUrl.trim()) {
+    messages.push(`Remote override active: ${draft.remoteUrl.trim()}.`);
+  } else {
+    messages.push(
+      "No repository-derived remote is available for this run."
+    );
+  }
+
+  messages.push(
+    "Reset defaults to restore the repository-derived promotion values for this run."
+  );
+  elements.runActionDraftHint.textContent = messages.join(" ");
 }
 
 function renderStatusGrid(payload) {
@@ -1398,6 +1648,7 @@ function clearRunSelection(message) {
   elements.detailEmptyState.textContent = message;
   elements.detailEmptyState.classList.remove("hidden");
   elements.runDetailShell.classList.add("hidden");
+  syncRunActionDraftInputs(null);
   syncRunActionControlsWithState();
   const nextUrl = new URL(window.location.href);
   nextUrl.searchParams.delete("run");
@@ -1560,9 +1811,11 @@ function restoreBriefDraft() {
   if (saved) {
     elements.briefEditor.value = saved;
   }
+  state.runActionDrafts = restoreRunActionDrafts();
   state.autoRefresh = elements.autoRefreshToggle.checked;
   renderDashboardLoadingState();
   renderQueueInspectorEmpty();
+  syncRunActionDraftInputs(null);
   syncRunActionControlsWithState();
 }
 
@@ -1769,9 +2022,11 @@ function setRunActionControlsBusyState(actionId, busy) {
   elements.branchNameInput.disabled = true;
   elements.remoteUrlInput.disabled = true;
   elements.publishPushToggle.disabled = true;
+  elements.resetRunActionDraftButton.disabled = true;
   elements.branchNameInput.title = "";
   elements.remoteUrlInput.title = "";
   elements.publishPushToggle.title = "";
+  elements.resetRunActionDraftButton.title = "";
 }
 
 function disabledRunAction(reason) {
@@ -1879,6 +2134,7 @@ function runActionHintText(runDetail, availability) {
 
 function syncRunActionControlsWithState() {
   const availability = runActionAvailability(state.selectedRunDetail);
+  syncRunActionDraftInputs(state.selectedRunDetail);
 
   for (const button of runActionButtons()) {
     const actionId = button.dataset.runAction;
@@ -1901,6 +2157,8 @@ function syncRunActionControlsWithState() {
   elements.remoteUrlInput.disabled = state.runActionInFlight || !remoteActionsEnabled;
   elements.publishPushToggle.disabled =
     state.runActionInFlight || !availability["publish-pr"].enabled;
+  elements.resetRunActionDraftButton.disabled =
+    state.runActionInFlight || !state.selectedRunDetail;
   elements.branchNameInput.title = branchActionsEnabled
     ? ""
     : availability["draft-pr"].reason || availability["export-pr"].reason;
@@ -1910,6 +2168,9 @@ function syncRunActionControlsWithState() {
   elements.publishPushToggle.title = availability["publish-pr"].enabled
     ? ""
     : availability["publish-pr"].reason;
+  elements.resetRunActionDraftButton.title = state.selectedRunDetail
+    ? ""
+    : "Select a run before resetting promotion defaults.";
   elements.runActionHint.textContent = runActionHintText(
     state.selectedRunDetail,
     availability
