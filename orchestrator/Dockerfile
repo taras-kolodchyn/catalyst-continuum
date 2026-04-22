@@ -10,6 +10,7 @@ COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 COPY orchestrator/Cargo.toml orchestrator/Cargo.toml
 COPY orchestrator/sql orchestrator/sql
 COPY orchestrator/src orchestrator/src
+COPY examples/briefs examples/briefs
 
 RUN cargo build --locked --release -p catalyst-continuum-orchestrator
 
