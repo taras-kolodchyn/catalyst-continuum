@@ -65,10 +65,12 @@ const state = {
   activeBriefExampleId: null,
   autoRefresh: false,
   refreshInFlight: false,
+  refreshAnimationsEnabled: false,
   lastRefreshAt: null,
   briefRequestInFlight: false,
   automationRequestInFlight: false,
   runActionInFlight: false,
+  runActionBusyActionId: null,
   latestRuns: [],
   latestWebhookActions: [],
   latestRepositorySignals: [],
@@ -192,6 +194,8 @@ function cacheElements() {
   for (const id of ids) {
     elements[id] = document.getElementById(id);
   }
+
+  elements.pageShell = document.getElementById("pageShell");
 }
 
 function bindEvents() {
@@ -357,6 +361,7 @@ function revealSelectedRunDetail() {
 
 async function refreshDashboard() {
   state.refreshInFlight = true;
+  setDashboardRefreshState(true);
   elements.refreshButton.disabled = true;
   elements.refreshButton.textContent = "Refreshing...";
 
@@ -409,15 +414,17 @@ async function refreshDashboard() {
       );
     } else if (state.selectedRunId && runs.some((run) => run.run_id === state.selectedRunId)) {
       syncUiUrlState();
-      await loadRunDetail(state.selectedRunId);
+      await loadRunDetail(state.selectedRunId, { background: true });
     } else {
       await selectRun(runs[0].run_id);
     }
 
     state.lastRefreshAt = new Date().toISOString();
     renderLastRefreshStatus();
+    state.refreshAnimationsEnabled = true;
   } finally {
     state.refreshInFlight = false;
+    setDashboardRefreshState(false);
     elements.refreshButton.disabled = false;
     elements.refreshButton.textContent = "Refresh";
   }
@@ -489,9 +496,13 @@ function syncUiUrlState() {
   window.history.replaceState({}, "", nextUrl);
 }
 
-async function loadRunDetail(runId) {
-  state.selectedRunDetail = null;
-  syncRunActionControlsWithState();
+async function loadRunDetail(runId, options = {}) {
+  const backgroundRefresh =
+    options.background === true && state.selectedRunDetail?.run_id === runId;
+  if (!backgroundRefresh) {
+    state.selectedRunDetail = null;
+    syncRunActionControlsWithState();
+  }
   const [runEnvelope, eventsEnvelope] = await Promise.all([
     fetchJsonEnvelope(`/runs/${encodeURIComponent(runId)}`),
     fetchJsonEnvelope(`/runs/${encodeURIComponent(runId)}/events?limit=30`),
@@ -734,6 +745,7 @@ async function executeRunAction(actionId) {
   }
 
   state.runActionInFlight = true;
+  state.runActionBusyActionId = actionId;
   setRunActionControlsBusyState(actionId, true);
   writeBusyConsole(
     elements.actionConsole,
@@ -766,6 +778,7 @@ async function executeRunAction(actionId) {
     await refreshDashboard();
   } finally {
     state.runActionInFlight = false;
+    state.runActionBusyActionId = null;
     setRunActionControlsBusyState(actionId, false);
   }
 }
@@ -1145,9 +1158,9 @@ function renderStatusGrid(payload) {
     renderStatusCard(githubHandoffCapabilityCard(githubApp)),
   ];
 
-  elements.capabilityGrid.innerHTML = capabilityCards.join("");
+  setRenderedHtml(elements.capabilityGrid, capabilityCards.join(""));
 
-  elements.statusGrid.innerHTML = [
+  setRenderedHtml(elements.statusGrid, [
     renderStatusCard({
       title: "Control plane",
       statusClass: payload.readyz?.ok ? "success" : "warning",
@@ -1220,7 +1233,7 @@ function renderStatusGrid(payload) {
         : "No catalog available",
       detail: "Static catalog loaded through the orchestrator",
     }),
-  ].join("");
+  ].join(""));
 }
 
 function briefRunCapabilityCard(controlPlaneReady, packCount) {
@@ -1333,105 +1346,117 @@ function friendlyConfigValue(value, fallback) {
 
 function renderPackChips(packs) {
   if (!Array.isArray(packs?.items) || packs.items.length === 0) {
-    elements.packChips.innerHTML = '<span class="chip">No pack catalog</span>';
+    setRenderedHtml(elements.packChips, '<span class="chip">No pack catalog</span>');
     return;
   }
 
-  elements.packChips.innerHTML = packs.items
-    .slice(0, 4)
-    .map(
-      (item) =>
-        `<span class="chip">${escapeHtml(item.pack_id)} · ${escapeHtml(
-          item.agent_profile?.default_agent ?? "no-default-agent"
-        )}</span>`
-    )
-    .join("");
+  setRenderedHtml(
+    elements.packChips,
+    packs.items
+      .slice(0, 4)
+      .map(
+        (item) =>
+          `<span class="chip">${escapeHtml(item.pack_id)} · ${escapeHtml(
+            item.agent_profile?.default_agent ?? "no-default-agent"
+          )}</span>`
+      )
+      .join("")
+  );
 }
 
 function renderBriefExamples() {
   if (!state.briefExamples.length) {
-    elements.briefExamples.innerHTML = renderSectionEmptyState(
+    setRenderedHtml(elements.briefExamples, renderSectionEmptyState(
       "Starter briefs",
       "No curated starters configured",
       "Paste YAML manually or use files from examples/briefs when this instance does not expose starter scenarios."
-    );
+    ));
     renderBriefExamplesError("No curated starters are configured for this instance.");
     return;
   }
 
-  elements.briefExamples.innerHTML = state.briefExamples
-    .map(
-      (example) => {
-        const isActive = example.example_id === state.activeBriefExampleId;
-        const summary =
-          example.summary?.trim() ||
-          `${example.target_pack} starter sourced from ${example.source_path}`;
+  setRenderedHtml(
+    elements.briefExamples,
+    state.briefExamples
+      .map(
+        (example) => {
+          const isActive = example.example_id === state.activeBriefExampleId;
+          const summary =
+            example.summary?.trim() ||
+            `${example.target_pack} starter sourced from ${example.source_path}`;
 
-        return `
-          <article class="starter-card${isActive ? " is-active" : ""}">
-            <div class="starter-card-head">
-              <div>
-                <p class="panel-kicker">Starter scenario</p>
-                <h3>${escapeHtml(example.label)}</h3>
+          return `
+            <article class="starter-card${isActive ? " is-active" : ""}">
+              <div class="starter-card-head">
+                <div>
+                  <p class="panel-kicker">Starter scenario</p>
+                  <h3>${escapeHtml(example.label)}</h3>
+                </div>
+                <span class="chip">${escapeHtml(example.target_pack)}</span>
               </div>
-              <span class="chip">${escapeHtml(example.target_pack)}</span>
-            </div>
-            <p class="starter-card-summary">${escapeHtml(summary)}</p>
-            <div class="starter-card-meta">
-              <span class="mono">${escapeHtml(example.source_path)}</span>
-              ${isActive ? '<span class="chip">Loaded into editor</span>' : ""}
-            </div>
-            <div class="starter-card-foot">
-              <p class="microcopy">
-                ${
-                  isActive
-                    ? "Review repository owner/name and requested_by before validation."
-                    : "Load this scenario into the editor, then review metadata before validation."
-                }
-              </p>
-              <button
-                class="button ${isActive ? "button-primary" : "button-secondary"}"
-                type="button"
-                data-brief-example-id="${escapeHtml(example.example_id)}"
-                data-ui-brief-example="true"
-                aria-label="${escapeHtml(`Load ${example.label} starter brief`)}"
-                title="${escapeHtml(summary)}"
-              >
-                ${isActive ? "Reload starter" : "Load starter"}
-              </button>
-            </div>
-          </article>
-        `;
-      }
-    )
-    .join("");
+              <p class="starter-card-summary">${escapeHtml(summary)}</p>
+              <div class="starter-card-meta">
+                <span class="mono">${escapeHtml(example.source_path)}</span>
+                ${isActive ? '<span class="chip">Loaded into editor</span>' : ""}
+              </div>
+              <div class="starter-card-foot">
+                <p class="microcopy">
+                  ${
+                    isActive
+                      ? "Review repository owner/name and requested_by before validation."
+                      : "Load this scenario into the editor, then review metadata before validation."
+                  }
+                </p>
+                <button
+                  class="button ${isActive ? "button-primary" : "button-secondary"}"
+                  type="button"
+                  data-brief-example-id="${escapeHtml(example.example_id)}"
+                  data-ui-brief-example="true"
+                  aria-label="${escapeHtml(`Load ${example.label} starter brief`)}"
+                  title="${escapeHtml(summary)}"
+                >
+                  ${isActive ? "Reload starter" : "Load starter"}
+                </button>
+              </div>
+            </article>
+          `;
+        }
+      )
+      .join("")
+  );
   renderBriefExampleHint();
 }
 
 function renderBriefExamplesError(message) {
-  elements.briefExamples.innerHTML = renderSectionEmptyState(
+  setRenderedHtml(elements.briefExamples, renderSectionEmptyState(
     "Starter briefs",
     "Starter scenarios unavailable",
     "Paste YAML manually or use the repository examples until this instance can serve curated starter briefs."
+  ));
+  setTextContent(
+    elements.briefExampleHint,
+    `${message} Paste YAML manually or use the repo examples/briefs files directly.`
   );
-  elements.briefExampleHint.textContent =
-    `${message} Paste YAML manually or use the repo examples/briefs files directly.`;
 }
 
 function renderBriefExampleHint(activeExample) {
   if (activeExample) {
-    elements.briefExampleHint.textContent =
-      `Loaded ${activeExample.label} from ${activeExample.source_path}. Review repository owner/name and requested_by before validation or submission.`;
+    setTextContent(
+      elements.briefExampleHint,
+      `Loaded ${activeExample.label} from ${activeExample.source_path}. Review repository owner/name and requested_by before validation or submission.`
+    );
     return;
   }
 
   if (!state.briefExamples.length) {
-    elements.briefExampleHint.textContent = "Loading curated starters...";
+    setTextContent(elements.briefExampleHint, "Loading curated starters...");
     return;
   }
 
-  elements.briefExampleHint.textContent =
-    "Choose a starter scenario, load it into the editor, then adjust repository metadata before validation and submission.";
+  setTextContent(
+    elements.briefExampleHint,
+    "Choose a starter scenario, load it into the editor, then adjust repository metadata before validation and submission."
+  );
 }
 
 function loadBriefExampleIntoEditor(exampleId) {
@@ -1469,89 +1494,98 @@ function renderRuns(response) {
   renderRunLedgerHint(allRuns, visibleRuns, preservedSelectedRun);
 
   if (allRuns.length === 0) {
-    elements.runsList.innerHTML = state.selectedRunStatus
-      ? loadingOrEmptyState(
-          `No ${displayRunStatus(state.selectedRunStatus).toLowerCase()} runs are loaded right now.`
-        )
-      : renderSectionEmptyState(
-          "Run ledger",
-          "No runs materialized yet",
-          "A durable run appears here only after brief submission materializes backlog, routing, and artifacts.",
-          {
-            steps: [
-              "Load a starter brief or paste product-brief YAML in the left column.",
-              "Validate first so pack resolution, routing, and policy are explicit.",
-              "Submit the brief, then reopen the new run from this ledger.",
-            ],
-            actions: [
-              {
-                href: "#brief-intake",
-                label: "Jump to brief intake",
-                variant: "primary",
-              },
-            ],
-          }
-        );
-    return;
-  }
-
-  if (visibleRuns.length === 0) {
-    elements.runsList.innerHTML = loadingOrEmptyState(
-      state.runSearchQuery
-        ? "No loaded runs match the current search. Clear search or refresh if you expect a newer run."
-        : "No runs match the current filter."
+    setRenderedHtml(
+      elements.runsList,
+      state.selectedRunStatus
+        ? loadingOrEmptyState(
+            `No ${displayRunStatus(state.selectedRunStatus).toLowerCase()} runs are loaded right now.`
+          )
+        : renderSectionEmptyState(
+            "Run ledger",
+            "No runs materialized yet",
+            "A durable run appears here only after brief submission materializes backlog, routing, and artifacts.",
+            {
+              steps: [
+                "Load a starter brief or paste product-brief YAML in the left column.",
+                "Validate first so pack resolution, routing, and policy are explicit.",
+                "Submit the brief, then reopen the new run from this ledger.",
+              ],
+              actions: [
+                {
+                  href: "#brief-intake",
+                  label: "Jump to brief intake",
+                  variant: "primary",
+                },
+              ],
+            }
+          )
     );
     return;
   }
 
-  elements.runsList.innerHTML = visibleRuns
-    .map((run) => {
-      const repositoryName = run.repository?.owner && run.repository?.name
-        ? `${run.repository.owner}/${run.repository.name}`
-        : "repository not declared";
-      const isSelected = run.run_id === state.selectedRunId;
-      const guide = runCardGuide(run);
-      return `
-        <button
-          class="run-card${isSelected ? " is-selected" : ""}"
-          type="button"
-          data-run-id="${escapeHtml(run.run_id)}"
-          data-ui-run-card="true"
-          aria-pressed="${isSelected ? "true" : "false"}"
-          aria-label="${escapeHtml(`Open run ${shortId(run.run_id)} ${run.title}`)}"
-        >
-          <div class="run-card-head">
-            <span class="badge badge-${escapeHtml(statusTone(run.status))}">
-              ${escapeHtml(displayRunStatus(run.status))}
-            </span>
-            <span class="mono">${escapeHtml(shortId(run.run_id))}</span>
-          </div>
-          <h3>${escapeHtml(run.title)}</h3>
-          <p class="microcopy">
-            ${escapeHtml(run.target_pack ?? "no pack")} · ${escapeHtml(run.trigger)}
-          </p>
-          <div class="run-card-guide">
-            <div class="run-card-guide-head">
-              <p class="panel-kicker">Current stage</p>
-              <span class="badge badge-${escapeHtml(guide.tone)}">${escapeHtml(guide.stage)}</span>
+  if (visibleRuns.length === 0) {
+    setRenderedHtml(
+      elements.runsList,
+      loadingOrEmptyState(
+        state.runSearchQuery
+          ? "No loaded runs match the current search. Clear search or refresh if you expect a newer run."
+          : "No runs match the current filter."
+      )
+    );
+    return;
+  }
+
+  setRenderedHtml(
+    elements.runsList,
+    visibleRuns
+      .map((run) => {
+        const repositoryName = run.repository?.owner && run.repository?.name
+          ? `${run.repository.owner}/${run.repository.name}`
+          : "repository not declared";
+        const isSelected = run.run_id === state.selectedRunId;
+        const guide = runCardGuide(run);
+        return `
+          <button
+            class="run-card${isSelected ? " is-selected" : ""}"
+            type="button"
+            data-run-id="${escapeHtml(run.run_id)}"
+            data-ui-run-card="true"
+            aria-pressed="${isSelected ? "true" : "false"}"
+            aria-label="${escapeHtml(`Open run ${shortId(run.run_id)} ${run.title}`)}"
+          >
+            <div class="run-card-head">
+              <span class="badge badge-${escapeHtml(statusTone(run.status))}">
+                ${escapeHtml(displayRunStatus(run.status))}
+              </span>
+              <span class="mono">${escapeHtml(shortId(run.run_id))}</span>
             </div>
-            <p>${escapeHtml(guide.detail)}</p>
-          </div>
-          <div class="run-card-stats">
-            <span>${escapeHtml(repositoryName)}</span>
-            <span>${escapeHtml(run.task_counts?.total ?? 0)} task(s)</span>
-            <span>${escapeHtml(run.artifact_count ?? 0)} artifact(s)</span>
-          </div>
-          <div class="run-card-foot">
-            <span>ok ${escapeHtml(run.task_counts?.succeeded ?? 0)}</span>
-            <span>run ${escapeHtml(run.task_counts?.running ?? 0)}</span>
-            <span>fail ${escapeHtml(run.task_counts?.failed ?? 0)}</span>
-            <span>${escapeHtml(formatTimestamp(run.created_at))}</span>
-          </div>
-        </button>
-      `;
-    })
-    .join("");
+            <h3>${escapeHtml(run.title)}</h3>
+            <p class="microcopy">
+              ${escapeHtml(run.target_pack ?? "no pack")} · ${escapeHtml(run.trigger)}
+            </p>
+            <div class="run-card-guide">
+              <div class="run-card-guide-head">
+                <p class="panel-kicker">Current stage</p>
+                <span class="badge badge-${escapeHtml(guide.tone)}">${escapeHtml(guide.stage)}</span>
+              </div>
+              <p>${escapeHtml(guide.detail)}</p>
+            </div>
+            <div class="run-card-stats">
+              <span>${escapeHtml(repositoryName)}</span>
+              <span>${escapeHtml(run.task_counts?.total ?? 0)} task(s)</span>
+              <span>${escapeHtml(run.artifact_count ?? 0)} artifact(s)</span>
+            </div>
+            <div class="run-card-foot">
+              <span>ok ${escapeHtml(run.task_counts?.succeeded ?? 0)}</span>
+              <span>run ${escapeHtml(run.task_counts?.running ?? 0)}</span>
+              <span>fail ${escapeHtml(run.task_counts?.failed ?? 0)}</span>
+              <span>${escapeHtml(formatTimestamp(run.created_at))}</span>
+            </div>
+          </button>
+        `;
+      })
+      .join("")
+  );
 }
 
 function runCardGuide(run) {
@@ -1657,8 +1691,10 @@ function runSearchHaystack(run) {
 
 function renderRunLedgerHint(allRuns, visibleRuns, preservedSelectedRun) {
   if (allRuns.length === 0 && !state.runSearchQuery && !state.selectedRunStatus) {
-    elements.runLedgerHint.textContent =
-      "Search the loaded run ledger by title, repository, pack, trigger, or run id.";
+    setTextContent(
+      elements.runLedgerHint,
+      "Search the loaded run ledger by title, repository, pack, trigger, or run id."
+    );
     return;
   }
 
@@ -1674,7 +1710,7 @@ function renderRunLedgerHint(allRuns, visibleRuns, preservedSelectedRun) {
     fragments.push("Kept the selected run visible even though it does not match the current search.");
   }
 
-  elements.runLedgerHint.textContent = fragments.join(" ");
+  setTextContent(elements.runLedgerHint, fragments.join(" "));
 }
 
 function renderAutomationRail(payload) {
@@ -1691,11 +1727,11 @@ function renderAutomationRail(payload) {
 }
 
 function renderAutomationRailCollections() {
-  elements.webhookActionCount.textContent = String(state.latestWebhookActions.length);
-  elements.signalCount.textContent = String(state.latestRepositorySignals.length);
-  elements.deliveryCount.textContent = String(state.latestWebhookDeliveries.length);
+  setTextContent(elements.webhookActionCount, String(state.latestWebhookActions.length));
+  setTextContent(elements.signalCount, String(state.latestRepositorySignals.length));
+  setTextContent(elements.deliveryCount, String(state.latestWebhookDeliveries.length));
 
-  elements.webhookActionsList.innerHTML = renderRailItems(
+  setRenderedHtml(elements.webhookActionsList, renderRailItems(
     state.latestWebhookActions,
     "webhook_action",
     (item) => item.request_id,
@@ -1703,8 +1739,8 @@ function renderAutomationRailCollections() {
     (item) => `${item.status} · ${item.repository_full_name ?? item.delivery_id}`,
     (item) => item.updated_at ?? item.created_at,
     "No pending webhook actions. Signed GitHub deliveries will queue control-plane work here before a run exists."
-  );
-  elements.repositorySignalsList.innerHTML = renderRailItems(
+  ));
+  setRenderedHtml(elements.repositorySignalsList, renderRailItems(
     state.latestRepositorySignals,
     "repository_signal",
     (item) => item.signal_id,
@@ -1712,8 +1748,8 @@ function renderAutomationRailCollections() {
     (item) => `${item.status} · ${item.repository_full_name}`,
     (item) => item.updated_at ?? item.created_at,
     "No repository signals yet. Once a routed webhook action succeeds, the automation handoff will appear here."
-  );
-  elements.webhookDeliveriesList.innerHTML = renderRailItems(
+  ));
+  setRenderedHtml(elements.webhookDeliveriesList, renderRailItems(
     state.latestWebhookDeliveries,
     "webhook_delivery",
     (item) => item.delivery_id,
@@ -1721,7 +1757,7 @@ function renderAutomationRailCollections() {
     (item) => `${item.routing_status} · ${item.repository_full_name ?? item.delivery_id}`,
     (item) => item.updated_at ?? item.created_at,
     "No signed webhook deliveries are loaded yet. Incoming GitHub App traffic will appear here for inspection."
-  );
+  ));
 }
 
 function renderRailItems(
@@ -1839,9 +1875,14 @@ function queueRouteId(queueId) {
 }
 
 function renderQueueInspectorLoading(queueKind, queueId) {
-  elements.queueInspectorHeadline.textContent = `Loading ${queueInspectorKindLabel(queueKind)} ${shortId(queueId)}...`;
-  elements.queueInspectorSummary.innerHTML =
-    '<div class="empty-state compact">Loading queue detail...</div>';
+  setTextContent(
+    elements.queueInspectorHeadline,
+    `Loading ${queueInspectorKindLabel(queueKind)} ${shortId(queueId)}...`
+  );
+  setRenderedHtml(
+    elements.queueInspectorSummary,
+    '<div class="empty-state compact">Loading queue detail...</div>'
+  );
   elements.queueInspectorActions.classList.add("hidden");
   setConsolePayload(elements.queueInspectorConsole, "Loading queue detail...");
   setConsolePayload(elements.queueInspectorLinkedConsole, "Loading linked document...");
@@ -1856,13 +1897,15 @@ function renderQueueInspector(queueKind, queueId, primaryEnvelope, linkedEnvelop
   const relatedRunId = queueInspectorRelatedRunId(queueKind, detail);
   state.selectedQueueRunId = relatedRunId;
 
-  elements.queueInspectorHeadline.textContent =
-    `${queueInspectorKindTitle(queueKind)} · ${shortId(queueId)}`;
-  elements.queueInspectorSummary.innerHTML = renderQueueInspectorSummary(
+  setTextContent(
+    elements.queueInspectorHeadline,
+    `${queueInspectorKindTitle(queueKind)} · ${shortId(queueId)}`
+  );
+  setRenderedHtml(elements.queueInspectorSummary, renderQueueInspectorSummary(
     queueKind,
     queueId,
     primaryEnvelope
-  );
+  ));
   setConsolePayload(
     elements.queueInspectorConsole,
     primaryEnvelope.ok ? primaryEnvelope.data ?? "No detail payload returned." : formatEnvelopeError(primaryEnvelope)
@@ -2057,9 +2100,9 @@ function renderRunDetail(runDetail, eventsResponse) {
   state.selectedRunEvents = events;
   elements.detailEmptyState.classList.add("hidden");
   elements.runDetailShell.classList.remove("hidden");
-  elements.selectedRunLabel.textContent = `${runDetail.title} · ${shortId(runDetail.run_id)}`;
+  setTextContent(elements.selectedRunLabel, `${runDetail.title} · ${shortId(runDetail.run_id)}`);
 
-  elements.runSummaryCards.innerHTML = [
+  setRenderedHtml(elements.runSummaryCards, [
     summaryCard("Status", displayRunStatus(runDetail.status), `${runDetail.trigger} trigger`),
     summaryCard("Pack", runDetail.target_pack ?? "unassigned", runDetail.requested_by ?? "requested_by unknown"),
     summaryCard(
@@ -2080,7 +2123,7 @@ function renderRunDetail(runDetail, eventsResponse) {
       `${runDetail.artifact_highlights?.length ?? 0} highlight(s)`
     ),
     summaryCard("Created", formatTimestamp(runDetail.created_at), runDetail.brief_source_path ?? "no brief path"),
-  ].join("");
+  ].join(""));
 
   renderRunGuide(runDetail, events);
   renderTasks(runDetail.tasks || []);
@@ -2092,46 +2135,62 @@ function renderRunDetail(runDetail, eventsResponse) {
 
 function renderRunActionHighlights(runDetail) {
   if (!runDetail?.run_id) {
-    elements.actionSummaryHeadline.textContent =
-      "Run a control to surface branch, PR, quality, and task execution details here.";
-    elements.actionHighlights.innerHTML =
-      '<div class="empty-state compact">No run action summary captured for this run yet.</div>';
+    setTextContent(
+      elements.actionSummaryHeadline,
+      "Run a control to surface branch, PR, quality, and task execution details here."
+    );
+    setRenderedHtml(
+      elements.actionHighlights,
+      '<div class="empty-state compact">No run action summary captured for this run yet.</div>'
+    );
     return;
   }
 
   const actionResult = state.runActionResults[runDetail.run_id];
   if (!actionResult) {
-    elements.actionSummaryHeadline.textContent =
-      "Run a control to surface branch, PR, quality, and task execution details here.";
-    elements.actionHighlights.innerHTML =
-      '<div class="empty-state compact">No run action summary captured for this run yet.</div>';
+    setTextContent(
+      elements.actionSummaryHeadline,
+      "Run a control to surface branch, PR, quality, and task execution details here."
+    );
+    setRenderedHtml(
+      elements.actionHighlights,
+      '<div class="empty-state compact">No run action summary captured for this run yet.</div>'
+    );
     return;
   }
 
   const presentation = envelopeBadgePresentation(actionResult.envelope);
-  elements.actionSummaryHeadline.textContent =
-    `Last action: ${displayRunActionLabel(actionResult.actionId)} · ${presentation.label}.`;
+  setTextContent(
+    elements.actionSummaryHeadline,
+    `Last action: ${displayRunActionLabel(actionResult.actionId)} · ${presentation.label}.`
+  );
 
   const items = actionHighlightItems(actionResult.actionId, actionResult.envelope);
-  elements.actionHighlights.innerHTML = items.length
-    ? items.map(renderActionSummaryCard).join("")
-    : '<div class="empty-state compact">The latest action returned no structured summary fields.</div>';
+  setRenderedHtml(
+    elements.actionHighlights,
+    items.length
+      ? items.map(renderActionSummaryCard).join("")
+      : '<div class="empty-state compact">The latest action returned no structured summary fields.</div>'
+  );
 }
 
 function renderRunGuide(runDetail, events) {
   const guide = buildRunGuide(runDetail, events);
 
   setBadge(elements.runGuideBadge, guide.badgeTone, guide.badgeLabel);
-  elements.runGuideHeadline.textContent = guide.headline;
-  elements.runGuideNextAction.textContent = guide.nextActionTitle;
-  elements.runGuideRecommendation.textContent = guide.nextActionDetail;
-  elements.runGuideCurrentStage.textContent = guide.currentStageTitle;
-  elements.runGuideCurrentStageDetail.textContent = guide.currentStageDetail;
-  elements.runGuideProgressSummary.textContent = guide.progressSummary;
-  elements.runGuideBlockers.textContent = guide.blockerDetail;
-  elements.runGuideStages.innerHTML = guide.stages.length
-    ? guide.stages.map(renderGuideStage).join("")
-    : '<div class="empty-state compact">No run-stage guidance is available for this run yet.</div>';
+  setTextContent(elements.runGuideHeadline, guide.headline);
+  setTextContent(elements.runGuideNextAction, guide.nextActionTitle);
+  setTextContent(elements.runGuideRecommendation, guide.nextActionDetail);
+  setTextContent(elements.runGuideCurrentStage, guide.currentStageTitle);
+  setTextContent(elements.runGuideCurrentStageDetail, guide.currentStageDetail);
+  setTextContent(elements.runGuideProgressSummary, guide.progressSummary);
+  setTextContent(elements.runGuideBlockers, guide.blockerDetail);
+  setRenderedHtml(
+    elements.runGuideStages,
+    guide.stages.length
+      ? guide.stages.map(renderGuideStage).join("")
+      : '<div class="empty-state compact">No run-stage guidance is available for this run yet.</div>'
+  );
 }
 
 function buildRunGuide(runDetail, events) {
@@ -2513,13 +2572,16 @@ function guideBadgeLabel(state) {
 }
 
 function renderTasks(tasks) {
-  elements.taskHeadline.textContent = `${tasks.length} task(s) materialized`;
+  setTextContent(elements.taskHeadline, `${tasks.length} task(s) materialized`);
   if (!tasks.length) {
-    elements.taskTableWrap.innerHTML = '<div class="empty-state compact">No tasks persisted for this run yet.</div>';
+    setRenderedHtml(
+      elements.taskTableWrap,
+      '<div class="empty-state compact">No tasks persisted for this run yet.</div>'
+    );
     return;
   }
 
-  elements.taskTableWrap.innerHTML = `
+  setRenderedHtml(elements.taskTableWrap, `
     <div class="data-card-list">
       ${tasks
         .map(
@@ -2610,7 +2672,7 @@ function renderTasks(tasks) {
         </tbody>
       </table>
     </div>
-  `;
+  `);
 }
 
 function renderArtifacts(runDetail) {
@@ -2618,29 +2680,38 @@ function renderArtifacts(runDetail) {
     ? runDetail.artifact_highlights
     : [];
   const artifacts = Array.isArray(runDetail.artifacts) ? runDetail.artifacts : [];
-  elements.artifactHeadline.textContent = `${artifacts.length} artifact(s), ${highlights.length} highlight(s)`;
+  setTextContent(
+    elements.artifactHeadline,
+    `${artifacts.length} artifact(s), ${highlights.length} highlight(s)`
+  );
 
-  elements.artifactHighlights.innerHTML = highlights.length
-    ? highlights
-        .map(
-          (artifact) => `
-            <article class="artifact-card">
-              <p class="panel-kicker">${escapeHtml(artifact.artifact_type)}</p>
-              <h4>${escapeHtml(artifact.format)}</h4>
-              <p>${escapeHtml(artifact.location_value)}</p>
-              <p class="microcopy">${escapeHtml(formatTimestamp(artifact.created_at))}</p>
-            </article>
-          `
-        )
-        .join("")
-    : '<div class="empty-state compact">No highlight artifacts selected for this run.</div>';
+  setRenderedHtml(
+    elements.artifactHighlights,
+    highlights.length
+      ? highlights
+          .map(
+            (artifact) => `
+              <article class="artifact-card">
+                <p class="panel-kicker">${escapeHtml(artifact.artifact_type)}</p>
+                <h4>${escapeHtml(artifact.format)}</h4>
+                <p>${escapeHtml(artifact.location_value)}</p>
+                <p class="microcopy">${escapeHtml(formatTimestamp(artifact.created_at))}</p>
+              </article>
+            `
+          )
+          .join("")
+      : '<div class="empty-state compact">No highlight artifacts selected for this run.</div>'
+  );
 
   if (!artifacts.length) {
-    elements.artifactTableWrap.innerHTML = '<div class="empty-state compact">No artifacts persisted for this run yet.</div>';
+    setRenderedHtml(
+      elements.artifactTableWrap,
+      '<div class="empty-state compact">No artifacts persisted for this run yet.</div>'
+    );
     return;
   }
 
-  elements.artifactTableWrap.innerHTML = `
+  setRenderedHtml(elements.artifactTableWrap, `
     <div class="data-card-list">
       ${artifacts
         .map(
@@ -2695,7 +2766,7 @@ function renderArtifacts(runDetail) {
         </tbody>
       </table>
     </div>
-  `;
+  `);
 }
 
 function renderDataCardField(label, value, detail = "", valueClass = "") {
@@ -2713,42 +2784,48 @@ function renderDataCardField(label, value, detail = "", valueClass = "") {
 }
 
 function renderEvents(events) {
-  elements.eventHeadline.textContent = `${events.length} recent event(s)`;
+  setTextContent(elements.eventHeadline, `${events.length} recent event(s)`);
   if (!events.length) {
-    elements.eventTimeline.innerHTML = '<div class="empty-state compact">No run events persisted for this run yet.</div>';
+    setRenderedHtml(
+      elements.eventTimeline,
+      '<div class="empty-state compact">No run events persisted for this run yet.</div>'
+    );
     return;
   }
 
-  elements.eventTimeline.innerHTML = events
-    .map(
-      (event) => `
-        <article class="timeline-item">
-          <div class="timeline-head">
-            <div>
-              <p class="panel-kicker">${escapeHtml(event.scope)}</p>
-              <h4>${escapeHtml(event.event_type)}</h4>
+  setRenderedHtml(
+    elements.eventTimeline,
+    events
+      .map(
+        (event) => `
+          <article class="timeline-item">
+            <div class="timeline-head">
+              <div>
+                <p class="panel-kicker">${escapeHtml(event.scope)}</p>
+                <h4>${escapeHtml(event.event_type)}</h4>
+              </div>
+              <span class="badge badge-${escapeHtml(statusTone(event.status ?? event.scope))}">
+                ${escapeHtml(event.status ?? event.scope)}
+              </span>
             </div>
-            <span class="badge badge-${escapeHtml(statusTone(event.status ?? event.scope))}">
-              ${escapeHtml(event.status ?? event.scope)}
-            </span>
-          </div>
-          <p>${escapeHtml(event.summary)}</p>
-          <div class="timeline-meta">
-            <span>${escapeHtml(formatTimestamp(event.created_at))}</span>
-            <span class="mono">${escapeHtml(event.task_id ? shortId(event.task_id) : shortId(event.event_id))}</span>
-          </div>
-        </article>
-      `
-    )
-    .join("");
+            <p>${escapeHtml(event.summary)}</p>
+            <div class="timeline-meta">
+              <span>${escapeHtml(formatTimestamp(event.created_at))}</span>
+              <span class="mono">${escapeHtml(event.task_id ? shortId(event.task_id) : shortId(event.event_id))}</span>
+            </div>
+          </article>
+        `
+      )
+      .join("")
+  );
 }
 
 function clearRunSelection(message, title = "No run selected") {
   state.selectedRunId = null;
   state.selectedRunDetail = null;
   state.selectedRunEvents = [];
-  elements.selectedRunLabel.textContent = "No run selected.";
-  elements.detailEmptyState.innerHTML = renderDetailEmptyStateMarkup({
+  setTextContent(elements.selectedRunLabel, "No run selected.");
+  setRenderedHtml(elements.detailEmptyState, renderDetailEmptyStateMarkup({
     title,
     message,
     steps:
@@ -2759,7 +2836,7 @@ function clearRunSelection(message, title = "No run selected") {
             "Re-submit the brief if the run was never materialized successfully.",
           ]
         : undefined,
-  });
+  }));
   elements.detailEmptyState.classList.remove("hidden");
   elements.runDetailShell.classList.add("hidden");
   renderRunGuide(null, []);
@@ -2871,13 +2948,84 @@ function renderEmptyStateMarkup(options = {}) {
     : body;
 }
 
+function setDashboardRefreshState(refreshing) {
+  if (elements.pageShell) {
+    elements.pageShell.dataset.refreshState = refreshing ? "syncing" : "idle";
+  }
+  if (elements.refreshButton) {
+    elements.refreshButton.dataset.syncing = refreshing ? "true" : "false";
+  }
+  elements.lastRefresh.classList.toggle("is-syncing", refreshing);
+}
+
+function setTextContent(target, text, options = {}) {
+  const nextText = String(text ?? "");
+  if (target.textContent === nextText) {
+    return false;
+  }
+
+  target.textContent = nextText;
+  if (options.markUpdated !== false) {
+    markRefreshTargetUpdated(target);
+  }
+  return true;
+}
+
+function setRenderedHtml(target, html, options = {}) {
+  const nextHtml = html ?? "";
+  if (target.innerHTML === nextHtml) {
+    return false;
+  }
+
+  preserveTargetHeight(target, () => {
+    target.innerHTML = nextHtml;
+  });
+  if (options.markUpdated !== false) {
+    markRefreshTargetUpdated(target);
+  }
+  return true;
+}
+
+function preserveTargetHeight(target, update) {
+  const currentHeight = target.offsetHeight;
+  if (currentHeight > 0) {
+    target.style.minHeight = `${currentHeight}px`;
+  }
+  update();
+  window.requestAnimationFrame(() => {
+    target.style.removeProperty("min-height");
+  });
+}
+
+function markRefreshTargetUpdated(target) {
+  if (!state.refreshAnimationsEnabled) {
+    return;
+  }
+
+  const surface = target.closest("[data-ui-refresh-surface]") ?? target;
+  surface.classList.add("surface-updated");
+
+  const existingTimer = surface.__surfaceUpdateTimer;
+  if (existingTimer) {
+    window.clearTimeout(existingTimer);
+  }
+
+  surface.__surfaceUpdateTimer = window.setTimeout(() => {
+    surface.classList.remove("surface-updated");
+    surface.__surfaceUpdateTimer = null;
+  }, 520);
+}
+
 function setBadge(target, tone, text) {
-  target.className = `badge badge-${tone}`;
-  target.textContent = text;
+  const nextClassName = `badge badge-${tone}`;
+  if (target.className !== nextClassName) {
+    target.className = nextClassName;
+  }
+  setTextContent(target, text, { markUpdated: false });
 }
 
 function setConsolePayload(target, payload) {
-  target.innerHTML = renderConsolePayload(payload);
+  setRenderedHtml(target, renderConsolePayload(payload));
 }
 
 function writeConsole(target, badge, tone, payload) {
@@ -3226,59 +3374,83 @@ function restoreBriefDraft() {
 
 function renderDashboardLoadingState() {
   renderLastRefreshStatus();
-  elements.packChips.innerHTML = '<span class="chip chip-loading">Loading pack catalog...</span>';
-  elements.capabilityGrid.innerHTML = CAPABILITY_LOADING_CARD_TITLES
-    .map(
-      (title) => `
-        <article class="status-card status-card-neutral status-card-loading">
-          <div class="status-card-head">
-            <p class="panel-kicker">${escapeHtml(title)}</p>
-            <span class="badge badge-neutral">Loading</span>
-          </div>
-          <h3>Resolving capability...</h3>
-          <p>Waiting for the first operator-readiness snapshot.</p>
-          <p class="microcopy">The UI will summarize what you can do before showing raw diagnostics.</p>
-        </article>
-      `
-    )
-    .join("");
-  elements.statusGrid.innerHTML = DASHBOARD_LOADING_CARD_TITLES
-    .map(
-      (title) => `
-        <article class="status-card status-card-neutral status-card-loading">
-          <div class="status-card-head">
-            <p class="panel-kicker">${escapeHtml(title)}</p>
-            <span class="badge badge-neutral">Loading</span>
-          </div>
-          <h3>Resolving status...</h3>
-          <p>Waiting for the first control-plane snapshot.</p>
-          <p class="microcopy">The UI will keep the current view once data arrives.</p>
-        </article>
-      `
-    )
-    .join("");
-  elements.runsList.innerHTML = loadingOrEmptyState("Loading recent runs...");
-  elements.webhookActionsList.innerHTML = loadingOrEmptyState("Loading webhook actions...");
-  elements.repositorySignalsList.innerHTML = loadingOrEmptyState("Loading repository signals...");
-  elements.webhookDeliveriesList.innerHTML = loadingOrEmptyState("Loading webhook deliveries...");
-  elements.webhookActionCount.textContent = "…";
-  elements.signalCount.textContent = "…";
-  elements.deliveryCount.textContent = "…";
+  setRenderedHtml(elements.packChips, '<span class="chip chip-loading">Loading pack catalog...</span>', {
+    markUpdated: false,
+  });
+  setRenderedHtml(
+    elements.capabilityGrid,
+    CAPABILITY_LOADING_CARD_TITLES
+      .map(
+        (title) => `
+          <article class="status-card status-card-neutral status-card-loading">
+            <div class="status-card-head">
+              <p class="panel-kicker">${escapeHtml(title)}</p>
+              <span class="badge badge-neutral">Loading</span>
+            </div>
+            <h3>Resolving capability...</h3>
+            <p>Waiting for the first operator-readiness snapshot.</p>
+            <p class="microcopy">The UI will summarize what you can do before showing raw diagnostics.</p>
+          </article>
+        `
+      )
+      .join(""),
+    { markUpdated: false }
+  );
+  setRenderedHtml(
+    elements.statusGrid,
+    DASHBOARD_LOADING_CARD_TITLES
+      .map(
+        (title) => `
+          <article class="status-card status-card-neutral status-card-loading">
+            <div class="status-card-head">
+              <p class="panel-kicker">${escapeHtml(title)}</p>
+              <span class="badge badge-neutral">Loading</span>
+            </div>
+            <h3>Resolving status...</h3>
+            <p>Waiting for the first control-plane snapshot.</p>
+            <p class="microcopy">The UI will keep the current view once data arrives.</p>
+          </article>
+        `
+      )
+      .join(""),
+    { markUpdated: false }
+  );
+  setRenderedHtml(elements.runsList, loadingOrEmptyState("Loading recent runs..."), {
+    markUpdated: false,
+  });
+  setRenderedHtml(elements.webhookActionsList, loadingOrEmptyState("Loading webhook actions..."), {
+    markUpdated: false,
+  });
+  setRenderedHtml(
+    elements.repositorySignalsList,
+    loadingOrEmptyState("Loading repository signals..."),
+    { markUpdated: false }
+  );
+  setRenderedHtml(
+    elements.webhookDeliveriesList,
+    loadingOrEmptyState("Loading webhook deliveries..."),
+    { markUpdated: false }
+  );
+  setTextContent(elements.webhookActionCount, "…", { markUpdated: false });
+  setTextContent(elements.signalCount, "…", { markUpdated: false });
+  setTextContent(elements.deliveryCount, "…", { markUpdated: false });
 
   if (state.selectedRunId) {
-    elements.selectedRunLabel.textContent = `Loading run ${shortId(state.selectedRunId)}...`;
-    elements.detailEmptyState.innerHTML = renderDetailEmptyStateMarkup({
+    setTextContent(elements.selectedRunLabel, `Loading run ${shortId(state.selectedRunId)}...`, {
+      markUpdated: false,
+    });
+    setRenderedHtml(elements.detailEmptyState, renderDetailEmptyStateMarkup({
       title: "Loading selected run",
       message: "Loading the selected run snapshot, tasks, artifacts, and events.",
       steps: [],
-    });
+    }), { markUpdated: false });
   } else {
-    elements.selectedRunLabel.textContent = "Loading latest run...";
-    elements.detailEmptyState.innerHTML = renderDetailEmptyStateMarkup({
+    setTextContent(elements.selectedRunLabel, "Loading latest run...", { markUpdated: false });
+    setRenderedHtml(elements.detailEmptyState, renderDetailEmptyStateMarkup({
       title: "Loading latest run",
       message: "Loading the latest run snapshot, tasks, artifacts, and events.",
       steps: [],
-    });
+    }), { markUpdated: false });
   }
 }
 
@@ -3305,26 +3477,39 @@ function renderLastRefreshStatus() {
     ? `auto every ${AUTO_REFRESH_INTERVAL_MS / 1000}s`
     : "manual only";
   if (!state.lastRefreshAt) {
-    elements.lastRefresh.textContent = state.autoRefresh
-      ? `Waiting for first snapshot · ${modeSummary}`
-      : "Manual refresh mode";
+    setTextContent(
+      elements.lastRefresh,
+      state.autoRefresh
+        ? `Waiting for first snapshot · ${modeSummary}`
+        : "Manual refresh mode",
+      { markUpdated: false }
+    );
     return;
   }
 
-  elements.lastRefresh.textContent =
-    `Last refresh ${new Date(state.lastRefreshAt).toLocaleTimeString()} · ${modeSummary}`;
+  setTextContent(
+    elements.lastRefresh,
+    `Last refresh ${new Date(state.lastRefreshAt).toLocaleTimeString()} · ${modeSummary}`,
+    { markUpdated: false }
+  );
 }
 
 function renderQueueInspectorEmpty() {
   state.selectedQueueRunId = null;
-  elements.queueInspectorHeadline.textContent =
-    "Queue items show what reached the orchestrator before or around run creation. Open one to inspect signed ingress, routed actions, or automation handoff state.";
-  elements.queueInspectorSummary.innerHTML =
+  setTextContent(
+    elements.queueInspectorHeadline,
+    "Queue items show what reached the orchestrator before or around run creation. Open one to inspect signed ingress, routed actions, or automation handoff state.",
+    { markUpdated: false }
+  );
+  setRenderedHtml(
+    elements.queueInspectorSummary,
     renderSectionEmptyState(
       "Queue inspector",
       "No queue item selected",
       "Pick a delivery, action request, or repository signal to see what happened before a run was created or advanced."
-    );
+    ),
+    { markUpdated: false }
+  );
   elements.queueInspectorActions.classList.add("hidden");
   setConsolePayload(elements.queueInspectorConsole, "No queue item selected.");
   setConsolePayload(
@@ -3974,13 +4159,15 @@ function syncRunActionControlsWithState() {
   for (const button of runActionButtons()) {
     const actionId = button.dataset.runAction;
     const actionState = availability[actionId] ?? disabledRunAction("Action unavailable.");
+    const busyButton =
+      state.runActionInFlight && actionId === state.runActionBusyActionId;
 
     if (!button.dataset.idleLabel) {
       button.dataset.idleLabel = button.textContent;
     }
-    button.textContent = buttonIdleLabel(button);
+    button.textContent = busyButton ? runActionBusyLabel(actionId) : buttonIdleLabel(button);
     button.disabled = state.runActionInFlight || !actionState.enabled;
-    button.title = actionState.enabled ? "" : actionState.reason;
+    button.title = busyButton || actionState.enabled ? "" : actionState.reason;
   }
 
   const branchActionsEnabled =
@@ -4006,9 +4193,9 @@ function syncRunActionControlsWithState() {
   elements.resetRunActionDraftButton.title = state.selectedRunDetail
     ? ""
     : "Select a run before resetting promotion defaults.";
-  elements.runActionHint.textContent = runActionHintText(
-    state.selectedRunDetail,
-    availability
+  setTextContent(
+    elements.runActionHint,
+    runActionHintText(state.selectedRunDetail, availability)
   );
 }
 

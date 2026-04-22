@@ -216,6 +216,8 @@ brief_examples = json.loads(pathlib.Path(sys.argv[3]).read_text(encoding="utf-8"
 
 if "<title>Catalyst Continuum Control Surface</title>" not in html:
     raise SystemExit("operator UI smoke failed: missing control-surface title")
+if 'id="pageShell"' not in html or 'data-refresh-state="idle"' not in html:
+    raise SystemExit("operator UI smoke failed: missing page-shell live refresh scaffold")
 if "Turn a product brief into a draft pull request" not in html:
     raise SystemExit("operator UI smoke failed: missing product-value headline")
 if "Most Common Path" not in html or "Advanced Path" not in html:
@@ -230,6 +232,8 @@ if "System Health" not in html or "not the normal place" not in html:
     raise SystemExit("operator UI smoke failed: missing system-health explainer")
 if 'id="brief-intake"' not in html or 'id="run-ledger"' not in html or 'id="run-detail"' not in html:
     raise SystemExit("operator UI smoke failed: missing panel anchor ids")
+if 'data-ui-refresh-surface="run-ledger"' not in html or 'data-ui-refresh-surface="run-detail"' not in html:
+    raise SystemExit("operator UI smoke failed: missing smooth-refresh surface markers")
 if 'id="statusGrid"' not in html:
     raise SystemExit("operator UI smoke failed: missing status grid mount")
 if 'id="runRepositoryAutomationButton"' not in html:
@@ -322,6 +326,12 @@ if "syncUiUrlState" not in js:
     raise SystemExit("operator UI smoke failed: missing selected-run URL sync logic")
 if "filterVisibleRuns" not in js or "runMatchesSearch" not in js:
     raise SystemExit("operator UI smoke failed: missing run-ledger search client logic")
+if "setRenderedHtml" not in js or "setTextContent" not in js:
+    raise SystemExit("operator UI smoke failed: missing change-aware DOM update helpers")
+if "setDashboardRefreshState" not in js or 'background: true' not in js:
+    raise SystemExit("operator UI smoke failed: missing background refresh preservation logic")
+if "surface-updated" not in js:
+    raise SystemExit("operator UI smoke failed: missing smooth-refresh update marker logic")
 if "AUTO_REFRESH_STORAGE_KEY" not in js or "restoreAutoRefreshPreference" not in js:
     raise SystemExit("operator UI smoke failed: missing persisted auto-refresh preference logic")
 if 'autoRefresh: false' not in js:

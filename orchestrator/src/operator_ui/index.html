@@ -12,7 +12,7 @@
     <link rel="stylesheet" href="/ui/styles.css">
   </head>
   <body>
-    <div class="page-shell">
+    <div id="pageShell" class="page-shell" data-refresh-state="idle">
       <header class="panel hero-panel" data-stagger="1">
         <div class="hero-head">
           <div class="hero-copy">
@@ -119,7 +119,7 @@
         </section>
       </header>
 
-      <section class="capability-overview" data-stagger="2">
+      <section class="capability-overview" data-stagger="2" data-ui-refresh-surface="capability-overview">
         <div class="status-overview-head">
           <div>
             <p class="panel-kicker">Operator Readiness</p>
@@ -133,7 +133,7 @@
         <section id="capabilityGrid" class="capability-grid"></section>
       </section>
 
-      <section class="status-overview" data-stagger="2">
+      <section class="status-overview" data-stagger="2" data-ui-refresh-surface="status-overview">
         <div class="status-overview-head">
           <div>
             <p class="panel-kicker">System Health</p>
@@ -221,7 +221,7 @@
             </div>
         </section>
 
-        <section id="run-ledger" class="panel runs-panel panel-anchor" data-stagger="4">
+        <section id="run-ledger" class="panel runs-panel panel-anchor" data-stagger="4" data-ui-refresh-surface="run-ledger">
           <div class="panel-head">
             <div>
               <p class="panel-kicker">2. Track Delivery Runs</p>
@@ -271,7 +271,7 @@
           <div id="runsList" class="run-list" data-ui-region="runs-list"></div>
         </section>
 
-        <aside id="automation-rail" class="panel rail-panel panel-anchor" data-stagger="5">
+        <aside id="automation-rail" class="panel rail-panel panel-anchor" data-stagger="5" data-ui-refresh-surface="automation-rail">
           <div class="panel-head">
             <div>
               <p class="panel-kicker">Optional Automation Inputs</p>
@@ -375,7 +375,7 @@
           </section>
         </aside>
 
-        <section id="run-detail" class="panel detail-panel panel-anchor" data-stagger="6">
+        <section id="run-detail" class="panel detail-panel panel-anchor" data-stagger="6" data-ui-refresh-surface="run-detail">
           <div class="panel-head">
             <div>
               <p class="panel-kicker">3. Advance The Selected Run</p>
