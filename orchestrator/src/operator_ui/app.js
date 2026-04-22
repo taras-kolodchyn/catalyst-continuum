@@ -123,25 +123,31 @@ document.addEventListener("DOMContentLoaded", () => {
   bindEvents();
   syncMissionTabSelection();
   restoreBriefDraft();
+  if (supportsRealtimeUpdates()) {
+    connectRealtime();
+  }
   loadBriefExamples().catch((error) => {
     console.error("brief example load failed", error);
     renderBriefExamplesError(error.message);
   });
   refreshDashboard().catch((error) => {
-    renderStatusGrid({
-      readyz: failedEnvelope(error),
-      aiGateway: failedEnvelope(error),
-      config: failedEnvelope(error),
-      packs: failedEnvelope(error),
-    });
-    writeConsole(
-      elements.briefConsole,
-      elements.briefConsoleStatus,
-      "error",
-      { error: error.message }
-    );
-  }).finally(() => {
-    connectRealtime();
+    if (!supportsRealtimeUpdates()) {
+      renderStatusGrid({
+        readyz: failedEnvelope(error),
+        aiGateway: failedEnvelope(error),
+        config: failedEnvelope(error),
+        packs: failedEnvelope(error),
+      });
+      writeConsole(
+        elements.briefConsole,
+        elements.briefConsoleStatus,
+        "error",
+        { error: error.message }
+      );
+      return;
+    }
+
+    console.error("operator UI bootstrap refresh failed", error);
   });
   if (!supportsRealtimeUpdates()) {
     window.setInterval(() => {
