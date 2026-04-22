@@ -230,7 +230,9 @@ function bindEvents() {
       return;
     }
 
-    selectRun(runButton.dataset.runId).catch((error) => {
+    selectRun(runButton.dataset.runId, {
+      revealDetail: isCompactViewport(),
+    }).catch((error) => {
       console.error("run selection failed", error);
     });
   });
@@ -300,11 +302,7 @@ function bindEvents() {
       return;
     }
 
-    selectRun(state.selectedQueueRunId).then(() => {
-      document
-        .querySelector(".detail-panel")
-        ?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }).catch((error) => {
+    selectRun(state.selectedQueueRunId, { revealDetail: true }).catch((error) => {
       console.error("queue inspector run selection failed", error);
     });
   });
@@ -341,6 +339,16 @@ function bindEvents() {
   elements.resetRunActionDraftButton.addEventListener("click", () => {
     resetSelectedRunActionDraft();
   });
+}
+
+function isCompactViewport() {
+  return window.matchMedia("(max-width: 960px)").matches;
+}
+
+function revealSelectedRunDetail() {
+  document
+    .querySelector(".detail-panel")
+    ?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 async function refreshDashboard() {
@@ -446,6 +454,9 @@ async function selectRun(runId, options = {}) {
     syncUiUrlState();
   }
   await loadRunDetail(runId);
+  if (options.revealDetail) {
+    revealSelectedRunDetail();
+  }
 }
 
 function syncUiUrlState() {
@@ -535,6 +546,7 @@ async function submitBriefRequest(mode) {
     if (envelope.ok && mode === "submit" && envelope.data?.run_id) {
       state.selectedRunId = envelope.data.run_id;
       await refreshDashboard();
+      revealSelectedRunDetail();
     }
   } finally {
     state.briefRequestInFlight = false;
@@ -620,6 +632,9 @@ async function submitNextSignalRequest() {
     }
 
     await refreshDashboard();
+    if (envelope.ok && submittedRunId) {
+      revealSelectedRunDetail();
+    }
   } finally {
     state.automationRequestInFlight = false;
     setAutomationControlsBusyState(elements.submitNextSignalButton, AUTOMATION_BUSY_LABELS.signal, false);
@@ -671,6 +686,9 @@ async function runRepositoryAutomationRequest() {
     }
 
     await refreshDashboard();
+    if (envelope.ok && submittedRunId) {
+      revealSelectedRunDetail();
+    }
   } finally {
     state.automationRequestInFlight = false;
     setAutomationControlsBusyState(
@@ -1487,6 +1505,7 @@ function renderRuns(response) {
         ? `${run.repository.owner}/${run.repository.name}`
         : "repository not declared";
       const isSelected = run.run_id === state.selectedRunId;
+      const guide = runCardGuide(run);
       return `
         <button
           class="run-card${isSelected ? " is-selected" : ""}"
@@ -1506,6 +1525,13 @@ function renderRuns(response) {
           <p class="microcopy">
             ${escapeHtml(run.target_pack ?? "no pack")} · ${escapeHtml(run.trigger)}
           </p>
+          <div class="run-card-guide">
+            <div class="run-card-guide-head">
+              <p class="panel-kicker">Current stage</p>
+              <span class="badge badge-${escapeHtml(guide.tone)}">${escapeHtml(guide.stage)}</span>
+            </div>
+            <p>${escapeHtml(guide.detail)}</p>
+          </div>
           <div class="run-card-stats">
             <span>${escapeHtml(repositoryName)}</span>
             <span>${escapeHtml(run.task_counts?.total ?? 0)} task(s)</span>
@@ -1521,6 +1547,57 @@ function renderRuns(response) {
       `;
     })
     .join("");
+}
+
+function runCardGuide(run) {
+  const taskCounts = normalizedTaskCounts(run.task_counts);
+
+  if (run.status === "failed") {
+    return {
+      tone: "error",
+      stage: "Blocked",
+      detail: "Open this run and inspect failed tasks plus run events before continuing promotion or retries.",
+    };
+  }
+
+  if (run.status === "executing" || taskCounts.running > 0) {
+    return {
+      tone: "warning",
+      stage: "Executing",
+      detail:
+        taskCounts.running > 0
+          ? `${taskCounts.running} task(s) are running right now. Open the run to watch progress and next actions.`
+          : "Execution is in progress. Open the run to inspect the active stage and remaining backlog.",
+    };
+  }
+
+  if (run.status === "queued" || taskCounts.queued > 0) {
+    return {
+      tone: "warning",
+      stage: "Ready",
+      detail:
+        taskCounts.queued > 0
+          ? `${taskCounts.queued} queued task(s) are waiting. Open the run and use Run next task or Worker once.`
+          : "The run is ready to start execution. Open it and trigger the first controlled step.",
+    };
+  }
+
+  if (run.status === "succeeded") {
+    return {
+      tone: "success",
+      stage: "Promotable",
+      detail:
+        run.artifact_count > 0
+          ? "Execution finished. Open the run to evaluate quality or continue PR export and draft-PR handoff."
+          : "Execution finished. Open the run to inspect promotion readiness and persisted outputs.",
+    };
+  }
+
+  return {
+    tone: "neutral",
+    stage: "Materialized",
+    detail: "Open this run to inspect the current orchestration stage, backlog, and next operator action.",
+  };
 }
 
 function filterVisibleRuns(runs) {

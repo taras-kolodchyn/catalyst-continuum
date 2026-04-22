@@ -252,6 +252,8 @@ if 'data-ui-action="clear-brief"' not in html or "Clear brief" not in html:
     raise SystemExit("operator UI smoke failed: missing explicit clear-brief control label")
 if 'id="runLedgerHint"' not in html:
     raise SystemExit("operator UI smoke failed: missing run-ledger hint")
+if "Current stage" not in html:
+    raise SystemExit("operator UI smoke failed: missing run-ledger stage preview")
 if 'id="runSearchInput"' not in html:
     raise SystemExit("operator UI smoke failed: missing run search input")
 if 'data-ui-input="run-search"' not in html:
@@ -322,6 +324,8 @@ if "setRunActionControlsBusyState" not in js:
     raise SystemExit("operator UI smoke failed: missing run-action busy-state guard")
 if "runActionAvailability" not in js:
     raise SystemExit("operator UI smoke failed: missing run-action availability gating")
+if "revealSelectedRunDetail" not in js:
+    raise SystemExit("operator UI smoke failed: missing auto-reveal for selected run detail")
 if "renderRunGuide" not in js or "buildRunGuide" not in js:
     raise SystemExit("operator UI smoke failed: missing selected-run orchestration guide logic")
 if "renderDetailEmptyStateMarkup" not in js:
