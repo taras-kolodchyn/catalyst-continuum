@@ -219,6 +219,8 @@ if 'id="queueInspectorConsole"' not in html:
     raise SystemExit("operator UI smoke failed: missing queue inspector console")
 if 'src="/ui/app.js"' not in html:
     raise SystemExit("operator UI smoke failed: missing app.js asset reference")
+if 'rel="icon"' not in html:
+    raise SystemExit("operator UI smoke failed: missing favicon link")
 if "refreshDashboard" not in js:
     raise SystemExit("operator UI smoke failed: missing dashboard refresh client logic")
 if "submitBriefRequest" not in js:
@@ -227,6 +229,8 @@ if "runRepositoryAutomationRequest" not in js:
     raise SystemExit("operator UI smoke failed: missing automation-cycle client logic")
 if "loadQueueItemDetail" not in js:
     raise SystemExit("operator UI smoke failed: missing queue inspector client logic")
+if "syncSelectedRunUrl" not in js:
+    raise SystemExit("operator UI smoke failed: missing selected-run URL sync logic")
 PY
 
 WEBHOOK_PAYLOAD_FILE="$ARTIFACT_ROOT/mcp-webhook-ping.json"

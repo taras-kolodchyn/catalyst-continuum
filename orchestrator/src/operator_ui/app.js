@@ -267,6 +267,7 @@ async function refreshDashboard() {
     if (runs.length === 0) {
       clearRunSelection("No runs available yet. Submit a brief to materialize the first run.");
     } else if (state.selectedRunId && runs.some((run) => run.run_id === state.selectedRunId)) {
+      syncSelectedRunUrl(state.selectedRunId);
       await loadRunDetail(state.selectedRunId);
     } else {
       await selectRun(runs[0].run_id);
@@ -292,11 +293,23 @@ async function selectRun(runId, options = {}) {
   state.selectedRunId = runId;
   renderRuns({ runs: state.latestRuns });
   if (!options.refreshOnly) {
-    const nextUrl = new URL(window.location.href);
-    nextUrl.searchParams.set("run", runId);
-    window.history.replaceState({}, "", nextUrl);
+    syncSelectedRunUrl(runId);
   }
   await loadRunDetail(runId);
+}
+
+function syncSelectedRunUrl(runId) {
+  if (!runId) {
+    return;
+  }
+
+  const nextUrl = new URL(window.location.href);
+  if (nextUrl.searchParams.get("run") === runId) {
+    return;
+  }
+
+  nextUrl.searchParams.set("run", runId);
+  window.history.replaceState({}, "", nextUrl);
 }
 
 async function loadRunDetail(runId) {
