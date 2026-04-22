@@ -106,8 +106,11 @@ const state = {
   activeMissionTab: restoreMissionTabPreference(),
   selectedAgentActivityId: "all",
   selectedAgentReportArtifactId: null,
+  selectedAgentLogArtifactId: null,
   agentReportDetails: {},
   agentReportLoadsInFlight: {},
+  agentLogDetails: {},
+  agentLogLoadsInFlight: {},
   agentLinkedArtifactDetails: {},
   agentLinkedArtifactLoadsInFlight: {},
 };
@@ -281,6 +284,12 @@ function bindEvents() {
     const reportButton = event.target.closest("[data-agent-report-artifact-id]");
     if (reportButton) {
       setSelectedAgentReport(reportButton.dataset.agentReportArtifactId);
+      return;
+    }
+
+    const logButton = event.target.closest("[data-agent-log-artifact-id]");
+    if (logButton) {
+      setSelectedAgentLog(logButton.dataset.agentLogArtifactId);
     }
   });
 
@@ -2358,6 +2367,7 @@ function syncSelectedAgentActivity(runDetail) {
   if (!availableAgents.size) {
     state.selectedAgentActivityId = "all";
     state.selectedAgentReportArtifactId = null;
+    state.selectedAgentLogArtifactId = null;
     return;
   }
 
@@ -2381,6 +2391,20 @@ function syncSelectedAgentActivity(runDetail) {
   } else if (!state.selectedAgentReportArtifactId) {
     state.selectedAgentReportArtifactId = reports[0]?.artifact.artifact_id ?? null;
   }
+
+  const logs = filteredAgentExecutionLogArtifacts(
+    runDetail,
+    state.selectedAgentActivityId,
+    state.agentLogDetails
+  );
+  if (
+    state.selectedAgentLogArtifactId &&
+    !logs.some((log) => log.artifact.artifact_id === state.selectedAgentLogArtifactId)
+  ) {
+    state.selectedAgentLogArtifactId = logs[0]?.artifact.artifact_id ?? null;
+  } else if (!state.selectedAgentLogArtifactId) {
+    state.selectedAgentLogArtifactId = logs[0]?.artifact.artifact_id ?? null;
+  }
 }
 
 function setSelectedAgentActivity(agentId) {
@@ -2396,9 +2420,16 @@ function setSelectedAgentActivity(agentId) {
       state.selectedAgentActivityId,
       state.agentReportDetails
     );
+    const logs = filteredAgentExecutionLogArtifacts(
+      state.selectedRunDetail,
+      state.selectedAgentActivityId,
+      state.agentLogDetails
+    );
     state.selectedAgentReportArtifactId = reports[0]?.artifact.artifact_id ?? null;
+    state.selectedAgentLogArtifactId = logs[0]?.artifact.artifact_id ?? null;
   } else {
     state.selectedAgentReportArtifactId = null;
+    state.selectedAgentLogArtifactId = null;
   }
   renderMissionControl();
 }
@@ -2409,6 +2440,15 @@ function setSelectedAgentReport(artifactId) {
   }
 
   state.selectedAgentReportArtifactId = artifactId;
+  renderMissionControl();
+}
+
+function setSelectedAgentLog(artifactId) {
+  if (!artifactId || state.selectedAgentLogArtifactId === artifactId) {
+    return;
+  }
+
+  state.selectedAgentLogArtifactId = artifactId;
   renderMissionControl();
 }
 
@@ -2430,6 +2470,7 @@ function agentNameForTask(task) {
 function ensureAgentReportDetails(runDetail) {
   const reports = agentTaskReportArtifacts(runDetail);
   if (!reports.length) {
+    ensureAgentLogDetails(runDetail);
     renderMissionControl();
     return;
   }
@@ -2444,6 +2485,7 @@ function ensureAgentReportDetails(runDetail) {
 
   if (!pending.length) {
     syncSelectedAgentActivity(runDetail);
+    ensureAgentLogDetails(runDetail);
     ensureLinkedAgentArtifactDetails(runDetail);
     renderMissionControl();
     return;
@@ -2464,6 +2506,52 @@ function ensureAgentReportDetails(runDetail) {
       .finally(() => {
         delete state.agentReportLoadsInFlight[artifactId];
         if (state.selectedRunDetail?.run_id === runDetail.run_id) {
+          ensureAgentLogDetails(state.selectedRunDetail);
+          ensureLinkedAgentArtifactDetails(state.selectedRunDetail);
+          syncSelectedAgentActivity(state.selectedRunDetail);
+          renderMissionControl();
+        }
+      });
+  });
+}
+
+function ensureAgentLogDetails(runDetail) {
+  const logs = agentExecutionLogArtifacts(runDetail);
+  if (!logs.length) {
+    renderMissionControl();
+    return;
+  }
+
+  const pending = logs.filter((artifact) => {
+    const artifactId = artifact.artifact_id;
+    return (
+      !state.agentLogDetails[artifactId] &&
+      state.agentLogLoadsInFlight[artifactId] !== true
+    );
+  });
+
+  if (!pending.length) {
+    syncSelectedAgentActivity(runDetail);
+    ensureLinkedAgentArtifactDetails(runDetail);
+    renderMissionControl();
+    return;
+  }
+
+  pending.forEach((artifact) => {
+    const artifactId = artifact.artifact_id;
+    state.agentLogLoadsInFlight[artifactId] = true;
+    fetchJsonEnvelope(`/artifacts/${encodeURIComponent(artifactId)}`)
+      .then((envelope) => {
+        state.agentLogDetails[artifactId] = envelope.ok ? envelope.data : envelope;
+      })
+      .catch((error) => {
+        state.agentLogDetails[artifactId] = {
+          error: error.message,
+        };
+      })
+      .finally(() => {
+        delete state.agentLogLoadsInFlight[artifactId];
+        if (state.selectedRunDetail?.run_id === runDetail.run_id) {
           ensureLinkedAgentArtifactDetails(state.selectedRunDetail);
           syncSelectedAgentActivity(state.selectedRunDetail);
           renderMissionControl();
@@ -2473,12 +2561,7 @@ function ensureAgentReportDetails(runDetail) {
 }
 
 function ensureLinkedAgentArtifactDetails(runDetail) {
-  const pendingArtifactIds = filteredAgentReportArtifacts(
-    runDetail,
-    "all",
-    state.agentReportDetails
-  )
-    .map(linkedAgentArtifactIdForReport)
+  const pendingArtifactIds = linkedAgentArtifactIdsForRun(runDetail)
     .filter(Boolean)
     .filter(uniqueValue)
     .filter((artifactId) => {
@@ -2508,6 +2591,17 @@ function ensureLinkedAgentArtifactDetails(runDetail) {
   });
 }
 
+function linkedAgentArtifactIdsForRun(runDetail) {
+  return [
+    ...filteredAgentReportArtifacts(runDetail, "all", state.agentReportDetails).map(
+      linkedAgentArtifactIdForReport
+    ),
+    ...filteredAgentExecutionLogArtifacts(runDetail, "all", state.agentLogDetails).map(
+      linkedAgentArtifactIdForLog
+    ),
+  ];
+}
+
 function renderMissionAgentsPanel() {
   const runDetail = state.selectedRunDetail;
   if (!runDetail) {
@@ -2530,6 +2624,12 @@ function renderMissionAgentsPanel() {
     state.agentReportDetails
   );
   const selectedReport = selectedAgentReport(reports);
+  const logs = filteredAgentExecutionLogArtifacts(
+    runDetail,
+    state.selectedAgentActivityId,
+    state.agentLogDetails
+  );
+  const selectedLog = selectedAgentExecutionLog(logs);
   const filteredEvents = filteredAgentEvents(
     runDetail,
     state.selectedRunEvents,
@@ -2545,6 +2645,7 @@ function renderMissionAgentsPanel() {
   if (
     !agents.length &&
     !reports.length &&
+    !logs.length &&
     !tasks.some((task) => task.agent_execution?.mode === "external_agent")
   ) {
     setRenderedHtml(
@@ -2604,6 +2705,31 @@ function renderMissionAgentsPanel() {
                   )
             }
           </div>
+        </section>
+        <section class="agent-execution-shell">
+          <div class="detail-section-head">
+            <div>
+              <p class="panel-kicker">Execution logs</p>
+              <h3>Runtime stdout, stderr, and command context</h3>
+            </div>
+            <span class="badge badge-neutral">${escapeHtml(String(logs.length))}</span>
+          </div>
+          <div class="agent-log-grid">
+            ${
+              logs.length
+                ? logs.map((log) => renderAgentExecutionLogCard(runDetail, log)).join("")
+                : renderSectionEmptyState(
+                    "Execution logs",
+                    "No runtime log artifacts match the current agent filter",
+                    "Logs appear when worker or runtime-backed tasks persist execution artifacts for the selected run."
+                  )
+            }
+          </div>
+          ${
+            selectedLog
+              ? renderSelectedAgentExecutionLog(runDetail, selectedLog)
+              : ""
+          }
         </section>
         <section class="agent-report-shell">
           <div class="detail-section-head">
@@ -2795,6 +2921,12 @@ function agentTaskReportArtifacts(runDetail) {
     .sort((left, right) => sortableTimestamp(right.created_at) - sortableTimestamp(left.created_at));
 }
 
+function agentExecutionLogArtifacts(runDetail) {
+  return (Array.isArray(runDetail?.artifacts) ? runDetail.artifacts : [])
+    .filter((artifact) => artifact.artifact_type === "log")
+    .sort((left, right) => sortableTimestamp(right.created_at) - sortableTimestamp(left.created_at));
+}
+
 function filteredAgentReportArtifacts(runDetail, agentId, reportDetails) {
   return agentTaskReportArtifacts(runDetail)
     .map((artifact) => ({
@@ -2806,6 +2938,21 @@ function filteredAgentReportArtifacts(runDetail, agentId, reportDetails) {
         return true;
       }
       return agentIdForReport(report) === agentId;
+    });
+}
+
+function filteredAgentExecutionLogArtifacts(runDetail, agentId, logDetails) {
+  return agentExecutionLogArtifacts(runDetail)
+    .map((artifact) => ({
+      artifact,
+      detail: logDetails[artifact.artifact_id] ?? null,
+    }))
+    .filter((log) => {
+      if (agentId === "all") {
+        return true;
+      }
+      const task = taskForAgentLog(runDetail, log);
+      return agentNameForTask(task) === agentId;
     });
 }
 
@@ -2832,11 +2979,36 @@ function selectedAgentReport(reports) {
   return selected;
 }
 
+function selectedAgentExecutionLog(logs) {
+  if (!logs.length) {
+    state.selectedAgentLogArtifactId = null;
+    return null;
+  }
+
+  const selected =
+    logs.find((log) => log.artifact.artifact_id === state.selectedAgentLogArtifactId) ??
+    logs[0];
+  state.selectedAgentLogArtifactId = selected.artifact.artifact_id;
+  return selected;
+}
+
 function taskForAgentReport(runDetail, report) {
   const taskId =
     report?.detail?.manifest?.task_id ??
     report?.detail?.metadata?.task_id ??
     report?.artifact?.metadata?.task_id;
+  if (typeof taskId !== "string" || !taskId.trim()) {
+    return null;
+  }
+
+  return (runDetail?.tasks || []).find((task) => task.task_id === taskId) ?? null;
+}
+
+function taskForAgentLog(runDetail, log) {
+  const taskId =
+    log?.detail?.manifest?.task_id ??
+    log?.detail?.metadata?.task_id ??
+    log?.artifact?.metadata?.task_id;
   if (typeof taskId !== "string" || !taskId.trim()) {
     return null;
   }
@@ -2886,6 +3058,64 @@ function renderAgentReportCard(report) {
   `;
 }
 
+function executionLogStatus(log) {
+  return (
+    log?.detail?.manifest?.status ??
+    log?.detail?.metadata?.status ??
+    log?.artifact?.metadata?.status ??
+    "loading"
+  );
+}
+
+function executionLogPreview(log) {
+  const stdout = log?.detail?.manifest?.stdout ?? "";
+  const stderr = log?.detail?.manifest?.stderr ?? "";
+  const preview = [stdout, stderr]
+    .map((value) => String(value ?? "").trim())
+    .find(Boolean);
+
+  return preview || log?.detail?.error || "Select this log to inspect stdout and stderr.";
+}
+
+function renderAgentExecutionLogCard(runDetail, log) {
+  const task = taskForAgentLog(runDetail, log);
+  const manifest = log.detail?.manifest ?? null;
+  const status = executionLogStatus(log);
+  const isSelected = log.artifact.artifact_id === state.selectedAgentLogArtifactId;
+  const agentId = agentNameForTask(task) || manifest?.provider || "runtime";
+  const title =
+    task?.backlog_item_id ??
+    manifest?.task_kind ??
+    task?.kind ??
+    shortId(log.artifact.artifact_id);
+  const secondary = executionLogPreview(log);
+
+  return `
+    <button
+      class="agent-report-card${isSelected ? " is-selected" : ""}"
+      type="button"
+      data-agent-log-artifact-id="${escapeHtml(log.artifact.artifact_id)}"
+      aria-pressed="${isSelected ? "true" : "false"}"
+    >
+      <div class="surface-link-head">
+        <div>
+          <p class="panel-kicker">${escapeHtml(agentId)}</p>
+          <h4>${escapeHtml(title)}</h4>
+        </div>
+        <span class="badge badge-${escapeHtml(
+          normalizePulseTone(statusTone(status))
+        )}">${escapeHtml(status)}</span>
+      </div>
+      <p>${escapeHtml(task?.title ?? manifest?.task_title ?? "Runtime execution log")}</p>
+      <div class="agent-lane-meta">
+        <span>${escapeHtml(manifest?.provider ?? task?.execution?.provider ?? "provider unknown")}</span>
+        <span>${escapeHtml(formatTimestamp(log.artifact.created_at))}</span>
+      </div>
+      <p class="microcopy">${escapeHtml(truncateText(secondary, 180))}</p>
+    </button>
+  `;
+}
+
 function linkedAgentArtifactIdForReport(report) {
   const artifactId =
     report?.detail?.manifest?.task_workspace_input_artifact_id ??
@@ -2902,6 +3132,242 @@ function linkedAgentArtifactDetailForReport(report) {
 function linkedAgentArtifactLoadingForReport(report) {
   const artifactId = linkedAgentArtifactIdForReport(report);
   return artifactId ? state.agentLinkedArtifactLoadsInFlight[artifactId] === true : false;
+}
+
+function linkedAgentArtifactIdForLog(log) {
+  const artifactId =
+    log?.detail?.manifest?.workspace_input_artifact_id ??
+    log?.detail?.metadata?.workspace_input_artifact_id ??
+    log?.artifact?.metadata?.workspace_input_artifact_id;
+  return typeof artifactId === "string" && artifactId.trim() ? artifactId.trim() : "";
+}
+
+function linkedAgentArtifactDetailForLog(log) {
+  const artifactId = linkedAgentArtifactIdForLog(log);
+  return artifactId ? state.agentLinkedArtifactDetails[artifactId] ?? null : null;
+}
+
+function linkedAgentArtifactLoadingForLog(log) {
+  const artifactId = linkedAgentArtifactIdForLog(log);
+  return artifactId ? state.agentLinkedArtifactLoadsInFlight[artifactId] === true : false;
+}
+
+function renderSelectedAgentExecutionLog(runDetail, log) {
+  const task = taskForAgentLog(runDetail, log);
+  const manifest = log.detail?.manifest ?? {};
+  const status = executionLogStatus(log);
+  const runtimeParts = [
+    manifest.provider ?? task?.execution?.provider ?? "provider unknown",
+    manifest.image ?? log.detail?.metadata?.image ?? "image unknown",
+    `exit ${manifest.exit_code ?? "n/a"}`,
+  ];
+  const summaryCards = buildSelectedAgentLogSummaryCards(task, log);
+
+  return `
+    <div class="agent-report-actions">
+      <span class="badge badge-${escapeHtml(
+        normalizePulseTone(statusTone(status))
+      )}">${escapeHtml(status)}</span>
+      <span class="microcopy">${escapeHtml(runtimeParts.join(" · "))}</span>
+    </div>
+    <div class="mission-mini-grid agent-report-summary-grid">
+      ${summaryCards.map(renderSelectedAgentReportSummaryCard).join("")}
+    </div>
+    <div class="agent-inspector-stack">
+      ${renderAgentExecutionCommandCard(task, log)}
+      ${renderAgentExecutionWorkspaceCard(log)}
+    </div>
+    <div class="agent-stream-grid">
+      ${renderAgentExecutionStreamCard(
+        "stdout",
+        "Captured standard output",
+        manifest.stdout,
+        "The runtime did not persist stdout for this execution artifact."
+      )}
+      ${renderAgentExecutionStreamCard(
+        "stderr",
+        "Captured standard error",
+        manifest.stderr,
+        "The runtime did not persist stderr for this execution artifact."
+      )}
+    </div>
+  `;
+}
+
+function buildSelectedAgentLogSummaryCards(task, log) {
+  const manifest = log.detail?.manifest ?? {};
+  const workspaceArtifactId = linkedAgentArtifactIdForLog(log);
+  const timedOut = manifest.timed_out === true;
+  const exitCode =
+    manifest.exit_code == null ? "n/a" : String(manifest.exit_code);
+
+  return [
+    {
+      kicker: "Task",
+      title:
+        task?.backlog_item_id ??
+        manifest.task_kind ??
+        task?.kind ??
+        shortId(log.artifact.artifact_id),
+      detail: task?.title ?? manifest.task_title ?? "Runtime execution log",
+      tone: statusTone(task?.status ?? manifest.status ?? "neutral"),
+    },
+    {
+      kicker: "Runtime",
+      title: manifest.provider ?? task?.execution?.provider ?? "provider unknown",
+      detail: manifest.image ?? log.detail?.metadata?.image ?? "image not recorded",
+      tone: statusTone(manifest.status ?? "neutral"),
+    },
+    {
+      kicker: "Exit posture",
+      title: timedOut ? "Timed out" : `Exit ${exitCode}`,
+      detail: `timeout ${manifest.timeout_seconds ?? "n/a"}s · ${manifest.status ?? "status unknown"}`,
+      tone: timedOut ? "warning" : manifest.exit_code === 0 ? "success" : statusTone(manifest.status ?? "neutral"),
+    },
+    {
+      kicker: "Workspace handoff",
+      title: workspaceArtifactId ? shortId(workspaceArtifactId) : "Not captured",
+      detail:
+        manifest.workspace_path ??
+        manifest.workspace_bundle_path ??
+        "No prepared workspace artifact was linked",
+      tone: workspaceArtifactId ? "warning" : "neutral",
+    },
+  ];
+}
+
+function renderAgentExecutionCommandCard(task, log) {
+  const manifest = log.detail?.manifest ?? {};
+  const metadata = log.detail?.metadata ?? {};
+  const command = Array.isArray(metadata.command)
+    ? metadata.command
+    : Array.isArray(manifest.command)
+      ? manifest.command
+      : [];
+  const summaryEntries = [];
+  pushConsoleSummaryEntry(summaryEntries, "Task", manifest.task_id ?? task?.task_id, {
+    mono: true,
+    short: true,
+  });
+  pushConsoleSummaryEntry(summaryEntries, "Provider", manifest.provider ?? task?.execution?.provider);
+  pushConsoleSummaryEntry(summaryEntries, "Image", manifest.image ?? metadata.image);
+  pushConsoleSummaryEntry(summaryEntries, "Timeout", manifest.timeout_seconds, {});
+  pushConsoleSummaryEntry(summaryEntries, "Timed out", manifest.timed_out === true ? "yes" : "no");
+
+  return renderAgentInspectorCard(
+    "Execution command",
+    "Runtime invocation",
+    renderConsoleStructuredPayload(
+      {
+        command,
+        provider: manifest.provider ?? task?.execution?.provider ?? null,
+        image: manifest.image ?? metadata.image ?? null,
+        workingDirectory:
+          metadata.working_directory ??
+          manifest.workspace_path ??
+          metadata.workspace_path ??
+          null,
+        sandboxProfile: manifest.sandbox_profile ?? metadata.sandbox_profile ?? null,
+        sandboxFlags: manifest.sandbox_flags ?? metadata.sandbox_flags ?? [],
+        networkMode: manifest.network_mode ?? metadata.network_mode ?? null,
+        timeoutSeconds: manifest.timeout_seconds ?? null,
+        timedOut: manifest.timed_out === true,
+      },
+      summaryEntries,
+      false
+    )
+  );
+}
+
+function renderAgentExecutionWorkspaceCard(log) {
+  const manifest = log.detail?.manifest ?? {};
+  const linkedDetail = linkedAgentArtifactDetailForLog(log);
+  const linkedManifest = linkedDetail?.manifest ?? {};
+  const workspaceArtifactId = linkedAgentArtifactIdForLog(log);
+
+  if (!workspaceArtifactId) {
+    return renderAgentInspectorCard(
+      "Prepared workspace",
+      "No linked prepared workspace artifact",
+      '<div class="empty-state compact">This execution log does not reference a persisted task workspace input artifact.</div>'
+    );
+  }
+
+  if (linkedAgentArtifactLoadingForLog(log)) {
+    return renderAgentInspectorCard(
+      "Prepared workspace",
+      "Loading linked workspace artifact",
+      '<div class="empty-state compact is-loading"><p>Inspecting the prepared workspace handoff...</p></div>'
+    );
+  }
+
+  if (!linkedDetail || linkedDetail.error || !linkedDetail.artifact) {
+    return renderAgentInspectorCard(
+      "Prepared workspace",
+      "Linked workspace artifact unavailable",
+      renderSectionEmptyState(
+        "Prepared workspace",
+        "The linked task workspace input artifact could not be loaded",
+        linkedDetail?.error ??
+          formatEnvelopeError(linkedDetail) ??
+          "No artifact detail payload was returned."
+      )
+    );
+  }
+
+  const summaryEntries = [];
+  pushConsoleSummaryEntry(summaryEntries, "Artifact", workspaceArtifactId, {
+    mono: true,
+    short: true,
+  });
+  pushConsoleSummaryEntry(summaryEntries, "Workspace", manifest.workspace_path ?? linkedManifest.workspace_root, {
+    mono: true,
+  });
+  pushConsoleSummaryEntry(summaryEntries, "Bundle", manifest.workspace_bundle_path ?? linkedDetail.resolved_path, {
+    mono: true,
+  });
+  pushConsoleSummaryEntry(
+    summaryEntries,
+    "Source",
+    linkedManifest.source_artifact_id ?? manifest.workspace_source_artifact_id,
+    { mono: true, short: true }
+  );
+
+  return renderAgentInspectorCard(
+    "Prepared workspace",
+    linkedDetail.artifact.artifact_type ?? "task_workspace_input",
+    renderConsoleStructuredPayload(
+      {
+        workspaceArtifactId,
+        workspacePath: manifest.workspace_path ?? null,
+        workspaceBundlePath: manifest.workspace_bundle_path ?? null,
+        workspaceSourceArtifactId: manifest.workspace_source_artifact_id ?? null,
+        workspaceInputArtifactId: manifest.workspace_input_artifact_id ?? null,
+        preparedWorkspace: {
+          sourceKind: linkedManifest.source_kind ?? null,
+          sourceArtifactId: linkedManifest.source_artifact_id ?? null,
+          workspaceRoot: linkedManifest.workspace_root ?? linkedDetail.resolved_path ?? null,
+          bundleEntryCount: linkedManifest.bundle_entry_count ?? null,
+          bundleByteCount: linkedManifest.bundle_byte_count ?? null,
+          fileCount: linkedManifest.file_count ?? null,
+        },
+      },
+      summaryEntries,
+      false
+    )
+  );
+}
+
+function renderAgentExecutionStreamCard(kicker, title, value, emptyMessage) {
+  const rendered = String(value ?? "");
+
+  return renderAgentInspectorCard(
+    kicker,
+    title,
+    rendered.trim()
+      ? `<pre class="agent-report-pre">${escapeHtml(rendered)}</pre>`
+      : `<div class="empty-state compact"><p>${escapeHtml(emptyMessage)}</p></div>`
+  );
 }
 
 function renderSelectedAgentReportConsole(runDetail, report) {
@@ -5081,6 +5547,7 @@ function clearRunSelection(message, title = "No run selected") {
   state.selectedRunEvents = [];
   state.selectedAgentActivityId = "all";
   state.selectedAgentReportArtifactId = null;
+  state.selectedAgentLogArtifactId = null;
   setTextContent(elements.selectedRunLabel, "No run selected.");
   setRenderedHtml(elements.detailEmptyState, renderDetailEmptyStateMarkup({
     title,

@@ -336,14 +336,16 @@ if "renderMissionAgentsPanel" not in js or "ensureAgentReportDetails" not in js:
     raise SystemExit("operator UI smoke failed: missing multi-agent activity rendering logic")
 if "renderMissionGrafanaPanel" not in js or "renderMissionLitellmPanel" not in js:
     raise SystemExit("operator UI smoke failed: missing embedded grafana/litellm rendering logic")
-if "data-agent-filter" not in js or "data-agent-report-artifact-id" not in js:
-    raise SystemExit("operator UI smoke failed: missing agent filter and report selection hooks")
-if "agent_task_report" not in js or "filteredAgentEvents" not in js:
-    raise SystemExit("operator UI smoke failed: missing agent report and event correlation logic")
+if "data-agent-filter" not in js or "data-agent-report-artifact-id" not in js or "data-agent-log-artifact-id" not in js:
+    raise SystemExit("operator UI smoke failed: missing agent filter, report selection, or execution-log selection hooks")
+if "agent_task_report" not in js or "filteredAgentEvents" not in js or "agentExecutionLogArtifacts" not in js:
+    raise SystemExit("operator UI smoke failed: missing agent report, event, or execution-log correlation logic")
 if "ensureLinkedAgentArtifactDetails" not in js or "task_workspace_input_artifact_id" not in js:
     raise SystemExit("operator UI smoke failed: missing linked prepared-workspace artifact inspection logic")
 if "renderSelectedAgentWorkspaceInputCard" not in js or "Prepared workspace" not in js:
     raise SystemExit("operator UI smoke failed: missing selected agent workspace inspector rendering")
+if "renderSelectedAgentExecutionLog" not in js or "Captured standard output" not in js or "Runtime invocation" not in js:
+    raise SystemExit("operator UI smoke failed: missing execution-log inspector rendering")
 if "GRAFANA_OVERVIEW_DASHBOARD_PATH" not in js or "surface-frame" not in js:
     raise SystemExit("operator UI smoke failed: missing embedded grafana surface wiring")
 if "submitBriefRequest" not in js:

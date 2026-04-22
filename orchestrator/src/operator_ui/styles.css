@@ -452,6 +452,7 @@ textarea,
 .mission-feed-shell,
 .agent-lane,
 .agent-log-shell,
+.agent-execution-shell,
 .agent-report-shell,
 .surface-link-card,
 .surface-frame-shell {
@@ -469,6 +470,7 @@ textarea,
 
 .mission-feed-shell,
 .agent-log-shell,
+.agent-execution-shell,
 .agent-report-shell,
 .surface-frame-shell {
   padding: 16px;
@@ -543,6 +545,7 @@ textarea,
 
 .mission-feed-shell,
 .agent-log-shell,
+.agent-execution-shell,
 .agent-report-shell,
 .surface-frame-shell {
   display: flex;
@@ -679,6 +682,12 @@ textarea,
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
 }
 
+.agent-log-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+
 .agent-report-card {
   display: flex;
   flex-direction: column;
@@ -735,6 +744,12 @@ textarea,
 .agent-inspector-stack {
   display: flex;
   flex-direction: column;
+  gap: 12px;
+}
+
+.agent-stream-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 12px;
 }
 
