@@ -228,6 +228,18 @@ if 'class="hero-flow"' not in html or "Open draft PR" not in html:
     raise SystemExit("operator UI smoke failed: missing product workflow explainer")
 if "What the control plane is doing right now" not in html or "Latest orchestration movement" not in html:
     raise SystemExit("operator UI smoke failed: missing operator pulse explainer copy")
+if 'id="mission-control"' not in html or 'id="missionShell"' not in html or 'id="missionTabBar"' not in html:
+    raise SystemExit("operator UI smoke failed: missing mission-control tab shell")
+if 'data-mission-tab="flow"' not in html or 'data-mission-tab="agents"' not in html:
+    raise SystemExit("operator UI smoke failed: missing flow and agents mission tabs")
+if 'data-mission-tab="grafana"' not in html or 'data-mission-tab="litellm"' not in html:
+    raise SystemExit("operator UI smoke failed: missing grafana and litellm mission tabs")
+if 'id="missionFlowPanel"' not in html or 'id="missionAgentsPanel"' not in html:
+    raise SystemExit("operator UI smoke failed: missing mission flow and agent panels")
+if 'id="missionGrafanaPanel"' not in html or 'id="missionLitellmPanel"' not in html:
+    raise SystemExit("operator UI smoke failed: missing mission embedded-surface panels")
+if "Follow the flow without leaving the operator surface" not in html:
+    raise SystemExit("operator UI smoke failed: missing mission-control operator framing")
 if "Manual Operator Path" not in html or 'href="#brief-intake"' not in html:
     raise SystemExit("operator UI smoke failed: missing manual-path jump navigation")
 if "What you can do right now" not in html or 'id="capabilityGrid"' not in html:
@@ -318,6 +330,22 @@ if "Live updates connected" not in js or "scheduleRealtimeReconnect" not in js:
     raise SystemExit("operator UI smoke failed: missing websocket reconnect status rendering")
 if "renderOperatorPulse" not in js or "buildOperatorPulseFeedItems" not in js:
     raise SystemExit("operator UI smoke failed: missing live operator pulse rendering logic")
+if "renderMissionControl" not in js or "renderMissionFlowPanel" not in js:
+    raise SystemExit("operator UI smoke failed: missing mission-control flow rendering logic")
+if "renderMissionAgentsPanel" not in js or "ensureAgentReportDetails" not in js:
+    raise SystemExit("operator UI smoke failed: missing multi-agent activity rendering logic")
+if "renderMissionGrafanaPanel" not in js or "renderMissionLitellmPanel" not in js:
+    raise SystemExit("operator UI smoke failed: missing embedded grafana/litellm rendering logic")
+if "data-agent-filter" not in js or "data-agent-report-artifact-id" not in js:
+    raise SystemExit("operator UI smoke failed: missing agent filter and report selection hooks")
+if "agent_task_report" not in js or "filteredAgentEvents" not in js:
+    raise SystemExit("operator UI smoke failed: missing agent report and event correlation logic")
+if "ensureLinkedAgentArtifactDetails" not in js or "task_workspace_input_artifact_id" not in js:
+    raise SystemExit("operator UI smoke failed: missing linked prepared-workspace artifact inspection logic")
+if "renderSelectedAgentWorkspaceInputCard" not in js or "Prepared workspace" not in js:
+    raise SystemExit("operator UI smoke failed: missing selected agent workspace inspector rendering")
+if "GRAFANA_OVERVIEW_DASHBOARD_PATH" not in js or "surface-frame" not in js:
+    raise SystemExit("operator UI smoke failed: missing embedded grafana surface wiring")
 if "submitBriefRequest" not in js:
     raise SystemExit("operator UI smoke failed: missing brief submission client logic")
 if "runRepositoryAutomationRequest" not in js:

@@ -3,8 +3,16 @@ const RUN_ACTION_DRAFTS_STORAGE_KEY = "catalystContinuum.operatorUi.runActionDra
 const AUTO_REFRESH_STORAGE_KEY = "catalystContinuum.operatorUi.autoRefresh";
 const AUTOMATION_DISCLOSURES_STORAGE_KEY =
   "catalystContinuum.operatorUi.automationDisclosures";
+const MISSION_TAB_STORAGE_KEY = "catalystContinuum.operatorUi.missionTab";
 const AUTO_REFRESH_INTERVAL_MS = 15000;
 const REALTIME_RECONNECT_DELAY_MS = 1500;
+const DEFAULT_GRAFANA_PORT = "3000";
+const DEFAULT_PROMETHEUS_PORT = "9090";
+const DEFAULT_LOKI_PORT = "3100";
+const DEFAULT_TEMPO_PORT = "3200";
+const DEFAULT_LITELLM_PORT = "4000";
+const GRAFANA_OVERVIEW_DASHBOARD_PATH =
+  "/d/catalyst-continuum-overview/catalyst-continuum-overview?orgId=1&refresh=10s&kiosk";
 const DASHBOARD_LOADING_CARD_TITLES = [
   "Control plane",
   "AI gateway",
@@ -64,6 +72,12 @@ const state = {
   runSearchQuery: normalizeRunSearchQuery(initialUiUrl.searchParams.get("run_query")),
   selectedRunDetail: null,
   selectedRunEvents: [],
+  dashboardSnapshot: {
+    readyz: null,
+    aiGateway: null,
+    config: null,
+    packs: null,
+  },
   briefExamples: [],
   activeBriefExampleId: null,
   autoRefresh: false,
@@ -89,6 +103,13 @@ const state = {
   automationDisclosurePreferences: {},
   selectedQueueItem: null,
   selectedQueueRunId: null,
+  activeMissionTab: restoreMissionTabPreference(),
+  selectedAgentActivityId: "all",
+  selectedAgentReportArtifactId: null,
+  agentReportDetails: {},
+  agentReportLoadsInFlight: {},
+  agentLinkedArtifactDetails: {},
+  agentLinkedArtifactLoadsInFlight: {},
 };
 
 const elements = {};
@@ -96,6 +117,7 @@ const elements = {};
 document.addEventListener("DOMContentLoaded", () => {
   cacheElements();
   bindEvents();
+  syncMissionTabSelection();
   restoreBriefDraft();
   loadBriefExamples().catch((error) => {
     console.error("brief example load failed", error);
@@ -163,6 +185,13 @@ function cacheElements() {
     "eventHeadline",
     "eventTimeline",
     "lastRefresh",
+    "missionAgentsPanel",
+    "missionFlowPanel",
+    "missionGrafanaPanel",
+    "missionLitellmPanel",
+    "missionShell",
+    "missionTabBar",
+    "missionTabHint",
     "packChips",
     "pulseFeed",
     "pulseSummary",
@@ -231,6 +260,28 @@ function bindEvents() {
     refreshDashboard().catch((error) => {
       console.error("manual refresh failed", error);
     });
+  });
+
+  elements.missionTabBar.addEventListener("click", (event) => {
+    const tabButton = event.target.closest("[data-mission-tab]");
+    if (!tabButton) {
+      return;
+    }
+
+    setActiveMissionTab(tabButton.dataset.missionTab);
+  });
+
+  elements.missionShell.addEventListener("click", (event) => {
+    const agentFilterButton = event.target.closest("[data-agent-filter]");
+    if (agentFilterButton) {
+      setSelectedAgentActivity(agentFilterButton.dataset.agentFilter);
+      return;
+    }
+
+    const reportButton = event.target.closest("[data-agent-report-artifact-id]");
+    if (reportButton) {
+      setSelectedAgentReport(reportButton.dataset.agentReportArtifactId);
+    }
   });
 
   elements.autoRefreshToggle.addEventListener("change", () => {
@@ -1477,6 +1528,12 @@ function renderRunActionDraftHint(runDetail) {
 }
 
 function renderStatusGrid(payload) {
+  state.dashboardSnapshot = {
+    readyz: payload.readyz ?? null,
+    aiGateway: payload.aiGateway ?? null,
+    config: payload.config ?? null,
+    packs: payload.packs ?? null,
+  };
   const readyz = payload.readyz?.data ?? {};
   const gateway = payload.aiGateway?.data ?? {};
   const config = payload.config?.data ?? {};
@@ -1572,6 +1629,7 @@ function renderStatusGrid(payload) {
       detail: "Static catalog loaded through the orchestrator",
     }),
   ].join(""));
+  renderMissionControl();
 }
 
 function renderOperatorPulse() {
@@ -2011,6 +2069,1385 @@ function sortableTimestamp(value) {
 
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function restoreMissionTabPreference() {
+  const saved = window.localStorage.getItem(MISSION_TAB_STORAGE_KEY);
+  return normalizeMissionTab(saved);
+}
+
+function persistMissionTabPreference() {
+  window.localStorage.setItem(MISSION_TAB_STORAGE_KEY, state.activeMissionTab);
+}
+
+function normalizeMissionTab(value) {
+  switch (value) {
+    case "agents":
+    case "grafana":
+    case "litellm":
+      return value;
+    default:
+      return "flow";
+  }
+}
+
+function setActiveMissionTab(tab) {
+  const nextTab = normalizeMissionTab(tab);
+  if (state.activeMissionTab === nextTab) {
+    return;
+  }
+
+  state.activeMissionTab = nextTab;
+  persistMissionTabPreference();
+  syncMissionTabSelection();
+  renderMissionControl();
+}
+
+function syncMissionTabSelection() {
+  if (!elements.missionShell || !elements.missionTabBar) {
+    return;
+  }
+
+  const activeTab = normalizeMissionTab(state.activeMissionTab);
+  state.activeMissionTab = activeTab;
+  elements.missionShell.dataset.activeTab = activeTab;
+
+  const panelIds = {
+    flow: "missionFlowPanel",
+    agents: "missionAgentsPanel",
+    grafana: "missionGrafanaPanel",
+    litellm: "missionLitellmPanel",
+  };
+
+  elements.missionTabBar
+    .querySelectorAll("[data-mission-tab]")
+    .forEach((button) => {
+      const tab = normalizeMissionTab(button.dataset.missionTab);
+      const isActive = tab === activeTab;
+      button.classList.toggle("is-active", isActive);
+      button.setAttribute("aria-selected", isActive ? "true" : "false");
+      button.setAttribute("tabindex", isActive ? "0" : "-1");
+    });
+
+  Object.entries(panelIds).forEach(([tab, panelId]) => {
+    const panel = elements[panelId];
+    if (!panel) {
+      return;
+    }
+
+    const isActive = tab === activeTab;
+    panel.classList.toggle("hidden", !isActive);
+    panel.setAttribute("aria-hidden", isActive ? "false" : "true");
+  });
+}
+
+function renderMissionControl() {
+  syncMissionTabSelection();
+  renderMissionTabHint();
+  renderMissionFlowPanel();
+  renderMissionAgentsPanel();
+  renderMissionGrafanaPanel();
+  renderMissionLitellmPanel();
+}
+
+function renderMissionTabHint() {
+  let message;
+  switch (state.activeMissionTab) {
+    case "agents":
+      message = state.selectedRunDetail
+        ? "Filter by assigned agent to compare live task state, task events, and persisted agent reports for the selected run."
+        : "Open a run first, then compare multiple agents side by side from the same selected-run context.";
+      break;
+    case "grafana":
+      message =
+        "The embedded Grafana view is stack-wide. Use it for metrics, logs, traces, and the provisioned Catalyst Continuum overview dashboard.";
+      break;
+    case "litellm":
+      message =
+        "The LiteLLM tab keeps gateway status, native UI entrypoints, and model visibility close to the operator workflow.";
+      break;
+    default:
+      message = state.selectedRunDetail
+        ? "This view compresses the selected run lifecycle, latest artifacts, and recent movement into one flow-oriented operator read."
+        : "Open a run to watch the brief-to-plan-to-execution-to-quality-to-draft-PR lifecycle from one surface.";
+      break;
+  }
+
+  setTextContent(elements.missionTabHint, message, { markUpdated: false });
+}
+
+function renderMissionFlowPanel() {
+  if (!state.selectedRunDetail) {
+    setRenderedHtml(
+      elements.missionFlowPanel,
+      renderSectionEmptyState(
+        "Mission flow",
+        "Open a run to unlock the full delivery map",
+        "The flow tab becomes valuable once one concrete run exists, because it ties stages, artifacts, and the latest run movement together."
+      )
+    );
+    return;
+  }
+
+  const runDetail = state.selectedRunDetail;
+  const guide = buildRunGuide(runDetail, state.selectedRunEvents);
+  const feedItems = buildSelectedRunPulseFeedItems();
+  const highlightArtifacts = Array.isArray(runDetail.artifact_highlights)
+    ? runDetail.artifact_highlights
+    : [];
+
+  setRenderedHtml(
+    elements.missionFlowPanel,
+    `
+      <div class="mission-flow-layout">
+        <div class="mission-stage-strip">
+          ${guide.stages.map((stage, index) => renderMissionStageCard(stage, index)).join("")}
+        </div>
+        <div class="mission-mini-grid">
+          ${renderMissionMiniCard(
+            "Selected run",
+            runDetail.title,
+            `${shortId(runDetail.run_id)} · ${displayRunStatus(runDetail.status)}`,
+            "warning"
+          )}
+          ${renderMissionMiniCard(
+            "Recommended step",
+            guide.nextActionTitle,
+            guide.nextActionDetail,
+            guide.badgeTone
+          )}
+          ${renderMissionMiniCard(
+            "Repository target",
+            runDetail.repository?.owner && runDetail.repository?.name
+              ? `${runDetail.repository.owner}/${runDetail.repository.name}`
+              : "No repository target",
+            `${runDetail.target_pack ?? "no pack"} · ${runDetail.trigger}`,
+            "neutral"
+          )}
+          ${renderMissionMiniCard(
+            "Current estate",
+            `${runDetail.task_counts?.total ?? 0} task(s) · ${runDetail.artifact_count ?? 0} artifact(s)`,
+            `${runDetail.task_counts?.running ?? 0} running · ${runDetail.task_counts?.queued ?? 0} queued · ${runDetail.task_counts?.failed ?? 0} failed`,
+            statusTone(runDetail.status)
+          )}
+        </div>
+        <section class="mission-feed-shell">
+          <div class="detail-section-head">
+            <div>
+              <p class="panel-kicker">Recent movement</p>
+              <h3>Selected-run flow feed</h3>
+            </div>
+            <span class="badge badge-${escapeHtml(statusTone(runDetail.status))}">${escapeHtml(
+              displayRunStatus(runDetail.status)
+            )}</span>
+          </div>
+          <div class="mission-feed-list">
+            ${
+              feedItems.length
+                ? feedItems.map(renderMissionFeedItem).join("")
+                : renderSectionEmptyState(
+                    "Flow feed",
+                    "No run movement recorded yet",
+                    "Once task, quality, or promotion events are persisted, they show up here."
+                  )
+            }
+          </div>
+        </section>
+        <section class="mission-feed-shell">
+          <div class="detail-section-head">
+            <div>
+              <p class="panel-kicker">Promotion evidence</p>
+              <h3>Latest highlighted artifacts</h3>
+            </div>
+            <span class="badge badge-neutral">${escapeHtml(String(highlightArtifacts.length))}</span>
+          </div>
+          <div class="mission-feed-list">
+            ${
+              highlightArtifacts.length
+                ? highlightArtifacts.map(renderMissionArtifactItem).join("")
+                : renderSectionEmptyState(
+                    "Highlighted artifacts",
+                    "No highlight artifacts are available yet",
+                    "Backlog, quality, PR candidate, and PR publication artifacts appear here as the run advances."
+                  )
+            }
+          </div>
+        </section>
+      </div>
+    `
+  );
+}
+
+function renderMissionStageCard(stage, index) {
+  return `
+    <article class="mission-stage-card mission-stage-card-${escapeHtml(stage.state)}">
+      <span class="mission-stage-marker">${escapeHtml(String(index + 1))}</span>
+      <div class="mission-feed-head">
+        <div>
+          <p class="panel-kicker">Stage ${escapeHtml(String(index + 1))}</p>
+          <h3>${escapeHtml(stage.title)}</h3>
+        </div>
+        <span class="badge badge-${escapeHtml(guideTone(stage.state))}">${escapeHtml(
+          guideBadgeLabel(stage.state)
+        )}</span>
+      </div>
+      <p class="mission-stage-detail">${escapeHtml(stage.detail)}</p>
+    </article>
+  `;
+}
+
+function renderMissionMiniCard(kicker, title, detail, tone) {
+  return `
+    <article class="mission-mini-card">
+      <div class="mission-feed-head">
+        <p class="panel-kicker">${escapeHtml(kicker)}</p>
+        <span class="badge badge-${escapeHtml(normalizePulseTone(tone))}">${escapeHtml(
+          toneLabel(normalizePulseTone(tone))
+        )}</span>
+      </div>
+      <h3>${escapeHtml(title)}</h3>
+      <p>${escapeHtml(detail)}</p>
+    </article>
+  `;
+}
+
+function renderMissionFeedItem(item) {
+  return `
+    <article class="mission-feed-item">
+      <div class="mission-feed-head">
+        <div>
+          <p class="panel-kicker">${escapeHtml(item.kicker)}</p>
+          <h4>${escapeHtml(item.title)}</h4>
+        </div>
+        <span class="badge badge-${escapeHtml(item.tone)}">${escapeHtml(item.badge)}</span>
+      </div>
+      <p>${escapeHtml(item.summary)}</p>
+      <div class="mission-feed-meta">
+        <span>${escapeHtml(item.detail)}</span>
+      </div>
+    </article>
+  `;
+}
+
+function renderMissionArtifactItem(artifact) {
+  const metadataParts = [];
+  metadataParts.push(artifact.format ?? "unknown format");
+  if (artifact.created_at) {
+    metadataParts.push(formatTimestamp(artifact.created_at));
+  }
+
+  return `
+    <article class="mission-feed-item">
+      <div class="mission-feed-head">
+        <div>
+          <p class="panel-kicker">Artifact</p>
+          <h4>${escapeHtml(artifact.artifact_type)}</h4>
+        </div>
+        <span class="badge badge-neutral">${escapeHtml(shortId(artifact.artifact_id))}</span>
+      </div>
+      <p>${escapeHtml(artifact.location_value)}</p>
+      <div class="mission-feed-meta">
+        <span>${escapeHtml(metadataParts.join(" · "))}</span>
+      </div>
+    </article>
+  `;
+}
+
+function syncSelectedAgentActivity(runDetail) {
+  const availableAgents = new Set(runAgents(runDetail));
+  if (!availableAgents.size) {
+    state.selectedAgentActivityId = "all";
+    state.selectedAgentReportArtifactId = null;
+    return;
+  }
+
+  if (
+    state.selectedAgentActivityId !== "all" &&
+    !availableAgents.has(state.selectedAgentActivityId)
+  ) {
+    state.selectedAgentActivityId = "all";
+  }
+
+  const reports = filteredAgentReportArtifacts(
+    runDetail,
+    state.selectedAgentActivityId,
+    state.agentReportDetails
+  );
+  if (
+    state.selectedAgentReportArtifactId &&
+    !reports.some((report) => report.artifact.artifact_id === state.selectedAgentReportArtifactId)
+  ) {
+    state.selectedAgentReportArtifactId = reports[0]?.artifact.artifact_id ?? null;
+  } else if (!state.selectedAgentReportArtifactId) {
+    state.selectedAgentReportArtifactId = reports[0]?.artifact.artifact_id ?? null;
+  }
+}
+
+function setSelectedAgentActivity(agentId) {
+  const nextAgentId = typeof agentId === "string" && agentId.trim() ? agentId.trim() : "all";
+  if (state.selectedAgentActivityId === nextAgentId) {
+    return;
+  }
+
+  state.selectedAgentActivityId = nextAgentId;
+  if (state.selectedRunDetail) {
+    const reports = filteredAgentReportArtifacts(
+      state.selectedRunDetail,
+      state.selectedAgentActivityId,
+      state.agentReportDetails
+    );
+    state.selectedAgentReportArtifactId = reports[0]?.artifact.artifact_id ?? null;
+  } else {
+    state.selectedAgentReportArtifactId = null;
+  }
+  renderMissionControl();
+}
+
+function setSelectedAgentReport(artifactId) {
+  if (!artifactId || state.selectedAgentReportArtifactId === artifactId) {
+    return;
+  }
+
+  state.selectedAgentReportArtifactId = artifactId;
+  renderMissionControl();
+}
+
+function runAgents(runDetail) {
+  if (!Array.isArray(runDetail?.tasks)) {
+    return [];
+  }
+
+  return runDetail.tasks
+    .map(agentNameForTask)
+    .filter(Boolean)
+    .filter(uniqueValue);
+}
+
+function agentNameForTask(task) {
+  return task?.assigned_agent ?? task?.agent_execution?.agent ?? "";
+}
+
+function ensureAgentReportDetails(runDetail) {
+  const reports = agentTaskReportArtifacts(runDetail);
+  if (!reports.length) {
+    renderMissionControl();
+    return;
+  }
+
+  const pending = reports.filter((artifact) => {
+    const artifactId = artifact.artifact_id;
+    return (
+      !state.agentReportDetails[artifactId] &&
+      state.agentReportLoadsInFlight[artifactId] !== true
+    );
+  });
+
+  if (!pending.length) {
+    syncSelectedAgentActivity(runDetail);
+    ensureLinkedAgentArtifactDetails(runDetail);
+    renderMissionControl();
+    return;
+  }
+
+  pending.forEach((artifact) => {
+    const artifactId = artifact.artifact_id;
+    state.agentReportLoadsInFlight[artifactId] = true;
+    fetchJsonEnvelope(`/artifacts/${encodeURIComponent(artifactId)}`)
+      .then((envelope) => {
+        state.agentReportDetails[artifactId] = envelope.ok ? envelope.data : envelope;
+      })
+      .catch((error) => {
+        state.agentReportDetails[artifactId] = {
+          error: error.message,
+        };
+      })
+      .finally(() => {
+        delete state.agentReportLoadsInFlight[artifactId];
+        if (state.selectedRunDetail?.run_id === runDetail.run_id) {
+          ensureLinkedAgentArtifactDetails(state.selectedRunDetail);
+          syncSelectedAgentActivity(state.selectedRunDetail);
+          renderMissionControl();
+        }
+      });
+  });
+}
+
+function ensureLinkedAgentArtifactDetails(runDetail) {
+  const pendingArtifactIds = filteredAgentReportArtifacts(
+    runDetail,
+    "all",
+    state.agentReportDetails
+  )
+    .map(linkedAgentArtifactIdForReport)
+    .filter(Boolean)
+    .filter(uniqueValue)
+    .filter((artifactId) => {
+      return (
+        !state.agentLinkedArtifactDetails[artifactId] &&
+        state.agentLinkedArtifactLoadsInFlight[artifactId] !== true
+      );
+    });
+
+  pendingArtifactIds.forEach((artifactId) => {
+    state.agentLinkedArtifactLoadsInFlight[artifactId] = true;
+    fetchJsonEnvelope(`/artifacts/${encodeURIComponent(artifactId)}`)
+      .then((envelope) => {
+        state.agentLinkedArtifactDetails[artifactId] = envelope.ok ? envelope.data : envelope;
+      })
+      .catch((error) => {
+        state.agentLinkedArtifactDetails[artifactId] = {
+          error: error.message,
+        };
+      })
+      .finally(() => {
+        delete state.agentLinkedArtifactLoadsInFlight[artifactId];
+        if (state.selectedRunDetail?.run_id === runDetail.run_id) {
+          renderMissionControl();
+        }
+      });
+  });
+}
+
+function renderMissionAgentsPanel() {
+  const runDetail = state.selectedRunDetail;
+  if (!runDetail) {
+    setRenderedHtml(
+      elements.missionAgentsPanel,
+      renderSectionEmptyState(
+        "Agent activity",
+        "Open a run to inspect multi-agent execution",
+        "Agent lanes become useful only after one run has tasks, run events, and external-agent reports to compare."
+      )
+    );
+    return;
+  }
+
+  const tasks = Array.isArray(runDetail.tasks) ? runDetail.tasks : [];
+  const agents = runAgents(runDetail);
+  const reports = filteredAgentReportArtifacts(
+    runDetail,
+    state.selectedAgentActivityId,
+    state.agentReportDetails
+  );
+  const selectedReport = selectedAgentReport(reports);
+  const filteredEvents = filteredAgentEvents(
+    runDetail,
+    state.selectedRunEvents,
+    state.selectedAgentActivityId
+  );
+  const lanes = buildAgentLanes(runDetail, state.selectedRunEvents, state.agentReportDetails);
+  const filteredLanes = lanes.filter((lane) =>
+    state.selectedAgentActivityId === "all"
+      ? true
+      : lane.agentId === state.selectedAgentActivityId
+  );
+
+  if (
+    !agents.length &&
+    !reports.length &&
+    !tasks.some((task) => task.agent_execution?.mode === "external_agent")
+  ) {
+    setRenderedHtml(
+      elements.missionAgentsPanel,
+      renderSectionEmptyState(
+        "Agent activity",
+        "No external-agent activity is visible for this run",
+        "Tasks are present, but none are currently assigned to an external agent or accompanied by persisted agent_task_report artifacts."
+      )
+    );
+    return;
+  }
+
+  setRenderedHtml(
+    elements.missionAgentsPanel,
+    `
+      <div class="mission-flow-layout">
+        <div class="agent-filter-row">
+          ${renderAgentFilterChip("all", "All agents", state.selectedAgentActivityId === "all")}
+          ${agents
+            .map((agentId) =>
+              renderAgentFilterChip(
+                agentId,
+                `${agentId}${laneTaskCountSuffix(lanes, agentId)}`,
+                state.selectedAgentActivityId === agentId
+              )
+            )
+            .join("")}
+        </div>
+        <div class="agent-lane-grid">
+          ${
+            filteredLanes.length
+              ? filteredLanes.map(renderAgentLane).join("")
+              : renderSectionEmptyState(
+                  "Agent lanes",
+                  "No agent lanes are available yet",
+                  "Assigned-agent task state will appear here once the run records external-agent work."
+                )
+          }
+        </div>
+        <section class="agent-log-shell">
+          <div class="detail-section-head">
+            <div>
+              <p class="panel-kicker">Agent event log</p>
+              <h3>Task movement for the filtered agent set</h3>
+            </div>
+            <span class="badge badge-neutral">${escapeHtml(String(filteredEvents.length))}</span>
+          </div>
+          <div class="agent-log-list">
+            ${
+              filteredEvents.length
+                ? filteredEvents.map((event) => renderAgentLogItem(runDetail, event)).join("")
+                : renderSectionEmptyState(
+                    "Agent event log",
+                    "No task events match the current agent filter",
+                    "Select another agent or wait for a task event, heartbeat, success, failure, or requeue update."
+                  )
+            }
+          </div>
+        </section>
+        <section class="agent-report-shell">
+          <div class="detail-section-head">
+            <div>
+              <p class="panel-kicker">Persisted agent reports</p>
+              <h3>Summaries and raw details from completed agent work</h3>
+            </div>
+            <span class="badge badge-neutral">${escapeHtml(String(reports.length))}</span>
+          </div>
+          <div class="agent-report-grid">
+            ${
+              reports.length
+                ? reports.map(renderAgentReportCard).join("")
+                : renderSectionEmptyState(
+                    "Agent reports",
+                    "No persisted agent_task_report artifacts match the current filter",
+                    "Reports appear after an external agent completes or retries a claimed task."
+                  )
+            }
+          </div>
+          ${
+            selectedReport
+              ? renderSelectedAgentReportConsole(runDetail, selectedReport)
+              : ""
+          }
+        </section>
+      </div>
+    `
+  );
+}
+
+function renderAgentFilterChip(agentId, label, isActive) {
+  return `
+    <button
+      class="agent-filter-chip${isActive ? " is-active" : ""}"
+      type="button"
+      data-agent-filter="${escapeHtml(agentId)}"
+      aria-pressed="${isActive ? "true" : "false"}"
+    >
+      ${escapeHtml(label)}
+    </button>
+  `;
+}
+
+function buildAgentLanes(runDetail, events, reportDetails) {
+  return runAgents(runDetail).map((agentId) => {
+    const tasks = (runDetail.tasks || []).filter((task) => agentNameForTask(task) === agentId);
+    const filteredEvents = filteredAgentEvents(runDetail, events, agentId);
+    const reports = filteredAgentReportArtifacts(runDetail, agentId, reportDetails);
+    const executors = tasks
+      .map((task) => task.agent_execution?.executor_id)
+      .filter(Boolean)
+      .filter(uniqueValue);
+    const statusCounts = loadedRunStatusCounts(
+      tasks.map((task) => ({
+        status: task.status === "running" ? "executing" : task.status,
+      }))
+    );
+    const latestReport = reports[0] ?? null;
+    const latestEvent = filteredEvents[0] ?? null;
+
+    return {
+      agentId,
+      taskCount: tasks.length,
+      queuedCount: statusCounts.queued,
+      runningCount: statusCounts.executing,
+      failedCount: statusCounts.failed,
+      succeededCount: statusCounts.succeeded,
+      executors,
+      latestEventAt: latestEvent?.created_at ?? null,
+      latestEventSummary: latestEvent?.summary ?? "No task event recorded yet.",
+      latestReport,
+      latestReportStatus:
+        latestReport?.detail?.manifest?.task_status ??
+        latestReport?.artifact?.metadata?.task_status ??
+        "n/a",
+    };
+  });
+}
+
+function laneTaskCountSuffix(lanes, agentId) {
+  const lane = lanes.find((candidate) => candidate.agentId === agentId);
+  return lane ? ` · ${lane.taskCount} task(s)` : "";
+}
+
+function renderAgentLane(lane) {
+  const latestReportSummary =
+    lane.latestReport?.detail?.manifest?.summary ??
+    lane.latestReport?.artifact?.metadata?.summary ??
+    "No persisted report yet.";
+
+  return `
+    <article class="agent-lane">
+      <div class="agent-lane-head">
+        <div>
+          <p class="panel-kicker">Assigned agent</p>
+          <h3>${escapeHtml(lane.agentId)}</h3>
+        </div>
+        <span class="badge badge-${escapeHtml(
+          normalizePulseTone(statusTone(lane.latestReportStatus))
+        )}">${escapeHtml(lane.latestReportStatus)}</span>
+      </div>
+      <div class="agent-lane-stats">
+        <div class="agent-lane-stat">
+          <span class="agent-lane-stat-label">Tasks</span>
+          <span class="agent-lane-stat-value">${escapeHtml(String(lane.taskCount))}</span>
+        </div>
+        <div class="agent-lane-stat">
+          <span class="agent-lane-stat-label">Executors</span>
+          <span class="agent-lane-stat-value">${escapeHtml(
+            lane.executors.length ? lane.executors.length : 0
+          )}</span>
+        </div>
+        <div class="agent-lane-stat">
+          <span class="agent-lane-stat-label">Queued / Running</span>
+          <span class="agent-lane-stat-value">${escapeHtml(
+            `${lane.queuedCount} / ${lane.runningCount}`
+          )}</span>
+        </div>
+        <div class="agent-lane-stat">
+          <span class="agent-lane-stat-label">Ok / Failed</span>
+          <span class="agent-lane-stat-value">${escapeHtml(
+            `${lane.succeededCount} / ${lane.failedCount}`
+          )}</span>
+        </div>
+      </div>
+      <p>${escapeHtml(latestReportSummary)}</p>
+      <div class="agent-lane-meta">
+        <span>${escapeHtml(
+          lane.executors.length ? lane.executors.join(", ") : "No executor id recorded"
+        )}</span>
+        <span>${escapeHtml(
+          lane.latestEventAt ? formatTimestamp(lane.latestEventAt) : "No event timestamp"
+        )}</span>
+      </div>
+    </article>
+  `;
+}
+
+function filteredAgentEvents(runDetail, events, agentId) {
+  const taskIndex = new Map(
+    (runDetail?.tasks || []).map((task) => [task.task_id, task])
+  );
+
+  return (Array.isArray(events) ? events : [])
+    .filter((event) => {
+      if (agentId === "all") {
+        return event.scope === "task" || Boolean(event.task_id);
+      }
+      if (!event.task_id) {
+        return false;
+      }
+      return agentNameForTask(taskIndex.get(event.task_id)) === agentId;
+    })
+    .sort((left, right) => sortableTimestamp(right.created_at) - sortableTimestamp(left.created_at));
+}
+
+function renderAgentLogItem(runDetail, event) {
+  const task = (runDetail?.tasks || []).find((candidate) => candidate.task_id === event.task_id);
+  const agentId = task ? agentNameForTask(task) : "run";
+  const taskLabel = task?.title ?? task?.backlog_item_id ?? "Run-level event";
+
+  return `
+    <article class="agent-log-item">
+      <div class="agent-log-head">
+        <div>
+          <p class="panel-kicker">${escapeHtml(agentId || "run")}</p>
+          <h4>${escapeHtml(event.event_type)}</h4>
+        </div>
+        <span class="badge badge-${escapeHtml(statusTone(event.status ?? event.scope))}">
+          ${escapeHtml(event.status ?? event.scope)}
+        </span>
+      </div>
+      <p>${escapeHtml(event.summary)}</p>
+      <div class="agent-log-meta">
+        <span>${escapeHtml(taskLabel)}</span>
+        <span>${escapeHtml(formatTimestamp(event.created_at))}</span>
+        <span class="mono">${escapeHtml(
+          event.task_id ? shortId(event.task_id) : shortId(event.event_id)
+        )}</span>
+      </div>
+    </article>
+  `;
+}
+
+function agentTaskReportArtifacts(runDetail) {
+  return (Array.isArray(runDetail?.artifacts) ? runDetail.artifacts : [])
+    .filter((artifact) => artifact.artifact_type === "agent_task_report")
+    .sort((left, right) => sortableTimestamp(right.created_at) - sortableTimestamp(left.created_at));
+}
+
+function filteredAgentReportArtifacts(runDetail, agentId, reportDetails) {
+  return agentTaskReportArtifacts(runDetail)
+    .map((artifact) => ({
+      artifact,
+      detail: reportDetails[artifact.artifact_id] ?? null,
+    }))
+    .filter((report) => {
+      if (agentId === "all") {
+        return true;
+      }
+      return agentIdForReport(report) === agentId;
+    });
+}
+
+function agentIdForReport(report) {
+  return (
+    report?.detail?.manifest?.assigned_agent ??
+    report?.detail?.metadata?.assigned_agent ??
+    report?.artifact?.metadata?.assigned_agent ??
+    ""
+  );
+}
+
+function selectedAgentReport(reports) {
+  if (!reports.length) {
+    state.selectedAgentReportArtifactId = null;
+    return null;
+  }
+
+  const selected =
+    reports.find(
+      (report) => report.artifact.artifact_id === state.selectedAgentReportArtifactId
+    ) ?? reports[0];
+  state.selectedAgentReportArtifactId = selected.artifact.artifact_id;
+  return selected;
+}
+
+function taskForAgentReport(runDetail, report) {
+  const taskId =
+    report?.detail?.manifest?.task_id ??
+    report?.detail?.metadata?.task_id ??
+    report?.artifact?.metadata?.task_id;
+  if (typeof taskId !== "string" || !taskId.trim()) {
+    return null;
+  }
+
+  return (runDetail?.tasks || []).find((task) => task.task_id === taskId) ?? null;
+}
+
+function renderAgentReportCard(report) {
+  const manifest = report.detail?.manifest ?? null;
+  const summary =
+    manifest?.summary ??
+    report.artifact.metadata?.summary ??
+    "Waiting for the structured agent report to load.";
+  const secondary =
+    manifest?.details ??
+    report.detail?.text_preview ??
+    report.detail?.error ??
+    "Select this report to inspect its full details.";
+  const isSelected = report.artifact.artifact_id === state.selectedAgentReportArtifactId;
+  const agentId = agentIdForReport(report) || "unknown";
+
+  return `
+    <button
+      class="agent-report-card${isSelected ? " is-selected" : ""}"
+      type="button"
+      data-agent-report-artifact-id="${escapeHtml(report.artifact.artifact_id)}"
+      aria-pressed="${isSelected ? "true" : "false"}"
+    >
+      <div class="surface-link-head">
+        <div>
+          <p class="panel-kicker">${escapeHtml(agentId)}</p>
+          <h4>${escapeHtml(
+            manifest?.backlog_item_id ?? report.artifact.metadata?.backlog_item_id ?? shortId(report.artifact.artifact_id)
+          )}</h4>
+        </div>
+        <span class="badge badge-${escapeHtml(
+          normalizePulseTone(statusTone(manifest?.task_status ?? "neutral"))
+        )}">${escapeHtml(manifest?.task_status ?? "loading")}</span>
+      </div>
+      <p>${escapeHtml(summary)}</p>
+      <div class="agent-lane-meta">
+        <span>${escapeHtml(manifest?.executor_id ?? "executor unknown")}</span>
+        <span>${escapeHtml(formatTimestamp(report.artifact.created_at))}</span>
+      </div>
+      <p class="microcopy">${escapeHtml(truncateText(secondary, 180))}</p>
+    </button>
+  `;
+}
+
+function linkedAgentArtifactIdForReport(report) {
+  const artifactId =
+    report?.detail?.manifest?.task_workspace_input_artifact_id ??
+    report?.detail?.metadata?.task_workspace_input_artifact_id ??
+    report?.artifact?.metadata?.task_workspace_input_artifact_id;
+  return typeof artifactId === "string" && artifactId.trim() ? artifactId.trim() : "";
+}
+
+function linkedAgentArtifactDetailForReport(report) {
+  const artifactId = linkedAgentArtifactIdForReport(report);
+  return artifactId ? state.agentLinkedArtifactDetails[artifactId] ?? null : null;
+}
+
+function linkedAgentArtifactLoadingForReport(report) {
+  const artifactId = linkedAgentArtifactIdForReport(report);
+  return artifactId ? state.agentLinkedArtifactLoadsInFlight[artifactId] === true : false;
+}
+
+function renderSelectedAgentReportConsole(runDetail, report) {
+  const manifest = report.detail?.manifest ?? null;
+  const task = taskForAgentReport(runDetail, report);
+  const details =
+    manifest?.details ??
+    report.detail?.text_preview ??
+    report.detail?.error ??
+    "No structured details were persisted for this report.";
+  const metadataParts = [
+    manifest?.assigned_agent ?? report.artifact.metadata?.assigned_agent ?? "unknown agent",
+    manifest?.reported_status ?? report.artifact.metadata?.reported_status ?? "unknown status",
+    manifest?.workspace_root ?? report.detail?.resolved_path ?? "workspace not recorded",
+  ];
+  const summaryCards = buildSelectedAgentReportSummaryCards(manifest, task, report);
+
+  return `
+    <div class="agent-report-actions">
+      <span class="badge badge-${escapeHtml(
+        normalizePulseTone(statusTone(manifest?.task_status ?? "neutral"))
+      )}">${escapeHtml(manifest?.task_status ?? "unknown")}</span>
+      <span class="microcopy">${escapeHtml(metadataParts.join(" · "))}</span>
+    </div>
+    <div class="mission-mini-grid agent-report-summary-grid">
+      ${summaryCards.map(renderSelectedAgentReportSummaryCard).join("")}
+    </div>
+    <div class="agent-inspector-stack">
+      ${renderSelectedAgentTaskContext(task, manifest)}
+      ${renderSelectedAgentWorkspaceInputCard(report)}
+      ${renderSelectedAgentManifestCard(report)}
+    </div>
+    <pre class="agent-report-pre">${escapeHtml(details)}</pre>
+  `;
+}
+
+function buildSelectedAgentReportSummaryCards(manifest, task, report) {
+  const workspaceArtifactId = linkedAgentArtifactIdForReport(report);
+  const retryState = task?.retry_state ?? {};
+
+  return [
+    {
+      kicker: "Backlog item",
+      title:
+        manifest?.backlog_item_id ??
+        task?.backlog_item_id ??
+        report.artifact.metadata?.backlog_item_id ??
+        shortId(report.artifact.artifact_id),
+      detail: task?.title ?? task?.kind ?? "No task title recorded",
+      tone: statusTone(manifest?.task_status ?? task?.status ?? "neutral"),
+    },
+    {
+      kicker: "Executor",
+      title:
+        manifest?.executor_id ??
+        task?.agent_execution?.executor_id ??
+        "Executor pending",
+      detail:
+        task?.agent_execution?.last_status ??
+        manifest?.reported_status ??
+        "No execution heartbeat recorded",
+      tone: statusTone(manifest?.reported_status ?? task?.status ?? "neutral"),
+    },
+    {
+      kicker: "Workspace handoff",
+      title: workspaceArtifactId ? shortId(workspaceArtifactId) : "Not captured",
+      detail:
+        manifest?.workspace_root ??
+        report.detail?.resolved_path ??
+        "No workspace root recorded",
+      tone: workspaceArtifactId ? "warning" : "neutral",
+    },
+    {
+      kicker: "Retry posture",
+      title: manifest?.retry_scheduled ? "Retry scheduled" : "No retry queued",
+      detail: `claims ${manifest?.claim_count ?? task?.agent_execution?.claim_count ?? 0} · retry ${retryState.retry_count ?? 0}/${retryState.max_retry_count ?? 0}`,
+      tone: manifest?.retry_scheduled ? "warning" : "success",
+    },
+  ];
+}
+
+function renderSelectedAgentReportSummaryCard(card) {
+  return renderMissionMiniCard(card.kicker, card.title, card.detail, card.tone);
+}
+
+function renderSelectedAgentTaskContext(task, manifest) {
+  if (!task) {
+    return renderAgentInspectorCard(
+      "Task context",
+      "Task record is not present in the selected run snapshot",
+      '<div class="empty-state compact">The persisted agent report is available, but the matching task record was not found in the current run detail payload.</div>'
+    );
+  }
+
+  const lifecycleTimestamp =
+    task.completed_at ?? task.lease_expires_at ?? task.started_at ?? task.created_at;
+
+  return renderAgentInspectorCard(
+    "Task context",
+    task.title ?? task.backlog_item_id ?? "Untitled task",
+    `
+      <div class="data-card-grid">
+        ${renderDataCardField(
+          "Status",
+          escapeHtml(displayRunStatus(task.status)),
+          escapeHtml(task.kind ?? "kind unknown")
+        )}
+        ${renderDataCardField(
+          "Assigned agent",
+          escapeHtml(task.assigned_agent ?? manifest?.assigned_agent ?? "n/a"),
+          escapeHtml(task.orchestrator_model ?? task.agent_execution?.mode ?? "no model hint")
+        )}
+        ${renderDataCardField(
+          "Executor",
+          escapeHtml(task.agent_execution?.executor_id ?? manifest?.executor_id ?? "unclaimed"),
+          escapeHtml(task.agent_execution?.last_status ?? manifest?.reported_status ?? "no status heartbeat")
+        )}
+        ${renderDataCardField(
+          "Retry",
+          escapeHtml(`${task.retry_state?.retry_count ?? 0} / ${task.retry_state?.max_retry_count ?? 0}`),
+          escapeHtml(manifest?.retry_scheduled ? "retry is currently queued" : "no retry queued")
+        )}
+        ${renderDataCardField(
+          "Workspace root",
+          escapeHtml(manifest?.workspace_root ?? "not recorded"),
+          "",
+          "mono"
+        )}
+        ${renderDataCardField(
+          "Last task movement",
+          escapeHtml(formatTimestamp(lifecycleTimestamp)),
+          escapeHtml(task.task_id),
+          "mono"
+        )}
+      </div>
+    `
+  );
+}
+
+function renderSelectedAgentWorkspaceInputCard(report) {
+  const artifactId = linkedAgentArtifactIdForReport(report);
+  if (!artifactId) {
+    return renderAgentInspectorCard(
+      "Prepared workspace",
+      "No task workspace input artifact was linked",
+      '<div class="empty-state compact">This report did not reference a persisted prepared workspace handoff artifact.</div>'
+    );
+  }
+
+  if (linkedAgentArtifactLoadingForReport(report)) {
+    return renderAgentInspectorCard(
+      "Prepared workspace",
+      "Loading task workspace input artifact",
+      '<div class="empty-state compact is-loading"><p>Inspecting the prepared workspace handoff...</p></div>'
+    );
+  }
+
+  const detail = linkedAgentArtifactDetailForReport(report);
+  if (!detail || detail.error || !detail.artifact) {
+    return renderAgentInspectorCard(
+      "Prepared workspace",
+      "Task workspace input artifact unavailable",
+      renderSectionEmptyState(
+        "Prepared workspace",
+        "The linked task workspace input artifact could not be loaded",
+        detail?.error ?? formatEnvelopeError(detail) ?? "No artifact detail payload was returned."
+      )
+    );
+  }
+
+  const manifest = detail.manifest ?? {};
+  const directoryEntries = Array.isArray(detail.directory_entries)
+    ? detail.directory_entries
+    : [];
+  const warnings = Array.isArray(detail.warnings)
+    ? detail.warnings.filter(Boolean)
+    : [];
+  const summaryEntries = [];
+  pushConsoleSummaryEntry(summaryEntries, "Task", manifest.task_id ?? detail.metadata?.task_id, {
+    mono: true,
+    short: true,
+  });
+  pushConsoleSummaryEntry(summaryEntries, "Source", manifest.source_kind ?? detail.metadata?.source_kind);
+  pushConsoleSummaryEntry(
+    summaryEntries,
+    "Source artifact",
+    manifest.source_artifact_id ?? detail.metadata?.source_artifact_id,
+    { mono: true, short: true }
+  );
+  pushConsoleSummaryEntry(summaryEntries, "Files", manifest.file_count ?? detail.metadata?.file_count);
+  pushConsoleSummaryEntry(
+    summaryEntries,
+    "Bundle entries",
+    manifest.bundle_entry_count ?? detail.metadata?.bundle_entry_count
+  );
+
+  const directoryPreview = directoryEntries.length
+    ? `
+        <div class="agent-chip-row">
+          ${directoryEntries
+            .slice(0, 12)
+            .map((entry) => `<span class="agent-chip mono">${escapeHtml(entry)}</span>`)
+            .join("")}
+        </div>
+        <p class="microcopy">
+          ${escapeHtml(
+            directoryEntries.length > 12
+              ? `${directoryEntries.length - 12} more workspace entries are available in the artifact detail.`
+              : "Directory entries come from the persisted prepared task workspace artifact."
+          )}
+        </p>
+      `
+    : '<p class="microcopy">No directory entries were exposed for this workspace artifact.</p>';
+  const warningsMarkup = warnings.length
+    ? `
+        <div class="agent-warning-row">
+          ${warnings
+            .map((warning) => `<span class="badge badge-warning">${escapeHtml(warning)}</span>`)
+            .join("")}
+        </div>
+      `
+    : "";
+
+  return renderAgentInspectorCard(
+    "Prepared workspace",
+    detail.artifact?.artifact_type ?? "task_workspace_input",
+    `
+      <div class="data-card-grid">
+        ${renderDataCardField(
+          "Source kind",
+          escapeHtml(manifest.source_kind ?? detail.metadata?.source_kind ?? "unknown"),
+          escapeHtml(manifest.source_artifact_type ?? detail.metadata?.source_artifact_type ?? "no source artifact")
+        )}
+        ${renderDataCardField(
+          "Workspace root",
+          escapeHtml(manifest.workspace_root ?? detail.resolved_path ?? "not recorded"),
+          "",
+          "mono"
+        )}
+        ${renderDataCardField(
+          "Bundle",
+          escapeHtml(`${manifest.bundle_entry_count ?? detail.metadata?.bundle_entry_count ?? 0} entries`),
+          escapeHtml(`${manifest.bundle_byte_count ?? detail.metadata?.bundle_byte_count ?? 0} bytes`)
+        )}
+        ${renderDataCardField(
+          "Files",
+          escapeHtml(String(manifest.file_count ?? detail.metadata?.file_count ?? 0)),
+          escapeHtml(detail.location_exists ? "artifact path resolved" : "artifact path missing")
+        )}
+      </div>
+      ${warningsMarkup}
+      ${directoryPreview}
+      ${renderConsoleStructuredPayload(manifest, summaryEntries, false)}
+    `
+  );
+}
+
+function renderSelectedAgentManifestCard(report) {
+  const manifest = report.detail?.manifest;
+  if (!manifest) {
+    return renderAgentInspectorCard(
+      "Report manifest",
+      "Structured report manifest is still loading",
+      '<div class="empty-state compact">Select another report or wait for the structured report manifest to load.</div>'
+    );
+  }
+
+  const summaryEntries = [];
+  pushConsoleSummaryEntry(summaryEntries, "Task", manifest.task_id, { mono: true, short: true });
+  pushConsoleSummaryEntry(summaryEntries, "Backlog item", manifest.backlog_item_id);
+  pushConsoleSummaryEntry(summaryEntries, "Agent", manifest.assigned_agent);
+  pushConsoleSummaryEntry(summaryEntries, "Reported", manifest.reported_status);
+  pushConsoleSummaryEntry(summaryEntries, "Task status", manifest.task_status);
+  pushConsoleSummaryEntry(summaryEntries, "Workspace", manifest.workspace_root, {
+    mono: true,
+  });
+
+  return renderAgentInspectorCard(
+    "Report manifest",
+    "Structured completion metadata",
+    renderConsoleStructuredPayload(manifest, summaryEntries, false)
+  );
+}
+
+function renderAgentInspectorCard(kicker, title, content) {
+  return `
+    <article class="agent-context-card">
+      <div class="detail-section-head">
+        <div>
+          <p class="panel-kicker">${escapeHtml(kicker)}</p>
+          <h3>${escapeHtml(title)}</h3>
+        </div>
+      </div>
+      ${content}
+    </article>
+  `;
+}
+
+function renderMissionGrafanaPanel() {
+  const grafanaBaseUrl = localServiceBaseUrl(DEFAULT_GRAFANA_PORT);
+  const overviewUrl = safeExternalUrl(`${grafanaBaseUrl}${GRAFANA_OVERVIEW_DASHBOARD_PATH}`);
+  const grafanaHomeUrl = safeExternalUrl(grafanaBaseUrl);
+  const prometheusUrl = safeExternalUrl(localServiceBaseUrl(DEFAULT_PROMETHEUS_PORT));
+  const lokiUrl = safeExternalUrl(`${localServiceBaseUrl(DEFAULT_LOKI_PORT)}/ready`);
+  const tempoUrl = safeExternalUrl(`${localServiceBaseUrl(DEFAULT_TEMPO_PORT)}/ready`);
+
+  setRenderedHtml(
+    elements.missionGrafanaPanel,
+    `
+      <div class="mission-surface-layout">
+        <div class="surface-link-grid">
+          ${renderSurfaceLinkCard(
+            "Grafana dashboard",
+            "Catalyst Continuum Overview",
+            "Use the provisioned dashboard for stack health, orchestration throughput, and gateway signals.",
+            [
+              { href: overviewUrl, label: "Open dashboard", variant: "primary" },
+              { href: grafanaHomeUrl, label: "Open Grafana", variant: "ghost" },
+            ],
+            "warning"
+          )}
+          ${renderSurfaceLinkCard(
+            "Metrics",
+            "Prometheus",
+            "Jump into raw metric queries when the dashboard summary is not enough.",
+            [{ href: prometheusUrl, label: "Open Prometheus", variant: "ghost" }],
+            "neutral"
+          )}
+          ${renderSurfaceLinkCard(
+            "Logs",
+            "Loki",
+            "The compose stack sends orchestrator and LiteLLM logs into Loki for deeper inspection.",
+            [{ href: lokiUrl, label: "Open Loki readiness", variant: "ghost" }],
+            "neutral"
+          )}
+          ${renderSurfaceLinkCard(
+            "Traces",
+            "Tempo",
+            "Tempo keeps the OTLP traces used by the provisioned overview dashboard and future deeper debugging flows.",
+            [{ href: tempoUrl, label: "Open Tempo readiness", variant: "ghost" }],
+            "neutral"
+          )}
+        </div>
+        <section class="surface-frame-shell">
+          <div class="detail-section-head">
+            <div>
+              <p class="panel-kicker">Embedded Grafana</p>
+              <h3>Provisioned overview board</h3>
+            </div>
+            <span class="badge badge-warning">Compose local</span>
+          </div>
+          <p class="microcopy">
+            The embedded dashboard targets the local compose defaults. If Grafana is not running yet, start the stack and reload this tab.
+          </p>
+          <div class="surface-frame-wrap">
+            ${
+              overviewUrl
+                ? `<iframe class="surface-frame" title="Embedded Grafana dashboard" src="${escapeHtml(
+                    overviewUrl
+                  )}" loading="lazy"></iframe>`
+                : renderSectionEmptyState(
+                    "Embedded Grafana",
+                    "Grafana URL is unavailable",
+                    "Use the quick links above to open Grafana once the local compose stack is running."
+                  )
+            }
+          </div>
+        </section>
+      </div>
+    `
+  );
+}
+
+function renderMissionLitellmPanel() {
+  const aiGateway = state.dashboardSnapshot.aiGateway?.data ?? {};
+  const gatewayConfig = state.dashboardSnapshot.config?.data?.ai_gateway ?? {};
+  const litellmBaseUrl = serviceBaseUrlFromConfig(
+    aiGateway.host_base_url ?? gatewayConfig.host_base_url,
+    DEFAULT_LITELLM_PORT
+  );
+  const litellmHomeUrl = safeExternalUrl(litellmBaseUrl);
+  const litellmUiUrl = safeExternalUrl(`${litellmBaseUrl}/ui`);
+  const litellmDocsUrl = safeExternalUrl(`${litellmBaseUrl}/docs`);
+  const litellmModelsUrl = safeExternalUrl(`${litellmBaseUrl}/v1/models`);
+  const capabilities = Array.isArray(gatewayConfig.capabilities)
+    ? gatewayConfig.capabilities.filter((capability) => capability.enabled)
+    : [];
+
+  setRenderedHtml(
+    elements.missionLitellmPanel,
+    `
+      <div class="mission-surface-layout">
+        <div class="mission-mini-grid">
+          ${renderMissionMiniCard(
+            "Gateway status",
+            aiGateway.ready ? "Ready" : aiGateway.status ?? "Unavailable",
+            aiGateway.error ?? `${aiGateway.available_model_count ?? 0} model(s) visible`,
+            aiGateway.ready ? "success" : statusTone(aiGateway.status)
+          )}
+          ${renderMissionMiniCard(
+            "Default alias",
+            aiGateway.current_host_default_model_alias ?? gatewayConfig.default_model_aliases?.other_platforms ?? "unknown",
+            gatewayConfig.provider ?? "litellm",
+            "neutral"
+          )}
+          ${renderMissionMiniCard(
+            "Capabilities",
+            `${capabilities.length} enabled`,
+            summarizeValues(
+              capabilities.map((capability) => capability.capability),
+              "No enabled capabilities declared"
+            ),
+            "warning"
+          )}
+          ${renderMissionMiniCard(
+            "Host base URL",
+            litellmBaseUrl,
+            gatewayConfig.container_base_url ?? "No container base URL recorded",
+            "neutral"
+          )}
+        </div>
+        <div class="surface-link-grid">
+          ${renderSurfaceLinkCard(
+            "Native LiteLLM UI",
+            "Gateway dashboard",
+            "The upstream LiteLLM image advertises an admin dashboard UI for monitoring and management.",
+            [
+              { href: litellmUiUrl, label: "Open native UI", variant: "primary" },
+              { href: litellmHomeUrl, label: "Open root", variant: "ghost" },
+            ],
+            aiGateway.ready ? "success" : "warning"
+          )}
+          ${renderSurfaceLinkCard(
+            "API docs",
+            "Swagger / docs surface",
+            "Use the native docs when you need the exact proxy endpoints rather than the condensed operator summary.",
+            [{ href: litellmDocsUrl, label: "Open docs", variant: "ghost" }],
+            "neutral"
+          )}
+          ${renderSurfaceLinkCard(
+            "Model catalog",
+            "Visible aliases",
+            "This is the same gateway model list the orchestrator probes for live status and default alias validation.",
+            [{ href: litellmModelsUrl, label: "Open /v1/models", variant: "ghost" }],
+            "neutral"
+          )}
+        </div>
+        <section class="surface-frame-shell">
+          <div class="detail-section-head">
+            <div>
+              <p class="panel-kicker">Embedded LiteLLM</p>
+              <h3>Native gateway surface</h3>
+            </div>
+            <span class="badge badge-${escapeHtml(
+              aiGateway.ready ? "success" : "warning"
+            )}">${escapeHtml(aiGateway.ready ? "Ready" : "Check gateway")}</span>
+          </div>
+          <p class="microcopy">
+            If the native UI route is unavailable in the selected LiteLLM build, use the quick links above to fall back to the docs or root surface.
+          </p>
+          <div class="surface-frame-wrap">
+            ${
+              litellmUiUrl
+                ? `<iframe class="surface-frame" title="Embedded LiteLLM UI" src="${escapeHtml(
+                    litellmUiUrl
+                  )}" loading="lazy"></iframe>`
+                : renderSectionEmptyState(
+                    "Embedded LiteLLM",
+                    "LiteLLM URL is unavailable",
+                    "Use the quick links above once the local gateway is running."
+                  )
+            }
+          </div>
+        </section>
+      </div>
+    `
+  );
+}
+
+function renderSurfaceLinkCard(kicker, title, detail, links, tone) {
+  return `
+    <article class="surface-link-card">
+      <div class="surface-link-head">
+        <div>
+          <p class="panel-kicker">${escapeHtml(kicker)}</p>
+          <h3>${escapeHtml(title)}</h3>
+        </div>
+        <span class="badge badge-${escapeHtml(normalizePulseTone(tone))}">${escapeHtml(
+          toneLabel(normalizePulseTone(tone))
+        )}</span>
+      </div>
+      <p>${escapeHtml(detail)}</p>
+      <div class="surface-link-actions">
+        ${links
+          .map((link) => renderSurfaceLink(link.href, link.label, link.variant))
+          .join("")}
+      </div>
+    </article>
+  `;
+}
+
+function renderSurfaceLink(href, label, variant) {
+  const safeHref = safeExternalUrl(href);
+  if (!safeHref) {
+    return "";
+  }
+
+  return `
+    <a
+      class="button ${escapeHtml(variant === "ghost" ? "button-ghost" : "button-primary")} button-link"
+      href="${escapeHtml(safeHref)}"
+      target="_blank"
+      rel="noreferrer noopener"
+    >
+      ${escapeHtml(label)}
+    </a>
+  `;
+}
+
+function localServiceBaseUrl(port) {
+  const protocol = window.location.protocol === "https:" ? "https:" : "http:";
+  const host = window.location.hostname || "127.0.0.1";
+  return `${protocol}//${host}:${port}`;
+}
+
+function serviceBaseUrlFromConfig(candidate, fallbackPort) {
+  const safeCandidate = safeExternalUrl(candidate);
+  if (!safeCandidate) {
+    return localServiceBaseUrl(fallbackPort);
+  }
+
+  try {
+    const parsed = new URL(safeCandidate);
+    return localServiceBaseUrl(parsed.port || fallbackPort);
+  } catch (_error) {
+    return localServiceBaseUrl(fallbackPort);
+  }
+}
+
+function truncateText(value, maxLength) {
+  const rendered = String(value ?? "").trim();
+  if (rendered.length <= maxLength) {
+    return rendered;
+  }
+
+  return `${rendered.slice(0, maxLength - 1)}…`;
 }
 
 function briefRunCapabilityCard(controlPlaneReady, packCount) {
@@ -2879,6 +4316,7 @@ function renderRunDetail(runDetail, eventsResponse) {
   const events = Array.isArray(eventsResponse?.events) ? eventsResponse.events : [];
   state.selectedRunDetail = runDetail;
   state.selectedRunEvents = events;
+  syncSelectedAgentActivity(runDetail);
   elements.detailEmptyState.classList.add("hidden");
   elements.runDetailShell.classList.remove("hidden");
   setTextContent(elements.selectedRunLabel, `${runDetail.title} · ${shortId(runDetail.run_id)}`);
@@ -2913,6 +4351,8 @@ function renderRunDetail(runDetail, eventsResponse) {
   renderRunActionHighlights(runDetail);
   syncRunActionControlsWithState();
   renderOperatorPulse();
+  renderMissionControl();
+  ensureAgentReportDetails(runDetail);
 }
 
 function renderRunActionHighlights(runDetail) {
@@ -3639,6 +5079,8 @@ function clearRunSelection(message, title = "No run selected") {
   state.selectedRunId = null;
   state.selectedRunDetail = null;
   state.selectedRunEvents = [];
+  state.selectedAgentActivityId = "all";
+  state.selectedAgentReportArtifactId = null;
   setTextContent(elements.selectedRunLabel, "No run selected.");
   setRenderedHtml(elements.detailEmptyState, renderDetailEmptyStateMarkup({
     title,
@@ -3660,6 +5102,7 @@ function clearRunSelection(message, title = "No run selected") {
   syncRunActionControlsWithState();
   syncUiUrlState();
   renderOperatorPulse();
+  renderMissionControl();
 }
 
 function renderDetailEmptyStateMarkup(options = {}) {
@@ -4187,6 +5630,7 @@ function restoreBriefDraft() {
   renderRunActionHighlights(null);
   syncRunActionDraftInputs(null);
   syncRunActionControlsWithState();
+  renderMissionControl();
 }
 
 function renderDashboardLoadingState() {
@@ -4270,6 +5714,8 @@ function renderDashboardLoadingState() {
       steps: [],
     }), { markUpdated: false });
   }
+
+  renderMissionControl();
 }
 
 function restoreAutoRefreshPreference() {

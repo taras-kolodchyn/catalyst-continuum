@@ -10,7 +10,7 @@ use crate::{
     storage::postgres::DatabaseReadiness,
 };
 
-const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; connect-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'";
+const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; connect-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self'; frame-src 'self' http://127.0.0.1:3000 http://localhost:3000 http://127.0.0.1:4000 http://localhost:4000; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'";
 const INDEX_HTML: &str = include_str!("operator_ui/index.html");
 const APP_JS: &str = include_str!("operator_ui/app.js");
 const STYLES_CSS: &str = include_str!("operator_ui/styles.css");
@@ -327,6 +327,13 @@ mod tests {
         assert!(response.headers().iter().any(|header| {
             header.field.equiv("Content-Security-Policy")
                 && header.value.as_str().contains("default-src 'self'")
+        }));
+        assert!(response.headers().iter().any(|header| {
+            header.field.equiv("Content-Security-Policy")
+                && header
+                    .value
+                    .as_str()
+                    .contains("frame-src 'self' http://127.0.0.1:3000")
         }));
     }
 

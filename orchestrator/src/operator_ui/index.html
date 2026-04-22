@@ -162,6 +162,120 @@
         </div>
       </section>
 
+      <section
+        id="mission-control"
+        class="panel mission-panel panel-anchor"
+        data-stagger="2"
+        data-ui-refresh-surface="mission-control"
+      >
+        <div class="panel-head">
+          <div>
+            <p class="panel-kicker">Mission Control</p>
+            <h2>Follow the flow without leaving the operator surface</h2>
+            <p class="microcopy panel-explainer">
+              Use these tabs to understand the current delivery stage, inspect
+              multi-agent activity, and open the embedded Grafana or LiteLLM
+              surfaces from the same control plane.
+            </p>
+          </div>
+        </div>
+        <div id="missionShell" class="mission-shell" data-active-tab="flow">
+          <div id="missionTabBar" class="mission-tab-bar" role="tablist" aria-label="Mission control tabs">
+            <button
+              class="mission-tab is-active"
+              id="missionTabFlow"
+              type="button"
+              role="tab"
+              aria-selected="true"
+              aria-controls="missionFlowPanel"
+              data-mission-tab="flow"
+            >
+              Flow
+            </button>
+            <button
+              class="mission-tab"
+              id="missionTabAgents"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              aria-controls="missionAgentsPanel"
+              data-mission-tab="agents"
+            >
+              Agents
+            </button>
+            <button
+              class="mission-tab"
+              id="missionTabGrafana"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              aria-controls="missionGrafanaPanel"
+              data-mission-tab="grafana"
+            >
+              Grafana
+            </button>
+            <button
+              class="mission-tab"
+              id="missionTabLitellm"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              aria-controls="missionLitellmPanel"
+              data-mission-tab="litellm"
+            >
+              LiteLLM
+            </button>
+          </div>
+          <p id="missionTabHint" class="microcopy mission-tab-hint">
+            Open a run to follow its lifecycle, agent activity, and observability from one place.
+          </p>
+          <section
+            id="missionFlowPanel"
+            class="mission-panel-body"
+            role="tabpanel"
+            aria-labelledby="missionTabFlow"
+            data-mission-panel="flow"
+          >
+            <div class="empty-state compact">
+              Waiting for the first selected run to materialize the mission-control flow.
+            </div>
+          </section>
+          <section
+            id="missionAgentsPanel"
+            class="mission-panel-body hidden"
+            role="tabpanel"
+            aria-labelledby="missionTabAgents"
+            data-mission-panel="agents"
+          >
+            <div class="empty-state compact">
+              Agent lanes will appear once the selected run contains assigned agent work.
+            </div>
+          </section>
+          <section
+            id="missionGrafanaPanel"
+            class="mission-panel-body hidden"
+            role="tabpanel"
+            aria-labelledby="missionTabGrafana"
+            data-mission-panel="grafana"
+          >
+            <div class="empty-state compact">
+              Grafana shortcuts and the embedded dashboard will appear here.
+            </div>
+          </section>
+          <section
+            id="missionLitellmPanel"
+            class="mission-panel-body hidden"
+            role="tabpanel"
+            aria-labelledby="missionTabLitellm"
+            data-mission-panel="litellm"
+          >
+            <div class="empty-state compact">
+              LiteLLM gateway status, quick links, and embedded UI will appear here.
+            </div>
+          </section>
+        </div>
+      </section>
+
       <section class="capability-overview" data-stagger="2" data-ui-refresh-surface="capability-overview">
         <div class="status-overview-head">
           <div>

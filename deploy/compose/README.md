@@ -98,6 +98,8 @@ ollama serve
   - Liveness: `http://127.0.0.1:8080/livez`
   - Readiness: `http://127.0.0.1:8080/readyz`
   - Backward-compatible health alias: `http://127.0.0.1:8080/healthz`
+  - Operator UI: `http://127.0.0.1:8080/ui`
+    - The mission-control tabs now embed the provisioned Grafana overview board and the local LiteLLM surface so operators can stay in one UI shell while inspecting runs, agents, observability, and the gateway.
 - LiteLLM models: `http://127.0.0.1:4000/v1/models`
 - Grafana: `http://127.0.0.1:3000`
   - Default login from `.env.example`: `admin` / `continuum-dev`
@@ -116,6 +118,7 @@ ollama serve
   and ship a pinned Docker CLI binary, so in-container `docker` runtime tasks
   can launch disposable task containers against the host daemon during local
   validation.
+- Grafana now enables iframe embedding in the shipped compose baseline so the operator UI can display the provisioned dashboard without sending the user to a second browser tab for the default observability path.
 - The compose stack now also runs a pinned `LiteLLM` gateway service. The gateway is bundled; the actual local model backend remains host-run and operator-managed through `LITELLM_MACOS_NATIVE_API_BASE` or `LITELLM_OLLAMA_API_BASE`.
 - The bundled LiteLLM gateway now enables the official `otel` callback and exports proxy traces plus semantic log events over OTLP HTTP to the local `otel-collector`, following LiteLLM's official [OpenTelemetry integration guide](https://docs.litellm.ai/docs/observability/opentelemetry_integration), so LiteLLM activity lands in the same Tempo and Loki baseline as the orchestrator.
 - A one-shot `litellm-db-init` helper now ensures the dedicated LiteLLM database exists on the shared local Postgres server before the gateway starts. This follows the official LiteLLM proxy database contract around `DATABASE_URL` and Prisma-backed proxy state from [docs.litellm.ai](https://docs.litellm.ai/).
