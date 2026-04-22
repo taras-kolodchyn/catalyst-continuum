@@ -1,5 +1,13 @@
 const BRIEF_STORAGE_KEY = "catalystContinuum.operatorUi.brief";
 const AUTO_REFRESH_INTERVAL_MS = 15000;
+const DASHBOARD_LOADING_CARD_TITLES = [
+  "Control plane",
+  "AI gateway",
+  "Runtime provider",
+  "GitHub App",
+  "External MCP",
+  "Repository packs",
+];
 
 const state = {
   selectedRunId: new URL(window.location.href).searchParams.get("run"),
@@ -662,11 +670,7 @@ function renderPackChips(packs) {
 function renderRuns(response) {
   const runs = Array.isArray(response?.runs) ? response.runs : [];
   if (runs.length === 0) {
-    elements.runsList.innerHTML = `
-      <div class="empty-state compact">
-        No runs match the current filter.
-      </div>
-    `;
+    elements.runsList.innerHTML = loadingOrEmptyState("No runs match the current filter.");
     return;
   }
 
@@ -681,6 +685,7 @@ function renderRuns(response) {
           class="run-card${isSelected ? " is-selected" : ""}"
           type="button"
           data-run-id="${escapeHtml(run.run_id)}"
+          aria-pressed="${isSelected ? "true" : "false"}"
         >
           <div class="run-card-head">
             <span class="badge badge-${escapeHtml(statusTone(run.status))}">
@@ -762,7 +767,7 @@ function renderRailItems(
   timeSelector
 ) {
   if (!items.length) {
-    return '<div class="empty-state compact">Nothing queued right now.</div>';
+    return loadingOrEmptyState("Nothing queued right now.");
   }
 
   return items
@@ -777,6 +782,7 @@ function renderRailItems(
           type="button"
           data-queue-kind="${escapeHtml(queueKind)}"
           data-queue-id="${escapeHtml(itemId)}"
+          aria-pressed="${isSelected ? "true" : "false"}"
         >
           <div class="rail-item-head">
             <h4>${escapeHtml(headingSelector(item))}</h4>
@@ -1349,7 +1355,45 @@ function restoreBriefDraft() {
     elements.briefEditor.value = saved;
   }
   state.autoRefresh = elements.autoRefreshToggle.checked;
+  renderDashboardLoadingState();
   renderQueueInspectorEmpty();
+}
+
+function renderDashboardLoadingState() {
+  elements.lastRefresh.textContent = "Loading first snapshot...";
+  elements.packChips.innerHTML = '<span class="chip chip-loading">Loading pack catalog...</span>';
+  elements.statusGrid.innerHTML = DASHBOARD_LOADING_CARD_TITLES
+    .map(
+      (title) => `
+        <article class="status-card status-card-neutral status-card-loading">
+          <div class="status-card-head">
+            <p class="panel-kicker">${escapeHtml(title)}</p>
+            <span class="badge badge-neutral">Loading</span>
+          </div>
+          <h3>Resolving status...</h3>
+          <p>Waiting for the first control-plane snapshot.</p>
+          <p class="microcopy">The UI will keep the current view once data arrives.</p>
+        </article>
+      `
+    )
+    .join("");
+  elements.runsList.innerHTML = loadingOrEmptyState("Loading recent runs...");
+  elements.webhookActionsList.innerHTML = loadingOrEmptyState("Loading webhook actions...");
+  elements.repositorySignalsList.innerHTML = loadingOrEmptyState("Loading repository signals...");
+  elements.webhookDeliveriesList.innerHTML = loadingOrEmptyState("Loading webhook deliveries...");
+  elements.webhookActionCount.textContent = "…";
+  elements.signalCount.textContent = "…";
+  elements.deliveryCount.textContent = "…";
+
+  if (state.selectedRunId) {
+    elements.selectedRunLabel.textContent = `Loading run ${shortId(state.selectedRunId)}...`;
+    elements.detailEmptyState.textContent =
+      "Loading the selected run snapshot, tasks, artifacts, and events.";
+  } else {
+    elements.selectedRunLabel.textContent = "Loading latest run...";
+    elements.detailEmptyState.textContent =
+      "Loading the latest run snapshot, tasks, artifacts, and events.";
+  }
 }
 
 function renderQueueInspectorEmpty() {
@@ -1365,6 +1409,15 @@ function renderQueueInspectorEmpty() {
   setBadge(elements.queueInspectorPrimaryStatus, "neutral", "Idle");
   setBadge(elements.queueInspectorDetailStatus, "neutral", "Idle");
   setBadge(elements.queueInspectorLinkedStatus, "neutral", "Idle");
+}
+
+function loadingOrEmptyState(message) {
+  const loadingMessage = message.includes("Loading");
+  return `
+    <div class="empty-state compact${loadingMessage ? " is-loading" : ""}">
+      ${escapeHtml(message)}
+    </div>
+  `;
 }
 
 function statusTone(value) {

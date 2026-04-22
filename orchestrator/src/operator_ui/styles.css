@@ -172,6 +172,34 @@ textarea {
   box-shadow: inset 0 0 0 1px rgba(141, 48, 48, 0.12);
 }
 
+.status-card-neutral {
+  box-shadow: inset 0 0 0 1px rgba(24, 35, 29, 0.06);
+}
+
+.status-card-loading,
+.empty-state.is-loading,
+.chip-loading {
+  position: relative;
+  overflow: hidden;
+}
+
+.status-card-loading::after,
+.empty-state.is-loading::after,
+.chip-loading::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    110deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.24) 40%,
+    transparent 80%
+  );
+  transform: translateX(-100%);
+  animation: shimmer 1.6s ease-in-out infinite;
+  pointer-events: none;
+}
+
 .status-card-head,
 .panel-head,
 .detail-section-head,
@@ -251,6 +279,12 @@ textarea {
   padding: 7px 12px;
   font-size: 0.83rem;
   font-weight: 600;
+}
+
+.chip-loading {
+  color: var(--muted);
+  background: rgba(24, 35, 29, 0.06);
+  border-color: rgba(24, 35, 29, 0.1);
 }
 
 .field-label {
@@ -662,6 +696,15 @@ textarea {
   }
 }
 
+@keyframes shimmer {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
 @media (max-width: 1320px) {
   .status-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -717,5 +760,25 @@ textarea {
 
   .data-table {
     min-width: 640px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel,
+  .status-card {
+    animation: none;
+  }
+
+  .button,
+  textarea,
+  input,
+  select {
+    transition: none;
+  }
+
+  .status-card-loading::after,
+  .empty-state.is-loading::after,
+  .chip-loading::after {
+    animation: none;
   }
 }
