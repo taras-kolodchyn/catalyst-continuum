@@ -44,6 +44,7 @@ const state = {
   latestRepositorySignals: [],
   latestWebhookDeliveries: [],
   runActionDrafts: {},
+  runActionResults: {},
   selectedQueueItem: null,
   selectedQueueRunId: null,
 };
@@ -83,6 +84,8 @@ function cacheElements() {
   const ids = [
     "actionConsole",
     "actionConsoleStatus",
+    "actionHighlights",
+    "actionSummaryHeadline",
     "artifactHeadline",
     "artifactHighlights",
     "artifactTableWrap",
@@ -628,6 +631,7 @@ async function executeRunAction(actionId) {
       envelope
     );
     updateRunActionDraftFromResult(actionId, envelope.data);
+    rememberRunActionResult(actionId, envelope);
 
     await refreshDashboard();
   } finally {
@@ -890,6 +894,17 @@ function updateRunActionDraftFromResult(actionId, payload) {
     ...nextDraft,
   });
   syncRunActionDraftInputs(state.selectedRunDetail);
+}
+
+function rememberRunActionResult(actionId, envelope) {
+  if (!state.selectedRunId) {
+    return;
+  }
+
+  state.runActionResults[state.selectedRunId] = {
+    actionId,
+    envelope,
+  };
 }
 
 function syncRunActionDraftInputs(runDetail) {
@@ -1497,7 +1512,36 @@ function renderRunDetail(runDetail, eventsResponse) {
   renderTasks(runDetail.tasks || []);
   renderArtifacts(runDetail);
   renderEvents(eventsResponse?.events || []);
+  renderRunActionHighlights(runDetail);
   syncRunActionControlsWithState();
+}
+
+function renderRunActionHighlights(runDetail) {
+  if (!runDetail?.run_id) {
+    elements.actionSummaryHeadline.textContent =
+      "Run a control to surface branch, PR, quality, and task execution details here.";
+    elements.actionHighlights.innerHTML =
+      '<div class="empty-state compact">No run action summary captured for this run yet.</div>';
+    return;
+  }
+
+  const actionResult = state.runActionResults[runDetail.run_id];
+  if (!actionResult) {
+    elements.actionSummaryHeadline.textContent =
+      "Run a control to surface branch, PR, quality, and task execution details here.";
+    elements.actionHighlights.innerHTML =
+      '<div class="empty-state compact">No run action summary captured for this run yet.</div>';
+    return;
+  }
+
+  const presentation = envelopeBadgePresentation(actionResult.envelope);
+  elements.actionSummaryHeadline.textContent =
+    `Last action: ${displayRunActionLabel(actionResult.actionId)} · ${presentation.label}.`;
+
+  const items = actionHighlightItems(actionResult.actionId, actionResult.envelope);
+  elements.actionHighlights.innerHTML = items.length
+    ? items.map(renderActionSummaryCard).join("")
+    : '<div class="empty-state compact">The latest action returned no structured summary fields.</div>';
 }
 
 function renderTasks(tasks) {
@@ -1648,6 +1692,7 @@ function clearRunSelection(message) {
   elements.detailEmptyState.textContent = message;
   elements.detailEmptyState.classList.remove("hidden");
   elements.runDetailShell.classList.add("hidden");
+  renderRunActionHighlights(null);
   syncRunActionDraftInputs(null);
   syncRunActionControlsWithState();
   const nextUrl = new URL(window.location.href);
@@ -1684,6 +1729,37 @@ function summaryCard(title, primary, secondary) {
       <p class="panel-kicker">${escapeHtml(title)}</p>
       <h3>${escapeHtml(primary)}</h3>
       <p>${escapeHtml(secondary)}</p>
+    </article>
+  `;
+}
+
+function renderActionSummaryCard(item) {
+  const safeHref = safeExternalUrl(item.href);
+  const primaryClass = item.mono ? "summary-card-primary summary-card-primary-code" : "summary-card-primary";
+  const secondary = item.secondary?.trim()
+    ? `<p>${escapeHtml(item.secondary)}</p>`
+    : '<p class="microcopy">No additional detail captured.</p>';
+  const link = safeHref && item.linkLabel
+    ? `
+      <p class="microcopy">
+        <a
+          class="summary-card-link"
+          href="${escapeHtml(safeHref)}"
+          target="_blank"
+          rel="noreferrer noopener"
+        >
+          ${escapeHtml(item.linkLabel)}
+        </a>
+      </p>
+    `
+    : "";
+
+  return `
+    <article class="summary-card">
+      <p class="panel-kicker">${escapeHtml(item.title)}</p>
+      <h3 class="${escapeHtml(primaryClass)}">${escapeHtml(item.primary)}</h3>
+      ${secondary}
+      ${link}
     </article>
   `;
 }
@@ -1815,6 +1891,7 @@ function restoreBriefDraft() {
   state.autoRefresh = elements.autoRefreshToggle.checked;
   renderDashboardLoadingState();
   renderQueueInspectorEmpty();
+  renderRunActionHighlights(null);
   syncRunActionDraftInputs(null);
   syncRunActionControlsWithState();
 }
@@ -1921,6 +1998,319 @@ function displayRunStatus(value) {
       return "Failed";
     default:
       return String(value ?? "unknown");
+  }
+}
+
+function displayRunActionLabel(actionId) {
+  switch (actionId) {
+    case "tasks-next":
+      return "Run next task";
+    case "worker-once":
+      return "Worker once";
+    case "evaluate-policy":
+      return "Evaluate policy";
+    case "evaluate-quality":
+      return "Evaluate quality";
+    case "export-pr":
+      return "Export PR candidate";
+    case "publish-pr":
+      return "Publish PR export";
+    case "draft-pr":
+      return "Create draft PR";
+    default:
+      return String(actionId ?? "Run action");
+  }
+}
+
+function actionHighlightItems(actionId, envelope) {
+  if (!envelope?.ok) {
+    return failedActionHighlightItems(envelope);
+  }
+
+  const payload = envelope.data;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return genericActionHighlightItems(payload);
+  }
+
+  switch (actionId) {
+    case "tasks-next":
+    case "worker-once":
+      return taskExecutionHighlightItems(payload);
+    case "evaluate-policy":
+      return policyEvaluationHighlightItems(payload);
+    case "evaluate-quality":
+      return qualityEvaluationHighlightItems(payload);
+    case "export-pr":
+      return exportPrHighlightItems(payload);
+    case "publish-pr":
+      return publishPrHighlightItems(payload);
+    case "draft-pr":
+      return draftPrHighlightItems(payload);
+    default:
+      return genericActionHighlightItems(payload);
+  }
+}
+
+function failedActionHighlightItems(envelope) {
+  const items = [];
+  pushActionHighlightItem(
+    items,
+    "Result",
+    envelope.status ? `HTTP ${envelope.status}` : "Request failed",
+    formatEnvelopeError(envelope)
+  );
+  if (envelope.statusText) {
+    pushActionHighlightItem(items, "Status text", envelope.statusText, "Transport-level failure");
+  }
+  return items;
+}
+
+function taskExecutionHighlightItems(payload) {
+  const items = [];
+
+  if (payload.outcome === "idle") {
+    pushActionHighlightItem(
+      items,
+      "Result",
+      "Idle",
+      payload.run_status ? `Run status: ${displayRunStatus(payload.run_status)}` : "No runnable task found."
+    );
+    if (payload.run_id) {
+      pushActionHighlightItem(items, "Run", shortId(payload.run_id), "No runnable task remained for the selected run.", { mono: true });
+    }
+    return items;
+  }
+
+  const taskTitle = payload.task?.title ?? payload.task?.kind ?? payload.task?.task_id;
+  const taskSubtitle = payload.task?.task_id
+    ? `${payload.task.task_id} · ${payload.task?.status ?? payload.execution_status ?? "unknown"}`
+    : payload.task?.status ?? payload.execution_status ?? "unknown";
+  pushActionHighlightItem(items, "Task", taskTitle, taskSubtitle, { mono: !payload.task?.title });
+  pushActionHighlightItem(
+    items,
+    "Execution",
+    payload.execution_status ?? "unknown",
+    `Exit ${payload.exit_code ?? "n/a"} · retry ${payload.retry_scheduled ? "scheduled" : "not scheduled"}`
+  );
+  pushActionHighlightItem(
+    items,
+    "Runtime",
+    payload.provider ?? "unknown",
+    payload.image ?? `Run status: ${displayRunStatus(payload.run_status)}`
+  );
+  pushActionHighlightItem(
+    items,
+    "Artifacts",
+    String(Array.isArray(payload.artifacts) ? payload.artifacts.length : 0),
+    "Artifacts persisted from this execution step."
+  );
+  return items;
+}
+
+function policyEvaluationHighlightItems(payload) {
+  const items = [];
+  const checkCount = Array.isArray(payload.checks) ? payload.checks.length : 0;
+  pushActionHighlightItem(
+    items,
+    "Result",
+    payload.passed ? "Passed" : "Blocked",
+    `${payload.failed_check_count ?? 0} failing of ${checkCount} check(s)`
+  );
+  pushActionHighlightItem(
+    items,
+    "Run status",
+    displayRunStatus(payload.run_status),
+    payload.policy_present ? "Explicit policy was evaluated." : "No explicit policy block was present."
+  );
+  pushActionHighlightItem(
+    items,
+    "Target pack",
+    payload.target_pack ?? "unassigned",
+    "Policy checks were resolved against this pack contract."
+  );
+  if (payload.artifact?.artifact_id) {
+    pushActionHighlightItem(
+      items,
+      "Report artifact",
+      shortId(payload.artifact.artifact_id),
+      payload.artifact.artifact_type ?? "policy_report",
+      { mono: true }
+    );
+  }
+  return items;
+}
+
+function qualityEvaluationHighlightItems(payload) {
+  const items = [];
+  const checkCount = Array.isArray(payload.checks) ? payload.checks.length : 0;
+  pushActionHighlightItem(
+    items,
+    "Result",
+    payload.passed ? "Passed" : "Blocked",
+    `${payload.failed_check_count ?? 0} failing of ${checkCount} check(s)`
+  );
+  pushActionHighlightItem(
+    items,
+    "Run status",
+    displayRunStatus(payload.run_status),
+    payload.target_pack ?? "No target pack recorded"
+  );
+  if (payload.source_pr_candidate_artifact_id) {
+    pushActionHighlightItem(
+      items,
+      "Promotion source",
+      shortId(payload.source_pr_candidate_artifact_id),
+      "Latest promotable pr_candidate artifact covered by this quality gate.",
+      { mono: true }
+    );
+  }
+  if (payload.artifact?.artifact_id) {
+    pushActionHighlightItem(
+      items,
+      "Report artifact",
+      shortId(payload.artifact.artifact_id),
+      payload.artifact.artifact_type ?? "quality_report",
+      { mono: true }
+    );
+  }
+  return items;
+}
+
+function exportPrHighlightItems(payload) {
+  const items = [];
+  pushActionHighlightItem(items, "Branch", payload.branch_name, payload.commit_sha ?? "Branch resolved for PR export.");
+  pushActionHighlightItem(items, "Commit", payload.commit_sha, "Head commit captured in the exported PR bundle.", { mono: true });
+  if (payload.artifact?.location_value) {
+    pushActionHighlightItem(
+      items,
+      "Export bundle",
+      payload.artifact.artifact_type ?? "pr_export",
+      payload.artifact.location_value
+    );
+  }
+  if (payload.source_quality_report_artifact_id) {
+    pushActionHighlightItem(
+      items,
+      "Quality gate",
+      shortId(payload.source_quality_report_artifact_id),
+      "PR export is anchored to this passed quality report.",
+      { mono: true }
+    );
+  }
+  return items;
+}
+
+function publishPrHighlightItems(payload) {
+  const items = [];
+  pushActionHighlightItem(
+    items,
+    "Publication",
+    payload.push_status ?? "unknown",
+    payload.base_branch ? `Targets ${payload.base_branch}` : "Publication state recorded."
+  );
+  pushActionHighlightItem(items, "Head branch", payload.head_branch, payload.base_branch ?? "Base branch unavailable.");
+  pushActionHighlightItem(items, "Remote", payload.remote_url, "Remote used for publication.", { mono: true });
+  if (payload.artifact?.location_value) {
+    pushActionHighlightItem(
+      items,
+      "Publication artifact",
+      payload.artifact.artifact_type ?? "pr_publication",
+      payload.artifact.location_value
+    );
+  }
+  return items;
+}
+
+function draftPrHighlightItems(payload) {
+  const items = [];
+  pushActionHighlightItem(
+    items,
+    "Draft PR",
+    payload.pr_number != null ? `#${payload.pr_number}` : payload.resolution ?? "created",
+    payload.resolution ?? "GitHub draft PR result",
+    {
+      href: payload.pr_url,
+      linkLabel: payload.pr_url ? "Open pull request" : "",
+    }
+  );
+  pushActionHighlightItem(items, "Branch", payload.branch_name, payload.commit_sha ?? "Branch exported and published for the draft PR.");
+  pushActionHighlightItem(
+    items,
+    "Publication",
+    payload.push_status ?? "unknown",
+    payload.base_branch ? `Targets ${payload.base_branch}` : payload.remote_url ?? "Remote unavailable."
+  );
+  pushActionHighlightItem(items, "Remote", payload.remote_url, "Remote used for draft PR publication.", { mono: true });
+  return items;
+}
+
+function genericActionHighlightItems(payload) {
+  const items = [];
+  if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+    if (payload.status) {
+      pushActionHighlightItem(items, "Status", String(payload.status), "Latest structured status returned by the control plane.");
+    }
+    if (payload.outcome) {
+      pushActionHighlightItem(items, "Outcome", String(payload.outcome), "Latest structured outcome returned by the control plane.");
+    }
+    if (payload.run_id) {
+      pushActionHighlightItem(items, "Run", shortId(payload.run_id), "Selected run referenced by this action result.", { mono: true });
+    }
+    if (payload.artifact?.artifact_id) {
+      pushActionHighlightItem(
+        items,
+        "Artifact",
+        shortId(payload.artifact.artifact_id),
+        payload.artifact.artifact_type ?? "artifact",
+        { mono: true }
+      );
+    }
+  }
+
+  if (items.length === 0) {
+    pushActionHighlightItem(
+      items,
+      "Result",
+      "Captured",
+      "The full structured payload remains available in Action Output."
+    );
+  }
+  return items;
+}
+
+function pushActionHighlightItem(items, title, primary, secondary, options = {}) {
+  if (primary == null) {
+    return;
+  }
+
+  const renderedPrimary = String(primary).trim();
+  if (!renderedPrimary) {
+    return;
+  }
+
+  items.push({
+    title,
+    primary: renderedPrimary,
+    secondary: String(secondary ?? "").trim(),
+    href: options.href ?? "",
+    linkLabel: options.linkLabel ?? "",
+    mono: options.mono === true,
+  });
+}
+
+function safeExternalUrl(value) {
+  if (typeof value !== "string" || !value.trim()) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return null;
+    }
+    return parsed.toString();
+  } catch (_error) {
+    return null;
   }
 }
 

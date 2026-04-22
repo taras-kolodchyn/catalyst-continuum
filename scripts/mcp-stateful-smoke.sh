@@ -219,6 +219,10 @@ if 'id="queueInspectorConsole"' not in html:
     raise SystemExit("operator UI smoke failed: missing queue inspector console")
 if 'id="runActionHint"' not in html:
     raise SystemExit("operator UI smoke failed: missing run-action availability hint")
+if 'id="actionHighlights"' not in html:
+    raise SystemExit("operator UI smoke failed: missing structured action highlights mount")
+if 'id="actionSummaryHeadline"' not in html:
+    raise SystemExit("operator UI smoke failed: missing action summary headline")
 if 'option value="executing"' not in html:
     raise SystemExit("operator UI smoke failed: missing executing run-status filter")
 if 'option value="approval_required"' in html:
@@ -243,6 +247,10 @@ if "setRunActionControlsBusyState" not in js:
     raise SystemExit("operator UI smoke failed: missing run-action busy-state guard")
 if "runActionAvailability" not in js:
     raise SystemExit("operator UI smoke failed: missing run-action availability gating")
+if "renderRunActionHighlights" not in js:
+    raise SystemExit("operator UI smoke failed: missing structured run-action highlight rendering")
+if "safeExternalUrl" not in js:
+    raise SystemExit("operator UI smoke failed: missing safe external URL guard")
 if "envelopeBadgePresentation" not in js:
     raise SystemExit("operator UI smoke failed: missing domain-aware console badge presentation")
 if "displayRunStatus" not in js:

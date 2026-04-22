@@ -526,6 +526,27 @@ textarea {
   margin: 10px 0 4px;
 }
 
+.summary-card-primary {
+  word-break: break-word;
+}
+
+.summary-card-primary-code {
+  font-family: var(--mono);
+  font-size: 0.9rem;
+  letter-spacing: 0;
+}
+
+.summary-card-link {
+  color: var(--spruce);
+  font-weight: 700;
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.16em;
+}
+
+.summary-card-link:hover {
+  color: #0f3a31;
+}
+
 .action-section {
   padding: 18px;
   border: 1px dashed rgba(23, 79, 67, 0.22);
