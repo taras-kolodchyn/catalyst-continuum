@@ -164,6 +164,8 @@ function cacheElements() {
     "eventTimeline",
     "lastRefresh",
     "packChips",
+    "pulseFeed",
+    "pulseSummary",
     "publishPushToggle",
     "queueInspectorActions",
     "queueInspectorConsole",
@@ -1572,6 +1574,445 @@ function renderStatusGrid(payload) {
   ].join(""));
 }
 
+function renderOperatorPulse() {
+  if (!elements.pulseSummary || !elements.pulseFeed) {
+    return;
+  }
+
+  const cards = [
+    liveTransportPulseCard(),
+    runEstatePulseCard(),
+    automationBacklogPulseCard(),
+    buildOperatorPulseFocusCard(),
+  ];
+  const feedItems = buildOperatorPulseFeedItems();
+
+  setRenderedHtml(
+    elements.pulseSummary,
+    cards.map(renderPulseCard).join("")
+  );
+  setRenderedHtml(
+    elements.pulseFeed,
+    feedItems.length
+      ? feedItems.map(renderPulseFeedItem).join("")
+      : renderSectionEmptyState(
+          "Live activity",
+          "Waiting for orchestration movement",
+          "Once a run, queue item, or run event changes, the latest movement appears here."
+        )
+  );
+}
+
+function liveTransportPulseCard() {
+  const fallbackMode = state.autoRefresh
+    ? `HTTP polling every ${AUTO_REFRESH_INTERVAL_MS / 1000}s stays ready when live transport drops.`
+    : "Manual HTTP refresh remains the fallback path when live transport drops.";
+
+  if (state.realtimeConnected) {
+    return {
+      tone: "success",
+      badge: "Live",
+      kicker: "Transport",
+      title: "WebSocket stream is connected",
+      summary: state.lastRefreshAt
+        ? `Latest live message ${new Date(state.lastRefreshAt).toLocaleTimeString()}.`
+        : "Connected and waiting for the first live snapshot.",
+      detail: `Selected-run, run-ledger, and queue surfaces now update in place. ${fallbackMode}`,
+    };
+  }
+
+  if (state.realtimeConnecting) {
+    return {
+      tone: "warning",
+      badge: "Reconnect",
+      kicker: "Transport",
+      title: "Live transport is reconnecting",
+      summary: "The browser is trying to restore the persistent control-plane stream.",
+      detail: fallbackMode,
+    };
+  }
+
+  if (supportsRealtimeUpdates()) {
+    return {
+      tone: state.lastRefreshAt ? "warning" : "neutral",
+      badge: state.lastRefreshAt ? "Fallback" : "Waiting",
+      kicker: "Transport",
+      title: state.lastRefreshAt
+        ? "Fell back to HTTP refresh"
+        : "Waiting for the live stream",
+      summary: state.lastRefreshAt
+        ? `Last HTTP snapshot ${new Date(state.lastRefreshAt).toLocaleTimeString()}.`
+        : "No live snapshot has been received yet.",
+      detail: fallbackMode,
+    };
+  }
+
+  return {
+    tone: "neutral",
+    badge: "HTTP",
+    kicker: "Transport",
+    title: "Browser is using the HTTP control surface",
+    summary: state.lastRefreshAt
+      ? `Last refresh ${new Date(state.lastRefreshAt).toLocaleTimeString()}.`
+      : "No snapshot has been loaded yet.",
+    detail: fallbackMode,
+  };
+}
+
+function runEstatePulseCard() {
+  const counts = loadedRunStatusCounts(state.latestRuns);
+  const inFlightCount = counts.queued + counts.executing;
+
+  if (!counts.total) {
+    return {
+      tone: "neutral",
+      badge: "Idle",
+      kicker: "Run estate",
+      title: "No loaded runs yet",
+      summary: "A run appears here only after brief submission materializes backlog, policy, and routing state.",
+      detail: "Start from brief intake, validate the brief, then submit it to create the first durable run.",
+      actionLabel: "Jump to brief intake",
+      actionHref: "#brief-intake",
+      actionVariant: "primary",
+    };
+  }
+
+  return {
+    tone: inFlightCount > 0 ? "warning" : counts.failed > 0 ? "error" : "success",
+    badge: `${counts.total} loaded`,
+    kicker: "Run estate",
+    title:
+      inFlightCount > 0
+        ? `${inFlightCount} loaded run(s) need attention`
+        : counts.failed > 0
+          ? `${counts.failed} loaded run(s) are blocked`
+          : "Loaded run estate is calm",
+    summary: `${counts.executing} executing · ${counts.queued} queued · ${counts.succeeded} succeeded · ${counts.failed} failed`,
+    detail: state.selectedRunStatus
+      ? `Current ledger filter: ${displayRunStatus(state.selectedRunStatus)}. Loaded runs stay scoped to the current HTTP/WebSocket query.`
+      : "These counts reflect the currently loaded run ledger, not hidden or paged-out runs.",
+    actionLabel: "Open run ledger",
+    actionHref: "#run-ledger",
+    actionVariant: "ghost",
+  };
+}
+
+function automationBacklogPulseCard() {
+  const webhookActionCount = state.latestWebhookActions.length;
+  const signalCount = state.latestRepositorySignals.length;
+  const deliveryCount = state.latestWebhookDeliveries.length;
+  const automationCount = webhookActionCount + signalCount;
+
+  if (!automationCount && !deliveryCount) {
+    return {
+      tone: "neutral",
+      badge: "Quiet",
+      kicker: "Automation",
+      title: "Automation queues are quiet",
+      summary: "No loaded webhook actions, repository signals, or inbound deliveries need operator attention right now.",
+      detail: "The right rail stays optional until GitHub ingress or repository-signal automation should drive work.",
+      actionLabel: "Open automation rail",
+      actionHref: "#automation-rail",
+      actionVariant: "ghost",
+    };
+  }
+
+  return {
+    tone: automationCount > 0 ? "warning" : "success",
+    badge: `${automationCount} queued`,
+    kicker: "Automation",
+    title:
+      automationCount > 0
+        ? "Automation backlog is waiting"
+        : "Ingress is arriving without queued follow-up",
+    summary: `${webhookActionCount} webhook action(s) · ${signalCount} signal(s) · ${deliveryCount} loaded deliver${deliveryCount === 1 ? "y" : "ies"}`,
+    detail:
+      automationCount > 0
+        ? "Open the automation rail when GitHub-driven runs should be advanced or materialized without the manual brief-first path."
+        : "Inbound deliveries are already preserved for audit, even though no follow-up queue item is waiting right now.",
+    actionLabel: "Inspect automation rail",
+    actionHref: "#automation-rail",
+    actionVariant: automationCount > 0 ? "primary" : "ghost",
+  };
+}
+
+function buildOperatorPulseFocusCard() {
+  if (state.selectedRunDetail) {
+    const guide = buildRunGuide(state.selectedRunDetail, state.selectedRunEvents);
+    return {
+      tone: normalizePulseTone(guide.badgeTone),
+      badge: guide.badgeLabel,
+      kicker: "Current focus",
+      title: guide.nextActionTitle,
+      summary: guide.nextActionDetail,
+      detail: `${guide.currentStageTitle} · ${guide.progressSummary}.`,
+      actionLabel: guide.nextActionControlId ? "Jump to selected run guide" : "Review selected run guide",
+      actionHref: "#run-detail",
+      actionVariant: guide.nextActionControlId ? "primary" : "ghost",
+    };
+  }
+
+  const activeRun = state.latestRuns.find((run) => run.status === "executing");
+  if (activeRun) {
+    return {
+      tone: "warning",
+      badge: "Running",
+      kicker: "Current focus",
+      title: `Monitor ${activeRun.title}`,
+      summary: "The orchestrator already has active work in flight. Open the run to inspect the current stage and live events.",
+      detail: `${shortId(activeRun.run_id)} · ${activeRun.target_pack ?? "no pack"} · ${activeRun.trigger}`,
+      actionLabel: "Open run ledger",
+      actionHref: "#run-ledger",
+      actionVariant: "primary",
+    };
+  }
+
+  const queuedRun = state.latestRuns.find((run) => run.status === "queued");
+  if (queuedRun) {
+    return {
+      tone: "warning",
+      badge: "Queued",
+      kicker: "Current focus",
+      title: `Start ${queuedRun.title}`,
+      summary: "Planning is complete. The next useful operator step is to claim or execute the next queued task.",
+      detail: `${shortId(queuedRun.run_id)} · ${queuedRun.target_pack ?? "no pack"} · ${queuedRun.trigger}`,
+      actionLabel: "Open selected run area",
+      actionHref: "#run-detail",
+      actionVariant: "primary",
+    };
+  }
+
+  if (state.latestWebhookActions.length || state.latestRepositorySignals.length) {
+    return {
+      tone: "warning",
+      badge: "Automation",
+      kicker: "Current focus",
+      title: "Decide whether automation should materialize the next run",
+      summary: "GitHub-driven queue items are present. Use the automation rail only if this repository should advance from webhook and signal state instead of manual brief submission.",
+      detail: `${state.latestWebhookActions.length} webhook action(s) · ${state.latestRepositorySignals.length} signal(s) loaded`,
+      actionLabel: "Open automation rail",
+      actionHref: "#automation-rail",
+      actionVariant: "primary",
+    };
+  }
+
+  return {
+    tone: "neutral",
+    badge: "Start",
+    kicker: "Current focus",
+    title: "Submit the next brief",
+    summary: "No run is selected and no automation backlog needs immediate attention, so the fastest path is still a fresh brief-driven run.",
+    detail: "Use a starter brief or paste YAML, then validate before submission so routing and policy remain explicit.",
+    actionLabel: "Jump to brief intake",
+    actionHref: "#brief-intake",
+    actionVariant: "primary",
+  };
+}
+
+function renderPulseCard(card) {
+  return `
+    <article class="pulse-card pulse-card-${escapeHtml(card.tone)}">
+      <div class="pulse-card-head">
+        <p class="panel-kicker">${escapeHtml(card.kicker)}</p>
+        <span class="badge badge-${escapeHtml(card.tone)}">${escapeHtml(card.badge)}</span>
+      </div>
+      <h3>${escapeHtml(card.title)}</h3>
+      <p>${escapeHtml(card.summary)}</p>
+      <p class="microcopy">${escapeHtml(card.detail)}</p>
+      ${
+        card.actionLabel && card.actionHref
+          ? `
+            <div class="pulse-card-actions">
+              <a
+                class="button ${escapeHtml(
+                  card.actionVariant === "ghost" ? "button-ghost" : "button-primary"
+                )} button-link"
+                href="${escapeHtml(card.actionHref)}"
+              >
+                ${escapeHtml(card.actionLabel)}
+              </a>
+            </div>
+          `
+          : ""
+      }
+    </article>
+  `;
+}
+
+function buildOperatorPulseFeedItems() {
+  if (state.selectedRunDetail) {
+    const selectedRunItems = buildSelectedRunPulseFeedItems();
+    if (selectedRunItems.length) {
+      return selectedRunItems;
+    }
+  }
+
+  return buildGlobalPulseFeedItems();
+}
+
+function buildSelectedRunPulseFeedItems() {
+  if (state.selectedRunEvents.length) {
+    return state.selectedRunEvents.slice(0, 6).map((event) => ({
+      id: event.event_id,
+      tone: normalizePulseTone(statusTone(event.status ?? event.scope)),
+      badge: event.status ?? event.scope ?? "event",
+      kicker: "Selected run event",
+      title: event.event_type,
+      summary: event.summary,
+      detail: `${formatTimestamp(event.created_at)} · ${shortId(event.task_id ?? event.event_id)}`,
+      sortTime: sortableTimestamp(event.created_at),
+    }));
+  }
+
+  if (!state.selectedRunDetail) {
+    return [];
+  }
+
+  const taskCounts = normalizedTaskCounts(state.selectedRunDetail.task_counts);
+  const guide = buildRunGuide(state.selectedRunDetail, []);
+  return [
+    {
+      id: state.selectedRunDetail.run_id,
+      tone: normalizePulseTone(statusTone(state.selectedRunDetail.status)),
+      badge: displayRunStatus(state.selectedRunDetail.status),
+      kicker: "Selected run",
+      title: state.selectedRunDetail.title,
+      summary: `${taskCounts.total} task(s) · ${state.selectedRunDetail.artifact_count ?? 0} artifact(s) · ${guide.currentStageTitle}`,
+      detail: `${formatTimestamp(state.selectedRunDetail.created_at)} · ${shortId(state.selectedRunDetail.run_id)}`,
+      sortTime: sortableTimestamp(state.selectedRunDetail.created_at),
+    },
+  ];
+}
+
+function buildGlobalPulseFeedItems() {
+  const items = [];
+
+  state.latestRuns.slice(0, 4).forEach((run) => {
+    const taskCounts = normalizedTaskCounts(run.task_counts);
+    items.push({
+      id: run.run_id,
+      tone: normalizePulseTone(statusTone(run.status)),
+      badge: displayRunStatus(run.status),
+      kicker: "Run",
+      title: run.title,
+      summary: `${taskCounts.running} running · ${taskCounts.queued} queued · ${taskCounts.failed} failed · ${run.target_pack ?? "no pack"}`,
+      detail: `${formatTimestamp(run.created_at)} · ${shortId(run.run_id)}`,
+      sortTime: sortableTimestamp(run.created_at),
+    });
+  });
+
+  state.latestWebhookActions.slice(0, 2).forEach((item) => {
+    items.push({
+      id: item.request_id,
+      tone: normalizePulseTone(statusTone(item.status)),
+      badge: item.status ?? "unknown",
+      kicker: "Webhook action",
+      title: item.action,
+      summary: item.repository_full_name ?? item.delivery_id,
+      detail: `${formatTimestamp(item.updated_at ?? item.created_at)} · ${shortId(item.request_id)}`,
+      sortTime: sortableTimestamp(item.updated_at ?? item.created_at),
+    });
+  });
+
+  state.latestRepositorySignals.slice(0, 2).forEach((item) => {
+    items.push({
+      id: item.signal_id,
+      tone: normalizePulseTone(statusTone(item.status)),
+      badge: item.status ?? "unknown",
+      kicker: "Repository signal",
+      title: item.signal_kind,
+      summary: item.repository_full_name ?? item.signal_id,
+      detail: `${formatTimestamp(item.updated_at ?? item.created_at)} · ${shortId(item.signal_id)}`,
+      sortTime: sortableTimestamp(item.updated_at ?? item.created_at),
+    });
+  });
+
+  state.latestWebhookDeliveries.slice(0, 2).forEach((item) => {
+    items.push({
+      id: item.delivery_id,
+      tone: normalizePulseTone(statusTone(item.routing_status)),
+      badge: item.routing_status ?? "unknown",
+      kicker: "Ingress delivery",
+      title: item.event,
+      summary: item.repository_full_name ?? item.delivery_id,
+      detail: `${formatTimestamp(item.updated_at ?? item.created_at)} · ${shortId(item.delivery_id)}`,
+      sortTime: sortableTimestamp(item.updated_at ?? item.created_at),
+    });
+  });
+
+  return items
+    .sort((left, right) => right.sortTime - left.sortTime)
+    .slice(0, 8);
+}
+
+function renderPulseFeedItem(item) {
+  return `
+    <article class="pulse-feed-item">
+      <div class="pulse-feed-item-head">
+        <p class="panel-kicker">${escapeHtml(item.kicker)}</p>
+        <span class="badge badge-${escapeHtml(item.tone)}">${escapeHtml(item.badge)}</span>
+      </div>
+      <h3>${escapeHtml(item.title)}</h3>
+      <p>${escapeHtml(item.summary)}</p>
+      <div class="pulse-feed-meta">
+        <span>${escapeHtml(item.detail)}</span>
+      </div>
+    </article>
+  `;
+}
+
+function loadedRunStatusCounts(runs) {
+  return runs.reduce(
+    (counts, run) => {
+      counts.total += 1;
+      switch (run.status) {
+        case "queued":
+          counts.queued += 1;
+          break;
+        case "executing":
+          counts.executing += 1;
+          break;
+        case "succeeded":
+          counts.succeeded += 1;
+          break;
+        case "failed":
+          counts.failed += 1;
+          break;
+        default:
+          break;
+      }
+      return counts;
+    },
+    {
+      total: 0,
+      queued: 0,
+      executing: 0,
+      succeeded: 0,
+      failed: 0,
+    }
+  );
+}
+
+function normalizePulseTone(value) {
+  switch (value) {
+    case "success":
+    case "warning":
+    case "error":
+      return value;
+    default:
+      return "neutral";
+  }
+}
+
+function sortableTimestamp(value) {
+  if (!value) {
+    return 0;
+  }
+
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function briefRunCapabilityCard(controlPlaneReady, packCount) {
   const ready = controlPlaneReady && packCount > 0;
   return {
@@ -1922,6 +2363,7 @@ function renderRuns(response) {
       })
       .join("")
   );
+  renderOperatorPulse();
 }
 
 function runCardGuide(run) {
@@ -2060,6 +2502,7 @@ function renderAutomationRail(payload) {
     ? payload.webhookDeliveries.deliveries
     : [];
   renderAutomationRailCollections();
+  renderOperatorPulse();
 }
 
 function renderAutomationRailCollections() {
@@ -2469,6 +2912,7 @@ function renderRunDetail(runDetail, eventsResponse) {
   renderEvents(events);
   renderRunActionHighlights(runDetail);
   syncRunActionControlsWithState();
+  renderOperatorPulse();
 }
 
 function renderRunActionHighlights(runDetail) {
@@ -3215,6 +3659,7 @@ function clearRunSelection(message, title = "No run selected") {
   syncRunActionDraftInputs(null);
   syncRunActionControlsWithState();
   syncUiUrlState();
+  renderOperatorPulse();
 }
 
 function renderDetailEmptyStateMarkup(options = {}) {
@@ -3893,6 +4338,7 @@ function renderLastRefreshStatus() {
       : `Last refresh ${new Date(state.lastRefreshAt).toLocaleTimeString()} · ${fallbackSummary}`,
     { markUpdated: false }
   );
+  renderOperatorPulse();
 }
 
 function renderQueueInspectorEmpty() {

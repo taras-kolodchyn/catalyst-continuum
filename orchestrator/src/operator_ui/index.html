@@ -119,6 +119,49 @@
         </section>
       </header>
 
+      <section
+        id="operator-pulse"
+        class="panel pulse-panel panel-anchor"
+        data-stagger="2"
+        data-ui-refresh-surface="operator-pulse"
+      >
+        <div class="status-overview-head">
+          <div>
+            <p class="panel-kicker">Operator Pulse</p>
+            <h2>What the control plane is doing right now</h2>
+          </div>
+          <p class="microcopy">
+            This layer compresses transport health, loaded runs, automation
+            queues, and the current operator focus into one fast read before
+            you open detailed panels.
+          </p>
+        </div>
+        <div class="pulse-layout">
+          <div id="pulseSummary" class="pulse-summary-grid" data-ui-region="pulse-summary">
+            <div class="empty-state compact">
+              Waiting for the first control-plane snapshot.
+            </div>
+          </div>
+          <section class="pulse-feed-shell">
+            <div class="detail-section-head">
+              <div>
+                <p class="panel-kicker">Live activity feed</p>
+                <h3>Latest orchestration movement</h3>
+              </div>
+              <p class="microcopy">
+                When a run is selected, this feed follows that run. Otherwise it
+                rolls up the latest loaded runs and automation queues.
+              </p>
+            </div>
+            <div id="pulseFeed" class="pulse-feed" data-ui-region="pulse-feed">
+              <div class="empty-state compact">
+                Waiting for live run, queue, and event activity.
+              </div>
+            </div>
+          </section>
+        </div>
+      </section>
+
       <section class="capability-overview" data-stagger="2" data-ui-refresh-surface="capability-overview">
         <div class="status-overview-head">
           <div>

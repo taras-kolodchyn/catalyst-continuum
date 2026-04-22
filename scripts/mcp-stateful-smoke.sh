@@ -220,10 +220,14 @@ if 'id="pageShell"' not in html or 'data-refresh-state="idle"' not in html:
     raise SystemExit("operator UI smoke failed: missing page-shell live refresh scaffold")
 if "Turn a product brief into a draft pull request" not in html:
     raise SystemExit("operator UI smoke failed: missing product-value headline")
+if 'id="operator-pulse"' not in html or 'id="pulseSummary"' not in html or 'id="pulseFeed"' not in html:
+    raise SystemExit("operator UI smoke failed: missing operator pulse live-activity region")
 if "Most Common Path" not in html or "Advanced Path" not in html:
     raise SystemExit("operator UI smoke failed: missing operator-path explainer callouts")
 if 'class="hero-flow"' not in html or "Open draft PR" not in html:
     raise SystemExit("operator UI smoke failed: missing product workflow explainer")
+if "What the control plane is doing right now" not in html or "Latest orchestration movement" not in html:
+    raise SystemExit("operator UI smoke failed: missing operator pulse explainer copy")
 if "Manual Operator Path" not in html or 'href="#brief-intake"' not in html:
     raise SystemExit("operator UI smoke failed: missing manual-path jump navigation")
 if "What you can do right now" not in html or 'id="capabilityGrid"' not in html:
@@ -312,6 +316,8 @@ if "realtimeSocketUrl" not in js or "new window.WebSocket" not in js or "connect
     raise SystemExit("operator UI smoke failed: missing websocket live-update client logic")
 if "Live updates connected" not in js or "scheduleRealtimeReconnect" not in js:
     raise SystemExit("operator UI smoke failed: missing websocket reconnect status rendering")
+if "renderOperatorPulse" not in js or "buildOperatorPulseFeedItems" not in js:
+    raise SystemExit("operator UI smoke failed: missing live operator pulse rendering logic")
 if "submitBriefRequest" not in js:
     raise SystemExit("operator UI smoke failed: missing brief submission client logic")
 if "runRepositoryAutomationRequest" not in js:
