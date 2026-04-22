@@ -239,6 +239,8 @@ if "setRunActionControlsBusyState" not in js:
     raise SystemExit("operator UI smoke failed: missing run-action busy-state guard")
 if "runActionAvailability" not in js:
     raise SystemExit("operator UI smoke failed: missing run-action availability gating")
+if "envelopeBadgePresentation" not in js:
+    raise SystemExit("operator UI smoke failed: missing domain-aware console badge presentation")
 PY
 
 WEBHOOK_PAYLOAD_FILE="$ARTIFACT_ROOT/mcp-webhook-ping.json"

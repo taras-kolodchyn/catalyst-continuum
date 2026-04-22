@@ -390,11 +390,10 @@ async function submitBriefRequest(mode) {
       body,
     });
 
-    writeConsole(
+    writeEnvelopeConsole(
       elements.briefConsole,
       elements.briefConsoleStatus,
-      envelope.ok ? "success" : "error",
-      envelope.data
+      envelope
     );
 
     if (envelope.ok && mode === "submit" && envelope.data?.run_id) {
@@ -431,11 +430,10 @@ async function runNextWebhookRequest() {
       body: JSON.stringify(action ? { action } : {}),
     });
 
-    writeConsole(
+    writeEnvelopeConsole(
       elements.automationConsole,
       elements.automationConsoleStatus,
-      envelope.ok ? "success" : "error",
-      envelope.data
+      envelope
     );
 
     await refreshDashboard();
@@ -474,11 +472,10 @@ async function submitNextSignalRequest() {
       body: brief,
     });
 
-    writeConsole(
+    writeEnvelopeConsole(
       elements.automationConsole,
       elements.automationConsoleStatus,
-      envelope.ok ? "success" : "error",
-      envelope.data
+      envelope
     );
 
     const submittedRunId = nextSubmittedRunId(envelope.data);
@@ -526,11 +523,10 @@ async function runRepositoryAutomationRequest() {
       body: brief,
     });
 
-    writeConsole(
+    writeEnvelopeConsole(
       elements.automationConsole,
       elements.automationConsoleStatus,
-      envelope.ok ? "success" : "error",
-      envelope.data
+      envelope
     );
 
     const submittedRunId = automationSubmittedRunId(envelope.data);
@@ -600,11 +596,10 @@ async function executeRunAction(actionId) {
       body: body ? JSON.stringify(body) : undefined,
     });
 
-    writeConsole(
+    writeEnvelopeConsole(
       elements.actionConsole,
       elements.actionConsoleStatus,
-      envelope.ok ? "success" : "error",
-      envelope.data
+      envelope
     );
 
     await refreshDashboard();
@@ -1420,6 +1415,12 @@ function writeConsole(target, badge, tone, payload) {
   setBadge(badge, tone, toneLabel(tone));
 }
 
+function writeEnvelopeConsole(target, badge, envelope) {
+  target.textContent = formatEnvelopePayload(envelope);
+  const presentation = envelopeBadgePresentation(envelope);
+  setBadge(badge, presentation.tone, presentation.label);
+}
+
 function writeBusyConsole(target, badge, badgeText, payload) {
   target.textContent =
     typeof payload === "string" ? payload : JSON.stringify(payload, null, 2);
@@ -1501,6 +1502,57 @@ function formatEnvelopePayload(envelope) {
   }
 
   return formatEnvelopeError(envelope);
+}
+
+function envelopeBadgePresentation(envelope) {
+  if (!envelope?.ok) {
+    return {
+      tone: "error",
+      label: toneLabel("error"),
+    };
+  }
+
+  return payloadBadgePresentation(envelope.data);
+}
+
+function payloadBadgePresentation(payload) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return {
+      tone: "success",
+      label: toneLabel("success"),
+    };
+  }
+
+  if (
+    payload.outcome === "idle" ||
+    payload.status === "idle" ||
+    payload.runnable_request_found === false ||
+    payload.pending_signal_found === false
+  ) {
+    return {
+      tone: "neutral",
+      label: toneLabel("neutral"),
+    };
+  }
+
+  if (payload.valid === false) {
+    return {
+      tone: "warning",
+      label: "Invalid",
+    };
+  }
+
+  if (payload.passed === false || Number(payload.failed_check_count ?? 0) > 0) {
+    return {
+      tone: "warning",
+      label: "Blocked",
+    };
+  }
+
+  return {
+    tone: "success",
+    label: toneLabel("success"),
+  };
 }
 
 function restoreBriefDraft() {
