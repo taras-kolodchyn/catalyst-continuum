@@ -224,6 +224,8 @@ if 'class="hero-flow"' not in html or "Open draft PR" not in html:
     raise SystemExit("operator UI smoke failed: missing product workflow explainer")
 if "Manual Operator Path" not in html or 'href="#brief-intake"' not in html:
     raise SystemExit("operator UI smoke failed: missing manual-path jump navigation")
+if "What you can do right now" not in html or 'id="capabilityGrid"' not in html:
+    raise SystemExit("operator UI smoke failed: missing operator-readiness capability summary")
 if "System Health" not in html or "not the normal place" not in html:
     raise SystemExit("operator UI smoke failed: missing system-health explainer")
 if 'id="brief-intake"' not in html or 'id="run-ledger"' not in html or 'id="run-detail"' not in html:

@@ -225,6 +225,16 @@ textarea,
   margin-bottom: 18px;
 }
 
+.capability-overview {
+  margin-bottom: 18px;
+}
+
+.capability-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+}
+
 .status-overview-head {
   display: flex;
   align-items: flex-end;

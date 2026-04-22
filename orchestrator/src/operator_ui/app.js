@@ -9,6 +9,12 @@ const DASHBOARD_LOADING_CARD_TITLES = [
   "External MCP",
   "Repository packs",
 ];
+const CAPABILITY_LOADING_CARD_TITLES = [
+  "Brief -> Run",
+  "Runtime execution",
+  "Model gateway",
+  "GitHub handoff",
+];
 const PR_CANDIDATE_ARTIFACT_TYPE = "pr_candidate";
 const PR_EXPORT_ARTIFACT_TYPE = "pr_export";
 const BACKLOG_ARTIFACT_TYPE = "backlog";
@@ -126,6 +132,7 @@ function cacheElements() {
     "briefEditor",
     "briefExampleHint",
     "briefExamples",
+    "capabilityGrid",
     "clearBriefButton",
     "deliveryCount",
     "detailEmptyState",
@@ -1108,6 +1115,14 @@ function renderStatusGrid(payload) {
     ? config.external_mcp_servers.servers
     : [];
   const githubApp = config.github_app ?? {};
+  const capabilityCards = [
+    renderStatusCard(briefRunCapabilityCard(payload.readyz?.ok, packs.pack_count ?? 0)),
+    renderStatusCard(runtimeExecutionCapabilityCard(enabledRuntimeCount, runtimeStatuses)),
+    renderStatusCard(modelGatewayCapabilityCard(gateway)),
+    renderStatusCard(githubHandoffCapabilityCard(githubApp)),
+  ];
+
+  elements.capabilityGrid.innerHTML = capabilityCards.join("");
 
   elements.statusGrid.innerHTML = [
     renderStatusCard({
@@ -1183,6 +1198,70 @@ function renderStatusGrid(payload) {
       detail: "Static catalog loaded through the orchestrator",
     }),
   ].join("");
+}
+
+function briefRunCapabilityCard(controlPlaneReady, packCount) {
+  const ready = controlPlaneReady && packCount > 0;
+  return {
+    title: "Brief -> Run",
+    statusClass: ready ? "success" : "warning",
+    badge: ready ? "ready" : "blocked",
+    primary: ready ? "Ready to materialize runs" : "Run creation is blocked",
+    secondary: ready
+      ? "Brief validation and submission can create a durable run, backlog, and artifact lineage."
+      : "Run creation needs a healthy control plane and at least one available repository pack.",
+    detail: `Packs ${packCount} · Control plane ${controlPlaneReady ? "ready" : "unhealthy"}`,
+  };
+}
+
+function runtimeExecutionCapabilityCard(enabledRuntimeCount, runtimeStatuses) {
+  const ready = enabledRuntimeCount > 0;
+  return {
+    title: "Runtime execution",
+    statusClass: ready ? "success" : "warning",
+    badge: ready ? "ready" : "blocked",
+    primary: ready ? "Ready for isolated task runtimes" : "Runtime execution is blocked",
+    secondary: ready
+      ? "At least one runtime provider can host isolated task workspaces and execution steps."
+      : "Enable a runtime provider before expecting workspace preparation or runtime-backed task execution.",
+    detail:
+      summarizeValues(
+        runtimeStatuses.map(
+          (status) => `${status.provider}:${status.registered ? "ready" : "disabled"}`
+        ),
+        "No runtime providers declared"
+      ),
+  };
+}
+
+function modelGatewayCapabilityCard(gateway) {
+  const ready = gateway.ready === true;
+  return {
+    title: "Model gateway",
+    statusClass: ready ? "success" : "warning",
+    badge: ready ? "ready" : "blocked",
+    primary: ready ? "Ready for model-backed paths" : "Model-backed paths are blocked",
+    secondary: ready
+      ? "LiteLLM is reachable for worker or agent flows that need a model gateway."
+      : "LiteLLM is unreachable, so worker or agent flows that depend on a model gateway will block until it responds.",
+    detail: `Host ${friendlyConfigValue(gateway.host_base_url, "not configured")}`,
+  };
+}
+
+function githubHandoffCapabilityCard(githubApp) {
+  const ready = githubApp.ready === true;
+  return {
+    title: "GitHub handoff",
+    statusClass: ready ? "success" : "warning",
+    badge: ready ? "ready" : "blocked",
+    primary: ready ? "Ready for draft PR handoff" : "Draft PR handoff is blocked",
+    secondary: ready
+      ? "When the run reaches promotion readiness, the orchestrator can open or reuse the GitHub draft PR."
+      : "GitHub App configuration is incomplete, so export-only flow remains available until publication fields are configured.",
+    detail: githubApp.missing_fields?.length
+      ? `Missing ${summarizeValues(githubApp.missing_fields, "none", ", ")}`
+      : `Key ${friendlySourcePath(githubApp.private_key_path, "configured")}`,
+  };
 }
 
 function renderStatusCard(card) {
@@ -3065,6 +3144,21 @@ function restoreBriefDraft() {
 function renderDashboardLoadingState() {
   elements.lastRefresh.textContent = "Loading first snapshot...";
   elements.packChips.innerHTML = '<span class="chip chip-loading">Loading pack catalog...</span>';
+  elements.capabilityGrid.innerHTML = CAPABILITY_LOADING_CARD_TITLES
+    .map(
+      (title) => `
+        <article class="status-card status-card-neutral status-card-loading">
+          <div class="status-card-head">
+            <p class="panel-kicker">${escapeHtml(title)}</p>
+            <span class="badge badge-neutral">Loading</span>
+          </div>
+          <h3>Resolving capability...</h3>
+          <p>Waiting for the first operator-readiness snapshot.</p>
+          <p class="microcopy">The UI will summarize what you can do before showing raw diagnostics.</p>
+        </article>
+      `
+    )
+    .join("");
   elements.statusGrid.innerHTML = DASHBOARD_LOADING_CARD_TITLES
     .map(
       (title) => `
