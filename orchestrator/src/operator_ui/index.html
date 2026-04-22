@@ -110,17 +110,43 @@
             <div>
               <p class="panel-kicker">Run Ledger</p>
               <h2>Recent runs</h2>
+              <p id="runLedgerHint" class="microcopy">
+                Search the loaded run ledger by title, repository, pack, trigger, or run id.
+              </p>
             </div>
-            <label class="inline-select">
-              <span>Status</span>
-              <select id="runStatusFilter">
-                <option value="">All</option>
-                <option value="queued">Queued</option>
-                <option value="executing">Executing</option>
-                <option value="succeeded">Succeeded</option>
-                <option value="failed">Failed</option>
-              </select>
-            </label>
+            <div class="run-filters">
+              <label class="inline-select">
+                <span>Status</span>
+                <select id="runStatusFilter">
+                  <option value="">All</option>
+                  <option value="queued">Queued</option>
+                  <option value="executing">Executing</option>
+                  <option value="succeeded">Succeeded</option>
+                  <option value="failed">Failed</option>
+                </select>
+              </label>
+              <label class="run-search-field" for="runSearchInput">
+                <span class="field-label">Search loaded runs</span>
+                <div class="run-search-input-row">
+                  <input
+                    id="runSearchInput"
+                    type="text"
+                    placeholder="title, repository, pack, trigger, or run id"
+                    autocomplete="off"
+                    data-ui-input="run-search"
+                  >
+                  <button
+                    id="clearRunSearchButton"
+                    class="button button-ghost"
+                    type="button"
+                    aria-label="Clear run search"
+                    data-ui-action="clear-run-search"
+                  >
+                    Clear search
+                  </button>
+                </div>
+              </label>
+            </div>
           </div>
           <div id="runsList" class="run-list" data-ui-region="runs-list"></div>
         </section>

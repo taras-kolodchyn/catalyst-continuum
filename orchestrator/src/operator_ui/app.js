@@ -20,6 +20,13 @@ const AUTOMATION_BUSY_LABELS = {
   signal: "Submitting signal...",
   cycle: "Running cycle...",
 };
+const RUN_STATUS_FILTER_VALUES = new Set([
+  "",
+  "queued",
+  "executing",
+  "succeeded",
+  "failed",
+]);
 const RUN_ACTION_BUSY_LABELS = {
   "tasks-next": "Running next task...",
   "worker-once": "Running worker...",
@@ -29,10 +36,12 @@ const RUN_ACTION_BUSY_LABELS = {
   "publish-pr": "Publishing PR...",
   "draft-pr": "Creating draft PR...",
 };
+const initialUiUrl = new URL(window.location.href);
 
 const state = {
-  selectedRunId: new URL(window.location.href).searchParams.get("run"),
-  selectedRunStatus: "",
+  selectedRunId: initialUiUrl.searchParams.get("run"),
+  selectedRunStatus: normalizeRunStatusFilter(initialUiUrl.searchParams.get("status")),
+  runSearchQuery: normalizeRunSearchQuery(initialUiUrl.searchParams.get("run_query")),
   selectedRunDetail: null,
   briefExamples: [],
   autoRefresh: true,
@@ -127,12 +136,15 @@ function cacheElements() {
     "repositorySignalsList",
     "runActionHint",
     "runActionDraftHint",
+    "runLedgerHint",
+    "runSearchInput",
     "runNextWebhookButton",
     "runRepositoryAutomationButton",
     "runDetailShell",
     "runStatusFilter",
     "runSummaryCards",
     "runsList",
+    "clearRunSearchButton",
     "selectedRunLabel",
     "signalCount",
     "statusGrid",
@@ -165,9 +177,23 @@ function bindEvents() {
 
   elements.runStatusFilter.addEventListener("change", () => {
     state.selectedRunStatus = elements.runStatusFilter.value;
+    syncUiUrlState();
     refreshDashboard().catch((error) => {
       console.error("run filter refresh failed", error);
     });
+  });
+
+  elements.runSearchInput.addEventListener("input", () => {
+    state.runSearchQuery = normalizeRunSearchQuery(elements.runSearchInput.value);
+    syncUiUrlState();
+    renderRuns({ runs: state.latestRuns });
+  });
+
+  elements.clearRunSearchButton.addEventListener("click", () => {
+    elements.runSearchInput.value = "";
+    state.runSearchQuery = "";
+    syncUiUrlState();
+    renderRuns({ runs: state.latestRuns });
   });
 
   elements.runsList.addEventListener("click", (event) => {
@@ -340,7 +366,7 @@ async function refreshDashboard() {
         "No runs available yet. Load a quick-start brief above or submit your own YAML to materialize the first run."
       );
     } else if (state.selectedRunId && runs.some((run) => run.run_id === state.selectedRunId)) {
-      syncSelectedRunUrl(state.selectedRunId);
+      syncUiUrlState();
       await loadRunDetail(state.selectedRunId);
     } else {
       await selectRun(runs[0].run_id);
@@ -372,26 +398,48 @@ function buildRunsPath() {
   return `/runs?${params.toString()}`;
 }
 
+function normalizeRunStatusFilter(value) {
+  const candidate = String(value ?? "");
+  return RUN_STATUS_FILTER_VALUES.has(candidate) ? candidate : "";
+}
+
+function normalizeRunSearchQuery(value) {
+  return String(value ?? "")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
 async function selectRun(runId, options = {}) {
   state.selectedRunId = runId;
   renderRuns({ runs: state.latestRuns });
   if (!options.refreshOnly) {
-    syncSelectedRunUrl(runId);
+    syncUiUrlState();
   }
   await loadRunDetail(runId);
 }
 
-function syncSelectedRunUrl(runId) {
-  if (!runId) {
-    return;
-  }
-
+function syncUiUrlState() {
   const nextUrl = new URL(window.location.href);
-  if (nextUrl.searchParams.get("run") === runId) {
+  if (state.selectedRunId) {
+    nextUrl.searchParams.set("run", state.selectedRunId);
+  } else {
+    nextUrl.searchParams.delete("run");
+  }
+  if (state.selectedRunStatus) {
+    nextUrl.searchParams.set("status", state.selectedRunStatus);
+  } else {
+    nextUrl.searchParams.delete("status");
+  }
+  if (state.runSearchQuery) {
+    nextUrl.searchParams.set("run_query", state.runSearchQuery);
+  } else {
+    nextUrl.searchParams.delete("run_query");
+  }
+
+  if (nextUrl.toString() === window.location.href) {
     return;
   }
 
-  nextUrl.searchParams.set("run", runId);
   window.history.replaceState({}, "", nextUrl);
 }
 
@@ -1206,16 +1254,32 @@ function loadBriefExampleIntoEditor(exampleId) {
 }
 
 function renderRuns(response) {
-  const runs = Array.isArray(response?.runs) ? response.runs : [];
-  if (runs.length === 0) {
+  const allRuns = Array.isArray(response?.runs)
+    ? response.runs
+    : Array.isArray(response)
+      ? response
+      : [];
+  const { visibleRuns, preservedSelectedRun } = filterVisibleRuns(allRuns);
+  renderRunLedgerHint(allRuns, visibleRuns, preservedSelectedRun);
+
+  if (allRuns.length === 0) {
     const emptyMessage = state.selectedRunStatus
-      ? "No runs match the current filter."
+      ? `No ${displayRunStatus(state.selectedRunStatus).toLowerCase()} runs are loaded right now.`
       : "No runs yet. Load a quick-start brief above or submit your own YAML.";
     elements.runsList.innerHTML = loadingOrEmptyState(emptyMessage);
     return;
   }
 
-  elements.runsList.innerHTML = runs
+  if (visibleRuns.length === 0) {
+    elements.runsList.innerHTML = loadingOrEmptyState(
+      state.runSearchQuery
+        ? "No loaded runs match the current search. Clear search or refresh if you expect a newer run."
+        : "No runs match the current filter."
+    );
+    return;
+  }
+
+  elements.runsList.innerHTML = visibleRuns
     .map((run) => {
       const repositoryName = run.repository?.owner && run.repository?.name
         ? `${run.repository.owner}/${run.repository.name}`
@@ -1255,6 +1319,78 @@ function renderRuns(response) {
       `;
     })
     .join("");
+}
+
+function filterVisibleRuns(runs) {
+  let preservedSelectedRun = false;
+  const visibleRuns = runs.filter((run) => {
+    if (runMatchesActiveFilters(run)) {
+      return true;
+    }
+    if (state.selectedRunId && run.run_id === state.selectedRunId) {
+      preservedSelectedRun = Boolean(state.runSearchQuery);
+      return true;
+    }
+    return false;
+  });
+
+  return {
+    visibleRuns,
+    preservedSelectedRun,
+  };
+}
+
+function runMatchesActiveFilters(run) {
+  return runMatchesSearch(run);
+}
+
+function runMatchesSearch(run) {
+  if (!state.runSearchQuery) {
+    return true;
+  }
+
+  return runSearchHaystack(run).includes(state.runSearchQuery.toLowerCase());
+}
+
+function runSearchHaystack(run) {
+  const repositoryName = run.repository?.owner && run.repository?.name
+    ? `${run.repository.owner}/${run.repository.name}`
+    : "";
+
+  return [
+    run.run_id,
+    shortId(run.run_id),
+    run.title,
+    repositoryName,
+    run.target_pack,
+    run.trigger,
+    run.status,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function renderRunLedgerHint(allRuns, visibleRuns, preservedSelectedRun) {
+  if (allRuns.length === 0 && !state.runSearchQuery && !state.selectedRunStatus) {
+    elements.runLedgerHint.textContent =
+      "Search the loaded run ledger by title, repository, pack, trigger, or run id.";
+    return;
+  }
+
+  const fragments = [`Showing ${visibleRuns.length} of ${allRuns.length} loaded runs.`];
+
+  if (state.selectedRunStatus) {
+    fragments.push(`Status filter: ${displayRunStatus(state.selectedRunStatus)}.`);
+  }
+  if (state.runSearchQuery) {
+    fragments.push(`Search: "${state.runSearchQuery}".`);
+  }
+  if (preservedSelectedRun) {
+    fragments.push("Kept the selected run visible even though it does not match the current search.");
+  }
+
+  elements.runLedgerHint.textContent = fragments.join(" ");
 }
 
 function renderAutomationRail(payload) {
@@ -1932,9 +2068,7 @@ function clearRunSelection(message) {
   renderRunActionHighlights(null);
   syncRunActionDraftInputs(null);
   syncRunActionControlsWithState();
-  const nextUrl = new URL(window.location.href);
-  nextUrl.searchParams.delete("run");
-  window.history.replaceState({}, "", nextUrl);
+  syncUiUrlState();
 }
 
 function setBadge(target, tone, text) {
@@ -2276,6 +2410,8 @@ function restoreBriefDraft() {
   if (saved) {
     elements.briefEditor.value = saved;
   }
+  elements.runStatusFilter.value = state.selectedRunStatus;
+  elements.runSearchInput.value = state.runSearchQuery;
   state.runActionDrafts = restoreRunActionDrafts();
   state.autoRefresh = elements.autoRefreshToggle.checked;
   renderDashboardLoadingState();

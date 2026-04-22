@@ -234,6 +234,14 @@ if 'data-ui-action="submit-brief"' not in html or "Submit brief" not in html:
     raise SystemExit("operator UI smoke failed: missing explicit submit-brief control label")
 if 'data-ui-action="clear-brief"' not in html or "Clear brief" not in html:
     raise SystemExit("operator UI smoke failed: missing explicit clear-brief control label")
+if 'id="runLedgerHint"' not in html:
+    raise SystemExit("operator UI smoke failed: missing run-ledger hint")
+if 'id="runSearchInput"' not in html:
+    raise SystemExit("operator UI smoke failed: missing run search input")
+if 'data-ui-input="run-search"' not in html:
+    raise SystemExit("operator UI smoke failed: missing run-search input hook")
+if 'data-ui-action="clear-run-search"' not in html or "Clear search" not in html:
+    raise SystemExit("operator UI smoke failed: missing clear-run-search control")
 if 'data-ui-console="brief-output"' not in html:
     raise SystemExit("operator UI smoke failed: missing brief-output console hook")
 if 'data-ui-region="runs-list"' not in html:
@@ -280,8 +288,10 @@ if "console-summary-grid" not in js or "Raw JSON" not in js:
     raise SystemExit("operator UI smoke failed: missing collapsible raw-payload console markers")
 if "loadQueueItemDetail" not in js:
     raise SystemExit("operator UI smoke failed: missing queue inspector client logic")
-if "syncSelectedRunUrl" not in js:
+if "syncUiUrlState" not in js:
     raise SystemExit("operator UI smoke failed: missing selected-run URL sync logic")
+if "filterVisibleRuns" not in js or "runMatchesSearch" not in js:
+    raise SystemExit("operator UI smoke failed: missing run-ledger search client logic")
 if "setAutomationControlsBusyState" not in js:
     raise SystemExit("operator UI smoke failed: missing automation busy-state guard")
 if "setRunActionControlsBusyState" not in js:
