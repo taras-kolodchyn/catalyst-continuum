@@ -222,8 +222,12 @@ if "Most Common Path" not in html or "Advanced Path" not in html:
     raise SystemExit("operator UI smoke failed: missing operator-path explainer callouts")
 if 'class="hero-flow"' not in html or "Open draft PR" not in html:
     raise SystemExit("operator UI smoke failed: missing product workflow explainer")
+if "Manual Operator Path" not in html or 'href="#brief-intake"' not in html:
+    raise SystemExit("operator UI smoke failed: missing manual-path jump navigation")
 if "System Health" not in html or "not the normal place" not in html:
     raise SystemExit("operator UI smoke failed: missing system-health explainer")
+if 'id="brief-intake"' not in html or 'id="run-ledger"' not in html or 'id="run-detail"' not in html:
+    raise SystemExit("operator UI smoke failed: missing panel anchor ids")
 if 'id="statusGrid"' not in html:
     raise SystemExit("operator UI smoke failed: missing status grid mount")
 if 'id="runRepositoryAutomationButton"' not in html:
@@ -234,6 +238,8 @@ if 'id="runActionHint"' not in html:
     raise SystemExit("operator UI smoke failed: missing run-action availability hint")
 if 'id="briefExamples"' not in html:
     raise SystemExit("operator UI smoke failed: missing brief example quick-start mount")
+if "Starter briefs" not in html or "Loading starter scenarios" not in html:
+    raise SystemExit("operator UI smoke failed: missing starter-brief operator framing")
 if 'id="briefExampleHint"' not in html:
     raise SystemExit("operator UI smoke failed: missing brief example hint")
 if 'data-ui-action="validate-brief"' not in html or "Validate brief" not in html:

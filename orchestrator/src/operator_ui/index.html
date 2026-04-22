@@ -24,6 +24,23 @@
               agents, executes tasks in isolated runtimes, evaluates quality,
               and prepares a draft PR for human review.
             </p>
+            <div class="hero-path-nav">
+              <p class="panel-kicker">Manual Operator Path</p>
+              <div class="hero-jump-row">
+                <a class="button button-primary button-link" href="#brief-intake">
+                  Start with brief
+                </a>
+                <a class="button button-ghost button-link" href="#run-ledger">
+                  Review runs
+                </a>
+                <a class="button button-ghost button-link" href="#run-detail">
+                  Selected run guide
+                </a>
+                <a class="button button-ghost button-link" href="#automation-rail">
+                  Optional automation
+                </a>
+              </div>
+            </div>
           </div>
           <div class="hero-actions">
             <button
@@ -118,7 +135,7 @@
       </section>
 
       <main class="dashboard-grid">
-        <section class="panel brief-panel" data-stagger="3">
+        <section id="brief-intake" class="panel brief-panel panel-anchor" data-stagger="3">
           <div class="panel-head">
             <div>
               <p class="panel-kicker">1. Define The Work</p>
@@ -131,12 +148,18 @@
             <div id="packChips" class="chip-row"></div>
           </div>
           <div class="brief-starter-section">
-            <label class="field-label" for="briefExamples">Quick-start briefs</label>
-            <div id="briefExamples" class="chip-row">
-              <span class="chip chip-loading">Loading starters...</span>
+            <label class="field-label" for="briefExamples">Starter briefs</label>
+            <p class="microcopy starter-section-copy">
+              Pick the closest delivery scenario, load it into the editor, then
+              update repository metadata and requester fields before validation.
+            </p>
+            <div id="briefExamples" class="starter-grid">
+              <div class="empty-state compact is-loading">
+                <p>Loading starter scenarios...</p>
+              </div>
             </div>
             <p id="briefExampleHint" class="microcopy">
-              Load a curated starter, then adjust repository metadata before submission.
+              Choose a starter scenario, load it into the editor, then adjust repository metadata before validation and submission.
             </p>
           </div>
           <label class="field-label" for="briefEditor">Product brief YAML</label>
@@ -184,7 +207,7 @@
             </div>
         </section>
 
-        <section class="panel runs-panel" data-stagger="4">
+        <section id="run-ledger" class="panel runs-panel panel-anchor" data-stagger="4">
           <div class="panel-head">
             <div>
               <p class="panel-kicker">2. Track Delivery Runs</p>
@@ -234,7 +257,7 @@
           <div id="runsList" class="run-list" data-ui-region="runs-list"></div>
         </section>
 
-        <aside class="panel rail-panel" data-stagger="5">
+        <aside id="automation-rail" class="panel rail-panel panel-anchor" data-stagger="5">
           <div class="panel-head">
             <div>
               <p class="panel-kicker">Optional Automation Inputs</p>
@@ -338,7 +361,7 @@
           </section>
         </aside>
 
-        <section class="panel detail-panel" data-stagger="6">
+        <section id="run-detail" class="panel detail-panel panel-anchor" data-stagger="6">
           <div class="panel-head">
             <div>
               <p class="panel-kicker">3. Advance The Selected Run</p>
@@ -355,7 +378,7 @@
             <p class="panel-kicker">Operator flow</p>
             <h3>Start with a brief, then drive the run forward</h3>
             <p>
-              Load a quick-start brief or paste YAML, validate it, submit it,
+              Load a starter brief or paste YAML, validate it, submit it,
               then open the new run from Recent runs.
             </p>
             <ol class="empty-state-steps">
@@ -363,6 +386,14 @@
               <li>Submit the brief to materialize the run, backlog, and artifacts.</li>
               <li>Use the selected-run guide below to advance execution, quality, and PR handoff.</li>
             </ol>
+            <div class="empty-state-actions">
+              <a class="button button-primary button-link" href="#brief-intake">
+                Jump to brief intake
+              </a>
+              <a class="button button-ghost button-link" href="#run-ledger">
+                Jump to recent runs
+              </a>
+            </div>
           </div>
 
           <div id="runDetailShell" class="detail-shell hidden">

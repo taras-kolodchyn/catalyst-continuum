@@ -55,6 +55,7 @@ const state = {
   selectedRunDetail: null,
   selectedRunEvents: [],
   briefExamples: [],
+  activeBriefExampleId: null,
   autoRefresh: true,
   refreshInFlight: false,
   briefRequestInFlight: false,
@@ -241,9 +242,10 @@ function bindEvents() {
   });
 
   elements.clearBriefButton.addEventListener("click", () => {
+    state.activeBriefExampleId = null;
     elements.briefEditor.value = "";
     window.localStorage.removeItem(BRIEF_STORAGE_KEY);
-    renderBriefExampleHint();
+    renderBriefExamples();
     writeConsole(
       elements.briefConsole,
       elements.briefConsoleStatus,
@@ -383,7 +385,7 @@ async function refreshDashboard() {
 
     if (runs.length === 0) {
       clearRunSelection(
-        "Load a quick-start brief, validate it, submit it, then open the new run from this ledger.",
+        "Load a starter brief, validate it, submit it, then open the new run from this ledger.",
         "No runs materialized yet"
       );
     } else if (state.selectedRunId && runs.some((run) => run.run_id === state.selectedRunId)) {
@@ -1246,33 +1248,70 @@ function renderPackChips(packs) {
 
 function renderBriefExamples() {
   if (!state.briefExamples.length) {
+    elements.briefExamples.innerHTML = renderSectionEmptyState(
+      "Starter briefs",
+      "No curated starters configured",
+      "Paste YAML manually or use files from examples/briefs when this instance does not expose starter scenarios."
+    );
     renderBriefExamplesError("No curated starters are configured for this instance.");
     return;
   }
 
   elements.briefExamples.innerHTML = state.briefExamples
     .map(
-      (example) => `
-        <button
-          class="chip chip-button"
-          type="button"
-          data-brief-example-id="${escapeHtml(example.example_id)}"
-          data-ui-brief-example="true"
-          aria-label="${escapeHtml(`Load ${example.label} starter brief`)}"
-          title="${escapeHtml(
-            example.summary || `${example.target_pack} starter from ${example.source_path}`
-          )}"
-        >
-          ${escapeHtml(example.label)}
-        </button>
-      `
+      (example) => {
+        const isActive = example.example_id === state.activeBriefExampleId;
+        const summary =
+          example.summary?.trim() ||
+          `${example.target_pack} starter sourced from ${example.source_path}`;
+
+        return `
+          <article class="starter-card${isActive ? " is-active" : ""}">
+            <div class="starter-card-head">
+              <div>
+                <p class="panel-kicker">Starter scenario</p>
+                <h3>${escapeHtml(example.label)}</h3>
+              </div>
+              <span class="chip">${escapeHtml(example.target_pack)}</span>
+            </div>
+            <p class="starter-card-summary">${escapeHtml(summary)}</p>
+            <div class="starter-card-meta">
+              <span class="mono">${escapeHtml(example.source_path)}</span>
+              ${isActive ? '<span class="chip">Loaded into editor</span>' : ""}
+            </div>
+            <div class="starter-card-foot">
+              <p class="microcopy">
+                ${
+                  isActive
+                    ? "Review repository owner/name and requested_by before validation."
+                    : "Load this scenario into the editor, then review metadata before validation."
+                }
+              </p>
+              <button
+                class="button ${isActive ? "button-primary" : "button-secondary"}"
+                type="button"
+                data-brief-example-id="${escapeHtml(example.example_id)}"
+                data-ui-brief-example="true"
+                aria-label="${escapeHtml(`Load ${example.label} starter brief`)}"
+                title="${escapeHtml(summary)}"
+              >
+                ${isActive ? "Reload starter" : "Load starter"}
+              </button>
+            </div>
+          </article>
+        `;
+      }
     )
     .join("");
   renderBriefExampleHint();
 }
 
 function renderBriefExamplesError(message) {
-  elements.briefExamples.innerHTML = '<span class="chip chip-loading">Starters unavailable</span>';
+  elements.briefExamples.innerHTML = renderSectionEmptyState(
+    "Starter briefs",
+    "Starter scenarios unavailable",
+    "Paste YAML manually or use the repository examples until this instance can serve curated starter briefs."
+  );
   elements.briefExampleHint.textContent =
     `${message} Paste YAML manually or use the repo examples/briefs files directly.`;
 }
@@ -1290,7 +1329,7 @@ function renderBriefExampleHint(activeExample) {
   }
 
   elements.briefExampleHint.textContent =
-    "Load a curated starter, then adjust repository metadata before submission.";
+    "Choose a starter scenario, load it into the editor, then adjust repository metadata before validation and submission.";
 }
 
 function loadBriefExampleIntoEditor(exampleId) {
@@ -1299,8 +1338,10 @@ function loadBriefExampleIntoEditor(exampleId) {
     return;
   }
 
+  state.activeBriefExampleId = example.example_id;
   elements.briefEditor.value = example.content;
   window.localStorage.setItem(BRIEF_STORAGE_KEY, example.content);
+  renderBriefExamples();
   renderBriefExampleHint(example);
   writeConsole(
     elements.briefConsole,
@@ -1333,7 +1374,21 @@ function renderRuns(response) {
       : renderSectionEmptyState(
           "Run ledger",
           "No runs materialized yet",
-          "Load a quick-start brief, validate it, submit it, then reopen the new run from this ledger."
+          "A durable run appears here only after brief submission materializes backlog, routing, and artifacts.",
+          {
+            steps: [
+              "Load a starter brief or paste product-brief YAML in the left column.",
+              "Validate first so pack resolution, routing, and policy are explicit.",
+              "Submit the brief, then reopen the new run from this ledger.",
+            ],
+            actions: [
+              {
+                href: "#brief-intake",
+                label: "Jump to brief intake",
+                variant: "primary",
+              },
+            ],
+          }
         );
     return;
   }
@@ -2557,7 +2612,7 @@ function renderDetailEmptyStateMarkup(options = {}) {
   const title = options.title ?? "Start with a brief, then drive the run forward";
   const message =
     options.message ??
-    "Load a quick-start brief or paste YAML, validate it, submit it, then open the new run from Recent runs.";
+    "Load a starter brief or paste YAML, validate it, submit it, then open the new run from Recent runs.";
   const steps = Array.isArray(options.steps)
     ? options.steps
     : [
@@ -2565,11 +2620,57 @@ function renderDetailEmptyStateMarkup(options = {}) {
         "Submit the brief to materialize the run, backlog, and artifacts.",
         "Use the selected-run guide to advance execution, quality, and PR handoff.",
       ];
+  const actions = Array.isArray(options.actions)
+    ? options.actions
+    : steps.length
+      ? [
+          {
+            href: "#brief-intake",
+            label: "Jump to brief intake",
+            variant: "primary",
+          },
+          {
+            href: "#run-ledger",
+            label: "Jump to recent runs",
+            variant: "ghost",
+          },
+        ]
+      : [];
 
-  return `
-    <p class="panel-kicker">Operator flow</p>
-    <h3>${escapeHtml(title)}</h3>
-    <p>${escapeHtml(message)}</p>
+  return renderEmptyStateMarkup({
+    kicker: "Operator flow",
+    title,
+    message,
+    steps,
+    actions,
+    includeContainer: false,
+  });
+}
+
+function renderSectionEmptyState(kicker, title, message, options = {}) {
+  return renderEmptyStateMarkup({
+    kicker,
+    title,
+    message,
+    compact: true,
+    steps: options.steps,
+    actions: options.actions,
+  });
+}
+
+function renderEmptyStateMarkup(options = {}) {
+  const kicker = options.kicker ?? "";
+  const title = options.title ?? "";
+  const message = options.message ?? "";
+  const compact = options.compact === true;
+  const includeContainer = options.includeContainer !== false;
+  const steps = Array.isArray(options.steps) ? options.steps : [];
+  const actions = Array.isArray(options.actions) ? options.actions : [];
+
+  const body = `
+    ${kicker ? `<p class="panel-kicker">${escapeHtml(kicker)}</p>` : ""}
+    ${title ? `<h3>${escapeHtml(title)}</h3>` : ""}
+    ${message ? `<p>${escapeHtml(message)}</p>` : ""}
     ${
       steps.length
         ? `
@@ -2579,17 +2680,34 @@ function renderDetailEmptyStateMarkup(options = {}) {
         `
         : ""
     }
+    ${
+      actions.length
+        ? `
+          <div class="empty-state-actions">
+            ${actions
+              .map((action) => {
+                const variant =
+                  action.variant === "primary"
+                    ? "button-primary"
+                    : action.variant === "secondary"
+                      ? "button-secondary"
+                      : "button-ghost";
+                return `
+                  <a class="button ${variant} button-link" href="${escapeHtml(action.href ?? "#")}">
+                    ${escapeHtml(action.label ?? "Open")}
+                  </a>
+                `;
+              })
+              .join("")}
+          </div>
+        `
+        : ""
+    }
   `;
-}
 
-function renderSectionEmptyState(kicker, title, message) {
-  return `
-    <div class="empty-state compact">
-      <p class="panel-kicker">${escapeHtml(kicker)}</p>
-      <h3>${escapeHtml(title)}</h3>
-      <p>${escapeHtml(message)}</p>
-    </div>
-  `;
+  return includeContainer
+    ? `<div class="empty-state${compact ? " compact" : ""}">${body}</div>`
+    : body;
 }
 
 function setBadge(target, tone, text) {
