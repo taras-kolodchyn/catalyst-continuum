@@ -98,14 +98,20 @@ textarea,
 
 .hero-panel {
   display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 24px;
+  flex-direction: column;
+  gap: 18px;
   margin-bottom: 18px;
   padding: 28px;
   background:
     linear-gradient(135deg, rgba(23, 79, 67, 0.1), transparent 48%),
     linear-gradient(180deg, rgba(255, 252, 246, 0.96), rgba(251, 245, 236, 0.86));
+}
+
+.hero-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
 }
 
 .hero-copy h1,
@@ -126,7 +132,7 @@ textarea,
 .hero-copy h1 {
   font-size: clamp(2rem, 4vw, 3.6rem);
   line-height: 0.95;
-  max-width: 10ch;
+  max-width: 14ch;
 }
 
 .hero-summary {
@@ -143,6 +149,65 @@ textarea,
   flex-direction: column;
   align-items: flex-end;
   gap: 12px;
+}
+
+.hero-callout-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.hero-callout,
+.hero-flow-step {
+  min-width: 0;
+  border: 1px solid rgba(24, 35, 29, 0.1);
+  border-radius: var(--radius-lg);
+  background: rgba(255, 251, 244, 0.82);
+  padding: 18px;
+}
+
+.hero-callout h2,
+.hero-flow-step h3 {
+  margin: 8px 0 10px;
+  font-family: var(--serif);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.hero-callout h2 {
+  font-size: 1.18rem;
+}
+
+.hero-flow {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.hero-flow-step {
+  position: relative;
+  padding-top: 54px;
+}
+
+.hero-flow-index {
+  position: absolute;
+  top: 16px;
+  left: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: rgba(23, 79, 67, 0.12);
+  color: var(--spruce);
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.hero-flow-step p,
+.hero-callout p {
+  overflow-wrap: anywhere;
 }
 
 .status-grid {
@@ -1029,6 +1094,14 @@ textarea {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
+  .hero-callout-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .hero-flow {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .dashboard-grid {
     grid-template-columns: minmax(0, 1fr) 320px;
     grid-template-areas:
@@ -1054,8 +1127,14 @@ textarea {
   }
 
   .hero-panel {
-    flex-direction: column;
     align-items: stretch;
+  }
+
+  .hero-head,
+  .hero-callout-grid,
+  .hero-flow {
+    grid-template-columns: minmax(0, 1fr);
+    flex-direction: column;
   }
 
   .hero-actions {

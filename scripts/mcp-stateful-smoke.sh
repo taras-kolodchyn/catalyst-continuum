@@ -216,6 +216,12 @@ brief_examples = json.loads(pathlib.Path(sys.argv[3]).read_text(encoding="utf-8"
 
 if "<title>Catalyst Continuum Control Surface</title>" not in html:
     raise SystemExit("operator UI smoke failed: missing control-surface title")
+if "Turn a product brief into a draft pull request" not in html:
+    raise SystemExit("operator UI smoke failed: missing product-value headline")
+if "What It Does" not in html or "What The Orchestrator Controls" not in html:
+    raise SystemExit("operator UI smoke failed: missing product explainer callouts")
+if 'class="hero-flow"' not in html or "Open draft PR" not in html:
+    raise SystemExit("operator UI smoke failed: missing product workflow explainer")
 if 'id="statusGrid"' not in html:
     raise SystemExit("operator UI smoke failed: missing status grid mount")
 if 'id="runRepositoryAutomationButton"' not in html:

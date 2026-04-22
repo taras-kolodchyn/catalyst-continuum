@@ -14,30 +14,90 @@
   <body>
     <div class="page-shell">
       <header class="panel hero-panel" data-stagger="1">
-        <div class="hero-copy">
-          <p class="eyebrow">Catalyst Continuum</p>
-          <h1>Operator Control Surface</h1>
-          <p class="hero-summary">
-            Inspect run health, validate or submit briefs, and drive the current
-            draft-PR flow without leaving the orchestrator.
-          </p>
+        <div class="hero-head">
+          <div class="hero-copy">
+            <p class="eyebrow">Catalyst Continuum</p>
+            <h1>Turn a product brief into a draft pull request</h1>
+            <p class="hero-summary">
+              Catalyst Continuum is an AI SDLC control plane. It validates a
+              structured brief, creates a planned delivery run, routes work to
+              agents, executes tasks in isolated runtimes, evaluates quality,
+              and prepares a draft PR for human review.
+            </p>
+          </div>
+          <div class="hero-actions">
+            <button
+              id="refreshButton"
+              class="button button-primary"
+              type="button"
+              aria-label="Refresh dashboard"
+              data-ui-action="refresh-dashboard"
+            >
+              Refresh
+            </button>
+            <label class="toggle">
+              <input id="autoRefreshToggle" type="checkbox" checked>
+              <span>Auto refresh</span>
+            </label>
+            <p id="lastRefresh" class="microcopy">Waiting for first snapshot...</p>
+          </div>
         </div>
-        <div class="hero-actions">
-          <button
-            id="refreshButton"
-            class="button button-primary"
-            type="button"
-            aria-label="Refresh dashboard"
-            data-ui-action="refresh-dashboard"
-          >
-            Refresh
-          </button>
-          <label class="toggle">
-            <input id="autoRefreshToggle" type="checkbox" checked>
-            <span>Auto refresh</span>
-          </label>
-          <p id="lastRefresh" class="microcopy">Waiting for first snapshot...</p>
+
+        <div class="hero-callout-grid">
+          <article class="hero-callout">
+            <p class="panel-kicker">What It Does</p>
+            <h2>Turns one brief into an auditable delivery run</h2>
+            <p>
+              Every run persists backlog, policy, agent routing, artifacts,
+              events, and PR-promotion state instead of hiding work in a chat
+              session.
+            </p>
+          </article>
+          <article class="hero-callout">
+            <p class="panel-kicker">What The Orchestrator Controls</p>
+            <h2>Planning, execution, quality, and handoff</h2>
+            <p>
+              The orchestrator owns task progression, sandbox/runtime policy,
+              retries, quality gates, and draft-PR readiness across agents.
+            </p>
+          </article>
+          <article class="hero-callout">
+            <p class="panel-kicker">What Humans Still Decide</p>
+            <h2>Review and merge stay in GitHub</h2>
+            <p>
+              The control plane prepares the PR handoff, but engineers still
+              review the draft PR and decide whether anything gets merged.
+            </p>
+          </article>
         </div>
+
+        <section class="hero-flow" aria-label="Product workflow">
+          <article class="hero-flow-step">
+            <span class="hero-flow-index">1</span>
+            <h3>Write brief</h3>
+            <p>Describe the repo, target pack, and delivery intent.</p>
+          </article>
+          <article class="hero-flow-step">
+            <span class="hero-flow-index">2</span>
+            <h3>Plan run</h3>
+            <p>The orchestrator validates policy, materializes backlog, and resolves agent routing.</p>
+          </article>
+          <article class="hero-flow-step">
+            <span class="hero-flow-index">3</span>
+            <h3>Execute tasks</h3>
+            <p>Workers or external agents claim queued tasks inside controlled runtimes.</p>
+          </article>
+          <article class="hero-flow-step">
+            <span class="hero-flow-index">4</span>
+            <h3>Evaluate quality</h3>
+            <p>Fresh artifacts and promotion prerequisites are checked before remote handoff.</p>
+          </article>
+          <article class="hero-flow-step">
+            <span class="hero-flow-index">5</span>
+            <h3>Open draft PR</h3>
+            <p>The run is promoted into GitHub review without bypassing human approval.</p>
+          </article>
+        </section>
       </header>
 
       <section id="statusGrid" class="status-grid" data-stagger="2"></section>
@@ -46,8 +106,8 @@
         <section class="panel brief-panel" data-stagger="3">
           <div class="panel-head">
             <div>
-              <p class="panel-kicker">Brief Intake</p>
-              <h2>Validate and submit</h2>
+              <p class="panel-kicker">1. Define The Work</p>
+              <h2>Validate and submit the brief</h2>
             </div>
             <div id="packChips" class="chip-row"></div>
           </div>
@@ -108,8 +168,8 @@
         <section class="panel runs-panel" data-stagger="4">
           <div class="panel-head">
             <div>
-              <p class="panel-kicker">Run Ledger</p>
-              <h2>Recent runs</h2>
+              <p class="panel-kicker">2. Track Delivery Runs</p>
+              <h2>Recent orchestrator runs</h2>
               <p id="runLedgerHint" class="microcopy">
                 Search the loaded run ledger by title, repository, pack, trigger, or run id.
               </p>
@@ -154,8 +214,8 @@
         <aside class="panel rail-panel" data-stagger="5">
           <div class="panel-head">
             <div>
-              <p class="panel-kicker">Automation Queue</p>
-              <h2>Signals and webhooks</h2>
+              <p class="panel-kicker">Optional Automation Inputs</p>
+              <h2>Signals, webhooks, and queue history</h2>
             </div>
           </div>
           <section class="rail-section rail-controls">
@@ -254,8 +314,8 @@
         <section class="panel detail-panel" data-stagger="6">
           <div class="panel-head">
             <div>
-              <p class="panel-kicker">Selected Run</p>
-              <h2>Detail and actions</h2>
+              <p class="panel-kicker">3. Advance The Selected Run</p>
+              <h2>Run detail, next step, and actions</h2>
             </div>
             <p id="selectedRunLabel" class="microcopy" data-selected-run-label="true">No run selected.</p>
           </div>
