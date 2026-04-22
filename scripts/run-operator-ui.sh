@@ -54,6 +54,11 @@ log_phase() {
   printf '[run-operator-ui] %s\n' "$1"
 }
 
+LOCAL_HELPER_LABEL_KEY="io.catalyst-continuum.local-helper"
+LOCAL_HELPER_LABEL_VALUE="true"
+LOCAL_HELPER_NAME_LABEL_KEY="io.catalyst-continuum.helper"
+LOCAL_HELPER_NAME_LABEL_VALUE="run-operator-ui"
+
 print_postgres_debug() {
   if docker ps -a --format '{{.Names}}' | grep -Fx "$POSTGRES_CONTAINER_NAME" >/dev/null 2>&1; then
     echo "--- postgres logs: $POSTGRES_CONTAINER_NAME ---" >&2
@@ -83,6 +88,7 @@ cleanup() {
   if [ "$STARTED_POSTGRES" -eq 1 ]; then
     docker rm -f "$POSTGRES_CONTAINER_NAME" >/dev/null 2>&1 || true
   fi
+  rm -f "$SCRIPT_PID_FILE" "$ORCHESTRATOR_PID_FILE"
   rm -rf "$TEMP_DIR"
 }
 
@@ -109,6 +115,11 @@ POSTGRES_CONTAINER_NAME="continuum-${POSTGRES_CONTAINER_SUFFIX}-postgres"
 STARTED_POSTGRES=0
 ORCHESTRATOR_PID=0
 TEMP_DIR="$(mktemp -d)"
+HELPER_PID_DIR="${CATALYST_LOCAL_HELPER_PID_DIR:-$ROOT_DIR/.continuum/local-helper-pids}"
+SCRIPT_PID_FILE="${HELPER_PID_DIR}/run-operator-ui-$$.launcher.pid"
+ORCHESTRATOR_PID_FILE="${HELPER_PID_DIR}/run-operator-ui-$$.serve.pid"
+mkdir -p "$HELPER_PID_DIR"
+printf '%s\n' "$$" >"$SCRIPT_PID_FILE"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -182,6 +193,8 @@ if [ -z "$DATABASE_URL" ]; then
   docker rm -f "$POSTGRES_CONTAINER_NAME" >/dev/null 2>&1 || true
   docker run -d \
     --name "$POSTGRES_CONTAINER_NAME" \
+    --label "${LOCAL_HELPER_LABEL_KEY}=${LOCAL_HELPER_LABEL_VALUE}" \
+    --label "${LOCAL_HELPER_NAME_LABEL_KEY}=${LOCAL_HELPER_NAME_LABEL_VALUE}" \
     -e POSTGRES_DB="$POSTGRES_DB" \
     -e POSTGRES_USER="$POSTGRES_USER" \
     -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
@@ -234,6 +247,8 @@ ORCHESTRATOR_READYZ_FILE="$TEMP_DIR/readyz.json"
   --mcp-servers-file "$MCP_SERVERS_FILE" \
   --ai-gateway-file "$AI_GATEWAY_FILE" >"$ORCHESTRATOR_LOG_FILE" 2>&1 &
 ORCHESTRATOR_PID=$!
+mkdir -p "$HELPER_PID_DIR"
+printf '%s\n' "$ORCHESTRATOR_PID" >"$ORCHESTRATOR_PID_FILE"
 
 if ! wait_for_http_capture \
   "operator UI orchestrator readiness" \

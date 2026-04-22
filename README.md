@@ -174,6 +174,14 @@ CATALYST_ARTIFACT_ROOT=".continuum/artifacts" \
 ./scripts/run-operator-ui.sh --skip-build
 ```
 
+If a local UI or smoke session gets interrupted and leaves repo-local helper state behind, run:
+
+```bash
+./scripts/cleanup-local-dev.sh
+```
+
+That cleanup helper stops repo-local `run-operator-ui` sessions, removes their tracked helper PIDs, and deletes disposable Postgres containers labeled by the repository smoke and UI helpers without touching the main compose stack.
+
 For full-stack operator validation, including the bundled LiteLLM gateway, Redis, worker, Prometheus, Loki, Tempo, and Grafana services behind the same control plane, run:
 
 ```bash
@@ -299,6 +307,7 @@ The core checks can be run directly without GitHub Actions:
 `./scripts/compose-observability-smoke.sh` is the stack-level Docker validation layer for the shipped local infra baseline. It boots the pinned compose stack under an isolated project name and ephemeral host ports, then verifies service startup, Prometheus active scrape targets, Grafana datasource/dashboard provisioning, LiteLLM `/v1/models`, and the orchestrator's live `/ai-gateway/status` contract.
 `./scripts/ci-smoke.sh` still runs the full smoke batch by default, starting with the pinned OpenHands launcher/executor smoke scripts before the end-to-end scenarios, and now also accepts `CI_SMOKE_SCENARIO` so CI can run one scenario per job while operators can still run the whole batch locally. Valid scenario values are `mvp-container-service`, `mvp-cli-tool`, `mvp-worker-service`, and `mcp-stateful-cli-tool`.
 `./scripts/smoke-mvp.sh` still runs a single end-to-end smoke pass, now including orchestrator HTTP liveness/readiness probes, `GET /config`, `GET /ai-gateway/status`, a signed GitHub webhook `ping`, a signed default-branch `push`, HTTP/CLI webhook inspection plus receipt inspection, HTTP/CLI webhook action-request inspection, HTTP/CLI webhook execution-report inspection, HTTP/CLI default-branch-state inspection, HTTP/CLI repository-signal inspection plus payload inspection, queue-safe CLI repository-signal materialization through `submit-next-repository-signal`, stale action reclaim verification, `POST /github/webhook-actions/next`, `run-next-github-webhook-action`, the CLI external-agent `claim-next-agent-task`, `prepare-agent-task-workspace`, `heartbeat-agent-task`, and `complete-agent-task` path, policy/quality artifact inspection, durable run-event inspection, promotion-event inspection, and the automated run quality gate, and accepts `SMOKE_BRIEF_FILE` to target a specific brief, for example `examples/briefs/minimal-container-service.yaml` or `examples/briefs/minimal-cli-tool.yaml`. `./scripts/mcp-stateful-smoke.sh` complements it by validating the agent-facing MCP stateful path, including `describe_instance_config`, `describe_ai_gateway_status`, GitHub webhook inspection plus receipt inspection, GitHub webhook execution-report inspection, default-branch-state inspection, repository-signal inspection plus payload inspection, queue-safe repository-signal materialization through `submit_next_repository_signal`, brief submission, `run_next_task`, `claim_next_agent_task`, `prepare_agent_task_workspace`, `heartbeat_agent_task`, `complete_agent_task`, a follow-on `run_worker_once` execution, policy artifact inspection, and durable run-event inspection, without duplicating the full terminal quality-gate path that the direct smoke flow already covers.
+After local UI or smoke work, `./scripts/cleanup-local-dev.sh` is the safe repo-local cleanup path when you need to reap tracked helper processes or disposable helper Postgres containers without tearing down the main compose environment.
 
 To reproduce the workflow structure locally through `act`:
 

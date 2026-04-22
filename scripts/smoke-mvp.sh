@@ -29,6 +29,10 @@ ARTIFACT_ROOT="${CATALYST_ARTIFACT_ROOT:-$ROOT_DIR/.continuum/ci-artifacts}"
 BRIEF_FILE="${SMOKE_BRIEF_FILE:-$ROOT_DIR/examples/briefs/minimal-container-service.yaml}"
 EVAL_REPORT_FILE="${SMOKE_EVAL_REPORT_FILE:-}"
 BIN="${ORCHESTRATOR_TARGET_ROOT}/debug/catalyst-continuum-orchestrator"
+LOCAL_HELPER_LABEL_KEY="io.catalyst-continuum.local-helper"
+LOCAL_HELPER_LABEL_VALUE="true"
+LOCAL_HELPER_NAME_LABEL_KEY="io.catalyst-continuum.helper"
+LOCAL_HELPER_NAME_LABEL_VALUE="smoke-mvp"
 POSTGRES_IMAGE="${SMOKE_POSTGRES_IMAGE:-postgres:${POSTGRES_VERSION}@${POSTGRES_IMAGE_DIGEST}}"
 POSTGRES_DB="${SMOKE_POSTGRES_DB:-continuum}"
 POSTGRES_USER="${SMOKE_POSTGRES_USER:-continuum}"
@@ -153,6 +157,8 @@ if [ -z "${CATALYST_DATABASE_URL:-}" ]; then
   fi
   docker run -d \
     --name "$POSTGRES_CONTAINER_NAME" \
+    --label "${LOCAL_HELPER_LABEL_KEY}=${LOCAL_HELPER_LABEL_VALUE}" \
+    --label "${LOCAL_HELPER_NAME_LABEL_KEY}=${LOCAL_HELPER_NAME_LABEL_VALUE}" \
     -e POSTGRES_DB="$POSTGRES_DB" \
     -e POSTGRES_USER="$POSTGRES_USER" \
     -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
