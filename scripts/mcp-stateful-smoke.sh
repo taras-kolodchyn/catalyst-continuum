@@ -308,6 +308,10 @@ if 'rel="icon"' not in html:
     raise SystemExit("operator UI smoke failed: missing favicon link")
 if "refreshDashboard" not in js:
     raise SystemExit("operator UI smoke failed: missing dashboard refresh client logic")
+if "realtimeSocketUrl" not in js or "new window.WebSocket" not in js or "connectRealtime" not in js or "handleRealtimeMessage" not in js:
+    raise SystemExit("operator UI smoke failed: missing websocket live-update client logic")
+if "Live updates connected" not in js or "scheduleRealtimeReconnect" not in js:
+    raise SystemExit("operator UI smoke failed: missing websocket reconnect status rendering")
 if "submitBriefRequest" not in js:
     raise SystemExit("operator UI smoke failed: missing brief submission client logic")
 if "runRepositoryAutomationRequest" not in js:
@@ -344,7 +348,7 @@ if 'autoRefresh: false' not in js:
     raise SystemExit("operator UI smoke failed: auto-refresh state no longer defaults to manual-first")
 if "window.localStorage.setItem(\n    AUTO_REFRESH_STORAGE_KEY" not in js:
     raise SystemExit("operator UI smoke failed: missing auto-refresh preference persistence")
-if "renderLastRefreshStatus" not in js or "manual only" not in js:
+if "renderLastRefreshStatus" not in js or "Manual refresh mode" not in js:
     raise SystemExit("operator UI smoke failed: missing manual-refresh status rendering")
 if "setAutomationControlsBusyState" not in js:
     raise SystemExit("operator UI smoke failed: missing automation busy-state guard")

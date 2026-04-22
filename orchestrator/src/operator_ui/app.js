@@ -4,6 +4,7 @@ const AUTO_REFRESH_STORAGE_KEY = "catalystContinuum.operatorUi.autoRefresh";
 const AUTOMATION_DISCLOSURES_STORAGE_KEY =
   "catalystContinuum.operatorUi.automationDisclosures";
 const AUTO_REFRESH_INTERVAL_MS = 15000;
+const REALTIME_RECONNECT_DELAY_MS = 1500;
 const DASHBOARD_LOADING_CARD_TITLES = [
   "Control plane",
   "AI gateway",
@@ -69,6 +70,12 @@ const state = {
   refreshInFlight: false,
   refreshAnimationsEnabled: false,
   lastRefreshAt: null,
+  realtimeSupported: typeof window.WebSocket === "function",
+  realtimeSocket: null,
+  realtimeSocketToken: 0,
+  realtimeReconnectTimer: null,
+  realtimeConnected: false,
+  realtimeConnecting: false,
   briefRequestInFlight: false,
   automationRequestInFlight: false,
   runActionInFlight: false,
@@ -107,9 +114,16 @@ document.addEventListener("DOMContentLoaded", () => {
       "error",
       { error: error.message }
     );
+  }).finally(() => {
+    connectRealtime();
   });
   window.setInterval(() => {
-    if (!state.autoRefresh || state.refreshInFlight) {
+    if (
+      !state.autoRefresh ||
+      state.refreshInFlight ||
+      state.realtimeConnected ||
+      state.realtimeConnecting
+    ) {
       return;
     }
 
@@ -117,6 +131,9 @@ document.addEventListener("DOMContentLoaded", () => {
       console.error("operator UI auto refresh failed", error);
     });
   }, AUTO_REFRESH_INTERVAL_MS);
+  window.addEventListener("beforeunload", () => {
+    cleanupRealtimeSocket();
+  });
 });
 
 function cacheElements() {
@@ -223,7 +240,7 @@ function bindEvents() {
   elements.runStatusFilter.addEventListener("change", () => {
     state.selectedRunStatus = elements.runStatusFilter.value;
     syncUiUrlState();
-    refreshDashboard().catch((error) => {
+    refreshFromPreferredSource({ forceRealtime: true }).catch((error) => {
       console.error("run filter refresh failed", error);
     });
   });
@@ -454,6 +471,223 @@ function revealSelectedRunDetail() {
     ?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
+function supportsRealtimeUpdates() {
+  return state.realtimeSupported;
+}
+
+function realtimeSocketUrl() {
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const url = new URL(`${protocol}//${window.location.host}/ui/ws`);
+  if (state.selectedRunId) {
+    url.searchParams.set("run", state.selectedRunId);
+  }
+  if (state.selectedRunStatus) {
+    url.searchParams.set("status", state.selectedRunStatus);
+  }
+  return url.toString();
+}
+
+function clearRealtimeReconnect() {
+  if (state.realtimeReconnectTimer) {
+    window.clearTimeout(state.realtimeReconnectTimer);
+    state.realtimeReconnectTimer = null;
+  }
+}
+
+function cleanupRealtimeSocket() {
+  clearRealtimeReconnect();
+  if (state.realtimeSocket) {
+    state.realtimeSocket.onopen = null;
+    state.realtimeSocket.onmessage = null;
+    state.realtimeSocket.onerror = null;
+    state.realtimeSocket.onclose = null;
+    if (
+      state.realtimeSocket.readyState === window.WebSocket.OPEN ||
+      state.realtimeSocket.readyState === window.WebSocket.CONNECTING
+    ) {
+      state.realtimeSocket.close();
+    }
+  }
+  state.realtimeSocket = null;
+  state.realtimeConnecting = false;
+  state.realtimeConnected = false;
+}
+
+function scheduleRealtimeReconnect() {
+  if (!supportsRealtimeUpdates() || state.realtimeReconnectTimer) {
+    return;
+  }
+
+  state.realtimeReconnectTimer = window.setTimeout(() => {
+    state.realtimeReconnectTimer = null;
+    connectRealtime({ force: true });
+  }, REALTIME_RECONNECT_DELAY_MS);
+}
+
+function connectRealtime(options = {}) {
+  if (!supportsRealtimeUpdates()) {
+    return;
+  }
+
+  const nextUrl = realtimeSocketUrl();
+  const forceReconnect = options.force === true;
+
+  if (
+    !forceReconnect &&
+    state.realtimeSocket &&
+    state.realtimeSocket.readyState === window.WebSocket.OPEN &&
+    state.realtimeSocket.url === nextUrl
+  ) {
+    return;
+  }
+
+  clearRealtimeReconnect();
+  cleanupRealtimeSocket();
+
+  const socket = new window.WebSocket(nextUrl);
+  const token = state.realtimeSocketToken + 1;
+  state.realtimeSocketToken = token;
+  state.realtimeSocket = socket;
+  state.realtimeConnecting = true;
+  state.realtimeConnected = false;
+  renderLastRefreshStatus();
+
+  socket.onopen = () => {
+    if (token !== state.realtimeSocketToken) {
+      socket.close();
+      return;
+    }
+
+    state.realtimeConnecting = false;
+    state.realtimeConnected = true;
+    renderLastRefreshStatus();
+  };
+
+  socket.onmessage = (event) => {
+    if (token !== state.realtimeSocketToken) {
+      return;
+    }
+
+    handleRealtimeMessage(event.data);
+  };
+
+  socket.onerror = (error) => {
+    if (token !== state.realtimeSocketToken) {
+      return;
+    }
+
+    console.error("operator UI websocket error", error);
+  };
+
+  socket.onclose = () => {
+    if (token !== state.realtimeSocketToken) {
+      return;
+    }
+
+    state.realtimeSocket = null;
+    state.realtimeConnecting = false;
+    state.realtimeConnected = false;
+    renderLastRefreshStatus();
+    scheduleRealtimeReconnect();
+  };
+}
+
+function handleRealtimeMessage(rawMessage) {
+  let message;
+  try {
+    message = JSON.parse(rawMessage);
+  } catch (error) {
+    console.error("failed to parse operator UI websocket message", error, rawMessage);
+    return;
+  }
+
+  state.lastRefreshAt = new Date().toISOString();
+  renderLastRefreshStatus();
+
+  switch (message.type) {
+    case "hello":
+    case "heartbeat":
+      return;
+    case "dashboard_snapshot":
+      applyRealtimeDashboardSnapshot(message.snapshot);
+      return;
+    case "runs_snapshot":
+      applyRealtimeRunsSnapshot(message.response);
+      return;
+    case "automation_snapshot":
+      applyRealtimeAutomationSnapshot(message.response);
+      return;
+    case "run_detail_snapshot":
+      applyRealtimeRunDetailSnapshot(message.response);
+      return;
+    case "selected_run_missing":
+      if (message.run_id === state.selectedRunId) {
+        clearRunSelection(message.error, "Run detail unavailable");
+        connectRealtime({ force: true });
+      }
+      return;
+    default:
+      console.warn("unknown operator UI websocket message", message);
+  }
+}
+
+function applyRealtimeDashboardSnapshot(snapshot) {
+  renderStatusGrid({
+    readyz: snapshot.readyz ?? failedEnvelope(new Error("missing readyz snapshot")),
+    aiGateway:
+      snapshot.ai_gateway ?? failedEnvelope(new Error("missing AI gateway snapshot")),
+    config: snapshot.config ?? failedEnvelope(new Error("missing config snapshot")),
+    packs: snapshot.packs ?? failedEnvelope(new Error("missing packs snapshot")),
+  });
+  renderPackChips(snapshot.packs?.data);
+}
+
+function applyRealtimeRunsSnapshot(response) {
+  const runs = Array.isArray(response?.runs) ? response.runs : [];
+  state.latestRuns = runs;
+  renderRuns({ runs });
+
+  if (runs.length === 0 && !state.selectedRunId) {
+    clearRunSelection(
+      "Load a starter brief, validate it, submit it, then open the new run from this ledger.",
+      "No runs materialized yet"
+    );
+    return;
+  }
+
+  if (state.selectedRunId && !runs.some((run) => run.run_id === state.selectedRunId)) {
+    clearRunSelection(
+      "Refresh the dashboard or open another run from the ledger if the previous selection is no longer present.",
+      "Run detail unavailable"
+    );
+  }
+}
+
+function applyRealtimeAutomationSnapshot(response) {
+  renderAutomationRail({
+    webhookActions: response?.webhook_actions,
+    repositorySignals: response?.repository_signals,
+    webhookDeliveries: response?.webhook_deliveries,
+  });
+}
+
+function applyRealtimeRunDetailSnapshot(response) {
+  if (!response?.run || response.run.run_id !== state.selectedRunId) {
+    return;
+  }
+
+  renderRunDetail(response.run, { events: response.events });
+}
+
+function refreshFromPreferredSource(options = {}) {
+  if (supportsRealtimeUpdates()) {
+    connectRealtime({ force: options.forceRealtime === true });
+    return Promise.resolve();
+  }
+
+  return refreshDashboard();
+}
+
 async function refreshDashboard() {
   state.refreshInFlight = true;
   setDashboardRefreshState(true);
@@ -561,6 +795,7 @@ async function selectRun(runId, options = {}) {
     syncUiUrlState();
   }
   await loadRunDetail(runId);
+  connectRealtime({ force: true });
   if (options.revealDetail) {
     revealSelectedRunDetail();
   }
@@ -656,7 +891,13 @@ async function submitBriefRequest(mode) {
 
     if (envelope.ok && mode === "submit" && envelope.data?.run_id) {
       state.selectedRunId = envelope.data.run_id;
-      await refreshDashboard();
+      if (supportsRealtimeUpdates()) {
+        syncUiUrlState();
+        await loadRunDetail(envelope.data.run_id);
+        connectRealtime({ force: true });
+      } else {
+        await refreshDashboard();
+      }
       revealSelectedRunDetail();
     }
   } finally {
@@ -695,7 +936,7 @@ async function runNextWebhookRequest() {
       envelope
     );
 
-    await refreshDashboard();
+    await refreshFromPreferredSource({ forceRealtime: true });
   } finally {
     state.automationRequestInFlight = false;
     setAutomationControlsBusyState(elements.runNextWebhookButton, AUTOMATION_BUSY_LABELS.webhook, false);
@@ -742,7 +983,7 @@ async function submitNextSignalRequest() {
       state.selectedRunId = submittedRunId;
     }
 
-    await refreshDashboard();
+    await refreshFromPreferredSource({ forceRealtime: true });
     if (envelope.ok && submittedRunId) {
       revealSelectedRunDetail();
     }
@@ -796,7 +1037,7 @@ async function runRepositoryAutomationRequest() {
       state.selectedRunId = submittedRunId;
     }
 
-    await refreshDashboard();
+    await refreshFromPreferredSource({ forceRealtime: true });
     if (envelope.ok && submittedRunId) {
       revealSelectedRunDetail();
     }
@@ -870,7 +1111,7 @@ async function executeRunAction(actionId) {
     updateRunActionDraftFromResult(actionId, envelope.data);
     rememberRunActionResult(actionId, envelope);
 
-    await refreshDashboard();
+    await refreshFromPreferredSource({ forceRealtime: true });
   } finally {
     state.runActionInFlight = false;
     state.runActionBusyActionId = null;
@@ -3605,15 +3846,41 @@ function persistAutoRefreshPreference() {
 }
 
 function renderLastRefreshStatus() {
-  const modeSummary = state.autoRefresh
-    ? `auto every ${AUTO_REFRESH_INTERVAL_MS / 1000}s`
-    : "manual only";
+  const fallbackSummary = state.autoRefresh
+    ? `polling every ${AUTO_REFRESH_INTERVAL_MS / 1000}s`
+    : "manual mode";
+
+  if (state.realtimeConnected) {
+    if (!state.lastRefreshAt) {
+      setTextContent(elements.lastRefresh, "Live updates connected · waiting for first websocket snapshot", {
+        markUpdated: false,
+      });
+      return;
+    }
+
+    setTextContent(
+      elements.lastRefresh,
+      `Live updates connected · latest message ${new Date(state.lastRefreshAt).toLocaleTimeString()}`,
+      { markUpdated: false }
+    );
+    return;
+  }
+
+  if (state.realtimeConnecting) {
+    setTextContent(elements.lastRefresh, `Live updates reconnecting · ${fallbackSummary}`, {
+      markUpdated: false,
+    });
+    return;
+  }
+
   if (!state.lastRefreshAt) {
     setTextContent(
       elements.lastRefresh,
-      state.autoRefresh
-        ? `Waiting for first snapshot · ${modeSummary}`
-        : "Manual refresh mode",
+      supportsRealtimeUpdates()
+        ? `Waiting for live connection · ${fallbackSummary}`
+        : state.autoRefresh
+          ? `Waiting for first snapshot · polling every ${AUTO_REFRESH_INTERVAL_MS / 1000}s`
+          : "Manual refresh mode",
       { markUpdated: false }
     );
     return;
@@ -3621,7 +3888,9 @@ function renderLastRefreshStatus() {
 
   setTextContent(
     elements.lastRefresh,
-    `Last refresh ${new Date(state.lastRefreshAt).toLocaleTimeString()} · ${modeSummary}`,
+    supportsRealtimeUpdates()
+      ? `Live updates unavailable · last HTTP refresh ${new Date(state.lastRefreshAt).toLocaleTimeString()} · ${fallbackSummary}`
+      : `Last refresh ${new Date(state.lastRefreshAt).toLocaleTimeString()} · ${fallbackSummary}`,
     { markUpdated: false }
   );
 }

@@ -1,3 +1,5 @@
+mod websocket;
+
 use serde::Serialize;
 use tiny_http::{Header, Response, StatusCode};
 
@@ -14,6 +16,7 @@ const APP_JS: &str = include_str!("operator_ui/app.js");
 const STYLES_CSS: &str = include_str!("operator_ui/styles.css");
 pub const DASHBOARD_PATH: &str = "/ui/dashboard";
 pub const BRIEF_EXAMPLES_PATH: &str = "/ui/brief-examples";
+pub const WS_PATH: &str = "/ui/ws";
 const MINIMAL_CONTAINER_SERVICE_BRIEF: &str =
     include_str!("../../examples/briefs/minimal-container-service.yaml");
 const MINIMAL_CLI_TOOL_BRIEF: &str = include_str!("../../examples/briefs/minimal-cli-tool.yaml");
@@ -30,6 +33,8 @@ pub fn route_label(path: &str) -> Option<&'static str> {
         _ => None,
     }
 }
+
+pub(crate) use websocket::handle_websocket_request;
 
 pub fn response(path: &str) -> Option<Response<std::io::Cursor<Vec<u8>>>> {
     let (body, content_type) = match path {
@@ -243,8 +248,8 @@ pub struct OperatorUiReadinessResponse {
 #[cfg(test)]
 mod tests {
     use super::{
-        BRIEF_EXAMPLES_PATH, DASHBOARD_PATH, brief_examples_document, dashboard_snapshot, response,
-        route_label,
+        BRIEF_EXAMPLES_PATH, DASHBOARD_PATH, WS_PATH, brief_examples_document, dashboard_snapshot,
+        response, route_label,
     };
     use crate::{
         config::{
@@ -262,6 +267,7 @@ mod tests {
         assert_eq!(route_label("/ui/app.js"), Some("/ui/app.js"));
         assert_eq!(route_label("/ui/styles.css"), Some("/ui/styles.css"));
         assert_eq!(route_label("/ui/unknown"), None);
+        assert_eq!(WS_PATH, "/ui/ws");
     }
 
     #[test]

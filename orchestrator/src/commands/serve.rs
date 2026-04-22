@@ -75,6 +75,37 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
         let request_span = tracing::info_span!("http.request", method = %method, route = route);
         let _request_span_guard = request_span.enter();
 
+        if method == "GET" && path == operator_ui::WS_PATH {
+            let status_code = match operator_ui::handle_websocket_request(
+                request,
+                query,
+                &args.database_url,
+                &instance_config,
+            ) {
+                Ok(status_code) => status_code,
+                Err(error) => {
+                    telemetry::record_http_request(
+                        method.as_str(),
+                        route,
+                        StatusCode(500).0.into(),
+                        request_started_at.elapsed(),
+                    );
+                    tracing::warn!(
+                        error = %error,
+                        "failed to handle operator UI websocket request"
+                    );
+                    continue;
+                }
+            };
+            telemetry::record_http_request(
+                method.as_str(),
+                route,
+                status_code.into(),
+                request_started_at.elapsed(),
+            );
+            continue;
+        }
+
         let response = match (method.as_str(), path) {
             ("GET", "/") => json_response(
                 StatusCode(200),
@@ -84,6 +115,7 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                     endpoints: vec![
                         "/",
                         "/ui",
+                        "/ui/ws",
                         "/ui/dashboard",
                         "/livez",
                         "/healthz",
@@ -1806,6 +1838,7 @@ fn route_label(method: &str, path: &str) -> &'static str {
     match (method, path) {
         ("GET", "/") => "/",
         ("GET", operator_ui::DASHBOARD_PATH) => operator_ui::DASHBOARD_PATH,
+        ("GET", operator_ui::WS_PATH) => operator_ui::WS_PATH,
         ("GET", operator_ui::BRIEF_EXAMPLES_PATH) => operator_ui::BRIEF_EXAMPLES_PATH,
         ("GET", "/livez") => "/livez",
         ("GET", "/healthz") => "/healthz",
@@ -2104,6 +2137,7 @@ mod tests {
         assert_eq!(route_label("GET", "/ui/app.js"), "/ui/app.js");
         assert_eq!(route_label("GET", "/ui/styles.css"), "/ui/styles.css");
         assert_eq!(route_label("GET", "/ui/dashboard"), "/ui/dashboard");
+        assert_eq!(route_label("GET", "/ui/ws"), "/ui/ws");
         assert_eq!(
             route_label("GET", "/ui/brief-examples"),
             "/ui/brief-examples"
