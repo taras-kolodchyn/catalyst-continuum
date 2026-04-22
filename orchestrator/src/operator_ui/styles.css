@@ -803,6 +803,60 @@ textarea {
   margin-top: -2px;
 }
 
+.rail-disclosure {
+  border: 1px solid rgba(24, 35, 29, 0.08);
+  border-radius: var(--radius-lg);
+  background: rgba(255, 251, 244, 0.68);
+  transition: border-color var(--transition-soft), background var(--transition-soft), box-shadow var(--transition-soft);
+}
+
+.rail-disclosure[open] {
+  border-color: rgba(23, 79, 67, 0.16);
+  background: rgba(255, 252, 248, 0.82);
+  box-shadow: inset 0 0 0 1px rgba(23, 79, 67, 0.05);
+}
+
+.rail-disclosure-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  list-style: none;
+  cursor: pointer;
+  padding: 16px 18px;
+}
+
+.rail-disclosure-summary::-webkit-details-marker {
+  display: none;
+}
+
+.rail-disclosure-summary h3 {
+  margin: 6px 0 0;
+}
+
+.rail-disclosure-summary::after {
+  content: "";
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  border-right: 2px solid rgba(24, 35, 29, 0.38);
+  border-bottom: 2px solid rgba(24, 35, 29, 0.38);
+  transform: rotate(45deg) translateY(-2px);
+  transition: transform var(--transition-soft), border-color var(--transition-soft);
+}
+
+.rail-disclosure[open] .rail-disclosure-summary::after {
+  border-color: rgba(23, 79, 67, 0.78);
+  transform: rotate(225deg) translateY(-1px);
+}
+
+.rail-disclosure-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0 18px 18px;
+}
+
 .rail-control-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -925,6 +979,14 @@ textarea {
   box-shadow: inset 0 0 0 1px rgba(23, 79, 67, 0.1);
 }
 
+.guide-card-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 14px;
+}
+
 .guide-card h4,
 .guide-stage h4 {
   margin: 8px 0 6px;
@@ -976,6 +1038,10 @@ textarea {
 
 .guide-stage-copy {
   overflow-wrap: anywhere;
+}
+
+#runGuideActionHint {
+  max-width: 34ch;
 }
 
 .status-card-detail {

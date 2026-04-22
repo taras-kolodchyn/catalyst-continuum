@@ -238,6 +238,10 @@ if 'id="statusGrid"' not in html:
     raise SystemExit("operator UI smoke failed: missing status grid mount")
 if 'id="runRepositoryAutomationButton"' not in html:
     raise SystemExit("operator UI smoke failed: missing repository automation control")
+if 'id="webhookActionsDisclosure"' not in html or 'id="repositorySignalsDisclosure"' not in html:
+    raise SystemExit("operator UI smoke failed: missing progressive-disclosure automation sections")
+if 'id="webhookDeliveriesDisclosure"' not in html or 'id="queueInspectorDisclosure"' not in html:
+    raise SystemExit("operator UI smoke failed: missing automation audit and inspector disclosures")
 if 'id="autoRefreshToggle" type="checkbox" checked' in html:
     raise SystemExit("operator UI smoke failed: auto-refresh is still enabled by default")
 if "Auto refresh (optional)" not in html or "Manual refresh mode" not in html:
@@ -280,6 +284,8 @@ if 'id="runGuideHeadline"' not in html:
     raise SystemExit("operator UI smoke failed: missing run-guide headline")
 if 'id="runGuideNextAction"' not in html:
     raise SystemExit("operator UI smoke failed: missing run-guide next-action card")
+if 'id="runGuideActionButton"' not in html or 'id="runGuideActionHint"' not in html:
+    raise SystemExit("operator UI smoke failed: missing run-guide recommended control")
 if 'id="runGuideStages"' not in html:
     raise SystemExit("operator UI smoke failed: missing run-guide stages mount")
 if 'data-ui-region="run-guide-stages"' not in html:
@@ -350,6 +356,8 @@ if "revealSelectedRunDetail" not in js:
     raise SystemExit("operator UI smoke failed: missing auto-reveal for selected run detail")
 if "renderRunGuide" not in js or "buildRunGuide" not in js:
     raise SystemExit("operator UI smoke failed: missing selected-run orchestration guide logic")
+if "renderRunGuideAction" not in js or "controlActionId" not in js:
+    raise SystemExit("operator UI smoke failed: missing guide CTA rendering logic")
 if "renderDetailEmptyStateMarkup" not in js:
     raise SystemExit("operator UI smoke failed: missing guided detail empty-state renderer")
 if "renderSectionEmptyState" not in js:
@@ -364,6 +372,8 @@ if "displayRunStatus" not in js:
     raise SystemExit("operator UI smoke failed: missing run-status display normalization")
 if "friendlySourcePath" not in js or "summarizeValues" not in js:
     raise SystemExit("operator UI smoke failed: missing compact status-card detail helpers")
+if "restoreAutomationDisclosurePreferences" not in js or "syncAutomationDisclosures" not in js:
+    raise SystemExit("operator UI smoke failed: missing persisted automation-disclosure logic")
 examples = brief_examples.get("examples")
 if not isinstance(examples, list) or len(examples) < 3:
     raise SystemExit("operator UI smoke failed: missing curated brief examples payload")

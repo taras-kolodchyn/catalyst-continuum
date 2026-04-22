@@ -1,6 +1,8 @@
 const BRIEF_STORAGE_KEY = "catalystContinuum.operatorUi.brief";
 const RUN_ACTION_DRAFTS_STORAGE_KEY = "catalystContinuum.operatorUi.runActionDrafts";
 const AUTO_REFRESH_STORAGE_KEY = "catalystContinuum.operatorUi.autoRefresh";
+const AUTOMATION_DISCLOSURES_STORAGE_KEY =
+  "catalystContinuum.operatorUi.automationDisclosures";
 const AUTO_REFRESH_INTERVAL_MS = 15000;
 const DASHBOARD_LOADING_CARD_TITLES = [
   "Control plane",
@@ -77,6 +79,7 @@ const state = {
   latestWebhookDeliveries: [],
   runActionDrafts: {},
   runActionResults: {},
+  automationDisclosurePreferences: {},
   selectedQueueItem: null,
   selectedQueueRunId: null,
 };
@@ -160,6 +163,8 @@ function cacheElements() {
     "runActionHint",
     "runActionDraftHint",
     "runGuideBadge",
+    "runGuideActionButton",
+    "runGuideActionHint",
     "runGuideBlockers",
     "runGuideCurrentStage",
     "runGuideCurrentStageDetail",
@@ -183,11 +188,15 @@ function cacheElements() {
     "submitNextSignalButton",
     "submitBriefButton",
     "taskHeadline",
+    "webhookActionsDisclosure",
     "taskTableWrap",
     "validateBriefButton",
+    "repositorySignalsDisclosure",
     "webhookActionCount",
     "webhookActionsList",
+    "webhookDeliveriesDisclosure",
     "webhookDeliveriesList",
+    "queueInspectorDisclosure",
     "resetRunActionDraftButton",
   ];
 
@@ -347,10 +356,96 @@ function bindEvents() {
   elements.resetRunActionDraftButton.addEventListener("click", () => {
     resetSelectedRunActionDraft();
   });
+
+  for (const disclosure of automationDisclosureElements()) {
+    disclosure.addEventListener("toggle", () => {
+      state.automationDisclosurePreferences[disclosure.id] = disclosure.open;
+      persistAutomationDisclosurePreferences();
+    });
+  }
 }
 
 function isCompactViewport() {
   return window.matchMedia("(max-width: 960px)").matches;
+}
+
+function automationDisclosureElements() {
+  return [
+    elements.webhookActionsDisclosure,
+    elements.repositorySignalsDisclosure,
+    elements.webhookDeliveriesDisclosure,
+    elements.queueInspectorDisclosure,
+  ].filter(Boolean);
+}
+
+function restoreAutomationDisclosurePreferences() {
+  const raw = window.localStorage.getItem(AUTOMATION_DISCLOSURES_STORAGE_KEY);
+  if (!raw) {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    return sanitizeAutomationDisclosurePreferences(parsed);
+  } catch (error) {
+    console.error("failed to restore automation disclosure preferences", error);
+    return {};
+  }
+}
+
+function sanitizeAutomationDisclosurePreferences(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(value).filter(([, open]) => typeof open === "boolean")
+  );
+}
+
+function persistAutomationDisclosurePreferences() {
+  window.localStorage.setItem(
+    AUTOMATION_DISCLOSURES_STORAGE_KEY,
+    JSON.stringify(state.automationDisclosurePreferences)
+  );
+}
+
+function disclosureDefaultOpenState(disclosureId) {
+  switch (disclosureId) {
+    case "webhookActionsDisclosure":
+      return state.latestWebhookActions.length > 0;
+    case "repositorySignalsDisclosure":
+      return state.latestRepositorySignals.length > 0;
+    case "webhookDeliveriesDisclosure":
+      return false;
+    case "queueInspectorDisclosure":
+      return Boolean(state.selectedQueueItem);
+    default:
+      return false;
+  }
+}
+
+function syncAutomationDisclosures() {
+  for (const disclosure of automationDisclosureElements()) {
+    const saved = state.automationDisclosurePreferences[disclosure.id];
+    const shouldOpen =
+      typeof saved === "boolean" ? saved : disclosureDefaultOpenState(disclosure.id);
+    if (disclosure.open !== shouldOpen) {
+      disclosure.open = shouldOpen;
+    }
+  }
+}
+
+function openAutomationDisclosure(disclosure) {
+  if (!disclosure) {
+    return;
+  }
+
+  if (!disclosure.open) {
+    disclosure.open = true;
+  }
+  state.automationDisclosurePreferences[disclosure.id] = true;
+  persistAutomationDisclosurePreferences();
 }
 
 function revealSelectedRunDetail() {
@@ -1758,6 +1853,7 @@ function renderAutomationRailCollections() {
     (item) => item.updated_at ?? item.created_at,
     "No signed webhook deliveries are loaded yet. Incoming GitHub App traffic will appear here for inspection."
   ));
+  syncAutomationDisclosures();
 }
 
 function renderRailItems(
@@ -1821,6 +1917,7 @@ async function loadQueueItemDetail(queueKind, queueId, options = {}) {
     id: queueId,
   };
   state.selectedQueueRunId = null;
+  openAutomationDisclosure(elements.queueInspectorDisclosure);
   renderAutomationRailCollections();
   if (!options.silentLoading) {
     renderQueueInspectorLoading(queueKind, queueId);
@@ -2185,6 +2282,7 @@ function renderRunGuide(runDetail, events) {
   setTextContent(elements.runGuideCurrentStageDetail, guide.currentStageDetail);
   setTextContent(elements.runGuideProgressSummary, guide.progressSummary);
   setTextContent(elements.runGuideBlockers, guide.blockerDetail);
+  renderRunGuideAction(runDetail, guide);
   setRenderedHtml(
     elements.runGuideStages,
     guide.stages.length
@@ -2193,16 +2291,37 @@ function renderRunGuide(runDetail, events) {
   );
 }
 
+function renderRunGuideAction(runDetail, guide) {
+  const actionId = guide.nextActionControlId;
+  if (!runDetail || !actionId) {
+    elements.runGuideActionButton.classList.add("hidden");
+    elements.runGuideActionButton.removeAttribute("data-run-action");
+    delete elements.runGuideActionButton.dataset.idleLabel;
+    setTextContent(elements.runGuideActionHint, guide.nextActionDetail);
+    return;
+  }
+
+  elements.runGuideActionButton.classList.remove("hidden");
+  elements.runGuideActionButton.dataset.runAction = actionId;
+  elements.runGuideActionButton.dataset.idleLabel = displayRunActionLabel(actionId);
+  elements.runGuideActionButton.textContent = displayRunActionLabel(actionId);
+  setTextContent(
+    elements.runGuideActionHint,
+    `Recommended control: ${displayRunActionLabel(actionId)}. The same action remains available in Run controls below.`
+  );
+}
+
 function buildRunGuide(runDetail, events) {
   if (!runDetail) {
     return {
       badgeTone: "neutral",
       badgeLabel: "Idle",
-      headline:
+    headline:
         "Select a run to see which stage is active, what the orchestrator already did, and which operator action should happen next.",
       nextActionTitle: "Choose a run",
       nextActionDetail:
         "Open a run from the ledger after brief submission to unlock execution, quality, and PR guidance.",
+      nextActionControlId: null,
       currentStageTitle: "Waiting for a run",
       currentStageDetail:
         "The selected-run guide only activates once a concrete run, task set, and artifact history exist.",
@@ -2345,6 +2464,7 @@ function buildRunGuide(runDetail, events) {
     }),
     nextActionTitle: nextAction.title,
     nextActionDetail: nextAction.detail,
+    nextActionControlId: nextAction.controlActionId ?? null,
     currentStageTitle: currentStage.title,
     currentStageDetail: currentStage.detail,
     progressSummary: `${completedStageCount} of ${stages.length} stages complete`,
@@ -2398,6 +2518,7 @@ function recommendedRunAction(context) {
       title: "Review the draft PR",
       detail:
         "The orchestrator already finished the GitHub handoff. Continue with normal engineering review and approval in GitHub.",
+      controlActionId: null,
     };
   }
 
@@ -2408,6 +2529,7 @@ function recommendedRunAction(context) {
       title: "Inspect the failure",
       detail:
         "Review the failing task cards and recent run events before retrying, changing the brief, or promoting anything further.",
+      controlActionId: null,
     };
   }
 
@@ -2418,6 +2540,7 @@ function recommendedRunAction(context) {
       title: "Monitor active work",
       detail:
         "At least one task is already running. Let it finish, then refresh or use Worker once if you are manually draining the queue.",
+      controlActionId: null,
     };
   }
 
@@ -2428,6 +2551,7 @@ function recommendedRunAction(context) {
       title: "Run next task",
       detail:
         "Backlog, policy, and routing are ready. Use Run next task for one controlled step or Worker once to advance one queued item end-to-end.",
+      controlActionId: "tasks-next",
     };
   }
 
@@ -2438,6 +2562,7 @@ function recommendedRunAction(context) {
       title: "Evaluate quality",
       detail:
         "Execution finished. Evaluate quality before you export, publish, or open a PR so promotion stays tied to fresh artifacts.",
+      controlActionId: "evaluate-quality",
     };
   }
 
@@ -2448,6 +2573,7 @@ function recommendedRunAction(context) {
       title: "Create draft PR",
       detail:
         "Branch publication is complete. Create the draft PR now to move the run into GitHub review without bypassing human approval.",
+      controlActionId: "draft-pr",
     };
   }
 
@@ -2458,6 +2584,7 @@ function recommendedRunAction(context) {
       title: "Publish PR export",
       detail:
         "The PR export bundle is ready. Publish it when you want the remote branch pushed before the GitHub PR handoff.",
+      controlActionId: "publish-pr",
     };
   }
 
@@ -2468,6 +2595,7 @@ function recommendedRunAction(context) {
       title: "Export PR candidate",
       detail:
         "The run is promotable. Export the PR candidate for an explicit promotion artifact, or use Create draft PR for the full handoff.",
+      controlActionId: "export-pr",
     };
   }
 
@@ -2478,6 +2606,7 @@ function recommendedRunAction(context) {
       title: "Start execution",
       detail:
         "The orchestrator already has the plan and routing contract. The next meaningful change is task execution.",
+      controlActionId: "tasks-next",
     };
   }
 
@@ -2487,6 +2616,7 @@ function recommendedRunAction(context) {
     title: "Submit a brief",
     detail:
       "No durable run state is available yet. Start from brief intake so the orchestrator can materialize a backlog and policy contract.",
+    controlActionId: null,
   };
 }
 
@@ -3361,6 +3491,7 @@ function restoreBriefDraft() {
   elements.runStatusFilter.value = state.selectedRunStatus;
   elements.runSearchInput.value = state.runSearchQuery;
   state.runActionDrafts = restoreRunActionDrafts();
+  state.automationDisclosurePreferences = restoreAutomationDisclosurePreferences();
   state.autoRefresh = restoreAutoRefreshPreference();
   elements.autoRefreshToggle.checked = state.autoRefresh;
   renderDashboardLoadingState();
@@ -3434,6 +3565,7 @@ function renderDashboardLoadingState() {
   setTextContent(elements.webhookActionCount, "…", { markUpdated: false });
   setTextContent(elements.signalCount, "…", { markUpdated: false });
   setTextContent(elements.deliveryCount, "…", { markUpdated: false });
+  syncAutomationDisclosures();
 
   if (state.selectedRunId) {
     setTextContent(elements.selectedRunLabel, `Loading run ${shortId(state.selectedRunId)}...`, {
@@ -3977,8 +4109,8 @@ function runActionBusyLabel(actionId) {
 }
 
 function setRunActionControlsBusyState(actionId, busy) {
-  const activeButton = elements.runDetailShell.querySelector(
-    `[data-run-action="${actionId}"]`
+  const activeButtons = runActionButtons().filter(
+    (button) => button.dataset.runAction === actionId
   );
 
   if (!busy) {
@@ -3987,12 +4119,13 @@ function setRunActionControlsBusyState(actionId, busy) {
   }
 
   for (const button of runActionButtons()) {
+    const activeButton = activeButtons.includes(button);
     setButtonBusyState(
       button,
-      button === activeButton ? runActionBusyLabel(actionId) : buttonIdleLabel(button),
-      button === activeButton
+      activeButton ? runActionBusyLabel(actionId) : buttonIdleLabel(button),
+      activeButton
     );
-    if (button !== activeButton) {
+    if (!activeButton) {
       button.disabled = true;
     }
     button.title = "";
