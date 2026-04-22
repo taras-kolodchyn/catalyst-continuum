@@ -45,28 +45,30 @@
 
         <div class="hero-callout-grid">
           <article class="hero-callout">
-            <p class="panel-kicker">What It Does</p>
-            <h2>Turns one brief into an auditable delivery run</h2>
+            <p class="panel-kicker">Most Common Path</p>
+            <h2>Start from a brief and let the run drive the rest</h2>
             <p>
-              Every run persists backlog, policy, agent routing, artifacts,
-              events, and PR-promotion state instead of hiding work in a chat
-              session.
+              Most operators use the left and center columns only: load or
+              write a brief, submit it, open the run, then advance execution,
+              quality, and draft-PR handoff from the selected-run view.
             </p>
           </article>
           <article class="hero-callout">
-            <p class="panel-kicker">What The Orchestrator Controls</p>
-            <h2>Planning, execution, quality, and handoff</h2>
+            <p class="panel-kicker">Advanced Path</p>
+            <h2>Use automation only when GitHub events should drive work</h2>
             <p>
-              The orchestrator owns task progression, sandbox/runtime policy,
-              retries, quality gates, and draft-PR readiness across agents.
+              The right rail is optional. Use it when signed webhooks,
+              repository signals, or automation cycles should materialize runs
+              for you. If you are operating manually, you can mostly ignore it.
             </p>
           </article>
           <article class="hero-callout">
-            <p class="panel-kicker">What Humans Still Decide</p>
-            <h2>Review and merge stay in GitHub</h2>
+            <p class="panel-kicker">Approval Boundary</p>
+            <h2>The product prepares delivery, humans approve it</h2>
             <p>
-              The control plane prepares the PR handoff, but engineers still
-              review the draft PR and decide whether anything gets merged.
+              Catalyst Continuum does not auto-merge code. It prepares an
+              auditable run and draft PR, then engineers still review and
+              approve the result in GitHub.
             </p>
           </article>
         </div>
@@ -100,7 +102,20 @@
         </section>
       </header>
 
-      <section id="statusGrid" class="status-grid" data-stagger="2"></section>
+      <section class="status-overview" data-stagger="2">
+        <div class="status-overview-head">
+          <div>
+            <p class="panel-kicker">System Health</p>
+            <h2>Check this only when the control plane looks unhealthy</h2>
+          </div>
+          <p class="microcopy">
+            These cards are operational diagnostics for database, gateway,
+            runtime, and integration readiness. They are not the normal place
+            to start a delivery run.
+          </p>
+        </div>
+        <section id="statusGrid" class="status-grid"></section>
+      </section>
 
       <main class="dashboard-grid">
         <section class="panel brief-panel" data-stagger="3">
@@ -108,6 +123,10 @@
             <div>
               <p class="panel-kicker">1. Define The Work</p>
               <h2>Validate and submit the brief</h2>
+              <p class="microcopy panel-explainer">
+                Most teams start here. One submitted brief becomes one durable
+                orchestrator run.
+              </p>
             </div>
             <div id="packChips" class="chip-row"></div>
           </div>
@@ -170,6 +189,10 @@
             <div>
               <p class="panel-kicker">2. Track Delivery Runs</p>
               <h2>Recent orchestrator runs</h2>
+              <p class="microcopy panel-explainer">
+                Each run is one auditable attempt to turn a brief into a
+                planned, executed, quality-checked draft PR.
+              </p>
               <p id="runLedgerHint" class="microcopy">
                 Search the loaded run ledger by title, repository, pack, trigger, or run id.
               </p>
@@ -216,6 +239,10 @@
             <div>
               <p class="panel-kicker">Optional Automation Inputs</p>
               <h2>Signals, webhooks, and queue history</h2>
+              <p class="microcopy panel-explainer">
+                Advanced area. You can ignore this unless GitHub events or
+                other automation should create or advance runs for you.
+              </p>
             </div>
           </div>
           <section class="rail-section rail-controls">
@@ -316,6 +343,10 @@
             <div>
               <p class="panel-kicker">3. Advance The Selected Run</p>
               <h2>Run detail, next step, and actions</h2>
+              <p class="microcopy panel-explainer">
+                Open one run and the UI will show what the orchestrator already
+                did, what is blocked, and which action should happen next.
+              </p>
             </div>
             <p id="selectedRunLabel" class="microcopy" data-selected-run-label="true">No run selected.</p>
           </div>

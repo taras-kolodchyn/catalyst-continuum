@@ -218,10 +218,12 @@ if "<title>Catalyst Continuum Control Surface</title>" not in html:
     raise SystemExit("operator UI smoke failed: missing control-surface title")
 if "Turn a product brief into a draft pull request" not in html:
     raise SystemExit("operator UI smoke failed: missing product-value headline")
-if "What It Does" not in html or "What The Orchestrator Controls" not in html:
-    raise SystemExit("operator UI smoke failed: missing product explainer callouts")
+if "Most Common Path" not in html or "Advanced Path" not in html:
+    raise SystemExit("operator UI smoke failed: missing operator-path explainer callouts")
 if 'class="hero-flow"' not in html or "Open draft PR" not in html:
     raise SystemExit("operator UI smoke failed: missing product workflow explainer")
+if "System Health" not in html or "not the normal place" not in html:
+    raise SystemExit("operator UI smoke failed: missing system-health explainer")
 if 'id="statusGrid"' not in html:
     raise SystemExit("operator UI smoke failed: missing status grid mount")
 if 'id="runRepositoryAutomationButton"' not in html:
