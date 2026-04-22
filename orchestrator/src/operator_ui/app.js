@@ -5705,13 +5705,14 @@ function setTextContent(target, text, options = {}) {
 
 function setRenderedHtml(target, html, options = {}) {
   const nextHtml = html ?? "";
-  if (target.innerHTML === nextHtml) {
+  if (target.__lastRenderedHtml === nextHtml) {
     return false;
   }
 
   preserveTargetHeight(target, () => {
     target.innerHTML = nextHtml;
   });
+  target.__lastRenderedHtml = nextHtml;
   if (options.markUpdated !== false) {
     markRefreshTargetUpdated(target);
   }
