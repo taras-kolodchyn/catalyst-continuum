@@ -14,10 +14,13 @@ use uuid::Uuid;
 use crate::{
     config::InstanceConfigReport,
     models::{
-        repository_signal::RepositorySignalSummary,
+        repository_signal::{RepositorySignalListFilters, RepositorySignalSummary},
         run::{RunDetail, RunSummary},
         run_event::RunEventSummary,
-        webhook::{GitHubWebhookActionRequestSummary, GitHubWebhookDeliverySummary},
+        webhook::{
+            GitHubWebhookActionRequestListFilters, GitHubWebhookActionRequestSummary,
+            GitHubWebhookDeliverySummary,
+        },
     },
     storage::postgres::{PostgresRunStore, RunEventListFilters, RunListFilters},
 };
@@ -31,6 +34,7 @@ const RUN_EVENT_LIMIT: usize = 30;
 const WEBHOOK_LIST_LIMIT: usize = 8;
 const WEBHOOK_ACTION_REQUEST_LIST_LIMIT: usize = 8;
 const REPOSITORY_SIGNAL_LIST_LIMIT: usize = 8;
+const PENDING_AUTOMATION_STATUS: &str = "pending";
 const DASHBOARD_PUBLISH_INTERVAL: Duration = Duration::from_secs(5);
 const COLLECTION_PUBLISH_INTERVAL: Duration = Duration::from_millis(1_200);
 const RUN_DETAIL_PUBLISH_INTERVAL: Duration = Duration::from_millis(900);
@@ -293,15 +297,32 @@ fn live_runs_response(
     })
 }
 
+fn pending_webhook_action_filters() -> GitHubWebhookActionRequestListFilters {
+    GitHubWebhookActionRequestListFilters {
+        status: Some(PENDING_AUTOMATION_STATUS.to_string()),
+        action: None,
+    }
+}
+
+fn pending_repository_signal_filters() -> RepositorySignalListFilters {
+    RepositorySignalListFilters {
+        status: Some(PENDING_AUTOMATION_STATUS.to_string()),
+        signal_kind: None,
+        repository_full_name: None,
+    }
+}
+
 fn live_automation_response(
     store: &mut PostgresRunStore,
 ) -> Result<OperatorUiRealtimeAutomationResponse> {
     let webhook_actions = store.list_github_webhook_action_requests(
         WEBHOOK_ACTION_REQUEST_LIST_LIMIT,
-        &Default::default(),
+        &pending_webhook_action_filters(),
     )?;
-    let repository_signals =
-        store.list_repository_signals(REPOSITORY_SIGNAL_LIST_LIMIT, &Default::default())?;
+    let repository_signals = store.list_repository_signals(
+        REPOSITORY_SIGNAL_LIST_LIMIT,
+        &pending_repository_signal_filters(),
+    )?;
     let webhook_deliveries =
         store.list_github_webhook_deliveries(WEBHOOK_LIST_LIMIT, &Default::default())?;
 
@@ -431,7 +452,10 @@ fn header(name: &str, value: impl AsRef<str>) -> Header {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_watch_query, websocket_accept_value};
+    use super::{
+        parse_watch_query, pending_repository_signal_filters, pending_webhook_action_filters,
+        websocket_accept_value,
+    };
     use uuid::Uuid;
 
     #[test]
@@ -472,5 +496,17 @@ mod tests {
             websocket_accept_value("dGhlIHNhbXBsZSBub25jZQ=="),
             "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
         );
+    }
+
+    #[test]
+    fn automation_snapshots_only_track_pending_follow_up_items() {
+        let webhook_filters = pending_webhook_action_filters();
+        let signal_filters = pending_repository_signal_filters();
+
+        assert_eq!(webhook_filters.status.as_deref(), Some("pending"));
+        assert_eq!(webhook_filters.action, None);
+        assert_eq!(signal_filters.status.as_deref(), Some("pending"));
+        assert_eq!(signal_filters.signal_kind, None);
+        assert_eq!(signal_filters.repository_full_name, None);
     }
 }

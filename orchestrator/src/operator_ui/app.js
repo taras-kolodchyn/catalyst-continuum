@@ -6,11 +6,13 @@ const AUTOMATION_DISCLOSURES_STORAGE_KEY =
 const MISSION_TAB_STORAGE_KEY = "catalystContinuum.operatorUi.missionTab";
 const AUTO_REFRESH_INTERVAL_MS = 15000;
 const REALTIME_RECONNECT_DELAY_MS = 1500;
+const PENDING_AUTOMATION_STATUS = "pending";
 const DEFAULT_GRAFANA_PORT = "3000";
 const DEFAULT_PROMETHEUS_PORT = "9090";
 const DEFAULT_LOKI_PORT = "3100";
 const DEFAULT_TEMPO_PORT = "3200";
 const DEFAULT_LITELLM_PORT = "4000";
+const MISSION_SURFACE_EMBED_KEYS = ["grafana", "litellm"];
 const GRAFANA_OVERVIEW_DASHBOARD_PATH =
   "/d/catalyst-continuum-overview/catalyst-continuum-overview?orgId=1&refresh=10s&kiosk";
 const DASHBOARD_LOADING_CARD_TITLES = [
@@ -105,6 +107,10 @@ const state = {
   selectedQueueItem: null,
   selectedQueueRunId: null,
   activeMissionTab: restoreMissionTabPreference(),
+  missionSurfaceEmbeds: {
+    grafana: false,
+    litellm: false,
+  },
   selectedAgentActivityId: "all",
   selectedAgentReportArtifactId: null,
   selectedAgentLogArtifactId: null,
@@ -114,6 +120,7 @@ const state = {
   agentLogLoadsInFlight: {},
   agentLinkedArtifactDetails: {},
   agentLinkedArtifactLoadsInFlight: {},
+  agentPanelRenderQueued: false,
 };
 
 const elements = {};
@@ -280,6 +287,12 @@ function bindEvents() {
   });
 
   elements.missionShell.addEventListener("click", (event) => {
+    const embedButton = event.target.closest("[data-mission-surface-embed]");
+    if (embedButton) {
+      setMissionSurfaceEmbed(embedButton.dataset.missionSurfaceEmbed);
+      return;
+    }
+
     const agentFilterButton = event.target.closest("[data-agent-filter]");
     if (agentFilterButton) {
       setSelectedAgentActivity(agentFilterButton.dataset.agentFilter);
@@ -777,8 +790,8 @@ async function refreshDashboard() {
       deliveriesEnvelope,
     ] = await Promise.all([
       fetchJsonEnvelope(buildRunsPath()),
-      fetchJsonEnvelope("/github/webhook-actions?limit=8"),
-      fetchJsonEnvelope("/repository-signals?limit=8"),
+      fetchJsonEnvelope(buildPendingWebhookActionsPath()),
+      fetchJsonEnvelope(buildPendingRepositorySignalsPath()),
       fetchJsonEnvelope("/github/webhooks?limit=8"),
     ]);
     const runs = Array.isArray(runsEnvelope.data?.runs) ? runsEnvelope.data.runs : [];
@@ -876,6 +889,22 @@ function buildRunsPath() {
     params.set("status", state.selectedRunStatus);
   }
   return `/runs?${params.toString()}`;
+}
+
+function buildPendingWebhookActionsPath() {
+  const params = new URLSearchParams({
+    limit: "8",
+    status: PENDING_AUTOMATION_STATUS,
+  });
+  return `/github/webhook-actions?${params.toString()}`;
+}
+
+function buildPendingRepositorySignalsPath() {
+  const params = new URLSearchParams({
+    limit: "8",
+    status: PENDING_AUTOMATION_STATUS,
+  });
+  return `/repository-signals?${params.toString()}`;
 }
 
 function normalizeRunStatusFilter(value) {
@@ -1825,13 +1854,13 @@ function automationBacklogPulseCard() {
 
   return {
     tone: automationCount > 0 ? "warning" : "success",
-    badge: `${automationCount} queued`,
+    badge: `${automationCount} pending`,
     kicker: "Automation",
     title:
       automationCount > 0
         ? "Automation backlog is waiting"
         : "Ingress is arriving without queued follow-up",
-    summary: `${webhookActionCount} webhook action(s) · ${signalCount} signal(s) · ${deliveryCount} loaded deliver${deliveryCount === 1 ? "y" : "ies"}`,
+    summary: `${webhookActionCount} pending webhook action(s) · ${signalCount} pending signal(s) · ${deliveryCount} loaded deliver${deliveryCount === 1 ? "y" : "ies"}`,
     detail:
       automationCount > 0
         ? "Open the automation rail when GitHub-driven runs should be advanced or materialized without the manual brief-first path."
@@ -2136,6 +2165,23 @@ function normalizeMissionTab(value) {
       return value;
     default:
       return "flow";
+  }
+}
+
+function setMissionSurfaceEmbed(surface, enabled = true) {
+  const trimmedSurface = String(surface ?? "").trim();
+  if (!MISSION_SURFACE_EMBED_KEYS.includes(trimmedSurface)) {
+    return;
+  }
+
+  if (state.missionSurfaceEmbeds[trimmedSurface] === enabled) {
+    return;
+  }
+
+  state.missionSurfaceEmbeds[trimmedSurface] = enabled;
+
+  if (state.activeMissionTab === trimmedSurface) {
+    renderActiveMissionPanel();
   }
 }
 
@@ -2506,6 +2552,21 @@ function setSelectedAgentLog(artifactId) {
   renderMissionAgentsPanel();
 }
 
+function scheduleMissionAgentsPanelRender() {
+  if (state.activeMissionTab !== "agents" || state.agentPanelRenderQueued) {
+    return;
+  }
+
+  state.agentPanelRenderQueued = true;
+  window.requestAnimationFrame(() => {
+    state.agentPanelRenderQueued = false;
+    if (state.activeMissionTab !== "agents") {
+      return;
+    }
+    renderMissionAgentsPanel();
+  });
+}
+
 function runAgents(runDetail) {
   if (!Array.isArray(runDetail?.tasks)) {
     return [];
@@ -2525,7 +2586,6 @@ function ensureAgentReportDetails(runDetail) {
   const reports = agentTaskReportArtifacts(runDetail);
   if (!reports.length) {
     ensureAgentLogDetails(runDetail);
-    renderMissionAgentsPanel();
     return;
   }
 
@@ -2541,7 +2601,6 @@ function ensureAgentReportDetails(runDetail) {
     syncSelectedAgentActivity(runDetail);
     ensureAgentLogDetails(runDetail);
     ensureLinkedAgentArtifactDetails(runDetail);
-    renderMissionAgentsPanel();
     return;
   }
 
@@ -2563,7 +2622,7 @@ function ensureAgentReportDetails(runDetail) {
           ensureAgentLogDetails(state.selectedRunDetail);
           ensureLinkedAgentArtifactDetails(state.selectedRunDetail);
           syncSelectedAgentActivity(state.selectedRunDetail);
-          renderMissionAgentsPanel();
+          scheduleMissionAgentsPanelRender();
         }
       });
   });
@@ -2572,7 +2631,6 @@ function ensureAgentReportDetails(runDetail) {
 function ensureAgentLogDetails(runDetail) {
   const logs = agentExecutionLogArtifacts(runDetail);
   if (!logs.length) {
-    renderMissionAgentsPanel();
     return;
   }
 
@@ -2587,7 +2645,6 @@ function ensureAgentLogDetails(runDetail) {
   if (!pending.length) {
     syncSelectedAgentActivity(runDetail);
     ensureLinkedAgentArtifactDetails(runDetail);
-    renderMissionAgentsPanel();
     return;
   }
 
@@ -2608,7 +2665,7 @@ function ensureAgentLogDetails(runDetail) {
         if (state.selectedRunDetail?.run_id === runDetail.run_id) {
           ensureLinkedAgentArtifactDetails(state.selectedRunDetail);
           syncSelectedAgentActivity(state.selectedRunDetail);
-          renderMissionAgentsPanel();
+          scheduleMissionAgentsPanelRender();
         }
       });
   });
@@ -2639,7 +2696,7 @@ function ensureLinkedAgentArtifactDetails(runDetail) {
       .finally(() => {
         delete state.agentLinkedArtifactLoadsInFlight[artifactId];
         if (state.selectedRunDetail?.run_id === runDetail.run_id) {
-          renderMissionAgentsPanel();
+          scheduleMissionAgentsPanelRender();
         }
       });
   });
@@ -3759,6 +3816,81 @@ function renderAgentInspectorCard(kicker, title, content) {
   `;
 }
 
+function ensureMissionGrafanaShell() {
+  if (elements.missionGrafanaPanel.dataset.mode === "detail") {
+    return;
+  }
+
+  setRenderedHtml(
+    elements.missionGrafanaPanel,
+    `
+      <div class="mission-surface-layout">
+        <div id="missionGrafanaLinkGrid" class="surface-link-grid"></div>
+        <section class="surface-frame-shell">
+          <div class="detail-section-head">
+            <div>
+              <p class="panel-kicker">Embedded Grafana</p>
+              <h3>Provisioned overview board</h3>
+            </div>
+            <span id="missionGrafanaFrameBadge" class="badge badge-warning">Load on demand</span>
+          </div>
+          <p id="missionGrafanaFrameCopy" class="microcopy"></p>
+          <div id="missionGrafanaFrameWrap" class="surface-frame-wrap"></div>
+        </section>
+      </div>
+    `,
+    { markUpdated: false }
+  );
+  elements.missionGrafanaPanel.dataset.mode = "detail";
+}
+
+function ensureMissionLitellmShell() {
+  if (elements.missionLitellmPanel.dataset.mode === "detail") {
+    return;
+  }
+
+  setRenderedHtml(
+    elements.missionLitellmPanel,
+    `
+      <div class="mission-surface-layout">
+        <div id="missionLitellmMiniGrid" class="mission-mini-grid"></div>
+        <div id="missionLitellmLinkGrid" class="surface-link-grid"></div>
+        <section class="surface-frame-shell">
+          <div class="detail-section-head">
+            <div>
+              <p class="panel-kicker">Embedded LiteLLM</p>
+              <h3>Native gateway surface</h3>
+            </div>
+            <span id="missionLitellmFrameBadge" class="badge badge-warning">Check gateway</span>
+          </div>
+          <p id="missionLitellmFrameCopy" class="microcopy"></p>
+          <div id="missionLitellmFrameWrap" class="surface-frame-wrap"></div>
+        </section>
+      </div>
+    `,
+    { markUpdated: false }
+  );
+  elements.missionLitellmPanel.dataset.mode = "detail";
+}
+
+function renderMissionSurfaceEmbedPrompt(surface, title, detail, buttonLabel) {
+  return `
+    <div class="empty-state compact">
+      <h3>${escapeHtml(title)}</h3>
+      <p>${escapeHtml(detail)}</p>
+      <div class="empty-state-actions">
+        <button
+          class="button button-primary"
+          type="button"
+          data-mission-surface-embed="${escapeHtml(surface)}"
+        >
+          ${escapeHtml(buttonLabel)}
+        </button>
+      </div>
+    </div>
+  `;
+}
+
 function renderMissionGrafanaPanel() {
   const grafanaBaseUrl = localServiceBaseUrl(DEFAULT_GRAFANA_PORT);
   const overviewUrl = safeExternalUrl(`${grafanaBaseUrl}${GRAFANA_OVERVIEW_DASHBOARD_PATH}`);
@@ -3766,71 +3898,90 @@ function renderMissionGrafanaPanel() {
   const prometheusUrl = safeExternalUrl(localServiceBaseUrl(DEFAULT_PROMETHEUS_PORT));
   const lokiUrl = safeExternalUrl(`${localServiceBaseUrl(DEFAULT_LOKI_PORT)}/ready`);
   const tempoUrl = safeExternalUrl(`${localServiceBaseUrl(DEFAULT_TEMPO_PORT)}/ready`);
+  ensureMissionGrafanaShell();
 
   setRenderedHtml(
-    elements.missionGrafanaPanel,
+    document.getElementById("missionGrafanaLinkGrid"),
     `
-      <div class="mission-surface-layout">
-        <div class="surface-link-grid">
-          ${renderSurfaceLinkCard(
-            "Grafana dashboard",
-            "Catalyst Continuum Overview",
-            "Use the provisioned dashboard for stack health, orchestration throughput, and gateway signals.",
-            [
-              { href: overviewUrl, label: "Open dashboard", variant: "primary" },
-              { href: grafanaHomeUrl, label: "Open Grafana", variant: "ghost" },
-            ],
-            "warning"
-          )}
-          ${renderSurfaceLinkCard(
-            "Metrics",
-            "Prometheus",
-            "Jump into raw metric queries when the dashboard summary is not enough.",
-            [{ href: prometheusUrl, label: "Open Prometheus", variant: "ghost" }],
-            "neutral"
-          )}
-          ${renderSurfaceLinkCard(
-            "Logs",
-            "Loki",
-            "The compose stack sends orchestrator and LiteLLM logs into Loki for deeper inspection.",
-            [{ href: lokiUrl, label: "Open Loki readiness", variant: "ghost" }],
-            "neutral"
-          )}
-          ${renderSurfaceLinkCard(
-            "Traces",
-            "Tempo",
-            "Tempo keeps the OTLP traces used by the provisioned overview dashboard and future deeper debugging flows.",
-            [{ href: tempoUrl, label: "Open Tempo readiness", variant: "ghost" }],
-            "neutral"
-          )}
-        </div>
-        <section class="surface-frame-shell">
-          <div class="detail-section-head">
-            <div>
-              <p class="panel-kicker">Embedded Grafana</p>
-              <h3>Provisioned overview board</h3>
-            </div>
-            <span class="badge badge-warning">Compose local</span>
-          </div>
-          <p class="microcopy">
-            The embedded dashboard targets the local compose defaults. If Grafana is not running yet, start the stack and reload this tab.
-          </p>
-          <div class="surface-frame-wrap">
-            ${
-              overviewUrl
-                ? `<iframe class="surface-frame" title="Embedded Grafana dashboard" src="${escapeHtml(
-                    overviewUrl
-                  )}" loading="lazy"></iframe>`
-                : renderSectionEmptyState(
-                    "Embedded Grafana",
-                    "Grafana URL is unavailable",
-                    "Use the quick links above to open Grafana once the local compose stack is running."
-                  )
-            }
-          </div>
-        </section>
-      </div>
+      ${renderSurfaceLinkCard(
+        "Grafana dashboard",
+        "Catalyst Continuum Overview",
+        "Use the provisioned dashboard for stack health, orchestration throughput, and gateway signals.",
+        [
+          { href: overviewUrl, label: "Open dashboard", variant: "primary" },
+          { href: grafanaHomeUrl, label: "Open Grafana", variant: "ghost" },
+        ],
+        "warning"
+      )}
+      ${renderSurfaceLinkCard(
+        "Metrics",
+        "Prometheus",
+        "Jump into raw metric queries when the dashboard summary is not enough.",
+        [{ href: prometheusUrl, label: "Open Prometheus", variant: "ghost" }],
+        "neutral"
+      )}
+      ${renderSurfaceLinkCard(
+        "Logs",
+        "Loki",
+        "The compose stack sends orchestrator and LiteLLM logs into Loki for deeper inspection.",
+        [{ href: lokiUrl, label: "Open Loki readiness", variant: "ghost" }],
+        "neutral"
+      )}
+      ${renderSurfaceLinkCard(
+        "Traces",
+        "Tempo",
+        "Tempo keeps the OTLP traces used by the provisioned overview dashboard and future deeper debugging flows.",
+        [{ href: tempoUrl, label: "Open Tempo readiness", variant: "ghost" }],
+        "neutral"
+      )}
     `,
+    { markUpdated: false }
+  );
+
+  const grafanaBadge = document.getElementById("missionGrafanaFrameBadge");
+  const grafanaCopy = document.getElementById("missionGrafanaFrameCopy");
+  const grafanaFrameWrap = document.getElementById("missionGrafanaFrameWrap");
+  const embedLoaded = state.missionSurfaceEmbeds.grafana === true;
+
+  if (!overviewUrl) {
+    setBadge(grafanaBadge, "warning", "URL unavailable");
+    setTextContent(
+      grafanaCopy,
+      "Use the quick links above to open Grafana once the local compose stack is running.",
+      { markUpdated: false }
+    );
+    setRenderedHtml(
+      grafanaFrameWrap,
+      renderSectionEmptyState(
+        "Embedded Grafana",
+        "Grafana URL is unavailable",
+        "Use the quick links above once the local compose stack is reachable."
+      ),
+      { markUpdated: false }
+    );
+    return;
+  }
+
+  setBadge(grafanaBadge, embedLoaded ? "success" : "warning", embedLoaded ? "Embed loaded" : "Load on demand");
+  setTextContent(
+    grafanaCopy,
+    embedLoaded
+      ? "The embedded dashboard stays mounted while the rest of the operator UI keeps refreshing around it."
+      : "Load the embedded dashboard only when you want it in-page. This avoids broken blank frames when the local observability stack is down.",
+    { markUpdated: false }
+  );
+  setRenderedHtml(
+    grafanaFrameWrap,
+    embedLoaded
+      ? `<iframe class="surface-frame" title="Embedded Grafana dashboard" src="${escapeHtml(
+          overviewUrl
+        )}" loading="lazy"></iframe>`
+      : renderMissionSurfaceEmbedPrompt(
+          "grafana",
+          "Load embedded Grafana when you need it",
+          "The quick links stay available all the time, while the iframe mounts only on demand to avoid unnecessary frame resets.",
+          "Load embedded Grafana"
+        ),
     { markUpdated: false }
   );
 }
@@ -3849,95 +4000,147 @@ function renderMissionLitellmPanel() {
   const capabilities = Array.isArray(gatewayConfig.capabilities)
     ? gatewayConfig.capabilities.filter((capability) => capability.enabled)
     : [];
+  ensureMissionLitellmShell();
 
   setRenderedHtml(
-    elements.missionLitellmPanel,
+    document.getElementById("missionLitellmMiniGrid"),
     `
-      <div class="mission-surface-layout">
-        <div class="mission-mini-grid">
-          ${renderMissionMiniCard(
-            "Gateway status",
-            aiGateway.ready ? "Ready" : aiGateway.status ?? "Unavailable",
-            aiGateway.error ?? `${aiGateway.available_model_count ?? 0} model(s) visible`,
-            aiGateway.ready ? "success" : statusTone(aiGateway.status)
-          )}
-          ${renderMissionMiniCard(
-            "Default alias",
-            aiGateway.current_host_default_model_alias ?? gatewayConfig.default_model_aliases?.other_platforms ?? "unknown",
-            gatewayConfig.provider ?? "litellm",
-            "neutral"
-          )}
-          ${renderMissionMiniCard(
-            "Capabilities",
-            `${capabilities.length} enabled`,
-            summarizeValues(
-              capabilities.map((capability) => capability.capability),
-              "No enabled capabilities declared"
-            ),
-            "warning"
-          )}
-          ${renderMissionMiniCard(
-            "Host base URL",
-            litellmBaseUrl,
-            gatewayConfig.container_base_url ?? "No container base URL recorded",
-            "neutral"
-          )}
-        </div>
-        <div class="surface-link-grid">
-          ${renderSurfaceLinkCard(
-            "Native LiteLLM UI",
-            "Gateway dashboard",
-            "The upstream LiteLLM image advertises an admin dashboard UI for monitoring and management.",
-            [
-              { href: litellmUiUrl, label: "Open native UI", variant: "primary" },
-              { href: litellmHomeUrl, label: "Open root", variant: "ghost" },
-            ],
-            aiGateway.ready ? "success" : "warning"
-          )}
-          ${renderSurfaceLinkCard(
-            "API docs",
-            "Swagger / docs surface",
-            "Use the native docs when you need the exact proxy endpoints rather than the condensed operator summary.",
-            [{ href: litellmDocsUrl, label: "Open docs", variant: "ghost" }],
-            "neutral"
-          )}
-          ${renderSurfaceLinkCard(
-            "Model catalog",
-            "Visible aliases",
-            "This is the same gateway model list the orchestrator probes for live status and default alias validation.",
-            [{ href: litellmModelsUrl, label: "Open /v1/models", variant: "ghost" }],
-            "neutral"
-          )}
-        </div>
-        <section class="surface-frame-shell">
-          <div class="detail-section-head">
-            <div>
-              <p class="panel-kicker">Embedded LiteLLM</p>
-              <h3>Native gateway surface</h3>
-            </div>
-            <span class="badge badge-${escapeHtml(
-              aiGateway.ready ? "success" : "warning"
-            )}">${escapeHtml(aiGateway.ready ? "Ready" : "Check gateway")}</span>
-          </div>
-          <p class="microcopy">
-            If the native UI route is unavailable in the selected LiteLLM build, use the quick links above to fall back to the docs or root surface.
-          </p>
-          <div class="surface-frame-wrap">
-            ${
-              litellmUiUrl
-                ? `<iframe class="surface-frame" title="Embedded LiteLLM UI" src="${escapeHtml(
-                    litellmUiUrl
-                  )}" loading="lazy"></iframe>`
-                : renderSectionEmptyState(
-                    "Embedded LiteLLM",
-                    "LiteLLM URL is unavailable",
-                    "Use the quick links above once the local gateway is running."
-                  )
-            }
-          </div>
-        </section>
-      </div>
+      ${renderMissionMiniCard(
+        "Gateway status",
+        aiGateway.ready ? "Ready" : aiGateway.status ?? "Unavailable",
+        aiGateway.error ?? `${aiGateway.available_model_count ?? 0} model(s) visible`,
+        aiGateway.ready ? "success" : statusTone(aiGateway.status)
+      )}
+      ${renderMissionMiniCard(
+        "Default alias",
+        aiGateway.current_host_default_model_alias ?? gatewayConfig.default_model_aliases?.other_platforms ?? "unknown",
+        gatewayConfig.provider ?? "litellm",
+        "neutral"
+      )}
+      ${renderMissionMiniCard(
+        "Capabilities",
+        `${capabilities.length} enabled`,
+        summarizeValues(
+          capabilities.map((capability) => capability.capability),
+          "No enabled capabilities declared"
+        ),
+        "warning"
+      )}
+      ${renderMissionMiniCard(
+        "Host base URL",
+        litellmBaseUrl,
+        gatewayConfig.container_base_url ?? "No container base URL recorded",
+        "neutral"
+      )}
     `,
+    { markUpdated: false }
+  );
+  setRenderedHtml(
+    document.getElementById("missionLitellmLinkGrid"),
+    `
+      ${renderSurfaceLinkCard(
+        "Native LiteLLM UI",
+        "Gateway dashboard",
+        "The upstream LiteLLM image advertises an admin dashboard UI for monitoring and management.",
+        [
+          { href: litellmUiUrl, label: "Open native UI", variant: "primary" },
+          { href: litellmHomeUrl, label: "Open root", variant: "ghost" },
+        ],
+        aiGateway.ready ? "success" : "warning"
+      )}
+      ${renderSurfaceLinkCard(
+        "API docs",
+        "Swagger / docs surface",
+        "Use the native docs when you need the exact proxy endpoints rather than the condensed operator summary.",
+        [{ href: litellmDocsUrl, label: "Open docs", variant: "ghost" }],
+        "neutral"
+      )}
+      ${renderSurfaceLinkCard(
+        "Model catalog",
+        "Visible aliases",
+        "This is the same gateway model list the orchestrator probes for live status and default alias validation.",
+        [{ href: litellmModelsUrl, label: "Open /v1/models", variant: "ghost" }],
+        "neutral"
+      )}
+    `,
+    { markUpdated: false }
+  );
+
+  const litellmBadge = document.getElementById("missionLitellmFrameBadge");
+  const litellmCopy = document.getElementById("missionLitellmFrameCopy");
+  const litellmFrameWrap = document.getElementById("missionLitellmFrameWrap");
+  const embedLoaded = state.missionSurfaceEmbeds.litellm === true;
+
+  if (!litellmUiUrl) {
+    setBadge(litellmBadge, "warning", "URL unavailable");
+    setTextContent(
+      litellmCopy,
+      "Use the quick links above once the local gateway is configured with a reachable base URL.",
+      { markUpdated: false }
+    );
+    setRenderedHtml(
+      litellmFrameWrap,
+      renderSectionEmptyState(
+        "Embedded LiteLLM",
+        "LiteLLM URL is unavailable",
+        "Use the quick links above once the local gateway is running."
+      ),
+      { markUpdated: false }
+    );
+    return;
+  }
+
+  if (embedLoaded) {
+    setBadge(litellmBadge, aiGateway.ready ? "success" : "warning", "Embed loaded");
+    setTextContent(
+      litellmCopy,
+      "The embedded gateway surface stays mounted while the rest of the operator UI keeps refreshing around it.",
+      { markUpdated: false }
+    );
+    setRenderedHtml(
+      litellmFrameWrap,
+      `<iframe class="surface-frame" title="Embedded LiteLLM UI" src="${escapeHtml(
+        litellmUiUrl
+      )}" loading="lazy"></iframe>`,
+      { markUpdated: false }
+    );
+    return;
+  }
+
+  if (aiGateway.ready) {
+    setBadge(litellmBadge, "success", "Ready to load");
+    setTextContent(
+      litellmCopy,
+      "Load the embedded LiteLLM surface only when you need it in-page. This keeps live operator refreshes from remounting the frame.",
+      { markUpdated: false }
+    );
+    setRenderedHtml(
+      litellmFrameWrap,
+      renderMissionSurfaceEmbedPrompt(
+        "litellm",
+        "Load embedded LiteLLM when you need it",
+        "Keep the native gateway UI in one place without mounting the iframe during every control-plane refresh.",
+        "Load embedded LiteLLM"
+      ),
+      { markUpdated: false }
+    );
+    return;
+  }
+
+  setBadge(litellmBadge, "warning", "Check gateway");
+  setTextContent(
+    litellmCopy,
+    "If the native UI route is unavailable in the selected LiteLLM build, use the quick links above to fall back to the docs or root surface.",
+    { markUpdated: false }
+  );
+  setRenderedHtml(
+    litellmFrameWrap,
+    renderSectionEmptyState(
+      "Embedded LiteLLM",
+      "Gateway readiness is not green yet",
+      aiGateway.error ??
+        "Wait for the AI gateway probe to recover before mounting the embedded LiteLLM surface."
+    ),
     { markUpdated: false }
   );
 }
