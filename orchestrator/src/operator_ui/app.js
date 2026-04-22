@@ -7,6 +7,11 @@ const state = {
   autoRefresh: true,
   refreshInFlight: false,
   latestRuns: [],
+  latestWebhookActions: [],
+  latestRepositorySignals: [],
+  latestWebhookDeliveries: [],
+  selectedQueueItem: null,
+  selectedQueueRunId: null,
 };
 
 const elements = {};
@@ -64,6 +69,15 @@ function cacheElements() {
     "lastRefresh",
     "packChips",
     "publishPushToggle",
+    "queueInspectorActions",
+    "queueInspectorConsole",
+    "queueInspectorDetailStatus",
+    "queueInspectorHeadline",
+    "queueInspectorLinkedConsole",
+    "queueInspectorLinkedStatus",
+    "queueInspectorOpenRunButton",
+    "queueInspectorPrimaryStatus",
+    "queueInspectorSummary",
     "refreshButton",
     "remoteUrlInput",
     "repositorySignalsList",
@@ -165,6 +179,24 @@ function bindEvents() {
     });
   });
 
+  elements.webhookActionsList.addEventListener("click", handleQueueItemClick);
+  elements.repositorySignalsList.addEventListener("click", handleQueueItemClick);
+  elements.webhookDeliveriesList.addEventListener("click", handleQueueItemClick);
+
+  elements.queueInspectorOpenRunButton.addEventListener("click", () => {
+    if (!state.selectedQueueRunId) {
+      return;
+    }
+
+    selectRun(state.selectedQueueRunId).then(() => {
+      document
+        .querySelector(".detail-panel")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }).catch((error) => {
+      console.error("queue inspector run selection failed", error);
+    });
+  });
+
   elements.runDetailShell.addEventListener("click", (event) => {
     const actionButton = event.target.closest("[data-run-action]");
     if (!actionButton) {
@@ -222,6 +254,7 @@ async function refreshDashboard() {
       repositorySignals: signalsEnvelope.data,
       webhookDeliveries: deliveriesEnvelope.data,
     });
+    await refreshQueueInspectorSelection();
 
     if (runs.length === 0) {
       clearRunSelection("No runs available yet. Submit a brief to materialize the first run.");
@@ -384,6 +417,20 @@ async function runRepositoryAutomationRequest() {
   }
 
   await refreshDashboard();
+}
+
+function handleQueueItemClick(event) {
+  const queueButton = event.target.closest("[data-queue-kind][data-queue-id]");
+  if (!queueButton) {
+    return;
+  }
+
+  loadQueueItemDetail(
+    queueButton.dataset.queueKind,
+    queueButton.dataset.queueId
+  ).catch((error) => {
+    console.error("queue inspector selection failed", error);
+  });
 }
 
 async function executeRunAction(actionId) {
@@ -663,49 +710,74 @@ function renderRuns(response) {
 }
 
 function renderAutomationRail(payload) {
-  const actions = Array.isArray(payload.webhookActions?.requests)
+  state.latestWebhookActions = Array.isArray(payload.webhookActions?.requests)
     ? payload.webhookActions.requests
     : [];
-  const signals = Array.isArray(payload.repositorySignals?.signals)
+  state.latestRepositorySignals = Array.isArray(payload.repositorySignals?.signals)
     ? payload.repositorySignals.signals
     : [];
-  const deliveries = Array.isArray(payload.webhookDeliveries?.deliveries)
+  state.latestWebhookDeliveries = Array.isArray(payload.webhookDeliveries?.deliveries)
     ? payload.webhookDeliveries.deliveries
     : [];
+  renderAutomationRailCollections();
+}
 
-  elements.webhookActionCount.textContent = String(actions.length);
-  elements.signalCount.textContent = String(signals.length);
-  elements.deliveryCount.textContent = String(deliveries.length);
+function renderAutomationRailCollections() {
+  elements.webhookActionCount.textContent = String(state.latestWebhookActions.length);
+  elements.signalCount.textContent = String(state.latestRepositorySignals.length);
+  elements.deliveryCount.textContent = String(state.latestWebhookDeliveries.length);
 
   elements.webhookActionsList.innerHTML = renderRailItems(
-    actions,
+    state.latestWebhookActions,
+    "webhook_action",
+    (item) => item.request_id,
     (item) => item.action,
     (item) => `${item.status} · ${item.repository_full_name ?? item.delivery_id}`,
     (item) => item.updated_at ?? item.created_at
   );
   elements.repositorySignalsList.innerHTML = renderRailItems(
-    signals,
+    state.latestRepositorySignals,
+    "repository_signal",
+    (item) => item.signal_id,
     (item) => item.signal_kind,
     (item) => `${item.status} · ${item.repository_full_name}`,
     (item) => item.updated_at ?? item.created_at
   );
   elements.webhookDeliveriesList.innerHTML = renderRailItems(
-    deliveries,
+    state.latestWebhookDeliveries,
+    "webhook_delivery",
+    (item) => item.delivery_id,
     (item) => item.event,
     (item) => `${item.routing_status} · ${item.repository_full_name ?? item.delivery_id}`,
     (item) => item.updated_at ?? item.created_at
   );
 }
 
-function renderRailItems(items, headingSelector, summarySelector, timeSelector) {
+function renderRailItems(
+  items,
+  queueKind,
+  idSelector,
+  headingSelector,
+  summarySelector,
+  timeSelector
+) {
   if (!items.length) {
     return '<div class="empty-state compact">Nothing queued right now.</div>';
   }
 
   return items
-    .map(
-      (item) => `
-        <article class="rail-item">
+    .map((item) => {
+      const itemId = idSelector(item);
+      const isSelected =
+        state.selectedQueueItem?.kind === queueKind &&
+        state.selectedQueueItem?.id === itemId;
+      return `
+        <button
+          class="rail-item rail-item-button${isSelected ? " is-selected" : ""}"
+          type="button"
+          data-queue-kind="${escapeHtml(queueKind)}"
+          data-queue-id="${escapeHtml(itemId)}"
+        >
           <div class="rail-item-head">
             <h4>${escapeHtml(headingSelector(item))}</h4>
             <span class="badge badge-${escapeHtml(statusTone(item.status ?? item.routing_status))}">
@@ -713,11 +785,289 @@ function renderRailItems(items, headingSelector, summarySelector, timeSelector) 
             </span>
           </div>
           <p>${escapeHtml(summarySelector(item))}</p>
-          <p class="microcopy">${escapeHtml(formatTimestamp(timeSelector(item)))}</p>
-        </article>
-      `
-    )
+          <p class="microcopy">
+            ${escapeHtml(shortId(itemId))} · ${escapeHtml(formatTimestamp(timeSelector(item)))}
+          </p>
+        </button>
+      `;
+    })
     .join("");
+}
+
+async function refreshQueueInspectorSelection() {
+  if (!state.selectedQueueItem) {
+    return;
+  }
+
+  await loadQueueItemDetail(
+    state.selectedQueueItem.kind,
+    state.selectedQueueItem.id,
+    { silentLoading: true }
+  );
+}
+
+async function loadQueueItemDetail(queueKind, queueId, options = {}) {
+  state.selectedQueueItem = {
+    kind: queueKind,
+    id: queueId,
+  };
+  state.selectedQueueRunId = null;
+  renderAutomationRailCollections();
+  if (!options.silentLoading) {
+    renderQueueInspectorLoading(queueKind, queueId);
+  }
+
+  const primaryEnvelope = await fetchQueuePrimaryEnvelope(queueKind, queueId);
+  const linkedEnvelope = await fetchQueueLinkedEnvelope(queueKind, queueId, primaryEnvelope);
+  renderQueueInspector(queueKind, queueId, primaryEnvelope, linkedEnvelope);
+}
+
+async function fetchQueuePrimaryEnvelope(queueKind, queueId) {
+  const routeQueueId = queueRouteId(queueId);
+  switch (queueKind) {
+    case "webhook_action":
+      return fetchJsonEnvelope(`/github/webhook-actions/${routeQueueId}`);
+    case "repository_signal":
+      return fetchJsonEnvelope(`/repository-signals/${routeQueueId}`);
+    case "webhook_delivery":
+      return fetchJsonEnvelope(`/github/webhooks/${routeQueueId}`);
+    default:
+      throw new Error(`Unsupported queue inspector kind: ${queueKind}`);
+  }
+}
+
+async function fetchQueueLinkedEnvelope(queueKind, queueId, primaryEnvelope) {
+  if (!primaryEnvelope.ok) {
+    return null;
+  }
+
+  const routeQueueId = queueRouteId(queueId);
+  switch (queueKind) {
+    case "webhook_action":
+      if (!primaryEnvelope.data?.report_path) {
+        return null;
+      }
+      return fetchJsonEnvelope(`/github/webhook-actions/${routeQueueId}/report`);
+    case "repository_signal":
+      return fetchJsonEnvelope(`/repository-signals/${routeQueueId}/payload`);
+    case "webhook_delivery":
+      return fetchJsonEnvelope(`/github/webhooks/${routeQueueId}/receipt`);
+    default:
+      return null;
+  }
+}
+
+function queueRouteId(queueId) {
+  if (!queueId || queueId.includes("/")) {
+    throw new Error(`Unsupported queue route identifier: ${queueId}`);
+  }
+
+  return queueId;
+}
+
+function renderQueueInspectorLoading(queueKind, queueId) {
+  elements.queueInspectorHeadline.textContent = `Loading ${queueInspectorKindLabel(queueKind)} ${shortId(queueId)}...`;
+  elements.queueInspectorSummary.innerHTML =
+    '<div class="empty-state compact">Loading queue detail...</div>';
+  elements.queueInspectorActions.classList.add("hidden");
+  elements.queueInspectorConsole.textContent = "Loading queue detail...";
+  elements.queueInspectorLinkedConsole.textContent = "Loading linked document...";
+  setBadge(elements.queueInspectorPrimaryStatus, "warning", "Loading");
+  setBadge(elements.queueInspectorDetailStatus, "warning", "Loading");
+  setBadge(elements.queueInspectorLinkedStatus, "neutral", "Pending");
+}
+
+function renderQueueInspector(queueKind, queueId, primaryEnvelope, linkedEnvelope) {
+  const detail = primaryEnvelope.data ?? {};
+  const primaryStatus = queueInspectorPrimaryStatus(queueKind, detail, primaryEnvelope);
+  const relatedRunId = queueInspectorRelatedRunId(queueKind, detail);
+  state.selectedQueueRunId = relatedRunId;
+
+  elements.queueInspectorHeadline.textContent =
+    `${queueInspectorKindTitle(queueKind)} · ${shortId(queueId)}`;
+  elements.queueInspectorSummary.innerHTML = renderQueueInspectorSummary(
+    queueKind,
+    queueId,
+    primaryEnvelope
+  );
+  elements.queueInspectorConsole.textContent = formatEnvelopePayload(primaryEnvelope);
+  elements.queueInspectorLinkedConsole.textContent = linkedEnvelope
+    ? formatEnvelopePayload(linkedEnvelope)
+    : `No linked ${queueInspectorLinkedDocumentLabel(queueKind)} available.`;
+
+  setBadge(
+    elements.queueInspectorPrimaryStatus,
+    statusTone(primaryStatus),
+    primaryStatus
+  );
+  setBadge(
+    elements.queueInspectorDetailStatus,
+    primaryEnvelope.ok ? "success" : "error",
+    primaryEnvelope.ok ? "Loaded" : "Error"
+  );
+  if (linkedEnvelope) {
+    setBadge(
+      elements.queueInspectorLinkedStatus,
+      linkedEnvelope.ok ? "success" : "warning",
+      linkedEnvelope.ok ? queueInspectorLinkedDocumentLabel(queueKind) : "Unavailable"
+    );
+  } else {
+    setBadge(elements.queueInspectorLinkedStatus, "neutral", "No link");
+  }
+
+  if (relatedRunId) {
+    elements.queueInspectorActions.classList.remove("hidden");
+  } else {
+    elements.queueInspectorActions.classList.add("hidden");
+  }
+}
+
+function renderQueueInspectorSummary(queueKind, queueId, primaryEnvelope) {
+  if (!primaryEnvelope.ok) {
+    return `
+      <div class="empty-state compact">
+        ${escapeHtml(formatEnvelopeError(primaryEnvelope))}
+      </div>
+    `;
+  }
+
+  const detail = primaryEnvelope.data ?? {};
+  const rows = queueInspectorRows(queueKind, queueId, detail)
+    .filter((row) => row.value)
+    .map(
+      (row) => `
+        <div class="inspector-row">
+          <span class="inspector-row-label">${escapeHtml(row.label)}</span>
+          <strong class="inspector-row-value">${escapeHtml(row.value)}</strong>
+        </div>
+      `
+    );
+
+  return rows.length
+    ? rows.join("")
+    : '<div class="empty-state compact">No summary available for this queue item.</div>';
+}
+
+function queueInspectorRows(queueKind, queueId, detail) {
+  switch (queueKind) {
+    case "webhook_action":
+      return [
+        { label: "Request", value: detail.request_id ?? queueId },
+        { label: "Repository", value: detail.repository_full_name },
+        { label: "Branch", value: detail.ref_name ?? detail.repository_default_branch },
+        { label: "Action", value: detail.action },
+        {
+          label: "Attempts",
+          value: detail.attempt_count != null ? String(detail.attempt_count) : null,
+        },
+        {
+          label: "Updated",
+          value: formatTimestamp(detail.updated_at ?? detail.completed_at ?? detail.created_at),
+        },
+        { label: "Reason", value: detail.requested_reason },
+      ];
+    case "repository_signal":
+      return [
+        { label: "Signal", value: detail.signal_id ?? queueId },
+        { label: "Repository", value: detail.repository_full_name },
+        { label: "Kind", value: detail.signal_kind },
+        { label: "Source action", value: detail.source_action },
+        { label: "Run trigger", value: detail.proposed_run_trigger },
+        { label: "Run", value: detail.materialized_run_id },
+        {
+          label: "Updated",
+          value: formatTimestamp(detail.updated_at ?? detail.created_at),
+        },
+        { label: "Message", value: detail.message },
+      ];
+    case "webhook_delivery":
+      return [
+        { label: "Delivery", value: detail.delivery_id ?? queueId },
+        { label: "Repository", value: detail.repository_full_name },
+        { label: "Event", value: detail.event },
+        { label: "Routing", value: detail.routing_action ?? detail.routing_status },
+        {
+          label: "Signature",
+          value:
+            detail.signature_verified == null
+              ? null
+              : detail.signature_verified
+                ? "verified"
+                : "unverified",
+        },
+        {
+          label: "Updated",
+          value: formatTimestamp(detail.updated_at ?? detail.created_at),
+        },
+        { label: "Message", value: detail.message ?? detail.routing_reason },
+      ];
+    default:
+      return [];
+  }
+}
+
+function queueInspectorPrimaryStatus(queueKind, detail, primaryEnvelope) {
+  if (!primaryEnvelope.ok) {
+    return "error";
+  }
+
+  switch (queueKind) {
+    case "webhook_action":
+      return detail.status ?? "loaded";
+    case "repository_signal":
+      return detail.status ?? "loaded";
+    case "webhook_delivery":
+      return detail.routing_status ?? detail.status ?? "loaded";
+    default:
+      return "loaded";
+  }
+}
+
+function queueInspectorRelatedRunId(queueKind, detail) {
+  if (queueKind === "repository_signal") {
+    return detail.materialized_run_id ?? null;
+  }
+
+  return null;
+}
+
+function queueInspectorKindLabel(queueKind) {
+  switch (queueKind) {
+    case "webhook_action":
+      return "webhook action";
+    case "repository_signal":
+      return "repository signal";
+    case "webhook_delivery":
+      return "webhook delivery";
+    default:
+      return "queue item";
+  }
+}
+
+function queueInspectorKindTitle(queueKind) {
+  switch (queueKind) {
+    case "webhook_action":
+      return "Webhook action";
+    case "repository_signal":
+      return "Repository signal";
+    case "webhook_delivery":
+      return "Webhook delivery";
+    default:
+      return "Queue item";
+  }
+}
+
+function queueInspectorLinkedDocumentLabel(queueKind) {
+  switch (queueKind) {
+    case "webhook_action":
+      return "Report";
+    case "repository_signal":
+      return "Payload";
+    case "webhook_delivery":
+      return "Receipt";
+    default:
+      return "Document";
+  }
 }
 
 function renderRunDetail(runDetail, eventsResponse) {
@@ -905,11 +1255,15 @@ function clearRunSelection(message) {
   window.history.replaceState({}, "", nextUrl);
 }
 
+function setBadge(target, tone, text) {
+  target.className = `badge badge-${tone}`;
+  target.textContent = text;
+}
+
 function writeConsole(target, badge, tone, payload) {
   target.textContent =
     typeof payload === "string" ? payload : JSON.stringify(payload, null, 2);
-  badge.className = `badge badge-${tone}`;
-  badge.textContent = toneLabel(tone);
+  setBadge(badge, tone, toneLabel(tone));
 }
 
 function summaryCard(title, primary, secondary) {
@@ -977,12 +1331,40 @@ function formatEnvelopeError(envelope) {
   return "Request failed before the orchestrator returned a response.";
 }
 
+function formatEnvelopePayload(envelope) {
+  if (typeof envelope?.data === "string") {
+    return envelope.data;
+  }
+
+  if (envelope?.data != null) {
+    return JSON.stringify(envelope.data, null, 2);
+  }
+
+  return formatEnvelopeError(envelope);
+}
+
 function restoreBriefDraft() {
   const saved = window.localStorage.getItem(BRIEF_STORAGE_KEY);
   if (saved) {
     elements.briefEditor.value = saved;
   }
   state.autoRefresh = elements.autoRefreshToggle.checked;
+  renderQueueInspectorEmpty();
+}
+
+function renderQueueInspectorEmpty() {
+  state.selectedQueueRunId = null;
+  elements.queueInspectorHeadline.textContent =
+    "Select a webhook action, repository signal, or delivery to inspect its persisted detail and linked documents.";
+  elements.queueInspectorSummary.innerHTML =
+    '<div class="empty-state compact">No queue item selected.</div>';
+  elements.queueInspectorActions.classList.add("hidden");
+  elements.queueInspectorConsole.textContent = "No queue item selected.";
+  elements.queueInspectorLinkedConsole.textContent =
+    "No linked receipt, report, or payload loaded.";
+  setBadge(elements.queueInspectorPrimaryStatus, "neutral", "Idle");
+  setBadge(elements.queueInspectorDetailStatus, "neutral", "Idle");
+  setBadge(elements.queueInspectorLinkedStatus, "neutral", "Idle");
 }
 
 function statusTone(value) {

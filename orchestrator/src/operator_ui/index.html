@@ -153,6 +153,38 @@
             </div>
             <div id="webhookDeliveriesList" class="rail-list"></div>
           </section>
+          <section class="rail-section queue-inspector">
+            <div class="rail-section-head">
+              <h3>Queue inspector</h3>
+              <span id="queueInspectorPrimaryStatus" class="badge badge-neutral">Idle</span>
+            </div>
+            <p id="queueInspectorHeadline" class="microcopy">
+              Select a webhook action, repository signal, or delivery to inspect
+              its persisted detail and linked documents.
+            </p>
+            <div id="queueInspectorSummary" class="inspector-summary">
+              <div class="empty-state compact">No queue item selected.</div>
+            </div>
+            <div id="queueInspectorActions" class="rail-action-row hidden">
+              <button id="queueInspectorOpenRunButton" class="button button-ghost" type="button">
+                Open materialized run
+              </button>
+            </div>
+            <div class="console-wrap console-wrap-compact">
+              <div class="console-head">
+                <p class="panel-kicker">Detail JSON</p>
+                <span id="queueInspectorDetailStatus" class="badge badge-neutral">Idle</span>
+              </div>
+              <pre id="queueInspectorConsole" class="console console-compact">No queue item selected.</pre>
+            </div>
+            <div class="console-wrap console-wrap-compact">
+              <div class="console-head">
+                <p class="panel-kicker">Linked Document</p>
+                <span id="queueInspectorLinkedStatus" class="badge badge-neutral">Idle</span>
+              </div>
+              <pre id="queueInspectorLinkedConsole" class="console console-compact">No linked receipt, report, or payload loaded.</pre>
+            </div>
+          </section>
         </aside>
 
         <section class="panel detail-panel" data-stagger="6">

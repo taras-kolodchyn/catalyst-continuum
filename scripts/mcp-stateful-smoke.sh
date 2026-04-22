@@ -215,6 +215,8 @@ if 'id="statusGrid"' not in html:
     raise SystemExit("operator UI smoke failed: missing status grid mount")
 if 'id="runRepositoryAutomationButton"' not in html:
     raise SystemExit("operator UI smoke failed: missing repository automation control")
+if 'id="queueInspectorConsole"' not in html:
+    raise SystemExit("operator UI smoke failed: missing queue inspector console")
 if 'src="/ui/app.js"' not in html:
     raise SystemExit("operator UI smoke failed: missing app.js asset reference")
 if "refreshDashboard" not in js:
@@ -223,6 +225,8 @@ if "submitBriefRequest" not in js:
     raise SystemExit("operator UI smoke failed: missing brief submission client logic")
 if "runRepositoryAutomationRequest" not in js:
     raise SystemExit("operator UI smoke failed: missing automation-cycle client logic")
+if "loadQueueItemDetail" not in js:
+    raise SystemExit("operator UI smoke failed: missing queue inspector client logic")
 PY
 
 WEBHOOK_PAYLOAD_FILE="$ARTIFACT_ROOT/mcp-webhook-ping.json"

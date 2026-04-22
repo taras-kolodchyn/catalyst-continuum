@@ -426,9 +426,19 @@ textarea {
   box-shadow: 0 16px 34px rgba(24, 35, 29, 0.08);
 }
 
+.rail-item-button {
+  width: 100%;
+  text-align: left;
+}
+
 .run-card.is-selected {
   border-color: rgba(23, 79, 67, 0.36);
   background: linear-gradient(135deg, rgba(226, 241, 235, 0.82), rgba(255, 251, 244, 0.92));
+}
+
+.rail-item.is-selected {
+  border-color: rgba(23, 79, 67, 0.3);
+  background: linear-gradient(135deg, rgba(226, 241, 235, 0.74), rgba(255, 251, 244, 0.94));
 }
 
 .run-card h3 {
@@ -533,6 +543,43 @@ textarea {
 
 .artifact-card h4 {
   margin-top: 8px;
+}
+
+.rail-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.inspector-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.inspector-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 12px 14px;
+  border: 1px solid rgba(24, 35, 29, 0.08);
+  border-radius: var(--radius-md);
+  background: rgba(255, 251, 244, 0.72);
+}
+
+.inspector-row-label {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.inspector-row-value {
+  max-width: 62%;
+  color: var(--ink);
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-align: right;
+  word-break: break-word;
 }
 
 .badge {
