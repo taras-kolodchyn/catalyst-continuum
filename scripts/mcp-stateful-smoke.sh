@@ -250,6 +250,10 @@ if "loadBriefExamples" not in js:
     raise SystemExit("operator UI smoke failed: missing brief example fetch logic")
 if "loadBriefExampleIntoEditor" not in js:
     raise SystemExit("operator UI smoke failed: missing quick-start brief loader")
+if "renderConsolePayload" not in js:
+    raise SystemExit("operator UI smoke failed: missing summary-first console renderer")
+if "console-summary-grid" not in js or "Raw JSON" not in js:
+    raise SystemExit("operator UI smoke failed: missing collapsible raw-payload console markers")
 if "loadQueueItemDetail" not in js:
     raise SystemExit("operator UI smoke failed: missing queue inspector client logic")
 if "syncSelectedRunUrl" not in js:

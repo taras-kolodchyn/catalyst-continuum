@@ -1415,8 +1415,8 @@ function renderQueueInspectorLoading(queueKind, queueId) {
   elements.queueInspectorSummary.innerHTML =
     '<div class="empty-state compact">Loading queue detail...</div>';
   elements.queueInspectorActions.classList.add("hidden");
-  elements.queueInspectorConsole.textContent = "Loading queue detail...";
-  elements.queueInspectorLinkedConsole.textContent = "Loading linked document...";
+  setConsolePayload(elements.queueInspectorConsole, "Loading queue detail...");
+  setConsolePayload(elements.queueInspectorLinkedConsole, "Loading linked document...");
   setBadge(elements.queueInspectorPrimaryStatus, "warning", "Loading");
   setBadge(elements.queueInspectorDetailStatus, "warning", "Loading");
   setBadge(elements.queueInspectorLinkedStatus, "neutral", "Pending");
@@ -1435,10 +1435,18 @@ function renderQueueInspector(queueKind, queueId, primaryEnvelope, linkedEnvelop
     queueId,
     primaryEnvelope
   );
-  elements.queueInspectorConsole.textContent = formatEnvelopePayload(primaryEnvelope);
-  elements.queueInspectorLinkedConsole.textContent = linkedEnvelope
-    ? formatEnvelopePayload(linkedEnvelope)
-    : `No linked ${queueInspectorLinkedDocumentLabel(queueKind)} available.`;
+  setConsolePayload(
+    elements.queueInspectorConsole,
+    primaryEnvelope.ok ? primaryEnvelope.data ?? "No detail payload returned." : formatEnvelopeError(primaryEnvelope)
+  );
+  setConsolePayload(
+    elements.queueInspectorLinkedConsole,
+    linkedEnvelope
+      ? linkedEnvelope.ok
+        ? linkedEnvelope.data ?? "No linked document payload returned."
+        : formatEnvelopeError(linkedEnvelope)
+      : `No linked ${queueInspectorLinkedDocumentLabel(queueKind)} available.`
+  );
 
   setBadge(
     elements.queueInspectorPrimaryStatus,
@@ -1840,22 +1848,186 @@ function setBadge(target, tone, text) {
   target.textContent = text;
 }
 
+function setConsolePayload(target, payload) {
+  target.innerHTML = renderConsolePayload(payload);
+}
+
 function writeConsole(target, badge, tone, payload) {
-  target.textContent =
-    typeof payload === "string" ? payload : JSON.stringify(payload, null, 2);
+  setConsolePayload(target, payload);
   setBadge(badge, tone, toneLabel(tone));
 }
 
 function writeEnvelopeConsole(target, badge, envelope) {
-  target.textContent = formatEnvelopePayload(envelope);
+  if (envelope?.ok) {
+    setConsolePayload(target, envelope.data ?? "No payload returned.");
+  } else {
+    setConsolePayload(target, formatEnvelopeError(envelope));
+  }
   const presentation = envelopeBadgePresentation(envelope);
   setBadge(badge, presentation.tone, presentation.label);
 }
 
 function writeBusyConsole(target, badge, badgeText, payload) {
-  target.textContent =
-    typeof payload === "string" ? payload : JSON.stringify(payload, null, 2);
+  setConsolePayload(target, payload);
   setBadge(badge, "warning", badgeText);
+}
+
+function renderConsolePayload(payload) {
+  if (typeof payload === "string") {
+    return renderConsoleString(payload);
+  }
+
+  if (payload == null) {
+    return renderConsoleString("No payload returned.");
+  }
+
+  if (Array.isArray(payload)) {
+    return renderConsoleStructuredPayload(
+      payload,
+      [{ label: "Items", value: String(payload.length), mono: false }],
+      payload.length <= 4
+    );
+  }
+
+  if (typeof payload !== "object") {
+    return renderConsoleString(String(payload));
+  }
+
+  const summaryEntries = consoleSummaryEntries(payload);
+  return renderConsoleStructuredPayload(
+    payload,
+    summaryEntries,
+    summaryEntries.length === 0 && JSON.stringify(payload, null, 2).length <= 640
+  );
+}
+
+function renderConsoleString(value) {
+  return `<pre class="console-raw console-raw-plain">${escapeHtml(value)}</pre>`;
+}
+
+function renderConsoleSummaryGrid(entries) {
+  return `
+    <div class="console-summary-grid">
+      ${entries
+        .map(
+          (entry) => `
+            <article class="console-summary-item">
+              <span class="console-summary-label">${escapeHtml(entry.label)}</span>
+              <strong class="console-summary-value${entry.mono ? " console-summary-value-mono" : ""}">
+                ${escapeHtml(entry.value)}
+              </strong>
+            </article>
+          `
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+function renderConsoleStructuredPayload(payload, summaryEntries, expanded) {
+  const rawPayload = escapeHtml(JSON.stringify(payload, null, 2));
+  const openAttribute = expanded ? " open" : "";
+
+  return `
+    <div class="console-stack">
+      ${summaryEntries.length ? renderConsoleSummaryGrid(summaryEntries) : ""}
+      <details class="console-details"${openAttribute}>
+        <summary>Raw JSON</summary>
+        <pre class="console-raw">${rawPayload}</pre>
+      </details>
+    </div>
+  `;
+}
+
+function consoleSummaryEntries(payload) {
+  const entries = [];
+  pushConsoleSummaryEntry(entries, "Run", payload.run_id, { mono: true, short: true });
+  pushConsoleSummaryEntry(entries, "Brief", payload.brief_id, { mono: true, short: true });
+  pushConsoleSummaryEntry(entries, "Task", payload.task_id, { mono: true, short: true });
+  pushConsoleSummaryEntry(entries, "Signal", payload.signal_id, { mono: true, short: true });
+  pushConsoleSummaryEntry(entries, "Delivery", payload.delivery_id, { mono: true, short: true });
+  pushConsoleSummaryEntry(entries, "PR", payload.pr_number);
+  pushConsoleSummaryEntry(entries, "Status", payload.status ?? payload.outcome ?? payload.routing_status);
+  pushConsoleSummaryEntry(entries, "Pack", payload.target_pack ?? payload.pack ?? payload.repo_pack);
+  pushConsoleSummaryEntry(entries, "Title", payload.title);
+  pushConsoleSummaryEntry(entries, "Repository", consoleRepositoryName(payload));
+  pushConsoleSummaryEntry(entries, "Action", payload.action ?? payload.source_action);
+  pushConsoleSummaryEntry(entries, "Event", payload.event);
+  pushConsoleSummaryEntry(entries, "Trigger", payload.trigger ?? payload.proposed_run_trigger);
+  pushConsoleSummaryEntry(entries, "Branch", payload.branch_name ?? payload.ref_name);
+  pushConsoleSummaryEntry(entries, "Tasks", consoleCollectionCount(payload.tasks, payload.total_task_count));
+  pushConsoleSummaryEntry(
+    entries,
+    "Artifacts",
+    consoleCollectionCount(payload.artifacts, payload.persisted_artifact_count)
+  );
+  pushConsoleSummaryEntry(entries, "Message", payload.message);
+
+  return entries.slice(0, 6);
+}
+
+function pushConsoleSummaryEntry(entries, label, value, options = {}) {
+  const formattedValue = formatConsoleSummaryValue(value, options);
+  if (!formattedValue || entries.some((entry) => entry.label === label)) {
+    return;
+  }
+
+  entries.push({
+    label,
+    value: formattedValue,
+    mono: options.mono ?? false,
+  });
+}
+
+function formatConsoleSummaryValue(value, options = {}) {
+  if (value == null) {
+    return null;
+  }
+
+  if (typeof value === "string") {
+    const normalized = value.trim();
+    if (!normalized) {
+      return null;
+    }
+    return options.short ? shortId(normalized) : normalized;
+  }
+
+  if (typeof value === "number") {
+    return String(value);
+  }
+
+  if (typeof value === "boolean") {
+    return value ? "true" : "false";
+  }
+
+  return null;
+}
+
+function consoleRepositoryName(payload) {
+  if (typeof payload.repository_full_name === "string" && payload.repository_full_name.trim()) {
+    return payload.repository_full_name.trim();
+  }
+
+  const repository = payload.repository;
+  if (!repository || typeof repository !== "object" || Array.isArray(repository)) {
+    return null;
+  }
+
+  const owner = typeof repository.owner === "string" ? repository.owner.trim() : "";
+  const name = typeof repository.name === "string" ? repository.name.trim() : "";
+  if (owner && name) {
+    return `${owner}/${name}`;
+  }
+
+  return null;
+}
+
+function consoleCollectionCount(value, fallback) {
+  if (Array.isArray(value)) {
+    return value.length;
+  }
+
+  return fallback ?? null;
 }
 
 function summaryCard(title, primary, secondary) {
@@ -1952,18 +2124,6 @@ function formatEnvelopeError(envelope) {
   }
 
   return "Request failed before the orchestrator returned a response.";
-}
-
-function formatEnvelopePayload(envelope) {
-  if (typeof envelope?.data === "string") {
-    return envelope.data;
-  }
-
-  if (envelope?.data != null) {
-    return JSON.stringify(envelope.data, null, 2);
-  }
-
-  return formatEnvelopeError(envelope);
 }
 
 function envelopeBadgePresentation(envelope) {
@@ -2076,9 +2236,11 @@ function renderQueueInspectorEmpty() {
   elements.queueInspectorSummary.innerHTML =
     '<div class="empty-state compact">No queue item selected.</div>';
   elements.queueInspectorActions.classList.add("hidden");
-  elements.queueInspectorConsole.textContent = "No queue item selected.";
-  elements.queueInspectorLinkedConsole.textContent =
-    "No linked receipt, report, or payload loaded.";
+  setConsolePayload(elements.queueInspectorConsole, "No queue item selected.");
+  setConsolePayload(
+    elements.queueInspectorLinkedConsole,
+    "No linked receipt, report, or payload loaded."
+  );
   setBadge(elements.queueInspectorPrimaryStatus, "neutral", "Idle");
   setBadge(elements.queueInspectorDetailStatus, "neutral", "Idle");
   setBadge(elements.queueInspectorLinkedStatus, "neutral", "Idle");

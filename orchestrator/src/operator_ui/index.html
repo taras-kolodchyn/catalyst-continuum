@@ -71,13 +71,13 @@
               Clear
             </button>
           </div>
-          <div class="console-wrap">
-            <div class="console-head">
-              <p class="panel-kicker">Validation Output</p>
-              <span id="briefConsoleStatus" class="badge badge-neutral">Idle</span>
+            <div class="console-wrap">
+              <div class="console-head">
+                <p class="panel-kicker">Validation Output</p>
+                <span id="briefConsoleStatus" class="badge badge-neutral">Idle</span>
+              </div>
+              <div id="briefConsole" class="console">No brief request yet.</div>
             </div>
-            <pre id="briefConsole" class="console">No brief request yet.</pre>
-          </div>
         </section>
 
         <section class="panel runs-panel" data-stagger="4">
@@ -142,7 +142,7 @@
                 <p class="panel-kicker">Automation Output</p>
                 <span id="automationConsoleStatus" class="badge badge-neutral">Idle</span>
               </div>
-              <pre id="automationConsole" class="console console-compact">No automation action executed yet.</pre>
+              <div id="automationConsole" class="console console-compact">No automation action executed yet.</div>
             </div>
           </section>
           <section class="rail-section">
@@ -188,14 +188,14 @@
                 <p class="panel-kicker">Detail JSON</p>
                 <span id="queueInspectorDetailStatus" class="badge badge-neutral">Idle</span>
               </div>
-              <pre id="queueInspectorConsole" class="console console-compact">No queue item selected.</pre>
+              <div id="queueInspectorConsole" class="console console-compact">No queue item selected.</div>
             </div>
             <div class="console-wrap console-wrap-compact">
               <div class="console-head">
                 <p class="panel-kicker">Linked Document</p>
                 <span id="queueInspectorLinkedStatus" class="badge badge-neutral">Idle</span>
               </div>
-              <pre id="queueInspectorLinkedConsole" class="console console-compact">No linked receipt, report, or payload loaded.</pre>
+              <div id="queueInspectorLinkedConsole" class="console console-compact">No linked receipt, report, or payload loaded.</div>
             </div>
           </section>
         </aside>
@@ -291,7 +291,7 @@
                   <p class="panel-kicker">Action Output</p>
                   <span id="actionConsoleStatus" class="badge badge-neutral">Idle</span>
                 </div>
-                <pre id="actionConsole" class="console">No run action executed yet.</pre>
+                <div id="actionConsole" class="console">No run action executed yet.</div>
               </div>
             </section>
 
