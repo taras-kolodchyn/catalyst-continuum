@@ -207,7 +207,7 @@ echo "  provider: OpenAI"
 echo "  custom model: openai/$LITELLM_MODEL"
 echo "  base url (host OpenHands): http://127.0.0.1:${LITELLM_PORT:-4000}"
 echo "  base url (Docker OpenHands): http://host.docker.internal:${LITELLM_PORT:-4000}"
-echo "  api key: ${LITELLM_MASTER_KEY:-sk-continuum-dev}"
+echo "  api key: ${LITELLM_MASTER_KEY:-admin}"
 echo
 echo "inside OpenHands:"
 echo "  /mcp"

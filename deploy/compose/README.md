@@ -101,8 +101,9 @@ ollama serve
   - Operator UI: `http://127.0.0.1:8080/ui`
     - The mission-control tabs now embed the provisioned Grafana overview board and the local LiteLLM surface so operators can stay in one UI shell while inspecting runs, agents, observability, and the gateway.
 - LiteLLM models: `http://127.0.0.1:4000/v1/models`
+  - Default API/admin key from `.env.example`: `admin`
 - Grafana: `http://127.0.0.1:3000`
-  - Default login from `.env.example`: `admin` / `continuum-dev`
+  - Default login from `.env.example`: `admin` / `admin`
 - Prometheus: `http://127.0.0.1:9090`
 - Loki readiness: `http://127.0.0.1:3100/ready`
 - Tempo readiness: `http://127.0.0.1:3200/ready`
