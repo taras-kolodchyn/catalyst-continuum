@@ -219,6 +219,10 @@ if 'id="queueInspectorConsole"' not in html:
     raise SystemExit("operator UI smoke failed: missing queue inspector console")
 if 'id="runActionHint"' not in html:
     raise SystemExit("operator UI smoke failed: missing run-action availability hint")
+if 'option value="executing"' not in html:
+    raise SystemExit("operator UI smoke failed: missing executing run-status filter")
+if 'option value="approval_required"' in html:
+    raise SystemExit("operator UI smoke failed: stale approval_required run-status filter is still exposed")
 if 'src="/ui/app.js"' not in html:
     raise SystemExit("operator UI smoke failed: missing app.js asset reference")
 if 'rel="icon"' not in html:
@@ -241,6 +245,8 @@ if "runActionAvailability" not in js:
     raise SystemExit("operator UI smoke failed: missing run-action availability gating")
 if "envelopeBadgePresentation" not in js:
     raise SystemExit("operator UI smoke failed: missing domain-aware console badge presentation")
+if "displayRunStatus" not in js:
+    raise SystemExit("operator UI smoke failed: missing run-status display normalization")
 PY
 
 WEBHOOK_PAYLOAD_FILE="$ARTIFACT_ROOT/mcp-webhook-ping.json"

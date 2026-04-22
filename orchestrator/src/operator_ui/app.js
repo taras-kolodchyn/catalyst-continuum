@@ -1078,7 +1078,7 @@ function renderRuns(response) {
         >
           <div class="run-card-head">
             <span class="badge badge-${escapeHtml(statusTone(run.status))}">
-              ${escapeHtml(run.status)}
+              ${escapeHtml(displayRunStatus(run.status))}
             </span>
             <span class="mono">${escapeHtml(shortId(run.run_id))}</span>
           </div>
@@ -1472,7 +1472,7 @@ function renderRunDetail(runDetail, eventsResponse) {
   elements.selectedRunLabel.textContent = `${runDetail.title} · ${shortId(runDetail.run_id)}`;
 
   elements.runSummaryCards.innerHTML = [
-    summaryCard("Status", runDetail.status, `${runDetail.trigger} trigger`),
+    summaryCard("Status", displayRunStatus(runDetail.status), `${runDetail.trigger} trigger`),
     summaryCard("Pack", runDetail.target_pack ?? "unassigned", runDetail.requested_by ?? "requested_by unknown"),
     summaryCard(
       "Repository",
@@ -1889,6 +1889,7 @@ function statusTone(value) {
     case "observed_default_branch_head":
     case "allowed":
       return "success";
+    case "executing":
     case "running":
     case "queued":
     case "pending":
@@ -1905,6 +1906,21 @@ function statusTone(value) {
       return "error";
     default:
       return "neutral";
+  }
+}
+
+function displayRunStatus(value) {
+  switch (value) {
+    case "executing":
+      return "Executing";
+    case "queued":
+      return "Queued";
+    case "succeeded":
+      return "Succeeded";
+    case "failed":
+      return "Failed";
+    default:
+      return String(value ?? "unknown");
   }
 }
 
@@ -2054,7 +2070,7 @@ function runArtifactTypes(runDetail) {
 function prCandidateAvailability(runDetail, artifactTypes, actionLabel) {
   if (runDetail.status !== "succeeded") {
     return disabledRunAction(
-      `Run status is ${runDetail.status}; ${actionLabel} unlocks after the run succeeds.`
+      `Run status is ${displayRunStatus(runDetail.status)}; ${actionLabel} unlocks after the run succeeds.`
     );
   }
 
@@ -2098,7 +2114,7 @@ function runActionAvailability(runDetail) {
     "publish-pr":
       runDetail.status !== "succeeded"
         ? disabledRunAction(
-            `Run status is ${runDetail.status}; PR publication unlocks after the run succeeds.`
+            `Run status is ${displayRunStatus(runDetail.status)}; PR publication unlocks after the run succeeds.`
           )
         : !artifactTypes.has(PR_EXPORT_ARTIFACT_TYPE)
           ? disabledRunAction(
