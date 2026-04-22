@@ -234,6 +234,10 @@ if 'id="statusGrid"' not in html:
     raise SystemExit("operator UI smoke failed: missing status grid mount")
 if 'id="runRepositoryAutomationButton"' not in html:
     raise SystemExit("operator UI smoke failed: missing repository automation control")
+if 'id="autoRefreshToggle" type="checkbox" checked' in html:
+    raise SystemExit("operator UI smoke failed: auto-refresh is still enabled by default")
+if "Auto refresh (optional)" not in html or "Manual refresh mode" not in html:
+    raise SystemExit("operator UI smoke failed: missing manual-first refresh framing")
 if 'id="queueInspectorConsole"' not in html:
     raise SystemExit("operator UI smoke failed: missing queue inspector console")
 if 'id="runActionHint"' not in html:
@@ -318,6 +322,14 @@ if "syncUiUrlState" not in js:
     raise SystemExit("operator UI smoke failed: missing selected-run URL sync logic")
 if "filterVisibleRuns" not in js or "runMatchesSearch" not in js:
     raise SystemExit("operator UI smoke failed: missing run-ledger search client logic")
+if "AUTO_REFRESH_STORAGE_KEY" not in js or "restoreAutoRefreshPreference" not in js:
+    raise SystemExit("operator UI smoke failed: missing persisted auto-refresh preference logic")
+if 'autoRefresh: false' not in js:
+    raise SystemExit("operator UI smoke failed: auto-refresh state no longer defaults to manual-first")
+if "window.localStorage.setItem(\n    AUTO_REFRESH_STORAGE_KEY" not in js:
+    raise SystemExit("operator UI smoke failed: missing auto-refresh preference persistence")
+if "renderLastRefreshStatus" not in js or "manual only" not in js:
+    raise SystemExit("operator UI smoke failed: missing manual-refresh status rendering")
 if "setAutomationControlsBusyState" not in js:
     raise SystemExit("operator UI smoke failed: missing automation busy-state guard")
 if "setRunActionControlsBusyState" not in js:

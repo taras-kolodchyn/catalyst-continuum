@@ -1,5 +1,6 @@
 const BRIEF_STORAGE_KEY = "catalystContinuum.operatorUi.brief";
 const RUN_ACTION_DRAFTS_STORAGE_KEY = "catalystContinuum.operatorUi.runActionDrafts";
+const AUTO_REFRESH_STORAGE_KEY = "catalystContinuum.operatorUi.autoRefresh";
 const AUTO_REFRESH_INTERVAL_MS = 15000;
 const DASHBOARD_LOADING_CARD_TITLES = [
   "Control plane",
@@ -62,8 +63,9 @@ const state = {
   selectedRunEvents: [],
   briefExamples: [],
   activeBriefExampleId: null,
-  autoRefresh: true,
+  autoRefresh: false,
   refreshInFlight: false,
+  lastRefreshAt: null,
   briefRequestInFlight: false,
   automationRequestInFlight: false,
   runActionInFlight: false,
@@ -201,6 +203,8 @@ function bindEvents() {
 
   elements.autoRefreshToggle.addEventListener("change", () => {
     state.autoRefresh = elements.autoRefreshToggle.checked;
+    persistAutoRefreshPreference();
+    renderLastRefreshStatus();
   });
 
   elements.runStatusFilter.addEventListener("change", () => {
@@ -410,7 +414,8 @@ async function refreshDashboard() {
       await selectRun(runs[0].run_id);
     }
 
-    elements.lastRefresh.textContent = `Last refresh ${new Date().toLocaleTimeString()}`;
+    state.lastRefreshAt = new Date().toISOString();
+    renderLastRefreshStatus();
   } finally {
     state.refreshInFlight = false;
     elements.refreshButton.disabled = false;
@@ -3208,7 +3213,8 @@ function restoreBriefDraft() {
   elements.runStatusFilter.value = state.selectedRunStatus;
   elements.runSearchInput.value = state.runSearchQuery;
   state.runActionDrafts = restoreRunActionDrafts();
-  state.autoRefresh = elements.autoRefreshToggle.checked;
+  state.autoRefresh = restoreAutoRefreshPreference();
+  elements.autoRefreshToggle.checked = state.autoRefresh;
   renderDashboardLoadingState();
   renderBriefExampleHint();
   renderQueueInspectorEmpty();
@@ -3219,7 +3225,7 @@ function restoreBriefDraft() {
 }
 
 function renderDashboardLoadingState() {
-  elements.lastRefresh.textContent = "Loading first snapshot...";
+  renderLastRefreshStatus();
   elements.packChips.innerHTML = '<span class="chip chip-loading">Loading pack catalog...</span>';
   elements.capabilityGrid.innerHTML = CAPABILITY_LOADING_CARD_TITLES
     .map(
@@ -3274,6 +3280,39 @@ function renderDashboardLoadingState() {
       steps: [],
     });
   }
+}
+
+function restoreAutoRefreshPreference() {
+  const saved = window.localStorage.getItem(AUTO_REFRESH_STORAGE_KEY);
+  if (saved === "true") {
+    return true;
+  }
+  if (saved === "false") {
+    return false;
+  }
+  return elements.autoRefreshToggle.checked;
+}
+
+function persistAutoRefreshPreference() {
+  window.localStorage.setItem(
+    AUTO_REFRESH_STORAGE_KEY,
+    state.autoRefresh ? "true" : "false"
+  );
+}
+
+function renderLastRefreshStatus() {
+  const modeSummary = state.autoRefresh
+    ? `auto every ${AUTO_REFRESH_INTERVAL_MS / 1000}s`
+    : "manual only";
+  if (!state.lastRefreshAt) {
+    elements.lastRefresh.textContent = state.autoRefresh
+      ? `Waiting for first snapshot · ${modeSummary}`
+      : "Manual refresh mode";
+    return;
+  }
+
+  elements.lastRefresh.textContent =
+    `Last refresh ${new Date(state.lastRefreshAt).toLocaleTimeString()} · ${modeSummary}`;
 }
 
 function renderQueueInspectorEmpty() {
