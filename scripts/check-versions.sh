@@ -97,6 +97,7 @@ declared_mcp_everything_version="$(sed -nE 's/^MCP_EVERYTHING_NPM_VERSION=(.+)$/
 declared_mcp_fetch_version="$(sed -nE 's/^MCP_FETCH_PYPI_VERSION=(.+)$/\1/p' versions.env)"
 declared_mcp_fetch_wheel_sha256="$(sed -nE 's/^MCP_FETCH_WHEEL_SHA256=(.+)$/\1/p' versions.env)"
 declared_mcp_inspector_version="$(sed -nE 's/^MCP_INSPECTOR_NPM_VERSION=(.+)$/\1/p' versions.env)"
+declared_playwright_version="$(sed -nE 's/^PLAYWRIGHT_NPM_VERSION=(.+)$/\1/p' versions.env)"
 declared_openhands_uv_python_version="$(sed -nE 's/^OPENHANDS_UV_PYTHON_VERSION=(.+)$/\1/p' versions.env)"
 declared_openhands_cli_version="$(sed -nE 's/^OPENHANDS_CLI_VERSION=(.+)$/\1/p' versions.env)"
 declared_openhands_agent_server_repository="$(sed -nE 's/^OPENHANDS_AGENT_SERVER_REPOSITORY=(.+)$/\1/p' versions.env)"
@@ -179,6 +180,10 @@ check_value \
   "versions.env MCP_INSPECTOR_NPM_VERSION" \
   "$MCP_INSPECTOR_NPM_VERSION" \
   "$declared_mcp_inspector_version"
+check_value \
+  "versions.env PLAYWRIGHT_NPM_VERSION" \
+  "$PLAYWRIGHT_NPM_VERSION" \
+  "$declared_playwright_version"
 check_value \
   "versions.env OPENHANDS_UV_PYTHON_VERSION" \
   "$OPENHANDS_UV_PYTHON_VERSION" \
@@ -296,6 +301,14 @@ if ! grep -Fq "$expected_inspector_package" docs/mcp/fetch.md; then
   report_mismatch \
     "docs/mcp/fetch.md inspector pin" \
     "$expected_inspector_package" \
+    "hardcoded or missing"
+fi
+
+expected_playwright_pin="playwright@\${PLAYWRIGHT_NPM_VERSION}"
+if ! grep -Fq "$expected_playwright_pin" scripts/operator-ui-smoke.sh; then
+  report_mismatch \
+    "scripts/operator-ui-smoke.sh Playwright version source" \
+    "$expected_playwright_pin" \
     "hardcoded or missing"
 fi
 

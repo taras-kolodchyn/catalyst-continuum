@@ -177,6 +177,7 @@ make help
 make check
 make ci
 make ui
+make ui-smoke
 make cleanup
 make act-rust
 ```
@@ -196,6 +197,14 @@ CATALYST_DATABASE_URL="postgres://postgres:postgres@127.0.0.1:5432/continuum" \
 CATALYST_ARTIFACT_ROOT=".continuum/artifacts" \
 make ui OPERATOR_UI_ARGS="--skip-build"
 ```
+
+For repeatable browser validation of the operator UI flow, run:
+
+```bash
+make ui-smoke
+```
+
+That smoke uses the pinned Playwright package from `PLAYWRIGHT_NPM_VERSION`, starts a disposable pinned Postgres container, seeds full MVP run data through the existing CLI smoke flow, opens `/ui`, clicks the run ledger, `Flow` and `Agents` tabs, agent report cards, and manual refresh, then fails on browser console errors, request failures, missing WebSocket live updates, iframe mounts, or unexpected hard reloads. Pass script flags through `OPERATOR_UI_SMOKE_ARGS`, for example `make ui-smoke OPERATOR_UI_SMOKE_ARGS="--skip-build"`.
 
 If a local UI or smoke session gets interrupted and leaves repo-local helper state behind, run:
 

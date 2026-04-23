@@ -5,6 +5,7 @@ ACT_JOB ?= rust
 COMPOSE := docker compose --env-file deploy/compose/.env.example -f deploy/compose/compose.yaml
 LITELLM_SMOKE_ARGS ?=
 OPERATOR_UI_ARGS ?=
+OPERATOR_UI_SMOKE_ARGS ?=
 SMOKE_SCENARIO ?= all
 UI_PORT ?= 8080
 
@@ -77,6 +78,10 @@ compose-down: ## Stop the full local compose stack without deleting volumes.
 .PHONY: ui
 ui: ## Start the host-run operator UI; override UI_PORT and OPERATOR_UI_ARGS as needed.
 	./scripts/run-operator-ui.sh --http-port "$(UI_PORT)" $(OPERATOR_UI_ARGS)
+
+.PHONY: ui-smoke
+ui-smoke: ## Run browser-level operator UI smoke against seeded MVP run data.
+	./scripts/operator-ui-smoke.sh $(OPERATOR_UI_SMOKE_ARGS)
 
 .PHONY: cleanup
 cleanup: ## Stop repo-local helper sessions and disposable smoke/UI databases.
