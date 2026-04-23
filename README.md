@@ -104,12 +104,17 @@ To bootstrap a local allowlist from the GitHub repository metadata without
 pushing branches or opening PRs, run:
 
 ```bash
-make repository-targets-init REPOSITORY=<OWNER>/<REPO> REPOSITORY_TARGET_ID=<TARGET_ID>
-export CATALYST_REPOSITORY_TARGETS_FILE="$PWD/config/repository-targets.local.yaml"
-make doctor DOCTOR_ARGS="--no-live"
+make repository-targets-bootstrap REPOSITORY=<OWNER>/<REPO> REPOSITORY_TARGET_ID=<TARGET_ID>
 ```
 
 When you run it inside the target repository itself, `REPOSITORY=<OWNER>/<REPO>` is optional because the helper can fall back to `gh repo view` for the current checkout.
+The bootstrap helper writes `config/repository-targets.local.yaml`, runs `doctor`
+with that allowlist enabled, runs the non-mutating GitHub repo preflight, and
+prints the exact `export CATALYST_REPOSITORY_TARGETS_FILE=...` line you should
+run in your current shell before launching the UI or draft-PR flows. The
+individual `make repository-targets-init`, `make doctor`, and
+`make github-repo-preflight` steps still stay available when you want tighter
+control over each stage.
 
 The generated `config/repository-targets.local.yaml` is git-ignored on purpose
 because private deployments can carry private repository names and remotes.
@@ -210,7 +215,7 @@ make ui
 make ui-smoke
 make cleanup
 make act-rust
-make repository-targets-init REPOSITORY=<OWNER>/<REPO>
+make repository-targets-bootstrap REPOSITORY=<OWNER>/<REPO>
 ```
 
 Use `make doctor` for a fast local readiness preflight across required tools,

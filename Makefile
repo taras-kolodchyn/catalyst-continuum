@@ -9,7 +9,10 @@ OPERATOR_UI_ARGS ?=
 OPERATOR_UI_SMOKE_ARGS ?=
 OPERATOR_UI_REPOSITORY_TARGETS_FILE ?=
 REPOSITORY ?=
+REPOSITORY_ALLOW_READONLY ?=
 REPOSITORY_DEFAULT_BRANCH ?=
+REPOSITORY_BOOTSTRAP_ARGS ?=
+REPOSITORY_JSON ?=
 REPOSITORY_TARGET_ID ?=
 REPOSITORY_TARGETS_FILE ?= config/repository-targets.local.yaml
 REPOSITORY_TARGETS_FORCE ?=
@@ -101,11 +104,15 @@ cleanup: ## Stop repo-local helper sessions and disposable smoke/UI databases.
 
 .PHONY: github-repo-preflight
 github-repo-preflight: ## Check gh access and permissions for REPOSITORY=owner/repo before real PR publication.
-	./scripts/github-repo-preflight.sh $(if $(REPOSITORY),"$(REPOSITORY)") $(if $(REPOSITORY_DEFAULT_BRANCH),--default-branch "$(REPOSITORY_DEFAULT_BRANCH)")
+	./scripts/github-repo-preflight.sh $(if $(REPOSITORY),"$(REPOSITORY)") $(if $(REPOSITORY_DEFAULT_BRANCH),--default-branch "$(REPOSITORY_DEFAULT_BRANCH)") $(if $(REPOSITORY_ALLOW_READONLY),--allow-readonly) $(if $(REPOSITORY_JSON),--repo-json "$(REPOSITORY_JSON)")
 
 .PHONY: repository-targets-init
 repository-targets-init: ## Generate a local repository-target allowlist for REPOSITORY=owner/repo.
-	./scripts/init-repository-targets.sh $(if $(REPOSITORY),"$(REPOSITORY)") --output "$(REPOSITORY_TARGETS_FILE)" --branch-prefix "$(REPOSITORY_BRANCH_PREFIX)" $(if $(REPOSITORY_TARGET_ID),--target-id "$(REPOSITORY_TARGET_ID)") $(if $(REPOSITORY_TARGETS_FORCE),--force)
+	./scripts/init-repository-targets.sh $(if $(REPOSITORY),"$(REPOSITORY)") --output "$(REPOSITORY_TARGETS_FILE)" --branch-prefix "$(REPOSITORY_BRANCH_PREFIX)" $(if $(REPOSITORY_TARGET_ID),--target-id "$(REPOSITORY_TARGET_ID)") $(if $(REPOSITORY_TARGETS_FORCE),--force) $(if $(REPOSITORY_ALLOW_READONLY),--allow-readonly) $(if $(REPOSITORY_JSON),--repo-json "$(REPOSITORY_JSON)")
+
+.PHONY: repository-targets-bootstrap
+repository-targets-bootstrap: ## Bootstrap a local repository-target allowlist plus doctor/preflight in one step.
+	./scripts/bootstrap-repository-target.sh $(if $(REPOSITORY),"$(REPOSITORY)") --output "$(REPOSITORY_TARGETS_FILE)" --branch-prefix "$(REPOSITORY_BRANCH_PREFIX)" $(if $(REPOSITORY_TARGET_ID),--target-id "$(REPOSITORY_TARGET_ID)") $(if $(REPOSITORY_TARGETS_FORCE),--force) $(if $(REPOSITORY_ALLOW_READONLY),--allow-readonly) $(if $(REPOSITORY_JSON),--repo-json "$(REPOSITORY_JSON)") $(REPOSITORY_BOOTSTRAP_ARGS)
 
 .PHONY: smoke
 smoke: ## Run CI smoke tests; override SMOKE_SCENARIO for one scenario.

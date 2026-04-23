@@ -88,7 +88,7 @@ Before delivering, run the smallest meaningful validation set that proves the ch
 - Prefer the checked-in `Makefile` for common local entrypoints such as `make check`, `make ci`, `make ui`, `make cleanup`, and `make act-rust`, but keep the underlying `./scripts/*` helpers as the source of truth. When a standard workflow changes, update the script, Make target, and docs together.
 - `./scripts/check-versions.sh` for version pins, workflow pins, image refs, and shared version metadata
 - `./scripts/doctor.sh` for fast local prerequisite, config, repository-target policy, and optional live-service readiness checks
-- `./scripts/init-repository-targets.sh --repo-json <fixture>` for offline validation when repository-target bootstrap behavior changes; do not require real GitHub mutation for this path
+- `./scripts/init-repository-targets.sh --repo-json <fixture>` and `./scripts/github-repo-preflight.sh --repo-json <fixture>` for offline validation when repository-target bootstrap behavior changes; use `./scripts/bootstrap-repository-target.sh --repo-json <fixture> --skip-doctor` when you need to prove the full wrapper path without depending on live GitHub metadata or local service state
 - `./scripts/lint-shell.sh` for shell scripts and workflow helper changes
 - `./scripts/ci-rust.sh` for Rust logic, CLI commands, HTTP routes, MCP handlers, storage, and tests
 - `./scripts/ci-compose.sh` for compose or deployment changes

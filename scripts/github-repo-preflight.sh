@@ -7,16 +7,22 @@ cd "$ROOT_DIR"
 REPOSITORY=""
 EXPECTED_BRANCH=""
 REQUIRE_WRITE="true"
+REPO_JSON_FILE=""
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/github-repo-preflight.sh [OWNER/REPO] [--default-branch BRANCH] [--allow-readonly]
+Usage: ./scripts/github-repo-preflight.sh [OWNER/REPO] [--default-branch BRANCH] [--allow-readonly] [--repo-json PATH]
 
 Validate that the local GitHub CLI session can see a real target repository
 before Catalyst Continuum publishes generated branches or draft pull requests.
 
 The check is intentionally non-mutating. It does not push branches or create PRs.
 When OWNER/REPO is omitted, gh resolves the current repository checkout.
+
+Options:
+  --default-branch BRANCH  Require the repository to use the expected default branch
+  --allow-readonly         Allow read-only gh sessions for inspection-only checks
+  --repo-json PATH         Read gh repo JSON from a file instead of calling gh; use - for stdin
 EOF
 }
 
@@ -33,6 +39,10 @@ while [ "$#" -gt 0 ]; do
     --allow-readonly)
       REQUIRE_WRITE="false"
       shift
+      ;;
+    --repo-json)
+      REPO_JSON_FILE="${2:?missing value for --repo-json}"
+      shift 2
       ;;
     -h|--help)
       usage
@@ -54,22 +64,33 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-if ! command -v gh >/dev/null 2>&1; then
-  echo "gh is required for real repository preflight" >&2
-  exit 1
-fi
-
 if ! command -v python3 >/dev/null 2>&1; then
   echo "python3 is required for real repository preflight" >&2
   exit 1
 fi
 
-gh auth status >/dev/null
+if [ -z "$REPO_JSON_FILE" ]; then
+  if ! command -v gh >/dev/null 2>&1; then
+    echo "gh is required unless --repo-json is provided" >&2
+    exit 1
+  fi
 
-if [ -n "$REPOSITORY" ]; then
-  repo_json="$(gh repo view "$REPOSITORY" --json nameWithOwner,defaultBranchRef,isPrivate,viewerPermission)"
+  gh auth status -h github.com >/dev/null
+
+  if [ -n "$REPOSITORY" ]; then
+    repo_json="$(gh repo view "$REPOSITORY" --json nameWithOwner,defaultBranchRef,isPrivate,viewerPermission)"
+  else
+    repo_json="$(gh repo view --json nameWithOwner,defaultBranchRef,isPrivate,viewerPermission)"
+  fi
 else
-  repo_json="$(gh repo view --json nameWithOwner,defaultBranchRef,isPrivate,viewerPermission)"
+  if [ "$REPO_JSON_FILE" = "-" ]; then
+    repo_json="$(cat)"
+  elif [ ! -r "$REPO_JSON_FILE" ]; then
+    echo "repo JSON file not found: $REPO_JSON_FILE" >&2
+    exit 1
+  else
+    repo_json="$(cat "$REPO_JSON_FILE")"
+  fi
 fi
 
 python3 - "$repo_json" "$EXPECTED_BRANCH" "$REQUIRE_WRITE" <<'PY'
