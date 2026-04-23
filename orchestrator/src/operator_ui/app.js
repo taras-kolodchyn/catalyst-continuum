@@ -1560,7 +1560,7 @@ function repositoryTargetGuardSummary(runDetail) {
       tone: "neutral",
       title: "No repository metadata",
       detail:
-        "This run has no repository metadata yet, so real GitHub publication cannot resolve an allowlisted target.",
+        "This run has no repository metadata yet, so real GitHub publication cannot resolve an allowlisted target. PR export can still stay local until a matching repository target exists.",
     };
   }
 
@@ -1588,7 +1588,7 @@ function repositoryTargetGuardSummary(runDetail) {
       tone: "warning",
       title: "Multiple matching targets",
       detail:
-        `${repository} matches ${matchingTargets.length} allowlist entries, so choose one repository target before export, publish, or draft PR.`,
+        `${repository} matches ${matchingTargets.length} allowlist entries, so choose one repository target before remote publication or draft PR.`,
     };
   }
 
@@ -1596,7 +1596,7 @@ function repositoryTargetGuardSummary(runDetail) {
     tone: "error",
     title: "No matching repository target",
     detail:
-      `${repository} is outside the active allowlist, so export, publish, and draft PR stay blocked until repository targets are updated.`,
+      `${repository} is outside the active allowlist, so PR export can still create a local promotion artifact, but publish and draft PR stay blocked until repository targets are updated.`,
   };
 }
 
@@ -1847,11 +1847,11 @@ function renderRunActionDraftHint(runDetail) {
     );
   } else if (enforcementEnabled && matchingTargets.length > 1) {
     messages.push(
-      "Multiple repository targets match this run; choose one before export, publish, or draft PR."
+      "Multiple repository targets match this run; choose one before remote publication or draft PR. PR export can still stay local."
     );
   } else if (enforcementEnabled) {
     messages.push(
-      "No matching repository target exists for this run; export, publish, and draft PR will stay blocked until the allowlist is updated."
+      "No matching repository target exists for this run; PR export can still stay local, but publish and draft PR will stay blocked until the allowlist is updated."
     );
   } else {
     messages.push(
@@ -6673,6 +6673,9 @@ function buildRunGuide(runDetail, events) {
   const githubPrReady =
     artifactTypes.has(GITHUB_PULL_REQUEST_ARTIFACT_TYPE) ||
     eventTypes.has(GITHUB_PR_OPENED_EVENT_TYPE);
+  const availability = runActionAvailability(runDetail);
+  const remotePublicationBlocked =
+    !availability["publish-pr"].enabled && !availability["draft-pr"].enabled;
 
   const stages = [
     {
@@ -6735,11 +6738,17 @@ function buildRunGuide(runDetail, events) {
         : githubPrReady
           ? "The draft PR already exists. Remaining approval now continues in GitHub review."
           : publicationReady
-            ? "Branch publication is complete. Open or reuse the draft PR when you want review to start."
+            ? availability["draft-pr"].enabled
+              ? "Branch publication is complete. Open or reuse the draft PR when you want review to start."
+              : "Branch publication is complete, but repository-target policy blocks the draft PR handoff until this run matches an allowlisted publication target."
             : prExportReady
-              ? "The exported PR bundle is ready. Publish it or create the draft PR for GitHub review."
+              ? remotePublicationBlocked
+                ? "The exported PR bundle is ready locally, but repository-target policy blocks remote publication and draft PR until this run matches an allowlisted publication target."
+                : "The exported PR bundle is ready. Publish it or create the draft PR for GitHub review."
               : qualityReady && prCandidateReady
-                ? "The run is promotable. Export or draft the PR when you are ready for remote handoff."
+                ? remotePublicationBlocked
+                  ? "The run is promotable. Export can still create the local PR bundle, but repository-target policy blocks remote publication and draft PR until this run matches an allowlisted publication target."
+                  : "The run is promotable. Export or draft the PR when you are ready for remote handoff."
                 : "PR promotion stays locked until execution succeeds and quality is evaluated.",
     },
   ];
@@ -6751,6 +6760,7 @@ function buildRunGuide(runDetail, events) {
     stages[stages.length - 1];
 
   const nextAction = recommendedRunAction({
+    availability,
     executionBlocked,
     executionComplete,
     githubPrReady,
@@ -6768,6 +6778,7 @@ function buildRunGuide(runDetail, events) {
     badgeTone: nextAction.badgeTone,
     badgeLabel: nextAction.badgeLabel,
     headline: guideHeadline({
+      availability,
       executionBlocked,
       executionComplete,
       githubPrReady,
@@ -6785,6 +6796,7 @@ function buildRunGuide(runDetail, events) {
     currentStageDetail: currentStage.detail,
     progressSummary: `${completedStageCount} of ${stages.length} stages complete`,
     blockerDetail: guideBlockerDetail({
+      availability,
       executionBlocked,
       executionComplete,
       githubPrReady,
@@ -6883,6 +6895,17 @@ function recommendedRunAction(context) {
   }
 
   if (context.publicationReady) {
+    if (!context.availability["draft-pr"].enabled) {
+      return {
+        badgeTone: "error",
+        badgeLabel: "Policy",
+        title: "Review repository guard",
+        detail:
+          "Branch publication is already complete, but repository-target policy still blocks the draft PR handoff. Fix the allowlist before GitHub review can start.",
+        controlActionId: null,
+      };
+    }
+
     return {
       badgeTone: "warning",
       badgeLabel: "Draft PR",
@@ -6894,6 +6917,17 @@ function recommendedRunAction(context) {
   }
 
   if (context.prExportReady) {
+    if (!context.availability["publish-pr"].enabled && !context.availability["draft-pr"].enabled) {
+      return {
+        badgeTone: "error",
+        badgeLabel: "Policy",
+        title: "Review repository guard",
+        detail:
+          "The local PR export already exists, but repository-target policy blocks remote publication and draft PR. Fix the allowlist before GitHub handoff can continue.",
+        controlActionId: null,
+      };
+    }
+
     return {
       badgeTone: "warning",
       badgeLabel: "Publish",
@@ -6905,6 +6939,17 @@ function recommendedRunAction(context) {
   }
 
   if (context.qualityReady && context.prCandidateReady) {
+    if (!context.availability["publish-pr"].enabled && !context.availability["draft-pr"].enabled) {
+      return {
+        badgeTone: "warning",
+        badgeLabel: "Promote",
+        title: "Export PR candidate",
+        detail:
+          "The run is promotable. Export the PR candidate next to persist the local promotion artifact, but remote publication and draft PR will stay blocked until the repository-target allowlist matches this run.",
+        controlActionId: "export-pr",
+      };
+    }
+
     return {
       badgeTone: "warning",
       badgeLabel: "Promote",
@@ -6953,10 +6998,19 @@ function guideHeadline(context) {
     return "Task execution is complete, and the next control-plane decision is the quality gate.";
   }
   if (context.publicationReady) {
+    if (!context.availability["draft-pr"].enabled) {
+      return "Branch publication is complete, but repository-target policy is still blocking the draft PR handoff.";
+    }
     return "The branch is already published. The remaining orchestrator handoff is the GitHub draft PR.";
   }
   if (context.prExportReady) {
+    if (!context.availability["publish-pr"].enabled && !context.availability["draft-pr"].enabled) {
+      return "This run already has a local PR export bundle, but repository-target policy is blocking the remote GitHub handoff.";
+    }
     return "This run already has an export bundle and is waiting for remote publication or direct draft PR creation.";
+  }
+  if (context.qualityReady && !context.availability["publish-pr"].enabled && !context.availability["draft-pr"].enabled) {
+    return "The run is promotable locally, but repository-target policy is still blocking the remote GitHub handoff.";
   }
   if (context.qualityReady) {
     return "The run is promotable and the control plane can now prepare the remote PR handoff.";
@@ -6982,10 +7036,20 @@ function guideBlockerDetail(context) {
     return "Promotion is still blocked because no pr_candidate artifact is available for this run.";
   }
   if (!context.prExportReady) {
+    if (!context.availability["publish-pr"].enabled && !context.availability["draft-pr"].enabled) {
+      return "Remote GitHub handoff is blocked by repository-target policy; export remains the safe next step until the allowlist matches this run.";
+    }
     return "Remote branch publication stays blocked until the PR candidate is exported.";
   }
   if (!context.publicationReady) {
+    if (!context.availability["publish-pr"].enabled && !context.availability["draft-pr"].enabled) {
+      return "GitHub review cannot start until repository-target policy allows publication or draft PR creation for this run.";
+    }
     return "GitHub review does not start until the export is published or the draft-PR flow runs.";
+  }
+
+  if (!context.availability["draft-pr"].enabled) {
+    return "GitHub review cannot start until repository-target policy allows the draft PR handoff for this run.";
   }
 
   return "The remaining approval boundary is GitHub review, not another hidden orchestrator step.";
@@ -8576,6 +8640,45 @@ function enabledRunAction() {
   };
 }
 
+function remotePublicationAvailability(runDetail, actionLabel) {
+  if (!runDetail) {
+    return disabledRunAction("Select a run to use operator actions.");
+  }
+
+  const enforcementEnabled = repositoryTargetsConfig().enforcement_enabled === true;
+  if (!enforcementEnabled) {
+    return enabledRunAction();
+  }
+
+  const repository = repositoryLabel(runDetail);
+  if (!repository) {
+    return disabledRunAction(
+      `${actionLabel} is blocked because this run has no repository metadata. PR export can still create a local promotion artifact.`
+    );
+  }
+
+  const matchingTargets = matchingRepositoryTargetsForRun(runDetail);
+  const draft = runActionDraftForRun(runDetail);
+  const selectedTarget = draft.repositoryTargetId
+    ? repositoryTargetById(draft.repositoryTargetId)
+    : null;
+  const selectedTargetMatches = repositoryTargetMatchesRun(selectedTarget, runDetail);
+
+  if (selectedTargetMatches || matchingTargets.length === 1) {
+    return enabledRunAction();
+  }
+
+  if (matchingTargets.length > 1) {
+    return disabledRunAction(
+      `${actionLabel} is blocked until you choose one matching repository target for ${repository}. PR export can still create a local promotion artifact.`
+    );
+  }
+
+  return disabledRunAction(
+    `${actionLabel} is blocked by repository-target policy for ${repository}. PR export can still create a local promotion artifact until the allowlist is updated.`
+  );
+}
+
 function runArtifactTypes(runDetail) {
   return new Set(runArtifacts(runDetail).map((artifact) => artifact.artifact_type));
 }
@@ -8684,6 +8787,8 @@ function runActionAvailability(runDetail) {
 
   const queuedTaskCount = Number(runDetail.task_counts?.queued ?? 0);
   const artifactTypes = runArtifactTypes(runDetail);
+  const remotePublication = remotePublicationAvailability(runDetail, "Remote publication");
+  const draftPrHandoff = remotePublicationAvailability(runDetail, "Draft PR handoff");
 
   return {
     "tasks-next":
@@ -8706,8 +8811,19 @@ function runActionAvailability(runDetail) {
           ? disabledRunAction(
               "PR publication requires a pr_export artifact. Export the PR candidate first."
             )
-          : enabledRunAction(),
-    "draft-pr": prCandidateAvailability(runDetail, artifactTypes, "Draft PR creation"),
+          : !remotePublication.enabled
+            ? disabledRunAction(remotePublication.reason)
+            : enabledRunAction(),
+    "draft-pr": (() => {
+      const availability = prCandidateAvailability(runDetail, artifactTypes, "Draft PR creation");
+      if (!availability.enabled) {
+        return availability;
+      }
+      if (!draftPrHandoff.enabled) {
+        return disabledRunAction(draftPrHandoff.reason);
+      }
+      return enabledRunAction();
+    })(),
   };
 }
 
@@ -8761,11 +8877,21 @@ function runActionHintText(runDetail, availability) {
   }
 
   if (prPublicationReady) {
+    if (!availability["draft-pr"].enabled) {
+      return availability["draft-pr"].reason || "Draft PR handoff is blocked by repository-target policy.";
+    }
     return "Branch publication is done. Create the draft PR next when you want GitHub review to start.";
   }
 
   if (!artifactTypes.has(PR_EXPORT_ARTIFACT_TYPE)) {
+    if (!availability["publish-pr"].enabled && !availability["draft-pr"].enabled) {
+      return "Quality is available. Export the PR candidate next if you want a local promotion artifact, but repository-target policy still blocks remote publication and draft PR for this run.";
+    }
     return "Quality is available. Export the PR candidate next, or use Create draft PR for the full GitHub handoff.";
+  }
+
+  if (!availability["publish-pr"].enabled && !availability["draft-pr"].enabled) {
+    return availability["publish-pr"].reason || availability["draft-pr"].reason || "Remote GitHub handoff is blocked by repository-target policy.";
   }
 
   if (!availability["publish-pr"].enabled) {

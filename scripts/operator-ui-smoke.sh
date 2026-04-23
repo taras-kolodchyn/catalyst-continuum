@@ -28,6 +28,9 @@ Options:
                          (default: .continuum/operator-ui-smoke)
   --repository-targets-file PATH
                         Optional repository target allowlist to expose in the UI
+  --expect-remote-publication-blocked
+                        Assert the selected run keeps PR export local-only while
+                        publish and draft PR stay disabled by repository policy
   --skip-build          Reuse the existing debug binary
   --help                Show this help text
 EOF
@@ -195,6 +198,8 @@ const expectRepositoryBootstrapGuidance =
   process.env.OPERATOR_UI_EXPECT_REPOSITORY_BOOTSTRAP_GUIDANCE !== "0";
 const expectRepositoryTargetPolicy =
   process.env.OPERATOR_UI_EXPECT_REPOSITORY_TARGET_POLICY === "1";
+const expectRemotePublicationBlocked =
+  process.env.OPERATOR_UI_EXPECT_REMOTE_PUBLICATION_BLOCKED === "1";
 const summaryPath = path.join(outDir, "operator-ui-browser-summary.json");
 const screenshotPath = path.join(outDir, "operator-ui-browser.png");
 
@@ -274,6 +279,17 @@ async function main() {
   const summary = await page.evaluate(() => {
     const text = (selector) => document.querySelector(selector)?.textContent?.trim() || "";
     const count = (selector) => document.querySelectorAll(selector).length;
+    const runActionButtons = (actionId) =>
+      Array.from(document.querySelectorAll(`[data-run-action="${actionId}"]`));
+    const buttonStats = (actionId) => {
+      const buttons = runActionButtons(actionId);
+      return {
+        count: buttons.length,
+        enabledCount: buttons.filter((button) => !button.disabled).length,
+        disabledCount: buttons.filter((button) => button.disabled).length,
+      };
+    };
+
     return {
       title: document.title,
       heroHeading: document.querySelector("h1")?.textContent?.trim() || "",
@@ -296,6 +312,13 @@ async function main() {
         document.body.textContent.includes("Matching target") ||
         document.body.textContent.includes("No matching repository target") ||
         document.body.textContent.includes("Multiple matching targets"),
+      bodyTextIncludesLocalOnlyPromotionState:
+        document.body.textContent.includes("local promotion artifact") ||
+        document.body.textContent.includes("local PR bundle"),
+      runActionHint: text("#runActionHint"),
+      exportPrButtons: buttonStats("export-pr"),
+      publishPrButtons: buttonStats("publish-pr"),
+      draftPrButtons: buttonStats("draft-pr"),
     };
   });
 
@@ -354,6 +377,28 @@ async function main() {
   }
   if (expectRepositoryTargetPolicy && !summary.bodyTextIncludesRepositoryTargetPolicyState) {
     problems.push("run-level repository-target policy state is missing from the UI");
+  }
+  if (expectRemotePublicationBlocked) {
+    if (summary.exportPrButtons.count < 1 || summary.exportPrButtons.enabledCount < 1) {
+      problems.push("expected export-pr to stay enabled for local-only promotion");
+    }
+    if (
+      summary.publishPrButtons.count < 1 ||
+      summary.publishPrButtons.enabledCount !== 0 ||
+      summary.publishPrButtons.disabledCount !== summary.publishPrButtons.count
+    ) {
+      problems.push("expected publish-pr to stay disabled under repository-target policy");
+    }
+    if (
+      summary.draftPrButtons.count < 1 ||
+      summary.draftPrButtons.enabledCount !== 0 ||
+      summary.draftPrButtons.disabledCount !== summary.draftPrButtons.count
+    ) {
+      problems.push("expected draft-pr to stay disabled under repository-target policy");
+    }
+    if (!summary.bodyTextIncludesLocalOnlyPromotionState) {
+      problems.push("expected local-only promotion guidance in the UI");
+    }
   }
   if (result.unexpectedLoadEvents !== 0) {
     problems.push(`unexpected load events ${result.unexpectedLoadEvents}`);
@@ -414,6 +459,7 @@ HTTP_PORT="${OPERATOR_UI_SMOKE_HTTP_PORT:-}"
 POSTGRES_PORT="${OPERATOR_UI_SMOKE_POSTGRES_PORT:-}"
 OUTPUT_ROOT="${OPERATOR_UI_SMOKE_OUTPUT_ROOT:-$ROOT_DIR/.continuum/operator-ui-smoke}"
 REPOSITORY_TARGETS_FILE="${OPERATOR_UI_SMOKE_REPOSITORY_TARGETS_FILE:-}"
+EXPECT_REMOTE_PUBLICATION_BLOCKED=0
 SKIP_BUILD=0
 
 while [ "$#" -gt 0 ]; do
@@ -437,6 +483,10 @@ while [ "$#" -gt 0 ]; do
     --repository-targets-file)
       REPOSITORY_TARGETS_FILE="${2:?missing value for --repository-targets-file}"
       shift 2
+      ;;
+    --expect-remote-publication-blocked)
+      EXPECT_REMOTE_PUBLICATION_BLOCKED=1
+      shift
       ;;
     --skip-build)
       SKIP_BUILD=1
@@ -561,6 +611,7 @@ OPERATOR_UI_SMOKE_OUTPUT_DIR="$OUTPUT_DIR" \
 OPERATOR_UI_SMOKE_URL="http://127.0.0.1:${HTTP_PORT}/ui" \
 OPERATOR_UI_EXPECT_REPOSITORY_BOOTSTRAP_GUIDANCE="$EXPECT_REPOSITORY_BOOTSTRAP_GUIDANCE" \
 OPERATOR_UI_EXPECT_REPOSITORY_TARGET_POLICY="${REPOSITORY_TARGETS_FILE:+1}" \
+OPERATOR_UI_EXPECT_REMOTE_PUBLICATION_BLOCKED="$EXPECT_REMOTE_PUBLICATION_BLOCKED" \
   node "$BROWSER_CHECK_FILE"
 
 log_phase "summary: $OUTPUT_DIR/operator-ui-browser-summary.json"

@@ -1,0 +1,8 @@
+targets:
+  - target_id: demo-unmatched-cli-tool
+    host: github
+    owner: smartit
+    name: catalyst-continuum-cli-demo-unmatched
+    default_branch: main
+    enabled: true
+    branch_prefix: continuum/
