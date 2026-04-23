@@ -7,6 +7,7 @@ pub fn execute(args: DescribeInstanceConfigArgs) -> anyhow::Result<()> {
         args.runtime_providers_file.as_deref(),
         args.mcp_servers_file.as_deref(),
         args.ai_gateway_file.as_deref(),
+        args.repository_targets_file.as_deref(),
     )?;
 
     if args.json {
@@ -213,6 +214,54 @@ fn render_text(report: &InstanceConfigReport) -> anyhow::Result<String> {
 
     writeln!(
         &mut output,
+        "repository_targets_source_path: {}",
+        report
+            .repository_targets
+            .source_path
+            .as_deref()
+            .unwrap_or("default_unrestricted")
+    )
+    .context("failed to render instance config")?;
+    writeln!(
+        &mut output,
+        "repository_targets_enforcement_enabled: {}",
+        yes_no(report.repository_targets.enforcement_enabled)
+    )
+    .context("failed to render instance config")?;
+    writeln!(
+        &mut output,
+        "repository_target_count: {}",
+        report.repository_targets.targets.len()
+    )
+    .context("failed to render instance config")?;
+    for target in &report.repository_targets.targets {
+        writeln!(&mut output, "repository_target:").context("failed to render instance config")?;
+        writeln!(&mut output, "  target_id: {}", target.target_id)
+            .context("failed to render instance config")?;
+        writeln!(&mut output, "  host: {}", target.host)
+            .context("failed to render instance config")?;
+        writeln!(
+            &mut output,
+            "  repository: {}/{}",
+            target.owner, target.name
+        )
+        .context("failed to render instance config")?;
+        writeln!(&mut output, "  default_branch: {}", target.default_branch)
+            .context("failed to render instance config")?;
+        writeln!(&mut output, "  enabled: {}", yes_no(target.enabled))
+            .context("failed to render instance config")?;
+        writeln!(&mut output, "  branch_prefix: {}", target.branch_prefix)
+            .context("failed to render instance config")?;
+        writeln!(
+            &mut output,
+            "  allowed_remote_urls: {}",
+            target.effective_allowed_remote_urls().join(", ")
+        )
+        .context("failed to render instance config")?;
+    }
+
+    writeln!(
+        &mut output,
         "github_app_ready: {}",
         yes_no(report.github_app.ready)
     )
@@ -285,8 +334,9 @@ mod tests {
         AiGatewayCapabilityConfig, AiGatewayConfig, AiGatewayDefaultModelAliases,
         DockerRuntimeProviderConfig, ExternalMcpClientLaunchConfig, ExternalMcpServerConfig,
         ExternalMcpServersConfig, GitHubAppConfig, InstanceConfigReport,
-        KubernetesRuntimeProviderConfig, ProxmoxRuntimeProviderConfig, RuntimeProviderSet,
-        RuntimeProviderStatus, RuntimeProvidersConfig,
+        KubernetesRuntimeProviderConfig, ProxmoxRuntimeProviderConfig, RepositoryTargetsConfig,
+        RuntimeProviderSet, RuntimeProviderStatus, RuntimeProvidersConfig,
+        repository_targets::RepositoryTargetConfig,
     };
     use std::collections::BTreeMap;
 
@@ -384,6 +434,20 @@ mod tests {
                     },
                 ],
             },
+            repository_targets: RepositoryTargetsConfig {
+                source_path: Some("/tmp/repository-targets.yaml".to_string()),
+                enforcement_enabled: true,
+                targets: vec![RepositoryTargetConfig {
+                    target_id: "demo".to_string(),
+                    host: "github".to_string(),
+                    owner: "smartit".to_string(),
+                    name: "catalyst-continuum-demo".to_string(),
+                    default_branch: "main".to_string(),
+                    enabled: true,
+                    branch_prefix: "continuum/".to_string(),
+                    allowed_remote_urls: Vec::new(),
+                }],
+            },
             github_app: GitHubAppConfig {
                 app_id: Some(123),
                 installation_id: Some(456),
@@ -416,6 +480,12 @@ mod tests {
         assert!(rendered.contains("ai_gateway_capability_count: 2"));
         assert!(rendered.contains("capability: chat_completions"));
         assert!(rendered.contains("capability: search"));
+        assert!(rendered.contains("repository_targets_source_path: /tmp/repository-targets.yaml"));
+        assert!(rendered.contains("repository_targets_enforcement_enabled: yes"));
+        assert!(rendered.contains("repository_target_count: 1"));
+        assert!(rendered.contains("target_id: demo"));
+        assert!(rendered.contains("repository: smartit/catalyst-continuum-demo"));
+        assert!(rendered.contains("branch_prefix: continuum/"));
         assert!(rendered.contains("server_id: fetch"));
         assert!(rendered.contains("allowed_agents: openhands, codex"));
         assert!(rendered.contains("client: openhands"));

@@ -133,6 +133,7 @@ If full `act` execution is blocked by an upstream Apple Silicon `rustc` or `qemu
 - Do not duplicate business logic independently across CLI, HTTP, and MCP.
 - Do not weaken auditability. New control-plane behavior should leave inspectable state, artifacts, or telemetry when appropriate.
 - Do not bypass policy and quality gates for promotion flows.
+- For real GitHub publication, keep repository-target enforcement intact. If `CATALYST_REPOSITORY_TARGETS_FILE` is configured, promotion code must reject repositories, remotes, base branches, and head branch prefixes outside that allowlist instead of treating arbitrary operator input as trusted.
 - Do not introduce long-lived secrets, persistent host access, or looser sandbox assumptions into task execution paths.
 - Do not regress observability. Changes to orchestration, runtime execution, webhook intake, or promotion paths should preserve or improve logs, metrics, and traces.
 

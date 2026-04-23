@@ -48,6 +48,7 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
         args.runtime_providers_file.as_deref(),
         args.mcp_servers_file.as_deref(),
         args.ai_gateway_file.as_deref(),
+        args.repository_targets_file.as_deref(),
     )?;
     let runtime_registry =
         RuntimeRegistry::from_runtime_providers_config(&instance_config.runtime_providers);

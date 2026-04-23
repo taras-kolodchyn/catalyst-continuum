@@ -125,6 +125,9 @@ pub struct ServeArgs {
 
     #[arg(long, env = "CATALYST_AI_GATEWAY_FILE")]
     pub ai_gateway_file: Option<PathBuf>,
+
+    #[arg(long)]
+    pub repository_targets_file: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -147,6 +150,9 @@ pub struct McpServerArgs {
 
     #[arg(long, env = "CATALYST_AI_GATEWAY_FILE")]
     pub ai_gateway_file: Option<PathBuf>,
+
+    #[arg(long)]
+    pub repository_targets_file: Option<PathBuf>,
 
     #[arg(long, env = "CATALYST_MCP_TOOL_ALLOWLIST", value_delimiter = ',')]
     pub tool_allowlist: Vec<String>,
@@ -278,6 +284,9 @@ pub struct DescribeInstanceConfigArgs {
 
     #[arg(long, env = "CATALYST_AI_GATEWAY_FILE")]
     pub ai_gateway_file: Option<PathBuf>,
+
+    #[arg(long)]
+    pub repository_targets_file: Option<PathBuf>,
 
     #[arg(long)]
     pub json: bool,

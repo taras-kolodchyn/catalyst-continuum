@@ -10,6 +10,7 @@ use serde_json::json;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
+use crate::config::load_repository_targets_from_env;
 use crate::models::{
     artifact::{ArtifactDraft, ArtifactSummary},
     run::RunContext,
@@ -103,6 +104,15 @@ pub fn publish_pr_export(
     let head_branch = export_manifest.branch_name.clone();
     let title = build_pull_request_title(run);
     let body = build_pull_request_body(run, &candidate_manifest, &head_branch, &base_branch);
+    let repository_targets = load_repository_targets_from_env()?;
+    repository_targets.validate_publication_target(
+        &repository_host,
+        &repository_owner,
+        &repository_name,
+        &base_branch,
+        &head_branch,
+        &remote_url,
+    )?;
 
     ensure!(
         export_manifest.source_quality_report_artifact_id == source_quality_report_artifact_id,

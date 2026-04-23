@@ -20,6 +20,7 @@ choices into the open-source root.
 - `config/runtime-providers.yaml` for Docker, Proxmox, and Kubernetes placeholders
 - `config/mcp-servers.yaml` for the instance-level external MCP allowlist
 - `config/ai-gateway.yaml` for the LiteLLM AI edge-gateway contract
+- `config/repository-targets.yaml` for the instance-level real GitHub repository publication allowlist
 - `config/agent-launchers.toml` for pinned OpenHands launch profiles
 - `deploy/compose/.env.example` for private compose overlays
 - `deploy/compose/litellm-config.yaml` for private LiteLLM model alias wiring
@@ -44,4 +45,8 @@ choices into the open-source root.
   advance one pending webhook action and materialize the freshest matching
   repository signal into a run without bypassing the same audit trail and gate
   checks used by the lower-level commands.
+- Real repository publication should set `CATALYST_REPOSITORY_TARGETS_FILE` to
+  `config/repository-targets.yaml` in the running instance. When enabled, the
+  orchestrator rejects draft-PR publication to repositories, remotes, base
+  branches, or branch prefixes that are not explicitly declared in that file.
 - Keep secrets and private keys out of git history even in the private template repo.

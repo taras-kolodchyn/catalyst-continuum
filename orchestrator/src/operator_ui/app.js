@@ -1682,11 +1682,13 @@ function renderStatusGrid(payload) {
   const externalServers = Array.isArray(config.external_mcp_servers?.servers)
     ? config.external_mcp_servers.servers
     : [];
+  const repositoryTargets = config.repository_targets ?? {};
   const githubApp = config.github_app ?? {};
   const capabilityCards = [
     renderStatusCard(briefRunCapabilityCard(payload.readyz?.ok, packs.pack_count ?? 0)),
     renderStatusCard(runtimeExecutionCapabilityCard(enabledRuntimeCount, runtimeStatuses)),
     renderStatusCard(modelGatewayCapabilityCard(gateway)),
+    renderStatusCard(repositoryTargetCapabilityCard(repositoryTargets)),
     renderStatusCard(githubHandoffCapabilityCard(githubApp)),
   ];
 
@@ -1722,6 +1724,18 @@ function renderStatusGrid(payload) {
           "No runtime providers declared"
         ),
       detail: `Config ${friendlySourcePath(config.runtime_providers?.source_path)}`,
+    }),
+    renderStatusCard({
+      title: "Repository targets",
+      statusClass: repositoryTargets.enforcement_enabled
+        ? repositoryTargets.targets?.some((target) => target.enabled) ? "success" : "error"
+        : "warning",
+      badge: repositoryTargets.enforcement_enabled ? "allowlist" : "unrestricted",
+      primary: repositoryTargets.enforcement_enabled
+        ? `${repositoryTargets.targets?.filter((target) => target.enabled).length ?? 0} enabled target(s)`
+        : "No real-repo allowlist active",
+      secondary: summarizeRepositoryTargets(repositoryTargets),
+      detail: `Config ${friendlySourcePath(repositoryTargets.source_path, "not configured")}`,
     }),
     renderStatusCard({
       title: "GitHub App",
@@ -5392,6 +5406,37 @@ function modelGatewayCapabilityCard(gateway) {
   };
 }
 
+function repositoryTargetCapabilityCard(repositoryTargets) {
+  const targets = Array.isArray(repositoryTargets.targets)
+    ? repositoryTargets.targets
+    : [];
+  const enabledTargets = targets.filter((target) => target.enabled);
+  const enforcementEnabled = repositoryTargets.enforcement_enabled === true;
+
+  if (!enforcementEnabled) {
+    return {
+      title: "Real repository guard",
+      statusClass: "warning",
+      badge: "unrestricted",
+      primary: "Real-repo allowlist is not active",
+      secondary:
+        "Smoke and local dev can still use explicit remotes, but real GitHub publication should configure repository targets first.",
+      detail: "Set CATALYST_REPOSITORY_TARGETS_FILE to enable target enforcement.",
+    };
+  }
+
+  return {
+    title: "Real repository guard",
+    statusClass: enabledTargets.length ? "success" : "error",
+    badge: `${enabledTargets.length} target(s)`,
+    primary: enabledTargets.length
+      ? "Draft PRs are scoped to configured repositories"
+      : "Repository publication is denied",
+    secondary: summarizeRepositoryTargets(repositoryTargets),
+    detail: `Config ${friendlySourcePath(repositoryTargets.source_path, "not configured")}`,
+  };
+}
+
 function githubHandoffCapabilityCard(githubApp) {
   const ready = githubApp.ready === true;
   return {
@@ -5406,6 +5451,23 @@ function githubHandoffCapabilityCard(githubApp) {
       ? `Missing ${summarizeValues(githubApp.missing_fields, "none", ", ")}`
       : `Key ${friendlySourcePath(githubApp.private_key_path, "configured")}`,
   };
+}
+
+function summarizeRepositoryTargets(repositoryTargets) {
+  const targets = Array.isArray(repositoryTargets.targets)
+    ? repositoryTargets.targets
+    : [];
+  const enabledTargets = targets.filter((target) => target.enabled);
+
+  if (!repositoryTargets.enforcement_enabled) {
+    return "No repository-target config is active; use this only for smoke/dev or explicitly trusted one-off runs.";
+  }
+
+  return summarizeValues(
+    enabledTargets.map((target) => `${target.owner}/${target.name}:${target.default_branch}`),
+    "No enabled repository targets",
+    ", "
+  );
 }
 
 function renderStatusCard(card) {

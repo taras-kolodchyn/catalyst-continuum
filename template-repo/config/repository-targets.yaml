@@ -1,0 +1,11 @@
+targets:
+  - target_id: primary-app
+    host: github
+    owner: your-org
+    name: your-private-repo
+    default_branch: main
+    enabled: true
+    branch_prefix: continuum/
+    allowed_remote_urls:
+      - git@github.com:your-org/your-private-repo.git
+      - https://github.com/your-org/your-private-repo.git

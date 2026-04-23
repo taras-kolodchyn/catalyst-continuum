@@ -7,6 +7,10 @@ use std::{
 use anyhow::{Context, Result, anyhow, ensure};
 use serde::{Deserialize, Serialize};
 
+pub mod repository_targets;
+
+pub use repository_targets::{RepositoryTargetsConfig, load_repository_targets_from_env};
+
 const MCP_SERVERS_FILE_ENV: &str = "CATALYST_MCP_SERVERS_FILE";
 const RUNTIME_PROVIDERS_FILE_ENV: &str = "CATALYST_RUNTIME_PROVIDERS_FILE";
 const AI_GATEWAY_FILE_ENV: &str = "CATALYST_AI_GATEWAY_FILE";
@@ -25,6 +29,7 @@ pub struct InstanceConfigReport {
     pub runtime_provider_statuses: Vec<RuntimeProviderStatus>,
     pub external_mcp_servers: ExternalMcpServersConfig,
     pub ai_gateway: AiGatewayConfig,
+    pub repository_targets: RepositoryTargetsConfig,
     pub github_app: GitHubAppConfig,
 }
 
@@ -33,11 +38,13 @@ impl InstanceConfigReport {
         runtime_providers_file: Option<&Path>,
         mcp_servers_file: Option<&Path>,
         ai_gateway_file: Option<&Path>,
+        repository_targets_file: Option<&Path>,
     ) -> Result<Self> {
         let runtime_providers = RuntimeProvidersConfig::load(runtime_providers_file)?;
         let runtime_provider_statuses = runtime_providers.provider_statuses();
         let external_mcp_servers = ExternalMcpServersConfig::load(mcp_servers_file)?;
         let ai_gateway = AiGatewayConfig::load(ai_gateway_file)?;
+        let repository_targets = RepositoryTargetsConfig::load(repository_targets_file)?;
         let github_app = GitHubAppConfig::from_env_snapshot(GitHubAppEnv::capture())?;
 
         Ok(Self {
@@ -45,6 +52,7 @@ impl InstanceConfigReport {
             runtime_provider_statuses,
             external_mcp_servers,
             ai_gateway,
+            repository_targets,
             github_app,
         })
     }

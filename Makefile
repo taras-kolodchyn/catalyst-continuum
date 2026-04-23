@@ -6,6 +6,8 @@ COMPOSE := docker compose --env-file deploy/compose/.env.example -f deploy/compo
 LITELLM_SMOKE_ARGS ?=
 OPERATOR_UI_ARGS ?=
 OPERATOR_UI_SMOKE_ARGS ?=
+REPOSITORY ?=
+REPOSITORY_DEFAULT_BRANCH ?=
 SMOKE_SCENARIO ?= all
 UI_PORT ?= 8080
 
@@ -86,6 +88,11 @@ ui-smoke: ## Run browser-level operator UI smoke against seeded MVP run data.
 .PHONY: cleanup
 cleanup: ## Stop repo-local helper sessions and disposable smoke/UI databases.
 	./scripts/cleanup-local-dev.sh
+
+.PHONY: github-repo-preflight
+github-repo-preflight: ## Check gh access and permissions for REPOSITORY=owner/repo before real PR publication.
+	@if [ -z "$(REPOSITORY)" ]; then echo "set REPOSITORY=owner/repo" >&2; exit 1; fi
+	./scripts/github-repo-preflight.sh "$(REPOSITORY)" $(if $(REPOSITORY_DEFAULT_BRANCH),--default-branch "$(REPOSITORY_DEFAULT_BRANCH)")
 
 .PHONY: smoke
 smoke: ## Run CI smoke tests; override SMOKE_SCENARIO for one scenario.

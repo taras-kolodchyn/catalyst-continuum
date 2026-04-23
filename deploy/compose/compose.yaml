@@ -207,6 +207,7 @@ services:
       CATALYST_RUNTIME_PROVIDERS_FILE: /app/config/runtime-providers.yaml
       CATALYST_MCP_SERVERS_FILE: /app/config/mcp-servers.yaml
       CATALYST_AI_GATEWAY_FILE: /app/config/ai-gateway.yaml
+      CATALYST_REPOSITORY_TARGETS_FILE: ${CATALYST_REPOSITORY_TARGETS_FILE:-}
       CATALYST_AI_GATEWAY_API_KEY: ${LITELLM_MASTER_KEY}
       CATALYST_AI_GATEWAY_STATUS_BASE_URL: http://litellm:4000
       CATALYST_REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
@@ -256,6 +257,7 @@ services:
       CATALYST_RUNTIME_PROVIDERS_FILE: /app/config/runtime-providers.yaml
       CATALYST_MCP_SERVERS_FILE: /app/config/mcp-servers.yaml
       CATALYST_AI_GATEWAY_FILE: /app/config/ai-gateway.yaml
+      CATALYST_REPOSITORY_TARGETS_FILE: ${CATALYST_REPOSITORY_TARGETS_FILE:-}
       CATALYST_AI_GATEWAY_API_KEY: ${LITELLM_MASTER_KEY}
       CATALYST_AI_GATEWAY_STATUS_BASE_URL: http://litellm:4000
       CATALYST_REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0

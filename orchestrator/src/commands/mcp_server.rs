@@ -380,6 +380,7 @@ impl StdioMcpServer {
             args.runtime_providers_file.as_deref(),
             args.mcp_servers_file.as_deref(),
             args.ai_gateway_file.as_deref(),
+            args.repository_targets_file.as_deref(),
         )?;
         let tool_allowlist = normalize_tool_allowlist(args.tool_allowlist);
         validate_tool_allowlist(tool_allowlist.as_ref())?;
@@ -2195,6 +2196,7 @@ mod tests {
             runtime_providers_file: None,
             mcp_servers_file: None,
             ai_gateway_file: None,
+            repository_targets_file: None,
             tool_allowlist: Vec::new(),
         })
         .expect("server should initialize");
@@ -2219,6 +2221,7 @@ mod tests {
             runtime_providers_file: None,
             mcp_servers_file: None,
             ai_gateway_file: None,
+            repository_targets_file: None,
             tool_allowlist: Vec::new(),
         })
         .expect("server should initialize");
@@ -2376,6 +2379,7 @@ mod tests {
             runtime_providers_file: None,
             mcp_servers_file: None,
             ai_gateway_file: None,
+            repository_targets_file: None,
             tool_allowlist: Vec::new(),
         })
         .expect("server should initialize");
@@ -2462,6 +2466,7 @@ mod tests {
             runtime_providers_file: None,
             mcp_servers_file: None,
             ai_gateway_file: None,
+            repository_targets_file: None,
             tool_allowlist: vec![
                 "list_packs".to_string(),
                 "validate_brief".to_string(),
@@ -2497,6 +2502,7 @@ mod tests {
             runtime_providers_file: None,
             mcp_servers_file: None,
             ai_gateway_file: None,
+            repository_targets_file: None,
             tool_allowlist: Vec::new(),
         })
         .expect("server should initialize");
@@ -2547,6 +2553,7 @@ mod tests {
             runtime_providers_file: None,
             mcp_servers_file: None,
             ai_gateway_file: None,
+            repository_targets_file: None,
             tool_allowlist: vec!["list_packs".to_string()],
         })
         .expect("server should initialize");
@@ -2573,6 +2580,7 @@ mod tests {
             runtime_providers_file: None,
             mcp_servers_file: None,
             ai_gateway_file: None,
+            repository_targets_file: None,
             tool_allowlist: Vec::new(),
         })
         .expect("server should initialize");
@@ -2599,6 +2607,7 @@ mod tests {
             runtime_providers_file: None,
             mcp_servers_file: None,
             ai_gateway_file: None,
+            repository_targets_file: None,
             tool_allowlist: Vec::new(),
         })
         .expect("server should initialize");
@@ -2625,6 +2634,7 @@ mod tests {
             runtime_providers_file: None,
             mcp_servers_file: None,
             ai_gateway_file: None,
+            repository_targets_file: None,
             tool_allowlist: Vec::new(),
         })
         .expect("server should initialize");
@@ -2651,6 +2661,7 @@ mod tests {
             runtime_providers_file: None,
             mcp_servers_file: None,
             ai_gateway_file: None,
+            repository_targets_file: None,
             tool_allowlist: vec!["unknown_tool".to_string()],
         })
         .err()
@@ -2671,6 +2682,7 @@ mod tests {
             runtime_providers_file: None,
             mcp_servers_file: None,
             ai_gateway_file: None,
+            repository_targets_file: None,
             tool_allowlist: Vec::new(),
         })
         .expect("server should initialize");
@@ -2699,6 +2711,7 @@ mod tests {
             runtime_providers_file: None,
             mcp_servers_file: None,
             ai_gateway_file: None,
+            repository_targets_file: None,
             tool_allowlist: Vec::new(),
         })
         .expect("server should initialize");
@@ -2758,6 +2771,7 @@ servers:
             runtime_providers_file: None,
             mcp_servers_file: Some(mcp_servers_file.clone()),
             ai_gateway_file: None,
+            repository_targets_file: None,
             tool_allowlist: Vec::new(),
         })
         .expect("server should initialize");

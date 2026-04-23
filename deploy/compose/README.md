@@ -21,6 +21,10 @@ Current services:
 
 1. Copy `.env.example` to `.env`.
 2. Review image tags and credentials.
+   For real GitHub publication, set `CATALYST_REPOSITORY_TARGETS_FILE` to
+   `/app/config/repository-targets.yaml` or
+   `/app/config/repository-targets.example.yaml` and make sure the target file
+   contains only repositories that this instance is allowed to publish to.
 3. Start the stack:
 
 ```bash
@@ -113,6 +117,10 @@ ollama serve
 - Versions are centralized in `.env.example` so they can be updated consistently.
 - Use project-specific env vars from `.env` to avoid accidental overrides from host shell variables.
 - The orchestrator exports OpenTelemetry traces, metrics, and logs over OTLP HTTP when the collector endpoint env vars are configured.
+- `CATALYST_REPOSITORY_TARGETS_FILE` is intentionally empty in `.env.example`.
+  Smoke and local demo flows can still use one-off remotes, but real repository
+  publication should enable that file so `publish-pr-export` and
+  `create-draft-pr` reject unapproved remotes, branches, and repositories.
 - The compose stack now runs a dedicated long-lived `worker` service alongside the HTTP `orchestrator`, so background run progression works in the local stack without shelling into the container manually.
 - The long-lived `worker` now waits for a healthy HTTP `orchestrator` before starting, and the shared Postgres schema bootstrap is serialized with an advisory lock so the shipped local stack does not race its own schema initialization during cold start.
 - The compose `orchestrator` and `worker` now also mount `/var/run/docker.sock`

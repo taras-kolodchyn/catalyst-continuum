@@ -467,8 +467,9 @@ mod tests {
     use crate::{
         config::{
             AiGatewayCapabilityConfig, AiGatewayConfig, AiGatewayDefaultModelAliases,
-            ExternalMcpServersConfig, GitHubAppConfig, InstanceConfigReport, RuntimeProviderSet,
-            RuntimeProviderStatus, RuntimeProvidersConfig,
+            ExternalMcpServersConfig, GitHubAppConfig, InstanceConfigReport,
+            RepositoryTargetsConfig, RuntimeProviderSet, RuntimeProviderStatus,
+            RuntimeProvidersConfig,
         },
         storage::postgres::DatabaseReadiness,
     };
@@ -648,6 +649,11 @@ mod tests {
                     enabled: true,
                     note: Some("OpenAI-compatible chat completions are enabled.".to_string()),
                 }],
+            },
+            repository_targets: RepositoryTargetsConfig {
+                source_path: None,
+                enforcement_enabled: false,
+                targets: Vec::new(),
             },
             github_app: GitHubAppConfig {
                 app_id: None,
