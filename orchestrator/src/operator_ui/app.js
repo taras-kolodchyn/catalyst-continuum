@@ -77,6 +77,7 @@ const state = {
   dashboardSnapshot: {
     readyz: null,
     aiGateway: null,
+    surfaces: null,
     config: null,
     packs: null,
   },
@@ -93,6 +94,7 @@ const state = {
   realtimeReconnectTimer: null,
   realtimeConnected: false,
   realtimeConnecting: false,
+  realtimeHasConnected: false,
   briefRequestInFlight: false,
   automationRequestInFlight: false,
   runActionInFlight: false,
@@ -640,6 +642,7 @@ function connectRealtime(options = {}) {
 
     state.realtimeConnecting = false;
     state.realtimeConnected = true;
+    state.realtimeHasConnected = true;
     renderLastRefreshStatus();
   };
 
@@ -723,6 +726,8 @@ function applyRealtimeDashboardSnapshot(snapshot) {
     readyz: snapshot.readyz ?? failedEnvelope(new Error("missing readyz snapshot")),
     aiGateway:
       snapshot.ai_gateway ?? failedEnvelope(new Error("missing AI gateway snapshot")),
+    surfaces:
+      snapshot.surfaces ?? failedEnvelope(new Error("missing surface snapshot")),
     config: snapshot.config ?? failedEnvelope(new Error("missing config snapshot")),
     packs: snapshot.packs ?? failedEnvelope(new Error("missing packs snapshot")),
   });
@@ -835,6 +840,15 @@ async function refreshDashboard() {
             : formatEnvelopeError(dashboardEnvelope)
         )
       );
+    const surfacesEnvelope =
+      dashboardEnvelope.data?.surfaces ??
+      failedEnvelope(
+        new Error(
+          dashboardEnvelope.ok
+            ? "missing surface snapshot"
+            : formatEnvelopeError(dashboardEnvelope)
+        )
+      );
     const configEnvelope =
       dashboardEnvelope.data?.config ??
       failedEnvelope(
@@ -857,6 +871,7 @@ async function refreshDashboard() {
     renderStatusGrid({
       readyz: readyzEnvelope,
       aiGateway: aiGatewayEnvelope,
+      surfaces: surfacesEnvelope,
       config: configEnvelope,
       packs: packsEnvelope,
     });
@@ -1608,6 +1623,7 @@ function renderStatusGrid(payload) {
   state.dashboardSnapshot = {
     readyz: payload.readyz ?? null,
     aiGateway: payload.aiGateway ?? null,
+    surfaces: payload.surfaces ?? null,
     config: payload.config ?? null,
     packs: payload.packs ?? null,
   };
@@ -3891,6 +3907,54 @@ function renderMissionSurfaceEmbedPrompt(surface, title, detail, buttonLabel) {
   `;
 }
 
+function missionSurfaceStatus(surfaceId) {
+  return state.dashboardSnapshot.surfaces?.data?.[surfaceId] ?? {};
+}
+
+function missionSurfaceReady(surface) {
+  return surface.ready === true;
+}
+
+function missionSurfaceTone(surface) {
+  if (missionSurfaceReady(surface)) {
+    return surface.status === "protected" ? "warning" : "success";
+  }
+
+  if (surface.http_status || surface.error) {
+    return "warning";
+  }
+
+  return "neutral";
+}
+
+function missionSurfaceBadge(surface, readyLabel = "Ready") {
+  if (missionSurfaceReady(surface)) {
+    return surface.status === "protected" ? "Protected" : readyLabel;
+  }
+
+  if (surface.http_status) {
+    return `HTTP ${surface.http_status}`;
+  }
+
+  if (surface.status === "unreachable") {
+    return "Unavailable";
+  }
+
+  return surface.status ? String(surface.status) : "Unknown";
+}
+
+function missionSurfaceFailureDetail(surface, fallbackMessage) {
+  if (surface.error) {
+    return surface.error;
+  }
+
+  if (surface.http_status) {
+    return `Probe returned HTTP ${surface.http_status}.`;
+  }
+
+  return fallbackMessage;
+}
+
 function renderMissionGrafanaPanel() {
   const grafanaBaseUrl = localServiceBaseUrl(DEFAULT_GRAFANA_PORT);
   const overviewUrl = safeExternalUrl(`${grafanaBaseUrl}${GRAFANA_OVERVIEW_DASHBOARD_PATH}`);
@@ -3898,6 +3962,10 @@ function renderMissionGrafanaPanel() {
   const prometheusUrl = safeExternalUrl(localServiceBaseUrl(DEFAULT_PROMETHEUS_PORT));
   const lokiUrl = safeExternalUrl(`${localServiceBaseUrl(DEFAULT_LOKI_PORT)}/ready`);
   const tempoUrl = safeExternalUrl(`${localServiceBaseUrl(DEFAULT_TEMPO_PORT)}/ready`);
+  const grafanaSurface = missionSurfaceStatus("grafana");
+  const prometheusSurface = missionSurfaceStatus("prometheus");
+  const lokiSurface = missionSurfaceStatus("loki");
+  const tempoSurface = missionSurfaceStatus("tempo");
   ensureMissionGrafanaShell();
 
   setRenderedHtml(
@@ -3906,33 +3974,53 @@ function renderMissionGrafanaPanel() {
       ${renderSurfaceLinkCard(
         "Grafana dashboard",
         "Catalyst Continuum Overview",
-        "Use the provisioned dashboard for stack health, orchestration throughput, and gateway signals.",
+        missionSurfaceReady(grafanaSurface)
+          ? "Use the provisioned dashboard for stack health, orchestration throughput, and gateway signals."
+          : `Grafana is not ready yet. ${missionSurfaceFailureDetail(
+              grafanaSurface,
+              "Start the local observability stack to expose the overview dashboard."
+            )}`,
         [
           { href: overviewUrl, label: "Open dashboard", variant: "primary" },
           { href: grafanaHomeUrl, label: "Open Grafana", variant: "ghost" },
         ],
-        "warning"
+        missionSurfaceTone(grafanaSurface)
       )}
       ${renderSurfaceLinkCard(
         "Metrics",
         "Prometheus",
-        "Jump into raw metric queries when the dashboard summary is not enough.",
+        missionSurfaceReady(prometheusSurface)
+          ? "Jump into raw metric queries when the dashboard summary is not enough."
+          : `Prometheus is not ready yet. ${missionSurfaceFailureDetail(
+              prometheusSurface,
+              "Start the local observability stack to expose metric queries."
+            )}`,
         [{ href: prometheusUrl, label: "Open Prometheus", variant: "ghost" }],
-        "neutral"
+        missionSurfaceTone(prometheusSurface)
       )}
       ${renderSurfaceLinkCard(
         "Logs",
         "Loki",
-        "The compose stack sends orchestrator and LiteLLM logs into Loki for deeper inspection.",
+        missionSurfaceReady(lokiSurface)
+          ? "The compose stack sends orchestrator and LiteLLM logs into Loki for deeper inspection."
+          : `Loki is not ready yet. ${missionSurfaceFailureDetail(
+              lokiSurface,
+              "Start the local observability stack to inspect collected logs."
+            )}`,
         [{ href: lokiUrl, label: "Open Loki readiness", variant: "ghost" }],
-        "neutral"
+        missionSurfaceTone(lokiSurface)
       )}
       ${renderSurfaceLinkCard(
         "Traces",
         "Tempo",
-        "Tempo keeps the OTLP traces used by the provisioned overview dashboard and future deeper debugging flows.",
+        missionSurfaceReady(tempoSurface)
+          ? "Tempo keeps the OTLP traces used by the provisioned overview dashboard and future deeper debugging flows."
+          : `Tempo is not ready yet. ${missionSurfaceFailureDetail(
+              tempoSurface,
+              "Start the local observability stack to inspect OTLP traces."
+            )}`,
         [{ href: tempoUrl, label: "Open Tempo readiness", variant: "ghost" }],
-        "neutral"
+        missionSurfaceTone(tempoSurface)
       )}
     `,
     { markUpdated: false }
@@ -3962,26 +4050,68 @@ function renderMissionGrafanaPanel() {
     return;
   }
 
-  setBadge(grafanaBadge, embedLoaded ? "success" : "warning", embedLoaded ? "Embed loaded" : "Load on demand");
+  if (embedLoaded) {
+    setBadge(
+      grafanaBadge,
+      missionSurfaceReady(grafanaSurface) ? "success" : "warning",
+      "Embed loaded"
+    );
+    setTextContent(
+      grafanaCopy,
+      missionSurfaceReady(grafanaSurface)
+        ? "The embedded dashboard stays mounted while the rest of the operator UI keeps refreshing around it."
+        : `The embedded dashboard stays mounted, but the latest Grafana probe is degraded. ${missionSurfaceFailureDetail(
+            grafanaSurface,
+            "Check the local observability stack."
+          )}`,
+      { markUpdated: false }
+    );
+    setRenderedHtml(
+      grafanaFrameWrap,
+      `<iframe class="surface-frame" title="Embedded Grafana dashboard" src="${escapeHtml(
+        overviewUrl
+      )}" loading="lazy"></iframe>`,
+      { markUpdated: false }
+    );
+    return;
+  }
+
+  if (!missionSurfaceReady(grafanaSurface)) {
+    setBadge(grafanaBadge, missionSurfaceTone(grafanaSurface), missionSurfaceBadge(grafanaSurface));
+    setTextContent(
+      grafanaCopy,
+      "Grafana has to be reachable before the in-page dashboard is worth mounting.",
+      { markUpdated: false }
+    );
+    setRenderedHtml(
+      grafanaFrameWrap,
+      renderSectionEmptyState(
+        "Embedded Grafana",
+        "Grafana is not ready yet",
+        missionSurfaceFailureDetail(
+          grafanaSurface,
+          "Start the local observability stack, then reload this tab."
+        )
+      ),
+      { markUpdated: false }
+    );
+    return;
+  }
+
+  setBadge(grafanaBadge, "success", "Ready to load");
   setTextContent(
     grafanaCopy,
-    embedLoaded
-      ? "The embedded dashboard stays mounted while the rest of the operator UI keeps refreshing around it."
-      : "Load the embedded dashboard only when you want it in-page. This avoids broken blank frames when the local observability stack is down.",
+    "Load the embedded dashboard only when you want it in-page. This keeps live operator refreshes from remounting the frame.",
     { markUpdated: false }
   );
   setRenderedHtml(
     grafanaFrameWrap,
-    embedLoaded
-      ? `<iframe class="surface-frame" title="Embedded Grafana dashboard" src="${escapeHtml(
-          overviewUrl
-        )}" loading="lazy"></iframe>`
-      : renderMissionSurfaceEmbedPrompt(
-          "grafana",
-          "Load embedded Grafana when you need it",
-          "The quick links stay available all the time, while the iframe mounts only on demand to avoid unnecessary frame resets.",
-          "Load embedded Grafana"
-        ),
+    renderMissionSurfaceEmbedPrompt(
+      "grafana",
+      "Load embedded Grafana when you need it",
+      "The quick links stay available all the time, while the iframe mounts only on demand to avoid unnecessary frame resets.",
+      "Load embedded Grafana"
+    ),
     { markUpdated: false }
   );
 }
@@ -3997,6 +4127,7 @@ function renderMissionLitellmPanel() {
   const litellmUiUrl = safeExternalUrl(`${litellmBaseUrl}/ui`);
   const litellmDocsUrl = safeExternalUrl(`${litellmBaseUrl}/docs`);
   const litellmModelsUrl = safeExternalUrl(`${litellmBaseUrl}/v1/models`);
+  const litellmUiSurface = missionSurfaceStatus("litellm_ui");
   const capabilities = Array.isArray(gatewayConfig.capabilities)
     ? gatewayConfig.capabilities.filter((capability) => capability.enabled)
     : [];
@@ -4041,12 +4172,17 @@ function renderMissionLitellmPanel() {
       ${renderSurfaceLinkCard(
         "Native LiteLLM UI",
         "Gateway dashboard",
-        "The upstream LiteLLM image advertises an admin dashboard UI for monitoring and management.",
+        missionSurfaceReady(litellmUiSurface)
+          ? "The upstream LiteLLM image advertises an admin dashboard UI for monitoring and management."
+          : `The native LiteLLM UI is not ready yet. ${missionSurfaceFailureDetail(
+              litellmUiSurface,
+              "Use docs or the root surface until the UI route is reachable."
+            )}`,
         [
           { href: litellmUiUrl, label: "Open native UI", variant: "primary" },
           { href: litellmHomeUrl, label: "Open root", variant: "ghost" },
         ],
-        aiGateway.ready ? "success" : "warning"
+        missionSurfaceTone(litellmUiSurface)
       )}
       ${renderSurfaceLinkCard(
         "API docs",
@@ -4091,10 +4227,19 @@ function renderMissionLitellmPanel() {
   }
 
   if (embedLoaded) {
-    setBadge(litellmBadge, aiGateway.ready ? "success" : "warning", "Embed loaded");
+    setBadge(
+      litellmBadge,
+      missionSurfaceReady(litellmUiSurface) ? "success" : "warning",
+      "Embed loaded"
+    );
     setTextContent(
       litellmCopy,
-      "The embedded gateway surface stays mounted while the rest of the operator UI keeps refreshing around it.",
+      missionSurfaceReady(litellmUiSurface)
+        ? "The embedded gateway surface stays mounted while the rest of the operator UI keeps refreshing around it."
+        : `The embedded gateway surface stays mounted, but the latest UI probe is degraded. ${missionSurfaceFailureDetail(
+            litellmUiSurface,
+            "Fall back to the docs or root surface if the native UI stops responding."
+          )}`,
       { markUpdated: false }
     );
     setRenderedHtml(
@@ -4107,7 +4252,7 @@ function renderMissionLitellmPanel() {
     return;
   }
 
-  if (aiGateway.ready) {
+  if (missionSurfaceReady(litellmUiSurface)) {
     setBadge(litellmBadge, "success", "Ready to load");
     setTextContent(
       litellmCopy,
@@ -4127,19 +4272,30 @@ function renderMissionLitellmPanel() {
     return;
   }
 
-  setBadge(litellmBadge, "warning", "Check gateway");
+  setBadge(
+    litellmBadge,
+    missionSurfaceTone(litellmUiSurface),
+    aiGateway.ready ? missionSurfaceBadge(litellmUiSurface, "UI unavailable") : "Check gateway"
+  );
   setTextContent(
     litellmCopy,
-    "If the native UI route is unavailable in the selected LiteLLM build, use the quick links above to fall back to the docs or root surface.",
+    aiGateway.ready
+      ? "The AI gateway is alive, but the native LiteLLM UI route is not healthy yet."
+      : "If the native UI route is unavailable in the selected LiteLLM build, use the quick links above to fall back to the docs or root surface.",
     { markUpdated: false }
   );
   setRenderedHtml(
     litellmFrameWrap,
     renderSectionEmptyState(
       "Embedded LiteLLM",
-      "Gateway readiness is not green yet",
-      aiGateway.error ??
-        "Wait for the AI gateway probe to recover before mounting the embedded LiteLLM surface."
+      aiGateway.ready ? "LiteLLM UI is not ready yet" : "Gateway readiness is not green yet",
+      aiGateway.ready
+        ? missionSurfaceFailureDetail(
+            litellmUiSurface,
+            "Use the docs or root surface until the native UI route becomes reachable."
+          )
+        : aiGateway.error ??
+          "Wait for the AI gateway probe to recover before mounting the embedded LiteLLM surface."
     ),
     { markUpdated: false }
   );
@@ -6555,9 +6711,13 @@ function renderLastRefreshStatus() {
   }
 
   if (state.realtimeConnecting) {
-    setTextContent(elements.lastRefresh, `Live updates reconnecting · ${fallbackSummary}`, {
-      markUpdated: false,
-    });
+    setTextContent(
+      elements.lastRefresh,
+      state.realtimeHasConnected
+        ? `Live updates reconnecting · ${fallbackSummary}`
+        : "Live updates connecting · waiting for first websocket snapshot",
+      { markUpdated: false }
+    );
     return;
   }
 

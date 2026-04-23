@@ -1,6 +1,8 @@
 mod websocket;
 
+use reqwest::{StatusCode as HttpStatusCode, blocking::Client, redirect::Policy};
 use serde::Serialize;
+use std::time::Duration;
 use tiny_http::{Header, Response, StatusCode};
 
 use crate::{
@@ -24,6 +26,16 @@ const MINIMAL_WORKER_SERVICE_BRIEF: &str =
     include_str!("../../examples/briefs/minimal-worker-service.yaml");
 const OPENHANDS_BOOTSTRAP_CLI_BRIEF: &str =
     include_str!("../../examples/briefs/openhands-bootstrap-cli.yaml");
+const LOCAL_GRAFANA_BASE_URL: &str = "http://127.0.0.1:3000";
+const LOCAL_GRAFANA_PROBE_PATH: &str = "/api/health";
+const LOCAL_PROMETHEUS_BASE_URL: &str = "http://127.0.0.1:9090";
+const LOCAL_PROMETHEUS_PROBE_PATH: &str = "/-/ready";
+const LOCAL_LOKI_BASE_URL: &str = "http://127.0.0.1:3100";
+const LOCAL_LOKI_PROBE_PATH: &str = "/ready";
+const LOCAL_TEMPO_BASE_URL: &str = "http://127.0.0.1:3200";
+const LOCAL_TEMPO_PROBE_PATH: &str = "/ready";
+const LITELLM_UI_PROBE_PATH: &str = "/ui";
+const SURFACE_PROBE_TIMEOUT: Duration = Duration::from_millis(300);
 
 pub fn route_label(path: &str) -> Option<&'static str> {
     match path {
@@ -65,6 +77,8 @@ pub fn dashboard_snapshot(
     } else {
         OperatorUiDataEnvelope::success(StatusCode(503).0, ai_gateway_status)
     };
+    let surfaces =
+        OperatorUiDataEnvelope::success(StatusCode(200).0, local_surface_snapshot(instance_config));
     let config = OperatorUiDataEnvelope::success(StatusCode(200).0, instance_config.clone());
     let packs = match build_pack_catalog() {
         Ok(document) => OperatorUiDataEnvelope::success(StatusCode(200).0, document),
@@ -74,6 +88,7 @@ pub fn dashboard_snapshot(
     OperatorUiDashboardSnapshotResponse {
         readyz,
         ai_gateway,
+        surfaces,
         config,
         packs,
     }
@@ -163,6 +178,182 @@ fn readiness_envelope(
     }
 }
 
+fn local_surface_snapshot(
+    instance_config: &InstanceConfigReport,
+) -> OperatorUiLocalSurfaceSnapshot {
+    match Client::builder()
+        .timeout(SURFACE_PROBE_TIMEOUT)
+        .redirect(Policy::none())
+        .build()
+    {
+        Ok(client) => OperatorUiLocalSurfaceSnapshot {
+            grafana: probe_surface(
+                &client,
+                "grafana",
+                "Grafana",
+                LOCAL_GRAFANA_BASE_URL,
+                LOCAL_GRAFANA_PROBE_PATH,
+            ),
+            prometheus: probe_surface(
+                &client,
+                "prometheus",
+                "Prometheus",
+                LOCAL_PROMETHEUS_BASE_URL,
+                LOCAL_PROMETHEUS_PROBE_PATH,
+            ),
+            loki: probe_surface(
+                &client,
+                "loki",
+                "Loki",
+                LOCAL_LOKI_BASE_URL,
+                LOCAL_LOKI_PROBE_PATH,
+            ),
+            tempo: probe_surface(
+                &client,
+                "tempo",
+                "Tempo",
+                LOCAL_TEMPO_BASE_URL,
+                LOCAL_TEMPO_PROBE_PATH,
+            ),
+            litellm_ui: probe_surface(
+                &client,
+                "litellm_ui",
+                "LiteLLM UI",
+                &instance_config.ai_gateway.host_base_url,
+                LITELLM_UI_PROBE_PATH,
+            ),
+        },
+        Err(error) => unavailable_surface_snapshot(
+            instance_config,
+            format!("failed to construct operator UI probe client: {error}"),
+        ),
+    }
+}
+
+fn unavailable_surface_snapshot(
+    instance_config: &InstanceConfigReport,
+    error: String,
+) -> OperatorUiLocalSurfaceSnapshot {
+    OperatorUiLocalSurfaceSnapshot {
+        grafana: unavailable_surface(
+            "grafana",
+            "Grafana",
+            LOCAL_GRAFANA_BASE_URL,
+            LOCAL_GRAFANA_PROBE_PATH,
+            error.clone(),
+        ),
+        prometheus: unavailable_surface(
+            "prometheus",
+            "Prometheus",
+            LOCAL_PROMETHEUS_BASE_URL,
+            LOCAL_PROMETHEUS_PROBE_PATH,
+            error.clone(),
+        ),
+        loki: unavailable_surface(
+            "loki",
+            "Loki",
+            LOCAL_LOKI_BASE_URL,
+            LOCAL_LOKI_PROBE_PATH,
+            error.clone(),
+        ),
+        tempo: unavailable_surface(
+            "tempo",
+            "Tempo",
+            LOCAL_TEMPO_BASE_URL,
+            LOCAL_TEMPO_PROBE_PATH,
+            error.clone(),
+        ),
+        litellm_ui: unavailable_surface(
+            "litellm_ui",
+            "LiteLLM UI",
+            &instance_config.ai_gateway.host_base_url,
+            LITELLM_UI_PROBE_PATH,
+            error,
+        ),
+    }
+}
+
+fn unavailable_surface(
+    surface_id: &str,
+    label: &str,
+    base_url: &str,
+    probe_path: &str,
+    error: String,
+) -> OperatorUiSurfaceStatus {
+    OperatorUiSurfaceStatus {
+        surface_id: surface_id.to_string(),
+        label: label.to_string(),
+        base_url: base_url.to_string(),
+        probe_url: join_base_url(base_url, probe_path),
+        status: "unreachable".to_string(),
+        ready: false,
+        http_status: None,
+        error: Some(error),
+    }
+}
+
+fn probe_surface(
+    client: &Client,
+    surface_id: &str,
+    label: &str,
+    base_url: &str,
+    probe_path: &str,
+) -> OperatorUiSurfaceStatus {
+    let probe_url = join_base_url(base_url, probe_path);
+    let response = client.get(&probe_url).send();
+
+    match response {
+        Ok(response) => {
+            let http_status = response.status();
+            let (status, ready) = classify_surface_status(http_status);
+
+            OperatorUiSurfaceStatus {
+                surface_id: surface_id.to_string(),
+                label: label.to_string(),
+                base_url: base_url.to_string(),
+                probe_url,
+                status: status.to_string(),
+                ready,
+                http_status: Some(http_status.as_u16()),
+                error: None,
+            }
+        }
+        Err(error) => OperatorUiSurfaceStatus {
+            surface_id: surface_id.to_string(),
+            label: label.to_string(),
+            base_url: base_url.to_string(),
+            probe_url,
+            status: "unreachable".to_string(),
+            ready: false,
+            http_status: None,
+            error: Some(error.to_string()),
+        },
+    }
+}
+
+fn classify_surface_status(status: HttpStatusCode) -> (&'static str, bool) {
+    if status.is_success() || status.is_redirection() {
+        return ("ready", true);
+    }
+
+    if matches!(
+        status,
+        HttpStatusCode::UNAUTHORIZED | HttpStatusCode::FORBIDDEN
+    ) {
+        return ("protected", true);
+    }
+
+    ("http_error", false)
+}
+
+fn join_base_url(base_url: &str, path: &str) -> String {
+    format!(
+        "{}/{}",
+        base_url.trim_end_matches('/'),
+        path.trim_start_matches('/')
+    )
+}
+
 fn static_response(
     body: &'static str,
     content_type: &'static str,
@@ -185,8 +376,30 @@ fn header(name: &str, value: impl AsRef<str>) -> Header {
 pub struct OperatorUiDashboardSnapshotResponse {
     pub readyz: OperatorUiDataEnvelope<OperatorUiReadinessResponse>,
     pub ai_gateway: OperatorUiDataEnvelope<AiGatewayStatusReport>,
+    pub surfaces: OperatorUiDataEnvelope<OperatorUiLocalSurfaceSnapshot>,
     pub config: OperatorUiDataEnvelope<InstanceConfigReport>,
     pub packs: OperatorUiDataEnvelope<PackCatalogDocument>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OperatorUiLocalSurfaceSnapshot {
+    pub grafana: OperatorUiSurfaceStatus,
+    pub prometheus: OperatorUiSurfaceStatus,
+    pub loki: OperatorUiSurfaceStatus,
+    pub tempo: OperatorUiSurfaceStatus,
+    pub litellm_ui: OperatorUiSurfaceStatus,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OperatorUiSurfaceStatus {
+    pub surface_id: String,
+    pub label: String,
+    pub base_url: String,
+    pub probe_url: String,
+    pub status: String,
+    pub ready: bool,
+    pub http_status: Option<u16>,
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -248,8 +461,8 @@ pub struct OperatorUiReadinessResponse {
 #[cfg(test)]
 mod tests {
     use super::{
-        BRIEF_EXAMPLES_PATH, DASHBOARD_PATH, WS_PATH, brief_examples_document, dashboard_snapshot,
-        response, route_label,
+        BRIEF_EXAMPLES_PATH, DASHBOARD_PATH, WS_PATH, brief_examples_document,
+        classify_surface_status, dashboard_snapshot, probe_surface, response, route_label,
     };
     use crate::{
         config::{
@@ -259,6 +472,9 @@ mod tests {
         },
         storage::postgres::DatabaseReadiness,
     };
+    use reqwest::{StatusCode as HttpStatusCode, blocking::Client, redirect::Policy};
+    use std::{thread, time::Duration};
+    use tiny_http::{ListenAddr, Response, Server, StatusCode};
 
     #[test]
     fn maps_supported_operator_ui_routes() {
@@ -284,6 +500,7 @@ mod tests {
         assert_eq!(DASHBOARD_PATH, "/ui/dashboard");
         assert!(snapshot.readyz.ok);
         assert_eq!(snapshot.readyz.status, 200);
+        assert!(snapshot.surfaces.ok);
         assert!(snapshot.config.ok);
         assert!(snapshot.packs.ok);
         assert_eq!(
@@ -295,6 +512,16 @@ mod tests {
                 .runtime_providers
                 .default_provider,
             "docker"
+        );
+        assert_eq!(
+            snapshot
+                .surfaces
+                .data
+                .as_ref()
+                .expect("surface snapshot should be present")
+                .grafana
+                .surface_id,
+            "grafana"
         );
     }
 
@@ -347,6 +574,45 @@ mod tests {
         }));
     }
 
+    #[test]
+    fn classifies_protected_surface_status_as_ready() {
+        let (status, ready) = classify_surface_status(HttpStatusCode::FORBIDDEN);
+
+        assert_eq!(status, "protected");
+        assert!(ready);
+    }
+
+    #[test]
+    fn probes_surface_and_records_http_error_status() {
+        let server = Server::http("127.0.0.1:0").expect("test server should bind");
+        let base_url = format!("http://{}", listen_addr(&server));
+        let handle = thread::spawn(move || {
+            let request = server
+                .recv_timeout(Duration::from_secs(5))
+                .expect("test server should receive request")
+                .expect("test server should not time out");
+            request
+                .respond(Response::empty(StatusCode(503)))
+                .expect("test server response should succeed");
+        });
+
+        let client = Client::builder()
+            .timeout(Duration::from_secs(2))
+            .redirect(Policy::none())
+            .build()
+            .expect("probe client should build");
+        let status = probe_surface(&client, "grafana", "Grafana", &base_url, "/api/health");
+
+        handle.join().expect("test server thread should join");
+
+        assert_eq!(status.surface_id, "grafana");
+        assert_eq!(status.label, "Grafana");
+        assert_eq!(status.status, "http_error");
+        assert!(!status.ready);
+        assert_eq!(status.http_status, Some(503));
+        assert!(status.error.is_none());
+    }
+
     fn sample_instance_config() -> InstanceConfigReport {
         InstanceConfigReport {
             runtime_providers: RuntimeProvidersConfig {
@@ -394,6 +660,13 @@ mod tests {
                 ready: false,
                 missing_fields: vec!["app_id".to_string(), "webhook_secret".to_string()],
             },
+        }
+    }
+
+    fn listen_addr(server: &Server) -> std::net::SocketAddr {
+        match server.server_addr() {
+            ListenAddr::IP(addr) => addr,
+            other => panic!("unexpected listen addr: {other:?}"),
         }
     }
 }
