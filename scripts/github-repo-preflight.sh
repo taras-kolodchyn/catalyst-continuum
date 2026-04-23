@@ -10,12 +10,13 @@ REQUIRE_WRITE="true"
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/github-repo-preflight.sh OWNER/REPO [--default-branch BRANCH] [--allow-readonly]
+Usage: ./scripts/github-repo-preflight.sh [OWNER/REPO] [--default-branch BRANCH] [--allow-readonly]
 
 Validate that the local GitHub CLI session can see a real target repository
 before Catalyst Continuum publishes generated branches or draft pull requests.
 
 The check is intentionally non-mutating. It does not push branches or create PRs.
+When OWNER/REPO is omitted, gh resolves the current repository checkout.
 EOF
 }
 
@@ -53,12 +54,6 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-if [ -z "$REPOSITORY" ]; then
-  echo "repository argument is required, for example smartit/catalyst-continuum-demo" >&2
-  usage >&2
-  exit 1
-fi
-
 if ! command -v gh >/dev/null 2>&1; then
   echo "gh is required for real repository preflight" >&2
   exit 1
@@ -71,7 +66,11 @@ fi
 
 gh auth status >/dev/null
 
-repo_json="$(gh repo view "$REPOSITORY" --json nameWithOwner,defaultBranchRef,isPrivate,viewerPermission)"
+if [ -n "$REPOSITORY" ]; then
+  repo_json="$(gh repo view "$REPOSITORY" --json nameWithOwner,defaultBranchRef,isPrivate,viewerPermission)"
+else
+  repo_json="$(gh repo view --json nameWithOwner,defaultBranchRef,isPrivate,viewerPermission)"
+fi
 
 python3 - "$repo_json" "$EXPECTED_BRANCH" "$REQUIRE_WRITE" <<'PY'
 import json

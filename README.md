@@ -90,6 +90,8 @@ catalyst-continuum-orchestrator create-draft-pr \
   --repository-targets-file config/repository-targets.example.yaml
 ```
 
+When you run the preflight from inside the target repository checkout, `<OWNER>/<REPO>` is optional because `gh repo view` can resolve the current repository automatically.
+
 For real repositories, set `CATALYST_REPOSITORY_TARGETS_FILE` to a
 repository-target allowlist before publication. When that file is configured,
 `publish-pr-export` and `create-draft-pr` reject any repository, remote URL,

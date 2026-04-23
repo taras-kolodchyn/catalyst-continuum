@@ -101,8 +101,7 @@ cleanup: ## Stop repo-local helper sessions and disposable smoke/UI databases.
 
 .PHONY: github-repo-preflight
 github-repo-preflight: ## Check gh access and permissions for REPOSITORY=owner/repo before real PR publication.
-	@if [ -z "$(REPOSITORY)" ]; then echo "set REPOSITORY=owner/repo" >&2; exit 1; fi
-	./scripts/github-repo-preflight.sh "$(REPOSITORY)" $(if $(REPOSITORY_DEFAULT_BRANCH),--default-branch "$(REPOSITORY_DEFAULT_BRANCH)")
+	./scripts/github-repo-preflight.sh $(if $(REPOSITORY),"$(REPOSITORY)") $(if $(REPOSITORY_DEFAULT_BRANCH),--default-branch "$(REPOSITORY_DEFAULT_BRANCH)")
 
 .PHONY: repository-targets-init
 repository-targets-init: ## Generate a local repository-target allowlist for REPOSITORY=owner/repo.
