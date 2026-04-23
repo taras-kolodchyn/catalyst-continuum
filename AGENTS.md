@@ -89,6 +89,7 @@ Before delivering, run the smallest meaningful validation set that proves the ch
 - `./scripts/check-versions.sh` for version pins, workflow pins, image refs, and shared version metadata
 - `./scripts/doctor.sh` for fast local prerequisite, config, repository-target policy, and optional live-service readiness checks
 - `./scripts/repository-target-bootstrap-smoke.sh` for repository-target bootstrap regressions, plus `./scripts/init-repository-targets.sh --repo-json <fixture>` and `./scripts/github-repo-preflight.sh --repo-json <fixture>` for narrower offline validation when you only need one stage; use `./scripts/bootstrap-repository-target.sh --repo-json <fixture> --skip-doctor` when you need to prove the wrapper path without depending on live GitHub metadata or local service state
+- `./scripts/check-template-repo.sh` for `template-repo/` scaffold alignment whenever private-instance env/config expectations change
 - `./scripts/lint-shell.sh` for shell scripts and workflow helper changes
 - `./scripts/ci-rust.sh` for Rust logic, CLI commands, HTTP routes, MCP handlers, storage, and tests
 - `./scripts/ci-compose.sh` for compose or deployment changes

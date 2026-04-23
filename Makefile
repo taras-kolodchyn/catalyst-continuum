@@ -27,14 +27,14 @@ help: ## Show available Make targets.
 	@awk 'BEGIN {FS = ":.*##"; printf "Catalyst Continuum targets:\n\n"} /^[a-zA-Z0-9_.-]+:.*##/ {printf "  %-28s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 .PHONY: check
-check: doctor versions repository-targets-smoke lint-shell rust ## Run the standard fast local validation set.
+check: doctor versions repository-targets-smoke template-repo-check lint-shell rust ## Run the standard fast local validation set.
 
 .PHONY: doctor
 doctor: ## Run fast local readiness checks for tools, config, and optional live services.
 	./scripts/doctor.sh $(DOCTOR_ARGS)
 
 .PHONY: ci
-ci: versions lint-shell repository-targets-smoke rust compose eval smoke ## Run the broad local validation set.
+ci: versions lint-shell repository-targets-smoke template-repo-check rust compose eval smoke ## Run the broad local validation set.
 
 .PHONY: ci-full
 ci-full: ci sbom ## Run broad local validation plus SBOM generation.
@@ -117,6 +117,10 @@ repository-targets-bootstrap: ## Bootstrap a local repository-target allowlist p
 .PHONY: repository-targets-smoke
 repository-targets-smoke: ## Run offline smoke coverage for repository-target bootstrap helpers.
 	./scripts/repository-target-bootstrap-smoke.sh
+
+.PHONY: template-repo-check
+template-repo-check: ## Validate private template scaffold env/config alignment.
+	./scripts/check-template-repo.sh
 
 .PHONY: smoke
 smoke: ## Run CI smoke tests; override SMOKE_SCENARIO for one scenario.

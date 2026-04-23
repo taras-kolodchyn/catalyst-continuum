@@ -349,7 +349,7 @@ For a scripted external-executor cycle that claims one task, prepares its worksp
 GitHub Actions runs one workflow, [`.github/workflows/ci.yml`](.github/workflows/ci.yml), with these core check groups:
 
 - `versions`: validates version pins from [`versions.env`](versions.env) against the workflow, Dockerfile, Compose env file, pack image refs, and [`.actrc`](.actrc)
-- `shell`: runs ShellCheck across every script under [`scripts/`](scripts) and the offline repository-target bootstrap smoke so bootstrap policy, preflight, and Make wiring stay reproducible in CI
+- `shell`: runs ShellCheck across every script under [`scripts/`](scripts), the offline repository-target bootstrap smoke, and the private `template-repo/` scaffold check so bootstrap policy, template onboarding, and Make wiring stay reproducible in CI
 - `sbom`: builds the orchestrator image, generates an SPDX SBOM, uploads the SBOM artifact, and creates a GitHub/Sigstore provenance attestation for that uploaded artifact
 - `rust`: runs `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo build --workspace --locked`, `cargo test --workspace --locked`, `./scripts/mcp-smoke.sh`, and `./scripts/mcp-reference-smoke.sh`
 - `compose`: validates `deploy/compose/compose.yaml` with the pinned `.env.example`, runs `./scripts/compose-runtime-check.sh` for the in-container `orchestrator`/`worker` contract including pinned Docker CLI plus host-daemon access through `/var/run/docker.sock`, and runs `./scripts/compose-observability-smoke.sh --no-build` so the shipped Docker stack keeps its live Prometheus/Loki/Tempo/Grafana/LiteLLM/orchestrator wiring reproducible
@@ -367,6 +367,7 @@ The core checks can be run directly without GitHub Actions:
 ```bash
 ./scripts/check-versions.sh
 ./scripts/repository-target-bootstrap-smoke.sh
+./scripts/check-template-repo.sh
 ./scripts/lint-shell.sh
 ./scripts/generate-sbom.sh
 ./scripts/ci-rust.sh
@@ -383,6 +384,7 @@ The core checks can be run directly without GitHub Actions:
 
 `./scripts/eval-baseline.sh` is the small but explicit release-evaluation layer for the closed `v0.1` cut. It validates all shipped example briefs up front, then runs one representative end-to-end smoke pass with extra assertions for safe promotion behavior and writes the aggregate report to `.continuum/eval-artifacts/evaluation-baseline.json` by default.
 `./scripts/repository-target-bootstrap-smoke.sh` is the fast offline regression layer for the real-repository bootstrap helpers. It checks direct preflight behavior, negative branch mismatch handling, the one-shot bootstrap wrapper, and the `make repository-targets-bootstrap` entrypoint without depending on live GitHub mutation.
+`./scripts/check-template-repo.sh` is the matching private-instance scaffold guard. It verifies that `template-repo/.env.example` and `template-repo/deploy/compose/.env.example` keep the expected repository-target, config-file, LiteLLM persistence, LiteLLM OTel, and GitHub App env surfaces instead of drifting away from the upstream operator contract.
 `./scripts/openhands-launch-smoke.sh` is the operator-facing launch-contract check for the pinned OpenHands profiles. It resolves both the unsafe host-process path and the Docker-sandbox path from `config/agent-launchers.toml`, renders repo-local `mcp.json` files for each, and verifies that the resolved `uvx`, LiteLLM, and agent-server pins stay aligned with `versions.env`.
 `./scripts/openhands-run-agent-task-smoke.sh` is the executor-wrapper smoke for the claimed OpenHands task path. It submits a real run, advances the initial planning task, then validates that `./scripts/openhands-run-agent-task.sh` projects only the run-scoped external MCP allowlist into the launched OpenHands session instead of leaking the broader instance-wide allowlist.
 `./scripts/compose-observability-smoke.sh` is the stack-level Docker validation layer for the shipped local infra baseline. It boots the pinned compose stack under an isolated project name and ephemeral host ports, then verifies service startup, Prometheus active scrape targets, Grafana datasource/dashboard provisioning, LiteLLM `/v1/models`, and the orchestrator's live `/ai-gateway/status` contract.

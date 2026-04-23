@@ -317,6 +317,7 @@ check_file "$ENV_FILE" "compose env file"
 check_executable_file "$ROOT_DIR/scripts/ci-rust.sh" "Rust CI script"
 check_executable_file "$ROOT_DIR/scripts/ci-smoke.sh" "smoke CI script"
 check_executable_file "$ROOT_DIR/scripts/repository-target-bootstrap-smoke.sh" "repository-target bootstrap smoke script"
+check_executable_file "$ROOT_DIR/scripts/check-template-repo.sh" "template-repo scaffold check script"
 check_executable_file "$ROOT_DIR/scripts/operator-ui-smoke.sh" "operator UI smoke script"
 check_executable_file "$ROOT_DIR/scripts/litellm-local-smoke.sh" "LiteLLM smoke script"
 check_compose_config

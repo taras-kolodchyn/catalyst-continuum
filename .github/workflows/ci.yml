@@ -39,6 +39,9 @@ jobs:
       - name: Validate repository-target bootstrap smoke
         run: ./scripts/repository-target-bootstrap-smoke.sh
 
+      - name: Validate template-repo scaffolds
+        run: ./scripts/check-template-repo.sh
+
   sbom:
     needs:
       - versions
