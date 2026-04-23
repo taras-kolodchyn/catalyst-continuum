@@ -234,7 +234,7 @@ check_repository_target_policy() {
   elif [ -f "$ROOT_DIR/config/repository-targets.local.yaml" ]; then
     warn "local repository target config exists but is not enabled; export CATALYST_REPOSITORY_TARGETS_FILE=$ROOT_DIR/config/repository-targets.local.yaml and run make github-repo-preflight REPOSITORY=<OWNER/REPO> (or omit REPOSITORY inside the target repo checkout)"
   else
-    warn "repository target enforcement is not configured; run make repository-targets-init REPOSITORY=<OWNER/REPO> REPOSITORY_TARGET_ID=<TARGET_ID> (or omit REPOSITORY inside the target repo checkout), then export CATALYST_REPOSITORY_TARGETS_FILE=$ROOT_DIR/config/repository-targets.local.yaml"
+    warn "repository target enforcement is not configured; run make repository-targets-bootstrap REPOSITORY=<OWNER/REPO> REPOSITORY_TARGET_ID=<TARGET_ID> (or omit REPOSITORY inside the target repo checkout)"
   fi
 }
 
