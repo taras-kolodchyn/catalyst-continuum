@@ -218,6 +218,8 @@ make check
 make ci
 make ui
 make ui-smoke
+make ui-smoke-repository-policy
+make ui-smoke-repository-policy-blocked
 make cleanup
 make act-shell-dry
 make act-rust
@@ -251,7 +253,7 @@ For repeatable browser validation of the operator UI flow, run:
 make ui-smoke
 ```
 
-That smoke uses the pinned Playwright package from `PLAYWRIGHT_NPM_VERSION`, starts a disposable pinned Postgres container, seeds full MVP run data through the existing CLI smoke flow, opens `/ui`, clicks the run ledger, `Flow` and `Agents` tabs, agent report cards, and manual refresh, then fails on browser console errors, request failures, missing WebSocket live updates, iframe mounts, or unexpected hard reloads. It can also validate the real-repository promotion posture by passing `--repository-targets-file <path>` through `OPERATOR_UI_SMOKE_ARGS`. For example: `make ui-smoke OPERATOR_UI_SMOKE_ARGS="--skip-build --repository-targets-file config/repository-targets.example.yaml"`. To prove the local-export-only posture when repository policy blocks real GitHub handoff, use `config/repository-targets.unmatched.example.yaml` together with `--expect-remote-publication-blocked`.
+That smoke uses the pinned Playwright package from `PLAYWRIGHT_NPM_VERSION`, starts a disposable pinned Postgres container, seeds full MVP run data through the existing CLI smoke flow, opens `/ui`, clicks the run ledger, `Flow` and `Agents` tabs, agent report cards, and manual refresh, then fails on browser console errors, request failures, missing WebSocket live updates, iframe mounts, or unexpected hard reloads. It can also validate the real-repository promotion posture through `make ui-smoke-repository-policy` for a matching allowlist and `make ui-smoke-repository-policy-blocked` for the local-export-only posture where repository policy blocks real GitHub handoff. Pass shared script flags such as `--skip-build` through `OPERATOR_UI_SMOKE_ARGS`.
 
 If a local UI or smoke session gets interrupted and leaves repo-local helper state behind, run:
 

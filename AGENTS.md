@@ -103,6 +103,7 @@ Before delivering, run the smallest meaningful validation set that proves the ch
 - `./scripts/openhands-launch-smoke.sh` for pinned OpenHands launch-profile, repo-local persistence, and LiteLLM/MCP launcher-contract changes
 - `./scripts/openhands-run-agent-task-smoke.sh` for external OpenHands executor-wrapper changes, especially run-scoped external MCP projection and claimed-task handoff behavior
 - `./scripts/operator-ui-smoke.sh` for operator UI, WebSocket live-update, Mission Control, run-ledger, or agent-panel changes that need browser-level regression coverage
+- `make ui-smoke-repository-policy` and `make ui-smoke-repository-policy-blocked` for operator UI changes that affect repository-target publication posture, especially whether local PR export remains available while remote publication and draft PR are policy-blocked
 
 If a change affects multiple surfaces, run all relevant checks instead of choosing only one.
 

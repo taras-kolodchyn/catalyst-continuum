@@ -24,7 +24,7 @@ UI_PORT ?= 8080
 
 .PHONY: help
 help: ## Show available Make targets.
-	@awk 'BEGIN {FS = ":.*##"; printf "Catalyst Continuum targets:\n\n"} /^[a-zA-Z0-9_.-]+:.*##/ {printf "  %-28s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*##"; printf "Catalyst Continuum targets:\n\n"} /^[a-zA-Z0-9_.-]+:.*##/ {printf "  %-38s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 .PHONY: check
 check: doctor versions repository-targets-smoke template-repo-check lint-shell rust ## Run the standard fast local validation set.
@@ -97,6 +97,14 @@ ui: ## Start the host-run operator UI; override UI_PORT and OPERATOR_UI_ARGS as 
 .PHONY: ui-smoke
 ui-smoke: ## Run browser-level operator UI smoke against seeded MVP run data.
 	./scripts/operator-ui-smoke.sh $(OPERATOR_UI_SMOKE_ARGS)
+
+.PHONY: ui-smoke-repository-policy
+ui-smoke-repository-policy: ## Run operator UI smoke with a matching repository-target allowlist.
+	./scripts/operator-ui-smoke.sh --repository-targets-file config/repository-targets.example.yaml $(OPERATOR_UI_SMOKE_ARGS)
+
+.PHONY: ui-smoke-repository-policy-blocked
+ui-smoke-repository-policy-blocked: ## Run operator UI smoke proving remote publication is blocked by repository policy.
+	./scripts/operator-ui-smoke.sh --repository-targets-file config/repository-targets.unmatched.example.yaml --expect-remote-publication-blocked $(OPERATOR_UI_SMOKE_ARGS)
 
 .PHONY: cleanup
 cleanup: ## Stop repo-local helper sessions and disposable smoke/UI databases.
