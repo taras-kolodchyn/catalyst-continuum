@@ -26,6 +26,8 @@ Options:
   --postgres-port PORT  Fixed disposable Postgres port (default: random loopback port)
   --output-root PATH    Directory for logs, screenshots, and smoke artifacts
                          (default: .continuum/operator-ui-smoke)
+  --repository-targets-file PATH
+                        Optional repository target allowlist to expose in the UI
   --skip-build          Reuse the existing debug binary
   --help                Show this help text
 EOF
@@ -146,6 +148,38 @@ wait_for_ui_ready() {
   cat "$UI_LOG_FILE" >&2 || true
   echo "operator UI did not become ready after 45s (last probe: ${last_result})" >&2
   return 1
+}
+
+verify_dashboard_repository_targets() {
+  local dashboard_file="$OUTPUT_DIR/dashboard.json"
+
+  if ! curl -fsS "http://127.0.0.1:${HTTP_PORT}/ui/dashboard" >"$dashboard_file"; then
+    echo "failed to fetch operator UI dashboard snapshot" >&2
+    return 1
+  fi
+
+  if [ -z "$REPOSITORY_TARGETS_FILE" ]; then
+    return 0
+  fi
+
+  python3 - "$dashboard_file" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    payload = json.load(handle)
+
+repository_targets = payload["config"]["data"]["repository_targets"]
+if not repository_targets.get("enforcement_enabled"):
+    raise SystemExit("repository target enforcement was expected in /ui/dashboard, but it is disabled")
+
+targets = repository_targets.get("targets") or []
+if not targets:
+    raise SystemExit("repository target enforcement is enabled, but /ui/dashboard returned no targets")
+
+print(f"repository_target_count={len(targets)}")
+print(f"first_repository_target={targets[0]['target_id']}")
+PY
 }
 
 write_browser_check() {
@@ -363,6 +397,7 @@ SCENARIO="${OPERATOR_UI_SMOKE_SCENARIO:-mvp-cli-tool}"
 HTTP_PORT="${OPERATOR_UI_SMOKE_HTTP_PORT:-}"
 POSTGRES_PORT="${OPERATOR_UI_SMOKE_POSTGRES_PORT:-}"
 OUTPUT_ROOT="${OPERATOR_UI_SMOKE_OUTPUT_ROOT:-$ROOT_DIR/.continuum/operator-ui-smoke}"
+REPOSITORY_TARGETS_FILE="${OPERATOR_UI_SMOKE_REPOSITORY_TARGETS_FILE:-}"
 SKIP_BUILD=0
 
 while [ "$#" -gt 0 ]; do
@@ -381,6 +416,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --output-root)
       OUTPUT_ROOT="${2:?missing value for --output-root}"
+      shift 2
+      ;;
+    --repository-targets-file)
+      REPOSITORY_TARGETS_FILE="${2:?missing value for --repository-targets-file}"
       shift 2
       ;;
     --skip-build)
@@ -405,6 +444,11 @@ require_command docker
 require_command node
 require_command npm
 require_command python3
+
+if [ -n "$REPOSITORY_TARGETS_FILE" ] && [ ! -f "$REPOSITORY_TARGETS_FILE" ]; then
+  echo "repository targets file not found: $REPOSITORY_TARGETS_FILE" >&2
+  exit 1
+fi
 
 ORCHESTRATOR_TARGET_ROOT="$(resolve_cargo_target_root)"
 BIN="${ORCHESTRATOR_TARGET_ROOT}/debug/catalyst-continuum-orchestrator"
@@ -482,11 +526,13 @@ CATALYST_SKIP_WORKSPACE_BUILD=1 \
 log_phase "starting operator UI on http://127.0.0.1:${HTTP_PORT}/ui"
 CATALYST_DATABASE_URL="$DATABASE_URL" \
 CATALYST_ARTIFACT_ROOT="$ARTIFACT_ROOT" \
+CATALYST_REPOSITORY_TARGETS_FILE="$REPOSITORY_TARGETS_FILE" \
   "$ROOT_DIR/scripts/run-operator-ui.sh" \
     --http-port "$HTTP_PORT" \
     --skip-build >"$UI_LOG_FILE" 2>&1 &
 UI_PID="$!"
 wait_for_ui_ready
+verify_dashboard_repository_targets >"$OUTPUT_DIR/repository-targets-summary.txt"
 
 log_phase "running browser interaction check"
 PLAYWRIGHT_MODULE="$PLAYWRIGHT_RUNNER_DIR/node_modules/playwright" \
@@ -496,3 +542,6 @@ OPERATOR_UI_SMOKE_URL="http://127.0.0.1:${HTTP_PORT}/ui" \
 
 log_phase "summary: $OUTPUT_DIR/operator-ui-browser-summary.json"
 log_phase "screenshot: $OUTPUT_DIR/operator-ui-browser.png"
+if [ -n "$REPOSITORY_TARGETS_FILE" ]; then
+  log_phase "repository targets summary: $OUTPUT_DIR/repository-targets-summary.txt"
+fi
