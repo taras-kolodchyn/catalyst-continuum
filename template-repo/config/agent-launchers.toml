@@ -2,8 +2,14 @@ default_agent = "openhands"
 
 [agents.openhands]
 default_profile = "container-sandbox"
-default_task_file = "examples/openhands/first-task.md"
+default_task_file = "examples/openhands/bootstrap-task.md"
 workspace_mount_path = "/workspace"
+mcp_tool_allowlist = [
+  "list_packs",
+  "validate_brief",
+  "submit_brief",
+  "describe_run",
+]
 
 [agents.openhands.profiles.host-full-access]
 runtime = "process"

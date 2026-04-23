@@ -26,6 +26,18 @@ report_mismatch() {
   failures=1
 }
 
+report_diff() {
+  local label="$1"
+  local upstream_file="$2"
+  local template_file="$3"
+
+  printf 'template scaffold drift for %s: %s differs from %s\n' \
+    "$label" \
+    "$template_file" \
+    "$upstream_file" >&2
+  failures=1
+}
+
 lookup_value() {
   local file="$1"
   local key="$2"
@@ -60,6 +72,16 @@ check_present() {
   fi
 }
 
+check_same_file() {
+  local label="$1"
+  local upstream_file="$2"
+  local template_file="$3"
+
+  if ! cmp -s "$upstream_file" "$template_file"; then
+    report_diff "$label" "$upstream_file" "$template_file"
+  fi
+}
+
 ROOT_ENV_FILE="template-repo/.env.example"
 COMPOSE_ENV_FILE="template-repo/deploy/compose/.env.example"
 
@@ -81,6 +103,27 @@ check_present "$COMPOSE_ENV_FILE" "LITELLM_OTEL_SERVICE_NAME"
 check_present "$COMPOSE_ENV_FILE" "CATALYST_GITHUB_APP_ID"
 check_present "$COMPOSE_ENV_FILE" "CATALYST_GITHUB_APP_INSTALLATION_ID"
 check_present "$COMPOSE_ENV_FILE" "CATALYST_GITHUB_APP_WEBHOOK_SECRET"
+
+check_same_file \
+  "runtime providers config" \
+  "config/runtime-providers.yaml" \
+  "template-repo/config/runtime-providers.yaml"
+check_same_file \
+  "MCP servers config" \
+  "config/mcp-servers.yaml" \
+  "template-repo/config/mcp-servers.yaml"
+check_same_file \
+  "AI gateway config" \
+  "config/ai-gateway.yaml" \
+  "template-repo/config/ai-gateway.yaml"
+check_same_file \
+  "agent launchers config" \
+  "config/agent-launchers.toml" \
+  "template-repo/config/agent-launchers.toml"
+check_same_file \
+  "OpenHands bootstrap task" \
+  "examples/openhands/bootstrap-task.md" \
+  "template-repo/examples/openhands/bootstrap-task.md"
 
 if [ "$failures" -gt 0 ]; then
   exit 1
