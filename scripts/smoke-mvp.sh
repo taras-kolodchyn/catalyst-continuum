@@ -1601,6 +1601,105 @@ printf '%s\n' "$PUBLICATION_OUTPUT" | grep -q '^push_status: pushed$'
 
 BRANCH_NAME="$(printf '%s\n' "$PUBLICATION_OUTPUT" | awk '/^head_branch:/ {print $2; exit}')"
 test -n "$BRANCH_NAME"
+FAKE_GH_BIN_DIR="$REMOTE_ROOT/fake-gh-bin"
+FAKE_GH_STATE_FILE="$REMOTE_ROOT/fake-gh-state.json"
+mkdir -p "$FAKE_GH_BIN_DIR"
+cat >"$FAKE_GH_BIN_DIR/gh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+STATE_FILE="${FAKE_GH_STATE_FILE:?FAKE_GH_STATE_FILE is required}"
+
+if [ "${1:-}" = "auth" ] && [ "${2:-}" = "status" ]; then
+  printf 'github.com\n  ✓ Logged in to github.com account catalyst-smoke\n' >&2
+  exit 0
+fi
+
+if [ "${1:-}" = "pr" ] && [ "${2:-}" = "list" ]; then
+  printf '[]\n'
+  exit 0
+fi
+
+if [ "${1:-}" = "pr" ] && [ "${2:-}" = "create" ]; then
+  shift 2
+  head_branch=""
+  base_branch="main"
+  title="Catalyst Continuum smoke draft PR"
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --head)
+        head_branch="${2:?missing --head value}"
+        shift 2
+        ;;
+      --base)
+        base_branch="${2:?missing --base value}"
+        shift 2
+        ;;
+      --title)
+        title="${2:?missing --title value}"
+        shift 2
+        ;;
+      --body-file|--repo)
+        shift 2
+        ;;
+      --draft)
+        shift
+        ;;
+      *)
+        shift
+        ;;
+    esac
+  done
+
+  python3 - "$STATE_FILE" "$head_branch" "$base_branch" "$title" <<'PY'
+import json
+import pathlib
+import sys
+
+state_path, head_branch, base_branch, title = sys.argv[1:]
+pathlib.Path(state_path).write_text(
+    json.dumps(
+        {
+            "number": 123,
+            "url": "https://github.com/smartit/smoke-mvp-generated/pull/123",
+            "state": "OPEN",
+            "isDraft": True,
+            "title": title,
+            "headRefName": head_branch,
+            "baseRefName": base_branch,
+        }
+    ),
+    encoding="utf-8",
+)
+PY
+  printf 'https://github.com/smartit/smoke-mvp-generated/pull/123\n'
+  exit 0
+fi
+
+if [ "${1:-}" = "pr" ] && [ "${2:-}" = "view" ]; then
+  cat "$STATE_FILE"
+  printf '\n'
+  exit 0
+fi
+
+printf 'unexpected fake gh invocation: %s\n' "$*" >&2
+exit 2
+EOF
+chmod +x "$FAKE_GH_BIN_DIR/gh"
+
+DRAFT_PR_OUTPUT_FILE="$ARTIFACT_ROOT/draft-pr-output.yaml"
+DRAFT_PR_OUTPUT="$(FAKE_GH_STATE_FILE="$FAKE_GH_STATE_FILE" PATH="$FAKE_GH_BIN_DIR:$PATH" "$BIN" create-draft-pr \
+  --database-url "$DATABASE_URL" \
+  --artifact-root "$ARTIFACT_ROOT" \
+  --run-id "$RUN_ID" \
+  --remote-url "$REMOTE_URL" \
+  --pretty)"
+printf '%s\n' "$DRAFT_PR_OUTPUT" >"$DRAFT_PR_OUTPUT_FILE"
+printf '%s\n' "$DRAFT_PR_OUTPUT"
+printf '%s\n' "$DRAFT_PR_OUTPUT" | grep -q '^resolution: created$'
+printf '%s\n' "$DRAFT_PR_OUTPUT" | grep -q '^pr_url: https://github.com/smartit/smoke-mvp-generated/pull/123$'
+test -f "$ARTIFACT_ROOT/runs/$RUN_ID/github-pr/current/manifest.json"
+
 RUN_EVENTS_PROMOTION_HTTP_FILE="$ARTIFACT_ROOT/http-run-events-promotion.json"
 curl -fsS "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/runs/${RUN_ID}/events?limit=80" \
   >"$RUN_EVENTS_PROMOTION_HTTP_FILE"
@@ -1615,6 +1714,7 @@ event_types = {event["event_type"] for event in events["events"]}
 required_event_types = {
     "pr_candidate_exported",
     "pr_export_published",
+    "github_pr_opened",
 }
 assert required_event_types.issubset(event_types), (required_event_types, event_types)
 PY

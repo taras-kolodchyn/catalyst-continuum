@@ -8,12 +8,13 @@ use crate::{
     coordination,
     models::{
         artifact::ArtifactSummary,
+        run::RunContext,
         run_event::{
             GITHUB_PR_OPENED_EVENT_TYPE, PR_CANDIDATE_EXPORTED_EVENT_TYPE,
             PR_EXPORT_PUBLISHED_EVENT_TYPE, RunEventDraft,
         },
     },
-    planning::{github_pr, pr_candidate, pr_export, pr_publication},
+    planning::{github_pr, pr_candidate, pr_export, pr_publication, quality_gate},
     storage::postgres::PostgresRunStore,
     telemetry,
 };
@@ -78,38 +79,20 @@ pub(crate) fn create_draft_pr_unlocked(
         expected_pr_candidate_id
     );
 
-    let export_started_at = std::time::Instant::now();
-    let export = pr_export::export_pr_candidate(
-        &run_context,
-        &pr_candidate,
-        source_quality_report_artifact_id,
-        artifact_root,
-        branch_name,
-    );
-    telemetry::record_promotion_step(
-        "pr_export",
-        if export.is_ok() { "ok" } else { "error" },
-        export_started_at.elapsed(),
-    );
-    let export = export?;
-    let exported_artifact = store.upsert_artifact(&export)?;
-
-    let publication_started_at = std::time::Instant::now();
-    let publication = pr_publication::publish_pr_export(
-        &run_context,
-        &exported_artifact,
-        source_quality_report_artifact_id,
-        artifact_root,
-        remote_url,
-        true,
-    );
-    telemetry::record_promotion_step(
-        "pr_publication",
-        if publication.is_ok() { "ok" } else { "error" },
-        publication_started_at.elapsed(),
-    );
-    let publication = publication?;
-    let published_artifact = store.upsert_artifact(&publication)?;
+    let publication = prepare_draft_pr_publication(
+        store,
+        DraftPrPublicationRequest {
+            run_context: &run_context,
+            pr_candidate: &pr_candidate,
+            source_quality_report_artifact_id,
+            expected_pr_candidate_id,
+            artifact_root,
+            remote_url,
+            branch_name,
+        },
+    )?;
+    let exported_artifact = publication.pr_export_artifact;
+    let published_artifact = publication.pr_publication_artifact;
 
     let github_pr_started_at = std::time::Instant::now();
     let github_pull_request = github_pr::open_github_pull_request(
@@ -130,90 +113,44 @@ pub(crate) fn create_draft_pr_unlocked(
     let github_pull_request = github_pull_request?;
     let github_pr_artifact = store.upsert_artifact(&github_pull_request)?;
 
-    let branch_name = exported_artifact
-        .metadata
-        .get("branch_name")
-        .and_then(|value| value.as_str())
-        .map(str::to_string)
-        .with_context(|| {
-            format!(
-                "exported artifact {} is missing metadata.branch_name",
-                exported_artifact.artifact_id
-            )
-        })?;
-    let commit_sha = exported_artifact
-        .metadata
-        .get("commit_sha")
-        .and_then(|value| value.as_str())
-        .map(str::to_string)
-        .with_context(|| {
-            format!(
-                "exported artifact {} is missing metadata.commit_sha",
-                exported_artifact.artifact_id
-            )
-        })?;
-    let _ = store.insert_run_event(&RunEventDraft::for_run(
-        run_id,
-        PR_CANDIDATE_EXPORTED_EVENT_TYPE,
-        Some("exported".to_string()),
-        format!("PR candidate exported to branch {branch_name}"),
-        serde_json::json!({
-            "source_quality_report_artifact_id": source_quality_report_artifact_id,
-            "source_pr_candidate_artifact_id": pr_candidate.artifact_id,
-            "branch_name": branch_name.clone(),
-            "commit_sha": commit_sha.clone(),
-            "artifact_id": exported_artifact.artifact_id,
-        }),
-    ))?;
-    let base_branch = published_artifact
-        .metadata
-        .get("base_branch")
-        .and_then(|value| value.as_str())
-        .map(str::to_string)
-        .with_context(|| {
-            format!(
-                "published artifact {} is missing metadata.base_branch",
-                published_artifact.artifact_id
-            )
-        })?;
-    let remote_url = published_artifact
-        .metadata
-        .get("remote_url")
-        .and_then(|value| value.as_str())
-        .map(str::to_string)
-        .with_context(|| {
-            format!(
-                "published artifact {} is missing metadata.remote_url",
-                published_artifact.artifact_id
-            )
-        })?;
-    let push_status = published_artifact
-        .metadata
-        .get("push_status")
-        .and_then(|value| value.as_str())
-        .map(str::to_string)
-        .with_context(|| {
-            format!(
-                "published artifact {} is missing metadata.push_status",
-                published_artifact.artifact_id
-            )
-        })?;
-    let _ = store.insert_run_event(&RunEventDraft::for_run(
-        run_id,
-        PR_EXPORT_PUBLISHED_EVENT_TYPE,
-        Some(push_status.clone()),
-        format!("PR export {push_status} for branch {branch_name}"),
-        serde_json::json!({
-            "source_quality_report_artifact_id": source_quality_report_artifact_id,
-            "source_pr_candidate_artifact_id": pr_candidate.artifact_id,
-            "source_pr_export_artifact_id": exported_artifact.artifact_id,
-            "head_branch": branch_name.clone(),
-            "base_branch": base_branch.clone(),
-            "remote_url": remote_url.clone(),
-            "push_status": push_status.clone(),
-            "artifact_id": published_artifact.artifact_id,
-        }),
-    ))?;
+    let branch_name = artifact_metadata_string(&exported_artifact, "branch_name")?;
+    let commit_sha = artifact_metadata_string(&exported_artifact, "commit_sha")?;
+    if !publication.reused_existing_publication {
+        let _ = store.insert_run_event(&RunEventDraft::for_run(
+            run_id,
+            PR_CANDIDATE_EXPORTED_EVENT_TYPE,
+            Some("exported".to_string()),
+            format!("PR candidate exported to branch {branch_name}"),
+            serde_json::json!({
+                "source_quality_report_artifact_id": source_quality_report_artifact_id,
+                "source_pr_candidate_artifact_id": pr_candidate.artifact_id,
+                "branch_name": branch_name.clone(),
+                "commit_sha": commit_sha.clone(),
+                "artifact_id": exported_artifact.artifact_id,
+            }),
+        ))?;
+    }
+    let base_branch = artifact_metadata_string(&published_artifact, "base_branch")?;
+    let remote_url = artifact_metadata_string(&published_artifact, "remote_url")?;
+    let push_status = artifact_metadata_string(&published_artifact, "push_status")?;
+    if !publication.reused_existing_publication {
+        let _ = store.insert_run_event(&RunEventDraft::for_run(
+            run_id,
+            PR_EXPORT_PUBLISHED_EVENT_TYPE,
+            Some(push_status.clone()),
+            format!("PR export {push_status} for branch {branch_name}"),
+            serde_json::json!({
+                "source_quality_report_artifact_id": source_quality_report_artifact_id,
+                "source_pr_candidate_artifact_id": pr_candidate.artifact_id,
+                "source_pr_export_artifact_id": exported_artifact.artifact_id,
+                "head_branch": branch_name.clone(),
+                "base_branch": base_branch.clone(),
+                "remote_url": remote_url.clone(),
+                "push_status": push_status.clone(),
+                "artifact_id": published_artifact.artifact_id,
+            }),
+        ))?;
+    }
     let pr_url = github_pr_artifact
         .metadata
         .get("pr_url")
@@ -279,6 +216,193 @@ pub(crate) fn create_draft_pr_unlocked(
     };
 
     Ok(report)
+}
+
+fn prepare_draft_pr_publication(
+    store: &mut PostgresRunStore,
+    request: DraftPrPublicationRequest<'_>,
+) -> anyhow::Result<DraftPrPublication> {
+    let reuse_started_at = std::time::Instant::now();
+    if let Some(pr_publication_artifact) = find_reusable_published_publication(
+        store,
+        request.run_context.run_id,
+        request.source_quality_report_artifact_id,
+        request.expected_pr_candidate_id,
+        request.remote_url,
+        request.branch_name,
+    )? {
+        let pr_export_artifact = fetch_source_pr_export_artifact(
+            store,
+            request.run_context.run_id,
+            &pr_publication_artifact,
+        )?;
+        telemetry::record_promotion_step("pr_export", "reused", reuse_started_at.elapsed());
+        telemetry::record_promotion_step("pr_publication", "reused", reuse_started_at.elapsed());
+        return Ok(DraftPrPublication {
+            pr_export_artifact,
+            pr_publication_artifact,
+            reused_existing_publication: true,
+        });
+    }
+
+    let export_started_at = std::time::Instant::now();
+    let export = pr_export::export_pr_candidate(
+        request.run_context,
+        request.pr_candidate,
+        request.source_quality_report_artifact_id,
+        request.artifact_root,
+        request.branch_name,
+    );
+    telemetry::record_promotion_step(
+        "pr_export",
+        if export.is_ok() { "ok" } else { "error" },
+        export_started_at.elapsed(),
+    );
+    let export = export?;
+    let pr_export_artifact = store.upsert_artifact(&export)?;
+
+    let publication_started_at = std::time::Instant::now();
+    let publication = pr_publication::publish_pr_export(
+        request.run_context,
+        &pr_export_artifact,
+        request.source_quality_report_artifact_id,
+        request.artifact_root,
+        request.remote_url,
+        true,
+    );
+    telemetry::record_promotion_step(
+        "pr_publication",
+        if publication.is_ok() { "ok" } else { "error" },
+        publication_started_at.elapsed(),
+    );
+    let publication = publication?;
+    let pr_publication_artifact = store.upsert_artifact(&publication)?;
+
+    Ok(DraftPrPublication {
+        pr_export_artifact,
+        pr_publication_artifact,
+        reused_existing_publication: false,
+    })
+}
+
+fn find_reusable_published_publication(
+    store: &mut PostgresRunStore,
+    run_id: uuid::Uuid,
+    source_quality_report_artifact_id: uuid::Uuid,
+    expected_pr_candidate_id: uuid::Uuid,
+    remote_url: Option<&str>,
+    branch_name: Option<&str>,
+) -> anyhow::Result<Option<ArtifactSummary>> {
+    let Some(publication) =
+        store.find_latest_run_artifact(run_id, pr_publication::PR_PUBLICATION_ARTIFACT_TYPE)?
+    else {
+        return Ok(None);
+    };
+
+    if !publication_matches_draft_request(&publication, remote_url, branch_name) {
+        return Ok(None);
+    }
+    quality_gate::ensure_artifact_matches_pr_candidate(
+        &publication,
+        "source_pr_candidate_artifact_id",
+        expected_pr_candidate_id,
+        "pr_publication",
+    )?;
+    quality_gate::ensure_artifact_matches_quality_report(
+        &publication,
+        "source_quality_report_artifact_id",
+        source_quality_report_artifact_id,
+        "pr_publication",
+    )?;
+
+    Ok(Some(publication))
+}
+
+fn publication_matches_draft_request(
+    publication: &ArtifactSummary,
+    remote_url: Option<&str>,
+    branch_name: Option<&str>,
+) -> bool {
+    if artifact_metadata_str(publication, "push_status") != Some("pushed") {
+        return false;
+    }
+    if let Some(requested_remote_url) = remote_url
+        && artifact_metadata_str(publication, "remote_url") != Some(requested_remote_url)
+    {
+        return false;
+    }
+    if let Some(requested_branch_name) = branch_name
+        && artifact_metadata_str(publication, "head_branch") != Some(requested_branch_name)
+    {
+        return false;
+    }
+
+    true
+}
+
+fn fetch_source_pr_export_artifact(
+    store: &mut PostgresRunStore,
+    run_id: uuid::Uuid,
+    publication: &ArtifactSummary,
+) -> anyhow::Result<ArtifactSummary> {
+    let source_pr_export_artifact_id =
+        quality_gate::artifact_metadata_uuid(publication, "source_pr_export_artifact_id")?;
+    let artifact_record = store
+        .fetch_artifact(source_pr_export_artifact_id)?
+        .with_context(|| {
+            format!(
+                "pr_publication artifact {} references missing pr_export artifact {}",
+                publication.artifact_id, source_pr_export_artifact_id
+            )
+        })?;
+    ensure!(
+        artifact_record.run_id == run_id,
+        "pr_publication artifact {} references pr_export artifact {} from run {}, expected run {}",
+        publication.artifact_id,
+        source_pr_export_artifact_id,
+        artifact_record.run_id,
+        run_id
+    );
+    ensure!(
+        artifact_record.artifact.artifact_type == pr_export::PR_EXPORT_ARTIFACT_TYPE,
+        "pr_publication artifact {} references artifact {} of type {}, expected pr_export",
+        publication.artifact_id,
+        source_pr_export_artifact_id,
+        artifact_record.artifact.artifact_type
+    );
+
+    Ok(artifact_record.artifact)
+}
+
+fn artifact_metadata_string(artifact: &ArtifactSummary, key: &str) -> anyhow::Result<String> {
+    artifact_metadata_str(artifact, key)
+        .map(str::to_string)
+        .with_context(|| {
+            format!(
+                "{} artifact {} is missing metadata.{}",
+                artifact.artifact_type, artifact.artifact_id, key
+            )
+        })
+}
+
+fn artifact_metadata_str<'a>(artifact: &'a ArtifactSummary, key: &str) -> Option<&'a str> {
+    artifact.metadata.get(key).and_then(|value| value.as_str())
+}
+
+struct DraftPrPublication {
+    pr_export_artifact: ArtifactSummary,
+    pr_publication_artifact: ArtifactSummary,
+    reused_existing_publication: bool,
+}
+
+struct DraftPrPublicationRequest<'a> {
+    run_context: &'a RunContext,
+    pr_candidate: &'a ArtifactSummary,
+    source_quality_report_artifact_id: uuid::Uuid,
+    expected_pr_candidate_id: uuid::Uuid,
+    artifact_root: &'a Path,
+    remote_url: Option<&'a str>,
+    branch_name: Option<&'a str>,
 }
 
 #[derive(Debug, Serialize)]
@@ -352,5 +476,77 @@ impl CreateDraftPrReport {
         .context("failed to render create-draft-pr report")?;
 
         Ok(output)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn publication_reuse_requires_pushed_publication() {
+        let publication = sample_publication(json!({
+            "push_status": "prepared",
+            "remote_url": "file:///tmp/remote.git",
+            "head_branch": "continuum/run-123",
+        }));
+
+        assert!(!publication_matches_draft_request(
+            &publication,
+            Some("file:///tmp/remote.git"),
+            Some("continuum/run-123")
+        ));
+    }
+
+    #[test]
+    fn publication_reuse_respects_requested_remote_and_branch() {
+        let publication = sample_publication(json!({
+            "push_status": "pushed",
+            "remote_url": "file:///tmp/remote.git",
+            "head_branch": "continuum/run-123",
+        }));
+
+        assert!(publication_matches_draft_request(
+            &publication,
+            Some("file:///tmp/remote.git"),
+            Some("continuum/run-123")
+        ));
+        assert!(!publication_matches_draft_request(
+            &publication,
+            Some("file:///tmp/other.git"),
+            Some("continuum/run-123")
+        ));
+        assert!(!publication_matches_draft_request(
+            &publication,
+            Some("file:///tmp/remote.git"),
+            Some("continuum/run-456")
+        ));
+    }
+
+    #[test]
+    fn publication_reuse_allows_unspecified_remote_or_branch() {
+        let publication = sample_publication(json!({
+            "push_status": "pushed",
+            "remote_url": "file:///tmp/remote.git",
+            "head_branch": "continuum/run-123",
+        }));
+
+        assert!(publication_matches_draft_request(&publication, None, None));
+    }
+
+    fn sample_publication(metadata: serde_json::Value) -> ArtifactSummary {
+        ArtifactSummary {
+            artifact_id: uuid::Uuid::new_v4(),
+            artifact_type: pr_publication::PR_PUBLICATION_ARTIFACT_TYPE.to_string(),
+            format: "directory".to_string(),
+            location_kind: "path".to_string(),
+            location_value: "/tmp/pr-publication".to_string(),
+            content_digest: "sha256:test".to_string(),
+            metadata,
+            created_at: None,
+            persisted: true,
+        }
     }
 }
