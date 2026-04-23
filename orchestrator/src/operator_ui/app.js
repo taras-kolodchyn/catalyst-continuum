@@ -1519,7 +1519,7 @@ function defaultPromotionBranchName(runId) {
 }
 
 function repositoryTargetsConfig() {
-  return state.dashboardSnapshot.config?.repository_targets ?? {};
+  return state.dashboardSnapshot.config?.data?.repository_targets ?? {};
 }
 
 function enabledRepositoryTargets() {
@@ -1542,6 +1542,62 @@ function matchingRepositoryTargetsForRun(runDetail) {
   return enabledRepositoryTargets().filter((target) =>
     repositoryTargetMatchesRun(target, runDetail)
   );
+}
+
+function repositoryLabel(runDetail) {
+  return runDetail?.repository?.owner && runDetail?.repository?.name
+    ? `${runDetail.repository.owner}/${runDetail.repository.name}`
+    : "";
+}
+
+function repositoryTargetGuardSummary(runDetail) {
+  const repository = repositoryLabel(runDetail);
+  const enforcementEnabled = repositoryTargetsConfig().enforcement_enabled === true;
+  const matchingTargets = matchingRepositoryTargetsForRun(runDetail);
+
+  if (!repository) {
+    return {
+      tone: "neutral",
+      title: "No repository metadata",
+      detail:
+        "This run has no repository metadata yet, so real GitHub publication cannot resolve an allowlisted target.",
+    };
+  }
+
+  if (!enforcementEnabled) {
+    return {
+      tone: "warning",
+      title: "Guard inactive",
+      detail:
+        `${repository} can still use repository-derived or manual remotes, but real GitHub publication is not pinned to an allowlist.`,
+    };
+  }
+
+  if (matchingTargets.length === 1) {
+    const target = matchingTargets[0];
+    return {
+      tone: "success",
+      title: `Matching target ${target.target_id}`,
+      detail:
+        `${repository} -> ${target.default_branch} with branch prefix ${target.branch_prefix || "continuum/"}.`,
+    };
+  }
+
+  if (matchingTargets.length > 1) {
+    return {
+      tone: "warning",
+      title: "Multiple matching targets",
+      detail:
+        `${repository} matches ${matchingTargets.length} allowlist entries, so choose one repository target before export, publish, or draft PR.`,
+    };
+  }
+
+  return {
+    tone: "error",
+    title: "No matching repository target",
+    detail:
+      `${repository} is outside the active allowlist, so export, publish, and draft PR stay blocked until repository targets are updated.`,
+  };
 }
 
 function repositoryTargetById(targetId) {
@@ -1779,12 +1835,28 @@ function renderRunActionDraftHint(runDetail) {
 
   const defaults = defaultRunActionDraft(runDetail);
   const draft = runActionDraftForRun(runDetail);
+  const enforcementEnabled = repositoryTargetsConfig().enforcement_enabled === true;
+  const matchingTargets = matchingRepositoryTargetsForRun(runDetail);
   const messages = [];
 
   if (draft.repositoryTargetId) {
     messages.push(`Repository target ${draft.repositoryTargetId} is selected.`);
-  } else if (matchingRepositoryTargetsForRun(runDetail).length > 0) {
-    messages.push("No repository target selected; manual run defaults are active.");
+  } else if (enforcementEnabled && matchingTargets.length === 1) {
+    messages.push(
+      `Matching repository target ${matchingTargets[0].target_id} is available; select it to lock promotion defaults.`
+    );
+  } else if (enforcementEnabled && matchingTargets.length > 1) {
+    messages.push(
+      "Multiple repository targets match this run; choose one before export, publish, or draft PR."
+    );
+  } else if (enforcementEnabled) {
+    messages.push(
+      "No matching repository target exists for this run; export, publish, and draft PR will stay blocked until the allowlist is updated."
+    );
+  } else {
+    messages.push(
+      "Repository-target guard is inactive; repository-derived or manual remotes remain available for smoke and trusted dev flows."
+    );
   }
 
   if (draft.branchName === defaults.branchName) {
@@ -1932,6 +2004,12 @@ function renderStatusGrid(payload) {
       detail: "Static catalog loaded through the orchestrator",
     }),
   ].join(""));
+
+  if (state.selectedRunDetail?.run_id) {
+    renderRunDetail(state.selectedRunDetail, { events: state.selectedRunEvents });
+    return;
+  }
+
   renderMissionControl();
 }
 
@@ -2707,6 +2785,7 @@ function renderMissionFlowPanel() {
   const highlightArtifacts = Array.isArray(runDetail.artifact_highlights)
     ? runDetail.artifact_highlights
     : [];
+  const publicationGuard = repositoryTargetGuardSummary(runDetail);
 
   setRenderedHtml(
     elements.missionFlowPanel,
@@ -2729,12 +2808,10 @@ function renderMissionFlowPanel() {
             guide.badgeTone
           )}
           ${renderMissionMiniCard(
-            "Repository target",
-            runDetail.repository?.owner && runDetail.repository?.name
-              ? `${runDetail.repository.owner}/${runDetail.repository.name}`
-              : "No repository target",
-            `${runDetail.target_pack ?? "no pack"} · ${runDetail.trigger}`,
-            "neutral"
+            "Publication guard",
+            publicationGuard.title,
+            publicationGuard.detail,
+            publicationGuard.tone
           )}
           ${renderMissionMiniCard(
             "Current estate",
@@ -5617,7 +5694,10 @@ function summarizeRepositoryTargets(repositoryTargets) {
   }
 
   return summarizeValues(
-    enabledTargets.map((target) => `${target.owner}/${target.name}:${target.default_branch}`),
+    enabledTargets.map(
+      (target) =>
+        `${target.target_id} -> ${target.owner}/${target.name}:${target.default_branch}`
+    ),
     "No enabled repository targets",
     ", "
   );
@@ -6423,6 +6503,7 @@ function queueInspectorLinkedDocumentLabel(queueKind) {
 
 function renderRunDetail(runDetail, eventsResponse) {
   const events = Array.isArray(eventsResponse?.events) ? eventsResponse.events : [];
+  const publicationGuard = repositoryTargetGuardSummary(runDetail);
   state.selectedRunDetail = runDetail;
   state.selectedRunEvents = events;
   syncSelectedAgentActivity(runDetail);
@@ -6435,11 +6516,12 @@ function renderRunDetail(runDetail, eventsResponse) {
     summaryCard("Pack", runDetail.target_pack ?? "unassigned", runDetail.requested_by ?? "requested_by unknown"),
     summaryCard(
       "Repository",
-      runDetail.repository?.owner && runDetail.repository?.name
-        ? `${runDetail.repository.owner}/${runDetail.repository.name}`
+      repositoryLabel(runDetail)
+        ? repositoryLabel(runDetail)
         : "No repository target",
       runDetail.repository?.default_branch ?? "default branch unknown"
     ),
+    summaryCard("Publication guard", publicationGuard.title, publicationGuard.detail),
     summaryCard(
       "Task counts",
       `${runDetail.task_counts?.total ?? 0} total`,

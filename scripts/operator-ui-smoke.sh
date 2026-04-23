@@ -191,6 +191,10 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE);
 
 const outDir = process.env.OPERATOR_UI_SMOKE_OUTPUT_DIR;
 const uiUrl = process.env.OPERATOR_UI_SMOKE_URL;
+const expectRepositoryBootstrapGuidance =
+  process.env.OPERATOR_UI_EXPECT_REPOSITORY_BOOTSTRAP_GUIDANCE !== "0";
+const expectRepositoryTargetPolicy =
+  process.env.OPERATOR_UI_EXPECT_REPOSITORY_TARGET_POLICY === "1";
 const summaryPath = path.join(outDir, "operator-ui-browser-summary.json");
 const screenshotPath = path.join(outDir, "operator-ui-browser.png");
 
@@ -288,6 +292,10 @@ async function main() {
         document.body.textContent.includes("Draft PR"),
       bodyTextIncludesRepositoryBootstrap:
         document.body.textContent.includes("repository-targets-bootstrap"),
+      bodyTextIncludesRepositoryTargetPolicyState:
+        document.body.textContent.includes("Matching target") ||
+        document.body.textContent.includes("No matching repository target") ||
+        document.body.textContent.includes("Multiple matching targets"),
     };
   });
 
@@ -341,8 +349,11 @@ async function main() {
   if (summary.iframeCount !== 0) {
     problems.push(`unexpected iframe count ${summary.iframeCount}`);
   }
-  if (!summary.bodyTextIncludesRepositoryBootstrap) {
+  if (expectRepositoryBootstrapGuidance && !summary.bodyTextIncludesRepositoryBootstrap) {
     problems.push("repository-target bootstrap guidance is missing from the UI");
+  }
+  if (expectRepositoryTargetPolicy && !summary.bodyTextIncludesRepositoryTargetPolicyState) {
+    problems.push("run-level repository-target policy state is missing from the UI");
   }
   if (result.unexpectedLoadEvents !== 0) {
     problems.push(`unexpected load events ${result.unexpectedLoadEvents}`);
@@ -486,6 +497,11 @@ printf '%s\n' "$$" >"$SCRIPT_PID_FILE"
 SEED_LOG_FILE="$OUTPUT_DIR/seed-smoke.log"
 UI_LOG_FILE="$OUTPUT_DIR/operator-ui.log"
 READYZ_FILE="$OUTPUT_DIR/readyz.json"
+EXPECT_REPOSITORY_BOOTSTRAP_GUIDANCE=1
+
+if [ -n "$REPOSITORY_TARGETS_FILE" ]; then
+  EXPECT_REPOSITORY_BOOTSTRAP_GUIDANCE=0
+fi
 
 if [ "$SKIP_BUILD" -ne 1 ]; then
   log_phase "building orchestrator"
@@ -543,6 +559,8 @@ log_phase "running browser interaction check"
 PLAYWRIGHT_MODULE="$PLAYWRIGHT_RUNNER_DIR/node_modules/playwright" \
 OPERATOR_UI_SMOKE_OUTPUT_DIR="$OUTPUT_DIR" \
 OPERATOR_UI_SMOKE_URL="http://127.0.0.1:${HTTP_PORT}/ui" \
+OPERATOR_UI_EXPECT_REPOSITORY_BOOTSTRAP_GUIDANCE="$EXPECT_REPOSITORY_BOOTSTRAP_GUIDANCE" \
+OPERATOR_UI_EXPECT_REPOSITORY_TARGET_POLICY="${REPOSITORY_TARGETS_FILE:+1}" \
   node "$BROWSER_CHECK_FILE"
 
 log_phase "summary: $OUTPUT_DIR/operator-ui-browser-summary.json"
