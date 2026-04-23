@@ -3,18 +3,24 @@
 - Status: Planned
 - Date: 2026-04-21
 
-This roadmap turns the current AI-security direction for Catalyst Continuum into concrete control-plane work.
-The focus is modern AI-system security: threat modeling, capability control, prompt-injection resistance, model-abuse detection, provenance, data-poisoning resistance, and auditable response paths.
+This roadmap turns the current AI-security direction for Catalyst Continuum into concrete
+control-plane work. The focus is modern AI-system security: threat modeling, capability control,
+prompt-injection resistance, model-abuse detection, provenance, data-poisoning resistance, and
+auditable response paths.
 
 The core rule is simple:
 
-- the orchestrator should own AI security policy, capability boundaries, provenance, and auditability
-- LiteLLM should remain the AI edge gateway for model routing, cache/state, and gateway-level telemetry
-- external coding agents such as OpenHands should execute inside explicit, inspectable run-scoped security constraints instead of relying on prompt wording alone
+- the orchestrator should own AI security policy, capability boundaries, provenance, and
+  auditability
+- LiteLLM should remain the AI edge gateway for model routing, cache/state, and gateway-level
+  telemetry
+- external coding agents such as OpenHands should execute inside explicit, inspectable run-scoped
+  security constraints instead of relying on prompt wording alone
 
 ## Security Thesis
 
-Catalyst Continuum should treat AI security as control-plane data rather than a prompt-only guardrail problem.
+Catalyst Continuum should treat AI security as control-plane data rather than a prompt-only
+guardrail problem.
 
 That means:
 
@@ -22,7 +28,8 @@ That means:
 - explicit provenance for external context, retrieved content, memory, and generated artifacts
 - clear separation between trusted control-plane state and untrusted model-facing content
 - durable audit history for allowed, denied, and escalated decisions
-- human approval remaining in GitHub review and branch protection rather than in ad hoc chat confirmations
+- human approval remaining in GitHub review and branch protection rather than in ad hoc chat
+  confirmations
 
 ## Threat Model
 
@@ -47,12 +54,16 @@ That means:
 ### High-Priority Attack Classes
 
 - direct prompt injection through brief or operator-supplied text
-- indirect prompt injection through repository files, issues, PR comments, web pages, PDFs, or future fetched content
+- indirect prompt injection through repository files, issues, PR comments, web pages, PDFs, or
+  future fetched content
 - tool abuse where untrusted context tries to trigger privileged MCP or runtime actions
 - secret exfiltration through tool outputs, generated diffs, PR bodies, logs, or artifacts
-- data poisoning and memory poisoning in retrieval, repository-derived context, or future vector stores
-- model abuse such as denial-of-wallet, repeated retries, infinite tool loops, or policy-evasion attempts
-- unsafe sandbox interaction, including unexpected host-path use, over-broad egress, or future remote-runtime privilege drift
+- data poisoning and memory poisoning in retrieval, repository-derived context, or future vector
+  stores
+- model abuse such as denial-of-wallet, repeated retries, infinite tool loops, or policy-evasion
+  attempts
+- unsafe sandbox interaction, including unexpected host-path use, over-broad egress, or future
+  remote-runtime privilege drift
 - malicious or over-privileged third-party MCP servers
 
 ## Security Control Objectives
@@ -61,19 +72,22 @@ The `v0.2` security direction should deliver six concrete control objectives.
 
 ### 1. Threat Modeling As A First-Class Artifact
 
-For every meaningful run shape, Catalyst Continuum should be able to materialize a lightweight, inspectable threat model.
+For every meaningful run shape, Catalyst Continuum should be able to materialize a lightweight,
+inspectable threat model.
 
 Planned outputs:
 
 - `threat_model` artifact with assets, trust boundaries, attack paths, and required controls
-- `security_backlog` artifact with concrete remediation or hardening tasks derived from that threat model
+- `security_backlog` artifact with concrete remediation or hardening tasks derived from that threat
+  model
 
-The goal is not a perfect STRIDE engine.
-The goal is a repeatable, inspectable starting point that keeps security work in the same artifact lineage as planning and delivery.
+The goal is not a perfect STRIDE engine. The goal is a repeatable, inspectable starting point that
+keeps security work in the same artifact lineage as planning and delivery.
 
 ### 2. Run-Scoped Security Envelope
 
-Each run should expose one explicit security envelope that tells agents and operators what is allowed.
+Each run should expose one explicit security envelope that tells agents and operators what is
+allowed.
 
 Minimum envelope fields:
 
@@ -89,11 +103,13 @@ Planned outputs:
 - `security_envelope` artifact
 - transport-level inspection through CLI, HTTP, and MCP
 
-This is the primary answer to "what does the orchestrator provide that the agent does not already do itself?"
+This is the primary answer to "what does the orchestrator provide that the agent does not already do
+itself?"
 
 ### 3. Tainted Context And Provenance
 
-Catalyst Continuum should distinguish between trusted control-plane state and untrusted or partially trusted model context.
+Catalyst Continuum should distinguish between trusted control-plane state and untrusted or partially
+trusted model context.
 
 Required labels:
 
@@ -118,7 +134,8 @@ Initial taint-sensitive actions:
 
 ### 4. Security Events And Observability
 
-The run-event model should grow into a real AI-security audit surface instead of carrying only lifecycle state.
+The run-event model should grow into a real AI-security audit surface instead of carrying only
+lifecycle state.
 
 Planned event families:
 
@@ -160,7 +177,8 @@ Planned validation path:
 
 ### 6. Incident Replay And Response
 
-When a run is suspected of unsafe behavior, operators should be able to reconstruct what happened without reading scattered logs.
+When a run is suspected of unsafe behavior, operators should be able to reconstruct what happened
+without reading scattered logs.
 
 Planned response surface:
 
@@ -189,7 +207,8 @@ The next scoped cut should add the following concrete security slices.
 
 ### Slice C: Taint And Provenance
 
-- define provenance metadata for brief inputs, GitHub ingress, repository-derived context, and fetched content
+- define provenance metadata for brief inputs, GitHub ingress, repository-derived context, and
+  fetched content
 - add taint labels to the shared command layer rather than only to prompts
 - block privileged actions when the relevant source context is tainted and unreviewed
 
@@ -209,7 +228,8 @@ The next scoped cut should add the following concrete security slices.
 
 ### `orchestrator/`
 
-- introduce a dedicated security-policy module instead of scattering checks across transport handlers
+- introduce a dedicated security-policy module instead of scattering checks across transport
+  handlers
 - keep security evaluation in the shared Rust application layer
 - extend run metadata and artifacts with envelope and provenance state
 
@@ -276,8 +296,10 @@ Every security feature should be proven through at least one explicit evaluation
 - replacing GitHub review with automated approval chat flows
 - full enterprise IAM, SSO, or tenant-isolation design in the first slice
 - generic DLP or endpoint-security platform features unrelated to AI workflow control
-- orchestrator-managed third-party MCP sidecar lifecycle without a concrete policy or audit requirement
-- model-training pipeline security for custom fine-tuning workflows that the repository does not yet run
+- orchestrator-managed third-party MCP sidecar lifecycle without a concrete policy or audit
+  requirement
+- model-training pipeline security for custom fine-tuning workflows that the repository does not yet
+  run
 
 ## Recommended Implementation Order
 
@@ -287,13 +309,15 @@ Every security feature should be proven through at least one explicit evaluation
 4. Add security events and Grafana visibility for blocked decisions.
 5. Add the first `security-eval` baseline for prompt injection and tool abuse.
 6. Add threat-model and security-backlog artifacts.
-7. Expand later into richer poisoning controls, memory/RAG provenance, and enterprise identity policy.
+7. Expand later into richer poisoning controls, memory/RAG provenance, and enterprise identity
+   policy.
 
 ## Fit With Existing Architecture
 
 This roadmap preserves the current architecture boundaries:
 
-- the orchestrator remains the source of truth for policy, runtime control, artifact lineage, and auditability
+- the orchestrator remains the source of truth for policy, runtime control, artifact lineage, and
+  auditability
 - LiteLLM remains the AI edge gateway for model routing, cache/state, and gateway telemetry
 - OpenHands and other agents remain execution clients rather than policy authorities
 - GitHub review remains the human approval boundary for merges and promotion

@@ -18,15 +18,15 @@ The goal of these schemas is to lock the minimum data model needed for the first
 - `task.schema.yaml`: unit of planned or executable work within a run.
 - `run-event.schema.yaml`: durable audit event emitted for run and task transitions.
 - `artifact.schema.yaml`: immutable output metadata produced by a run or task.
-- `artifacts/*.schema.yaml`: persisted manifests for the published run artifacts agents and operators inspect directly.
+- `artifacts/*.schema.yaml`: persisted manifests for the published run artifacts agents and
+  operators inspect directly.
 - `budget-policy.schema.yaml`: repository, run, task, or agent budget constraints.
 
-The `run-event` schema now fixes the closed `v0.1` taxonomy instead of treating `event_type`
-as an open-ended string. Run-scoped event types are `run_submitted`, `run_status_changed`,
-`run_policy_evaluated`, `run_quality_evaluated`, `pr_candidate_exported`,
-`pr_export_published`, and `github_pr_opened`. Task-scoped event types are `task_started`,
-`task_workspace_prepared`, `task_heartbeat`, `task_succeeded`, `task_failed`, and
-`task_requeued`.
+The `run-event` schema now fixes the closed `v0.1` taxonomy instead of treating `event_type` as an
+open-ended string. Run-scoped event types are `run_submitted`, `run_status_changed`,
+`run_policy_evaluated`, `run_quality_evaluated`, `pr_candidate_exported`, `pr_export_published`, and
+`github_pr_opened`. Task-scoped event types are `task_started`, `task_workspace_prepared`,
+`task_heartbeat`, `task_succeeded`, `task_failed`, and `task_requeued`.
 
 ## v0.1 Modeling Rules
 
@@ -34,9 +34,11 @@ as an open-ended string. Run-scoped event types are `run_submitted`, `run_status
 - Identifiers use UUID format unless otherwise noted.
 - Timestamps use RFC 3339 `date-time` strings.
 - Artifacts are metadata records, not inline binary payloads.
-- `task.execution.provider` is intentionally provider-agnostic even though `docker` is the first implementation.
+- `task.execution.provider` is intentionally provider-agnostic even though `docker` is the first
+  implementation.
 - Schemas are written as JSON Schema Draft 2020-12 documents encoded in YAML.
-- Published artifact manifest schemas are backed by Rust unit tests that validate real generated manifests against the checked-in schema files.
+- Published artifact manifest schemas are backed by Rust unit tests that validate real generated
+  manifests against the checked-in schema files.
 
 ## Expected Flow
 
@@ -44,5 +46,6 @@ The planned MVP data flow is:
 
 `brief` -> `run` -> `task[]` -> `artifact[]` + `run_event[]`
 
-`run_event` captures durable run and task transitions so operators, HTTP automation, and MCP clients can inspect the same audit trail without scraping transient logs.
-`budget policy` is evaluated during planning and execution to decide whether work can proceed automatically or requires approval.
+`run_event` captures durable run and task transitions so operators, HTTP automation, and MCP clients
+can inspect the same audit trail without scraping transient logs. `budget policy` is evaluated
+during planning and execution to decide whether work can proceed automatically or requires approval.

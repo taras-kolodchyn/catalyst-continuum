@@ -5,7 +5,9 @@
 
 ## Context
 
-Catalyst Continuum already exposes CLI commands and a small HTTP API from the Rust orchestrator. The product vision also requires MCP interoperability so Codex, Cursor, and other agent frameworks can use the orchestrator as a tool host.
+Catalyst Continuum already exposes CLI commands and a small HTTP API from the Rust orchestrator. The
+product vision also requires MCP interoperability so Codex, Cursor, and other agent frameworks can
+use the orchestrator as a tool host.
 
 Without an explicit boundary, the project will drift into three overlapping interfaces:
 
@@ -37,7 +39,8 @@ HTTP is retained for workflows where a plain request/response interface is the r
 - UI/backend integration that does not require an MCP client
 - observability-friendly status queries such as pack and run inspection
 
-HTTP should stay intentionally small. New endpoints should be added only when there is a concrete system-to-system or operations use case.
+HTTP should stay intentionally small. New endpoints should be added only when there is a concrete
+system-to-system or operations use case.
 
 ## MCP Scope
 
@@ -50,7 +53,8 @@ MCP is the preferred interface for agent-driven orchestration:
 - publish PR exports and open GitHub PRs
 - enforce capability-scoped access to orchestrator actions
 
-The MCP server must call the same Rust command/application functions used by the CLI and HTTP layers. MCP is an adapter, not a separate implementation path.
+The MCP server must call the same Rust command/application functions used by the CLI and HTTP
+layers. MCP is an adapter, not a separate implementation path.
 
 ## Initial MCP Surface
 
@@ -71,8 +75,10 @@ The first MCP slice should expose a minimal, high-value tool set:
 - `publish_pr_export`
 - `open_github_pr`
 
-`create_draft_pr` can remain as a convenience composition in CLI/HTTP while MCP clients can call the lower-level tools explicitly.
-Promotion-facing tools should accept `repository_target_id` when repository-target enforcement is configured, so agents resolve approved remotes and branch prefixes from the orchestrator-owned allowlist instead of carrying agent-specific Git remote configuration.
+`create_draft_pr` can remain as a convenience composition in CLI/HTTP while MCP clients can call the
+lower-level tools explicitly. Promotion-facing tools should accept `repository_target_id` when
+repository-target enforcement is configured, so agents resolve approved remotes and branch prefixes
+from the orchestrator-owned allowlist instead of carrying agent-specific Git remote configuration.
 
 ## Consequences
 

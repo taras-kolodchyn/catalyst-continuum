@@ -13,13 +13,15 @@ Catalyst Continuum now has two distinct data sources for third-party MCP usage:
 Without a clearer contract, these recommendations stay too vague for real agent handoff:
 
 - an agent can see that a pack recommends `fetch`, but not whether this instance allows it
-- an operator can see that the instance allows `fetch` for `codex`, but not whether the current run is routed to `codex`, `openhands`, or both
+- an operator can see that the instance allows `fetch` for `codex`, but not whether the current run
+  is routed to `codex`, `openhands`, or both
 - different transports can drift if CLI, HTTP, and MCP each reconstruct that policy independently
 
 The project also needs to preserve an explicit boundary:
 
 - external MCP sidecars remain agent- or operator-managed
-- the orchestrator should still own policy, auditability, reproducibility, and inspectable run contracts
+- the orchestrator should still own policy, auditability, reproducibility, and inspectable run
+  contracts
 
 ## Decision
 
@@ -31,7 +33,8 @@ The resolved contract is the intersection of:
 2. instance-level `config/mcp-servers.yaml`
 3. the run's resolved agent routing
 
-That resolved contract must be materialized through the shared Rust planning layer and reused unchanged by CLI, HTTP, and MCP.
+That resolved contract must be materialized through the shared Rust planning layer and reused
+unchanged by CLI, HTTP, and MCP.
 
 ## Required Surfaces
 
@@ -41,7 +44,8 @@ The same resolved external MCP policy must appear in these places:
 - `submit_brief` run metadata
 - the persisted `agent_dispatch_plan` artifact
 
-The contract must tell the client more than a raw allowlist. For each recommended server it should say whether the server is:
+The contract must tell the client more than a raw allowlist. For each recommended server it should
+say whether the server is:
 
 - `allowed`
 - `denied`
@@ -55,10 +59,14 @@ It should also expose which run agents are allowed for that server and which run
 This gives the orchestrator real control-plane value without duplicating agent-native MCP setup:
 
 - one pinned instance policy can govern OpenHands, Codex, and future open-source agents consistently
-- agents can inspect their allowed tools before work starts instead of discovering policy failures mid-run
-- pack authors can recommend useful capabilities without assuming they are always available in every deployment
-- operators can audit policy from the same artifacts they already use for routing and promotion review
-- pinned client launch contracts can live beside the allowlist in `config/mcp-servers.yaml` without making the orchestrator a third-party sidecar manager
+- agents can inspect their allowed tools before work starts instead of discovering policy failures
+  mid-run
+- pack authors can recommend useful capabilities without assuming they are always available in every
+  deployment
+- operators can audit policy from the same artifacts they already use for routing and promotion
+  review
+- pinned client launch contracts can live beside the allowlist in `config/mcp-servers.yaml` without
+  making the orchestrator a third-party sidecar manager
 
 ## Non-Goals
 
@@ -82,14 +90,17 @@ Positive outcomes:
 Tradeoffs:
 
 - more contract data must stay aligned in docs, tests, and artifacts
-- instance config changes can now affect brief validation output and dispatch artifacts, so regression coverage matters more
+- instance config changes can now affect brief validation output and dispatch artifacts, so
+  regression coverage matters more
 
 ## Follow-up
 
-This policy batch is now part of the closed `v0.1` cut.
-The immediate follow-up beyond that boundary is:
+This policy batch is now part of the closed `v0.1` cut. The immediate follow-up beyond that boundary
+is:
 
-1. keep the policy matrix under strong tests, including partial agent matches and disabled or unknown servers
+1. keep the policy matrix under strong tests, including partial agent matches and disabled or
+   unknown servers
 2. add interoperability checks against upstream MCP reference servers such as `Everything`
 3. document `Fetch` as the first recommended production-side external MCP capability
-4. expand later toward identity and enterprise policy only when there is a concrete control-plane reason, not just because an agent can already self-configure MCP clients
+4. expand later toward identity and enterprise policy only when there is a concrete control-plane
+   reason, not just because an agent can already self-configure MCP clients
