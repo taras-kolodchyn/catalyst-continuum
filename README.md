@@ -81,16 +81,16 @@ That `workspace_snapshot` artifact now also carries a provider-neutral bundle pa
 After that, the run can be promoted into a draft GitHub pull request:
 
 ```bash
-./scripts/github-repo-preflight.sh <OWNER>/<REPO> --default-branch main
+make repository-targets-bootstrap REPOSITORY=<OWNER>/<REPO> REPOSITORY_TARGET_ID=<TARGET_ID>
+export CATALYST_REPOSITORY_TARGETS_FILE="$PWD/config/repository-targets.local.yaml"
 
 catalyst-continuum-orchestrator create-draft-pr \
   --database-url "$CATALYST_DATABASE_URL" \
   --run-id "<RUN_ID>" \
-  --repository-target-id "<TARGET_ID>" \
-  --repository-targets-file config/repository-targets.example.yaml
+  --repository-target-id "<TARGET_ID>"
 ```
 
-When you run the preflight from inside the target repository checkout, `<OWNER>/<REPO>` is optional because `gh repo view` can resolve the current repository automatically.
+When you run the bootstrap from inside the target repository checkout, `REPOSITORY=<OWNER>/<REPO>` is optional because the helper can fall back to `gh repo view` for the current checkout.
 
 For real repositories, set `CATALYST_REPOSITORY_TARGETS_FILE` to a
 repository-target allowlist before publication. When that file is configured,
@@ -107,7 +107,6 @@ pushing branches or opening PRs, run:
 make repository-targets-bootstrap REPOSITORY=<OWNER>/<REPO> REPOSITORY_TARGET_ID=<TARGET_ID>
 ```
 
-When you run it inside the target repository itself, `REPOSITORY=<OWNER>/<REPO>` is optional because the helper can fall back to `gh repo view` for the current checkout.
 The bootstrap helper writes `config/repository-targets.local.yaml`, runs `doctor`
 with that allowlist enabled, runs the non-mutating GitHub repo preflight, and
 prints the exact `export CATALYST_REPOSITORY_TARGETS_FILE=...` line you should
@@ -115,6 +114,9 @@ run in your current shell before launching the UI or draft-PR flows. The
 individual `make repository-targets-init`, `make doctor`, and
 `make github-repo-preflight` steps still stay available when you want tighter
 control over each stage.
+If you prefer the lower-level path, `./scripts/github-repo-preflight.sh <OWNER>/<REPO> --default-branch main`
+still stays available as the explicit non-mutating repo-access check before
+calling `create-draft-pr` with `--repository-targets-file`.
 For offline regression coverage of that bootstrap path, run
 `./scripts/repository-target-bootstrap-smoke.sh` or
 `make repository-targets-smoke`.
