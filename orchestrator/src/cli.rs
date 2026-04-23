@@ -804,6 +804,12 @@ pub struct ExportPrCandidateArgs {
     pub branch_name: Option<String>,
 
     #[arg(long)]
+    pub repository_target_id: Option<String>,
+
+    #[arg(long)]
+    pub repository_targets_file: Option<PathBuf>,
+
+    #[arg(long)]
     pub pretty: bool,
 }
 
@@ -824,6 +830,12 @@ pub struct PublishPrExportArgs {
 
     #[arg(long)]
     pub remote_url: Option<String>,
+
+    #[arg(long)]
+    pub repository_target_id: Option<String>,
+
+    #[arg(long)]
+    pub repository_targets_file: Option<PathBuf>,
 
     #[arg(long)]
     pub push: bool,
@@ -871,6 +883,12 @@ pub struct CreateDraftPrArgs {
 
     #[arg(long)]
     pub branch_name: Option<String>,
+
+    #[arg(long)]
+    pub repository_target_id: Option<String>,
+
+    #[arg(long)]
+    pub repository_targets_file: Option<PathBuf>,
 
     #[arg(long)]
     pub pretty: bool,

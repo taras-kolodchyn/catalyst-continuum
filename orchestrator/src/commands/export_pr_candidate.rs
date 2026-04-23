@@ -4,7 +4,7 @@ use std::path::Path;
 
 use crate::{
     cli::ExportPrCandidateArgs,
-    commands::evaluate_run_quality,
+    commands::{evaluate_run_quality, promotion_target},
     coordination,
     models::{
         artifact::ArtifactSummary,
@@ -23,6 +23,8 @@ pub fn execute(args: ExportPrCandidateArgs) -> anyhow::Result<()> {
         args.run_id,
         &args.artifact_root,
         args.branch_name.as_deref(),
+        args.repository_target_id.as_deref(),
+        args.repository_targets_file.as_deref(),
     )?;
 
     if args.pretty {
@@ -40,6 +42,8 @@ pub(crate) struct ExportPrCandidateReport {
     source_quality_report_artifact_id: uuid::Uuid,
     source_pr_candidate_artifact_id: uuid::Uuid,
     branch_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    repository_target_id: Option<String>,
     commit_sha: String,
     artifact: ArtifactSummary,
 }
@@ -66,6 +70,10 @@ impl ExportPrCandidateReport {
         .context("failed to render PR export report")?;
         writeln!(&mut output, "branch_name: {}", self.branch_name)
             .context("failed to render PR export report")?;
+        if let Some(repository_target_id) = &self.repository_target_id {
+            writeln!(&mut output, "repository_target_id: {repository_target_id}")
+                .context("failed to render PR export report")?;
+        }
         writeln!(&mut output, "commit_sha: {}", self.commit_sha)
             .context("failed to render PR export report")?;
         writeln!(&mut output, "artifact:").context("failed to render PR export report")?;
@@ -81,9 +89,18 @@ pub(crate) fn export_pr_candidate(
     run_id: uuid::Uuid,
     artifact_root: &Path,
     branch_name: Option<&str>,
+    repository_target_id: Option<&str>,
+    repository_targets_file: Option<&Path>,
 ) -> anyhow::Result<ExportPrCandidateReport> {
     coordination::with_promotion_run_lock(run_id, || {
-        export_pr_candidate_unlocked(store, run_id, artifact_root, branch_name)
+        export_pr_candidate_unlocked(
+            store,
+            run_id,
+            artifact_root,
+            branch_name,
+            repository_target_id,
+            repository_targets_file,
+        )
     })
 }
 
@@ -92,6 +109,8 @@ pub(crate) fn export_pr_candidate_unlocked(
     run_id: uuid::Uuid,
     artifact_root: &Path,
     branch_name: Option<&str>,
+    repository_target_id: Option<&str>,
+    repository_targets_file: Option<&Path>,
 ) -> anyhow::Result<ExportPrCandidateReport> {
     let run_status = store.refresh_run_status(run_id)?;
     ensure!(
@@ -113,13 +132,22 @@ pub(crate) fn export_pr_candidate_unlocked(
         expected_pr_candidate_id
     );
 
+    let repository_targets =
+        promotion_target::load_repository_targets_config(repository_targets_file)?;
+    let branch_name = promotion_target::resolve_export_branch_name(
+        &run_context,
+        &repository_targets,
+        repository_target_id,
+        branch_name,
+    )?;
+
     let export_started_at = std::time::Instant::now();
     let export = pr_export::export_pr_candidate(
         &run_context,
         &pr_candidate,
         source_quality_report_artifact_id,
         artifact_root,
-        branch_name,
+        branch_name.as_deref(),
     );
     telemetry::record_promotion_step(
         "pr_export",
@@ -159,6 +187,7 @@ pub(crate) fn export_pr_candidate_unlocked(
             "source_quality_report_artifact_id": source_quality_report_artifact_id,
             "source_pr_candidate_artifact_id": pr_candidate.artifact_id,
             "branch_name": branch_name.clone(),
+            "repository_target_id": repository_target_id,
             "commit_sha": commit_sha.clone(),
             "artifact_id": artifact.artifact_id,
         }),
@@ -169,6 +198,7 @@ pub(crate) fn export_pr_candidate_unlocked(
         source_quality_report_artifact_id,
         source_pr_candidate_artifact_id: pr_candidate.artifact_id,
         branch_name,
+        repository_target_id: repository_target_id.map(str::to_string),
         commit_sha,
         artifact,
     })

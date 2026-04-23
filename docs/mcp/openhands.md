@@ -433,6 +433,7 @@ Stateful tools need `CATALYST_DATABASE_URL`:
 `describe_latest_artifact` is the shortest path when OpenHands already knows the run and only needs the newest `agent_dispatch_plan`, `policy_report`, `quality_report`, `pr_candidate`, or promotion artifact by type. When it needs the task-scoped handoff produced by `prepare_agent_task_workspace`, use `describe_artifact` with the returned `task_workspace_input_artifact.artifact_id` so the bundle-backed manifest stays inspectable per task.
 `evaluate_run_policy` is the visibility tool for OpenHands when it needs to inspect whether the current run still satisfies control-plane policy constraints such as runtime provider, sandbox profile, and planned timeout budget.
 `evaluate_run_quality` is the visibility tool for OpenHands when it needs to inspect whether a run is ready for remote PR promotion. Even if OpenHands skips that explicit call, `publish_pr_export` and `open_github_pr` will enforce the same automated gate before pushing changes outward.
+When real-repository publication is enabled, OpenHands should pass the configured `repository_target_id` to `export_pr_candidate` and `publish_pr_export`; that keeps branch prefixes and remotes centralized in the orchestrator's repository-target allowlist while still allowing explicit `remote_url` overrides that the same allowlist permits.
 The shortest first-run task now lives in
 [examples/openhands/bootstrap-task.md](../../examples/openhands/bootstrap-task.md).
 It stays below worker execution and remote publication: it validates the MCP

@@ -1575,16 +1575,51 @@ assert all(
 ), http_succeeded
 PY
 
+REMOTE_ROOT="$(mktemp -d)"
+REMOTE_URL="$REMOTE_ROOT/remote.git"
+REPOSITORY_TARGETS_FILE="$REMOTE_ROOT/repository-targets.yaml"
+PACK_DESCRIPTOR_FILE="$REMOTE_ROOT/pack-description.json"
+git init --bare "$REMOTE_URL" >/dev/null
+
+python3 - "$RUN_DETAIL_HTTP_FILE" "$REMOTE_URL" "$REPOSITORY_TARGETS_FILE" <<'PY'
+import json
+import pathlib
+import sys
+
+run_detail = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+remote_url = sys.argv[2]
+target_path = pathlib.Path(sys.argv[3])
+repository = run_detail["repository"]
+target_path.write_text(
+    json.dumps(
+        {
+            "targets": [
+                {
+                    "target_id": "smoke-target",
+                    "host": repository.get("host") or "github",
+                    "owner": repository["owner"],
+                    "name": repository["name"],
+                    "default_branch": repository.get("default_branch") or "main",
+                    "enabled": True,
+                    "branch_prefix": "continuum/",
+                    "allowed_remote_urls": [remote_url],
+                }
+            ]
+        },
+        indent=2,
+    ),
+    encoding="utf-8",
+)
+PY
+
 "$BIN" export-pr-candidate \
   --database-url "$DATABASE_URL" \
   --artifact-root "$ARTIFACT_ROOT" \
-  --run-id "$RUN_ID" >/dev/null
+  --run-id "$RUN_ID" \
+  --repository-target-id "smoke-target" \
+  --repository-targets-file "$REPOSITORY_TARGETS_FILE" >/dev/null
 
 EXPORT_ROOT="$ARTIFACT_ROOT/runs/$RUN_ID/pr-export/current"
-REMOTE_ROOT="$(mktemp -d)"
-REMOTE_URL="$REMOTE_ROOT/remote.git"
-PACK_DESCRIPTOR_FILE="$REMOTE_ROOT/pack-description.json"
-git init --bare "$REMOTE_URL" >/dev/null
 
 "$BIN" describe-pack --pack-id "$PACK_ID" --json >"$PACK_DESCRIPTOR_FILE"
 
@@ -1592,12 +1627,14 @@ PUBLICATION_OUTPUT="$("$BIN" publish-pr-export \
   --database-url "$DATABASE_URL" \
   --artifact-root "$ARTIFACT_ROOT" \
   --run-id "$RUN_ID" \
-  --remote-url "$REMOTE_URL" \
+  --repository-target-id "smoke-target" \
+  --repository-targets-file "$REPOSITORY_TARGETS_FILE" \
   --push \
   --pretty)"
 printf '%s\n' "$PUBLICATION_OUTPUT" >"$PUBLICATION_OUTPUT_FILE"
 printf '%s\n' "$PUBLICATION_OUTPUT"
 printf '%s\n' "$PUBLICATION_OUTPUT" | grep -q '^push_status: pushed$'
+printf '%s\n' "$PUBLICATION_OUTPUT" | grep -q '^repository_target_id: smoke-target$'
 
 BRANCH_NAME="$(printf '%s\n' "$PUBLICATION_OUTPUT" | awk '/^head_branch:/ {print $2; exit}')"
 test -n "$BRANCH_NAME"
@@ -1692,12 +1729,14 @@ DRAFT_PR_OUTPUT="$(FAKE_GH_STATE_FILE="$FAKE_GH_STATE_FILE" PATH="$FAKE_GH_BIN_D
   --database-url "$DATABASE_URL" \
   --artifact-root "$ARTIFACT_ROOT" \
   --run-id "$RUN_ID" \
-  --remote-url "$REMOTE_URL" \
+  --repository-target-id "smoke-target" \
+  --repository-targets-file "$REPOSITORY_TARGETS_FILE" \
   --pretty)"
 printf '%s\n' "$DRAFT_PR_OUTPUT" >"$DRAFT_PR_OUTPUT_FILE"
 printf '%s\n' "$DRAFT_PR_OUTPUT"
 printf '%s\n' "$DRAFT_PR_OUTPUT" | grep -q '^resolution: created$'
 printf '%s\n' "$DRAFT_PR_OUTPUT" | grep -q '^pr_url: https://github.com/smartit/smoke-mvp-generated/pull/123$'
+printf '%s\n' "$DRAFT_PR_OUTPUT" | grep -q '^repository_target_id: smoke-target$'
 test -f "$ARTIFACT_ROOT/runs/$RUN_ID/github-pr/current/manifest.json"
 
 RUN_EVENTS_PROMOTION_HTTP_FILE="$ARTIFACT_ROOT/http-run-events-promotion.json"

@@ -121,6 +121,9 @@ ollama serve
   Smoke and local demo flows can still use one-off remotes, but real repository
   publication should enable that file so `publish-pr-export` and
   `create-draft-pr` reject unapproved remotes, branches, and repositories.
+  Once enabled, prefer passing `repository_target_id` through the UI, HTTP, MCP,
+  or CLI promotion actions so the orchestrator resolves the approved remote URL
+  and branch prefix from one shared instance config.
 - The compose stack now runs a dedicated long-lived `worker` service alongside the HTTP `orchestrator`, so background run progression works in the local stack without shelling into the container manually.
 - The long-lived `worker` now waits for a healthy HTTP `orchestrator` before starting, and the shared Postgres schema bootstrap is serialized with an advisory lock so the shipped local stack does not race its own schema initialization during cold start.
 - The compose `orchestrator` and `worker` now also mount `/var/run/docker.sock`

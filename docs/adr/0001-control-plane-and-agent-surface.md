@@ -72,6 +72,7 @@ The first MCP slice should expose a minimal, high-value tool set:
 - `open_github_pr`
 
 `create_draft_pr` can remain as a convenience composition in CLI/HTTP while MCP clients can call the lower-level tools explicitly.
+Promotion-facing tools should accept `repository_target_id` when repository-target enforcement is configured, so agents resolve approved remotes and branch prefixes from the orchestrator-owned allowlist instead of carrying agent-specific Git remote configuration.
 
 ## Consequences
 

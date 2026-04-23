@@ -1152,6 +1152,8 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                                         run_id,
                                         &args.artifact_root,
                                         non_empty_option(payload.branch_name.as_deref()),
+                                        non_empty_option(payload.repository_target_id.as_deref()),
+                                        args.repository_targets_file.as_deref(),
                                     ) {
                                         Ok(report) => json_response(StatusCode(200), &report),
                                         Err(error) => json_response(
@@ -1224,7 +1226,9 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                                     run_id,
                                     &args.artifact_root,
                                     non_empty_option(payload.remote_url.as_deref()),
+                                    non_empty_option(payload.repository_target_id.as_deref()),
                                     payload.push,
+                                    args.repository_targets_file.as_deref(),
                                 ) {
                                     Ok(report) => json_response(StatusCode(200), &report),
                                     Err(error) => json_response(
@@ -1308,6 +1312,10 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                                             &args.artifact_root,
                                             non_empty_option(payload.remote_url.as_deref()),
                                             non_empty_option(payload.branch_name.as_deref()),
+                                            non_empty_option(
+                                                payload.repository_target_id.as_deref(),
+                                            ),
+                                            args.repository_targets_file.as_deref(),
                                         ) {
                                             Ok(report) => json_response(StatusCode(200), &report),
                                             Err(error) => json_response(
@@ -2055,18 +2063,21 @@ struct RunNextGithubWebhookActionRequest {
 struct CreateDraftPrRequest {
     remote_url: Option<String>,
     branch_name: Option<String>,
+    repository_target_id: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct ExportPrCandidateRequest {
     branch_name: Option<String>,
+    repository_target_id: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct PublishPrExportRequest {
     remote_url: Option<String>,
+    repository_target_id: Option<String>,
     push: bool,
 }
 

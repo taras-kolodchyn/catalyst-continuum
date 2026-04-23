@@ -49,4 +49,7 @@ choices into the open-source root.
   `config/repository-targets.yaml` in the running instance. When enabled, the
   orchestrator rejects draft-PR publication to repositories, remotes, base
   branches, or branch prefixes that are not explicitly declared in that file.
+  Use the configured `target_id` as `repository_target_id` during promotion so
+  operators and agents do not need to duplicate the canonical remote URL in
+  every request.
 - Keep secrets and private keys out of git history even in the private template repo.

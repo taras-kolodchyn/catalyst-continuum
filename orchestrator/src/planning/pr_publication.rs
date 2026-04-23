@@ -10,7 +10,7 @@ use serde_json::json;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
-use crate::config::load_repository_targets_from_env;
+use crate::config::RepositoryTargetsConfig;
 use crate::models::{
     artifact::{ArtifactDraft, ArtifactSummary},
     run::RunContext,
@@ -26,6 +26,7 @@ pub fn publish_pr_export(
     source_quality_report_artifact_id: Uuid,
     artifact_root: &Path,
     requested_remote_url: Option<&str>,
+    repository_targets: &RepositoryTargetsConfig,
     push_requested: bool,
 ) -> Result<ArtifactDraft> {
     validate_pr_export(pr_export)?;
@@ -100,11 +101,18 @@ pub fn publish_pr_export(
         .default_branch
         .clone()
         .or_else(|| run.repository_default_branch.clone())
+        .or_else(|| {
+            repository_targets.default_branch_for_publication(
+                &repository_host,
+                &repository_owner,
+                &repository_name,
+                &remote_url,
+            )
+        })
         .unwrap_or_else(|| "main".to_string());
     let head_branch = export_manifest.branch_name.clone();
     let title = build_pull_request_title(run);
     let body = build_pull_request_body(run, &candidate_manifest, &head_branch, &base_branch);
-    let repository_targets = load_repository_targets_from_env()?;
     repository_targets.validate_publication_target(
         &repository_host,
         &repository_owner,
@@ -523,6 +531,7 @@ mod tests {
             quality_report_id,
             &temp_root,
             None,
+            &RepositoryTargetsConfig::unrestricted(),
             false,
         )
         .expect("PR publication should compose");
@@ -587,6 +596,7 @@ mod tests {
             quality_report_id,
             &temp_root,
             Some(remote_root.display().to_string().as_str()),
+            &RepositoryTargetsConfig::unrestricted(),
             true,
         )
         .expect("PR publication with push should succeed");

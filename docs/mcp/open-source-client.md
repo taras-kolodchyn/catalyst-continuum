@@ -103,6 +103,7 @@ Stateful tools require `CATALYST_DATABASE_URL` or `--database-url` when launchin
 - `open_github_pr`
 
 If the server is started without a database URL, stateful tools return MCP tool errors with actionable text instead of crashing the session.
+When repository-target enforcement is configured, MCP clients should pass `repository_target_id` to `export_pr_candidate` and `publish_pr_export` so the orchestrator resolves the approved branch prefix and remote URL from the shared instance allowlist instead of duplicating remote strings in each tool call.
 
 ## Generic Client Config
 

@@ -2,7 +2,7 @@ use anyhow::{Context, ensure};
 use serde::Serialize;
 use std::path::Path;
 
-use crate::commands::evaluate_run_quality;
+use crate::commands::{evaluate_run_quality, promotion_target};
 use crate::{
     cli::PublishPrExportArgs,
     coordination,
@@ -23,7 +23,9 @@ pub fn execute(args: PublishPrExportArgs) -> anyhow::Result<()> {
         args.run_id,
         &args.artifact_root,
         args.remote_url.as_deref(),
+        args.repository_target_id.as_deref(),
         args.push,
+        args.repository_targets_file.as_deref(),
     )?;
 
     if args.pretty {
@@ -43,6 +45,8 @@ pub(crate) struct PublishPrExportReport {
     head_branch: String,
     base_branch: String,
     remote_url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    repository_target_id: Option<String>,
     push_status: String,
     artifact: ArtifactSummary,
 }
@@ -73,6 +77,10 @@ impl PublishPrExportReport {
             .context("failed to render PR publication report")?;
         writeln!(&mut output, "remote_url: {}", self.remote_url)
             .context("failed to render PR publication report")?;
+        if let Some(repository_target_id) = &self.repository_target_id {
+            writeln!(&mut output, "repository_target_id: {repository_target_id}")
+                .context("failed to render PR publication report")?;
+        }
         writeln!(&mut output, "push_status: {}", self.push_status)
             .context("failed to render PR publication report")?;
         writeln!(&mut output, "artifact:").context("failed to render PR publication report")?;
@@ -88,10 +96,20 @@ pub(crate) fn publish_pr_export(
     run_id: uuid::Uuid,
     artifact_root: &Path,
     remote_url: Option<&str>,
+    repository_target_id: Option<&str>,
     push: bool,
+    repository_targets_file: Option<&Path>,
 ) -> anyhow::Result<PublishPrExportReport> {
     coordination::with_promotion_run_lock(run_id, || {
-        publish_pr_export_unlocked(store, run_id, artifact_root, remote_url, push)
+        publish_pr_export_unlocked(
+            store,
+            run_id,
+            artifact_root,
+            remote_url,
+            repository_target_id,
+            push,
+            repository_targets_file,
+        )
     })
 }
 
@@ -100,7 +118,9 @@ pub(crate) fn publish_pr_export_unlocked(
     run_id: uuid::Uuid,
     artifact_root: &Path,
     remote_url: Option<&str>,
+    repository_target_id: Option<&str>,
     push: bool,
+    repository_targets_file: Option<&Path>,
 ) -> anyhow::Result<PublishPrExportReport> {
     let run_status = store.refresh_run_status(run_id)?;
     ensure!(
@@ -128,13 +148,23 @@ pub(crate) fn publish_pr_export_unlocked(
         "pr_export",
     )?;
 
+    let repository_targets =
+        promotion_target::load_repository_targets_config(repository_targets_file)?;
+    let remote_url = promotion_target::resolve_publication_remote_url(
+        &run_context,
+        &repository_targets,
+        repository_target_id,
+        remote_url,
+    )?;
+
     let publication_started_at = std::time::Instant::now();
     let publication = pr_publication::publish_pr_export(
         &run_context,
         &pr_export,
         source_quality_report_artifact_id,
         artifact_root,
-        remote_url,
+        remote_url.as_deref(),
+        &repository_targets,
         push,
     );
     telemetry::record_promotion_step(
@@ -200,6 +230,7 @@ pub(crate) fn publish_pr_export_unlocked(
             "head_branch": head_branch.clone(),
             "base_branch": base_branch.clone(),
             "remote_url": remote_url.clone(),
+            "repository_target_id": repository_target_id,
             "push_status": push_status.clone(),
             "artifact_id": artifact.artifact_id,
         }),
@@ -212,6 +243,7 @@ pub(crate) fn publish_pr_export_unlocked(
         head_branch,
         base_branch,
         remote_url,
+        repository_target_id: repository_target_id.map(str::to_string),
         push_status,
         artifact,
     })

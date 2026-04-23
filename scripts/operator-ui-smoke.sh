@@ -222,6 +222,10 @@ async function main() {
   await page.waitForSelector("#missionFlowPanel");
   await page.click('[data-mission-tab="agents"]');
   await page.waitForSelector("#missionAgentsPanel");
+  await page.waitForFunction(() => {
+    const refreshButton = document.querySelector("#refreshButton");
+    return refreshButton && !refreshButton.disabled;
+  }, { timeout: 10000 });
   await page.click("#refreshButton");
   await page.waitForFunction(() => {
     const element = document.querySelector("#lastRefresh");

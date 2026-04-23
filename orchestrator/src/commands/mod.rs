@@ -27,6 +27,7 @@ pub mod list_runs;
 pub mod mcp_server;
 pub mod open_github_pr;
 pub mod prepare_agent_task_workspace;
+pub mod promotion_target;
 pub mod publish_pr_export;
 pub mod run_next_github_webhook_action;
 pub mod run_next_repository_automation;

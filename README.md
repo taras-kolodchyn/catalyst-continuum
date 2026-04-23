@@ -86,13 +86,18 @@ After that, the run can be promoted into a draft GitHub pull request:
 catalyst-continuum-orchestrator create-draft-pr \
   --database-url "$CATALYST_DATABASE_URL" \
   --run-id "<RUN_ID>" \
-  --remote-url "https://github.com/<OWNER>/<REPO>.git"
+  --repository-target-id "<TARGET_ID>" \
+  --repository-targets-file config/repository-targets.example.yaml
 ```
 
 For real repositories, set `CATALYST_REPOSITORY_TARGETS_FILE` to a
 repository-target allowlist before publication. When that file is configured,
 `publish-pr-export` and `create-draft-pr` reject any repository, remote URL,
 base branch, or generated head branch that does not match the configured target.
+Prefer `--repository-target-id <TARGET_ID>` for operator-driven publication so
+the orchestrator resolves the canonical remote URL and branch prefix from that
+allowlist; keep `--remote-url` only for local smoke/dev remotes or explicit
+allowed overrides.
 The shipped [config/repository-targets.example.yaml](config/repository-targets.example.yaml)
 shows the expected shape, while [template-repo/config/repository-targets.yaml](template-repo/config/repository-targets.yaml)
 is the private-instance copy point.
@@ -153,9 +158,9 @@ curl -X POST http://127.0.0.1:8080/runs/<RUN_ID>/tasks/next
 curl -X POST http://127.0.0.1:8080/runs/<RUN_ID>/worker/once
 curl -X POST http://127.0.0.1:8080/runs/<RUN_ID>/evaluate-policy
 curl -X POST http://127.0.0.1:8080/runs/<RUN_ID>/evaluate-quality
-curl -X POST http://127.0.0.1:8080/runs/<RUN_ID>/export-pr-candidate
-curl -X POST http://127.0.0.1:8080/runs/<RUN_ID>/publish-pr-export
-curl -X POST http://127.0.0.1:8080/runs/<RUN_ID>/draft-pr
+curl -X POST -H 'Content-Type: application/json' --data '{"repository_target_id":"demo-cli-tool"}' http://127.0.0.1:8080/runs/<RUN_ID>/export-pr-candidate
+curl -X POST -H 'Content-Type: application/json' --data '{"repository_target_id":"demo-cli-tool","push":true}' http://127.0.0.1:8080/runs/<RUN_ID>/publish-pr-export
+curl -X POST -H 'Content-Type: application/json' --data '{"repository_target_id":"demo-cli-tool"}' http://127.0.0.1:8080/runs/<RUN_ID>/draft-pr
 curl http://127.0.0.1:8080/runs?status=succeeded&target_pack=cli-tool&limit=10
 curl http://127.0.0.1:8080/runs/<RUN_ID>
 curl http://127.0.0.1:8080/runs/<RUN_ID>/events?event_type=task_succeeded&limit=20

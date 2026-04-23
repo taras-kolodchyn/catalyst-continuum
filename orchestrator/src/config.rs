@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 pub mod repository_targets;
 
-pub use repository_targets::{RepositoryTargetsConfig, load_repository_targets_from_env};
+pub use repository_targets::RepositoryTargetsConfig;
 
 const MCP_SERVERS_FILE_ENV: &str = "CATALYST_MCP_SERVERS_FILE";
 const RUNTIME_PROVIDERS_FILE_ENV: &str = "CATALYST_RUNTIME_PROVIDERS_FILE";

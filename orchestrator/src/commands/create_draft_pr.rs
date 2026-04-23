@@ -4,7 +4,7 @@ use std::path::Path;
 
 use crate::{
     cli::CreateDraftPrArgs,
-    commands::evaluate_run_quality,
+    commands::{evaluate_run_quality, promotion_target},
     coordination,
     models::{
         artifact::ArtifactSummary,
@@ -28,6 +28,8 @@ pub fn execute(args: CreateDraftPrArgs) -> anyhow::Result<()> {
         &args.artifact_root,
         args.remote_url.as_deref(),
         args.branch_name.as_deref(),
+        args.repository_target_id.as_deref(),
+        args.repository_targets_file.as_deref(),
     )?;
 
     if args.pretty {
@@ -45,9 +47,19 @@ pub(crate) fn create_draft_pr(
     artifact_root: &Path,
     remote_url: Option<&str>,
     branch_name: Option<&str>,
+    repository_target_id: Option<&str>,
+    repository_targets_file: Option<&Path>,
 ) -> anyhow::Result<CreateDraftPrReport> {
     coordination::with_promotion_run_lock(run_id, || {
-        create_draft_pr_unlocked(store, run_id, artifact_root, remote_url, branch_name)
+        create_draft_pr_unlocked(
+            store,
+            run_id,
+            artifact_root,
+            remote_url,
+            branch_name,
+            repository_target_id,
+            repository_targets_file,
+        )
     })
 }
 
@@ -57,6 +69,8 @@ pub(crate) fn create_draft_pr_unlocked(
     artifact_root: &Path,
     remote_url: Option<&str>,
     branch_name: Option<&str>,
+    repository_target_id: Option<&str>,
+    repository_targets_file: Option<&Path>,
 ) -> anyhow::Result<CreateDraftPrReport> {
     let run_status = store.refresh_run_status(run_id)?;
     ensure!(
@@ -78,6 +92,20 @@ pub(crate) fn create_draft_pr_unlocked(
         pr_candidate.artifact_id,
         expected_pr_candidate_id
     );
+    let repository_targets =
+        promotion_target::load_repository_targets_config(repository_targets_file)?;
+    let remote_url = promotion_target::resolve_publication_remote_url(
+        &run_context,
+        &repository_targets,
+        repository_target_id,
+        remote_url,
+    )?;
+    let branch_name = promotion_target::resolve_export_branch_name(
+        &run_context,
+        &repository_targets,
+        repository_target_id,
+        branch_name,
+    )?;
 
     let publication = prepare_draft_pr_publication(
         store,
@@ -87,8 +115,9 @@ pub(crate) fn create_draft_pr_unlocked(
             source_quality_report_artifact_id,
             expected_pr_candidate_id,
             artifact_root,
-            remote_url,
-            branch_name,
+            remote_url: remote_url.as_deref(),
+            branch_name: branch_name.as_deref(),
+            repository_targets: &repository_targets,
         },
     )?;
     let exported_artifact = publication.pr_export_artifact;
@@ -122,9 +151,10 @@ pub(crate) fn create_draft_pr_unlocked(
             Some("exported".to_string()),
             format!("PR candidate exported to branch {branch_name}"),
             serde_json::json!({
-                "source_quality_report_artifact_id": source_quality_report_artifact_id,
+                    "source_quality_report_artifact_id": source_quality_report_artifact_id,
                 "source_pr_candidate_artifact_id": pr_candidate.artifact_id,
                 "branch_name": branch_name.clone(),
+                "repository_target_id": repository_target_id,
                 "commit_sha": commit_sha.clone(),
                 "artifact_id": exported_artifact.artifact_id,
             }),
@@ -146,6 +176,7 @@ pub(crate) fn create_draft_pr_unlocked(
                 "head_branch": branch_name.clone(),
                 "base_branch": base_branch.clone(),
                 "remote_url": remote_url.clone(),
+                "repository_target_id": repository_target_id,
                 "push_status": push_status.clone(),
                 "artifact_id": published_artifact.artifact_id,
             }),
@@ -195,6 +226,7 @@ pub(crate) fn create_draft_pr_unlocked(
             "resolution": resolution.clone(),
             "pr_number": pr_number,
             "pr_url": pr_url.clone(),
+            "repository_target_id": repository_target_id,
             "artifact_id": github_pr_artifact.artifact_id,
         }),
     ))?;
@@ -206,6 +238,7 @@ pub(crate) fn create_draft_pr_unlocked(
         branch_name,
         commit_sha,
         remote_url,
+        repository_target_id: repository_target_id.map(str::to_string),
         pr_number,
         pr_url,
         resolution,
@@ -268,6 +301,7 @@ fn prepare_draft_pr_publication(
         request.source_quality_report_artifact_id,
         request.artifact_root,
         request.remote_url,
+        request.repository_targets,
         true,
     );
     telemetry::record_promotion_step(
@@ -403,6 +437,7 @@ struct DraftPrPublicationRequest<'a> {
     artifact_root: &'a Path,
     remote_url: Option<&'a str>,
     branch_name: Option<&'a str>,
+    repository_targets: &'a crate::config::RepositoryTargetsConfig,
 }
 
 #[derive(Debug, Serialize)]
@@ -413,6 +448,8 @@ pub(crate) struct CreateDraftPrReport {
     branch_name: String,
     commit_sha: String,
     remote_url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    repository_target_id: Option<String>,
     pr_number: u64,
     pr_url: String,
     resolution: String,
@@ -444,6 +481,10 @@ impl CreateDraftPrReport {
             .context("failed to render create-draft-pr report")?;
         writeln!(&mut output, "remote_url: {}", self.remote_url)
             .context("failed to render create-draft-pr report")?;
+        if let Some(repository_target_id) = &self.repository_target_id {
+            writeln!(&mut output, "repository_target_id: {repository_target_id}")
+                .context("failed to render create-draft-pr report")?;
+        }
         writeln!(&mut output, "pr_number: {}", self.pr_number)
             .context("failed to render create-draft-pr report")?;
         writeln!(&mut output, "pr_url: {}", self.pr_url)

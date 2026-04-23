@@ -63,6 +63,7 @@ struct StdioMcpServer {
 struct McpServerConfig {
     database_url: Option<String>,
     artifact_root: std::path::PathBuf,
+    repository_targets_file: Option<std::path::PathBuf>,
     instance_config: InstanceConfigReport,
     tool_allowlist: Option<BTreeSet<String>>,
 }
@@ -344,6 +345,8 @@ struct ExportPrCandidateToolArgs {
     run_id: uuid::Uuid,
     #[serde(default)]
     branch_name: Option<String>,
+    #[serde(default)]
+    repository_target_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -352,6 +355,8 @@ struct PublishPrExportToolArgs {
     run_id: uuid::Uuid,
     #[serde(default)]
     remote_url: Option<String>,
+    #[serde(default)]
+    repository_target_id: Option<String>,
     #[serde(default)]
     push: bool,
 }
@@ -389,6 +394,7 @@ impl StdioMcpServer {
             config: McpServerConfig {
                 database_url: args.database_url,
                 artifact_root: args.artifact_root,
+                repository_targets_file: args.repository_targets_file,
                 instance_config: instance_config.clone(),
                 tool_allowlist,
             },
@@ -1359,6 +1365,8 @@ impl StdioMcpServer {
                 args.run_id,
                 &self.config.artifact_root,
                 args.branch_name.as_deref(),
+                args.repository_target_id.as_deref(),
+                self.config.repository_targets_file.as_deref(),
             )?;
             let structured =
                 serde_json::to_value(&report).context("failed to serialize PR export report")?;
@@ -1379,7 +1387,9 @@ impl StdioMcpServer {
                 args.run_id,
                 &self.config.artifact_root,
                 args.remote_url.as_deref(),
+                args.repository_target_id.as_deref(),
                 args.push,
+                self.config.repository_targets_file.as_deref(),
             )?;
             let structured = serde_json::to_value(&report)
                 .context("failed to serialize PR publication report")?;
@@ -2050,6 +2060,10 @@ fn tool_definitions() -> Vec<Value> {
             json_schema_object(&[
                 required_string_property("run_id", "Run UUID."),
                 optional_string_property("branch_name", "Override branch name for the export."),
+                optional_string_property(
+                    "repository_target_id",
+                    "Resolve branch defaults from a configured repository target.",
+                ),
             ]),
         ),
         tool_definition(
@@ -2058,6 +2072,10 @@ fn tool_definitions() -> Vec<Value> {
             json_schema_object(&[
                 required_string_property("run_id", "Run UUID."),
                 optional_string_property("remote_url", "Override remote repository URL."),
+                optional_string_property(
+                    "repository_target_id",
+                    "Resolve the remote URL from a configured repository target.",
+                ),
                 optional_boolean_property(
                     "push",
                     "When true, push the exported branch to the remote.",

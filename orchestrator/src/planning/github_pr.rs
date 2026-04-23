@@ -863,6 +863,7 @@ esac
             quality_report_id,
             &temp_root,
             Some(remote_root.display().to_string().as_str()),
+            &crate::config::RepositoryTargetsConfig::unrestricted(),
             true,
         )
         .expect("PR publication should compose");

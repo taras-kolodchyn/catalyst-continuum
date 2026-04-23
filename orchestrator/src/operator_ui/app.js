@@ -6,6 +6,7 @@ const AUTOMATION_DISCLOSURES_STORAGE_KEY =
 const MISSION_TAB_STORAGE_KEY = "catalystContinuum.operatorUi.missionTab";
 const AUTO_REFRESH_INTERVAL_MS = 15000;
 const REALTIME_RECONNECT_DELAY_MS = 1500;
+const REALTIME_BOOTSTRAP_FALLBACK_DELAY_MS = 2500;
 const PENDING_AUTOMATION_STATUS = "pending";
 const DEFAULT_GRAFANA_PORT = "3000";
 const DEFAULT_PROMETHEUS_PORT = "9090";
@@ -27,6 +28,7 @@ const CAPABILITY_LOADING_CARD_TITLES = [
   "Brief -> Run",
   "Runtime execution",
   "Model gateway",
+  "Real repository guard",
   "GitHub handoff",
 ];
 const PR_CANDIDATE_ARTIFACT_TYPE = "pr_candidate";
@@ -152,29 +154,13 @@ document.addEventListener("DOMContentLoaded", () => {
   restoreBriefDraft();
   if (supportsRealtimeUpdates()) {
     connectRealtime();
+    scheduleRealtimeBootstrapFallback();
+  } else {
+    refreshDashboard().catch(reportBootstrapRefreshFailure);
   }
   loadBriefExamples().catch((error) => {
     console.error("brief example load failed", error);
     renderBriefExamplesError(error.message);
-  });
-  refreshDashboard().catch((error) => {
-    if (!supportsRealtimeUpdates()) {
-      renderStatusGrid({
-        readyz: failedEnvelope(error),
-        aiGateway: failedEnvelope(error),
-        config: failedEnvelope(error),
-        packs: failedEnvelope(error),
-      });
-      writeConsole(
-        elements.briefConsole,
-        elements.briefConsoleStatus,
-        "error",
-        { error: error.message }
-      );
-      return;
-    }
-
-    console.error("operator UI bootstrap refresh failed", error);
   });
   if (!supportsRealtimeUpdates()) {
     window.setInterval(() => {
@@ -191,6 +177,33 @@ document.addEventListener("DOMContentLoaded", () => {
     cleanupRealtimeSocket();
   });
 });
+
+function reportBootstrapRefreshFailure(error) {
+  renderStatusGrid({
+    readyz: failedEnvelope(error),
+    aiGateway: failedEnvelope(error),
+    config: failedEnvelope(error),
+    packs: failedEnvelope(error),
+  });
+  writeConsole(
+    elements.briefConsole,
+    elements.briefConsoleStatus,
+    "error",
+    { error: error.message }
+  );
+}
+
+function scheduleRealtimeBootstrapFallback() {
+  window.setTimeout(() => {
+    if (state.lastRealtimeSnapshotAt || state.refreshInFlight) {
+      return;
+    }
+
+    refreshDashboard().catch((error) => {
+      console.error("operator UI bootstrap HTTP fallback failed", error);
+    });
+  }, REALTIME_BOOTSTRAP_FALLBACK_DELAY_MS);
+}
 
 function cacheElements() {
   const ids = [
@@ -246,6 +259,7 @@ function cacheElements() {
     "queueInspectorSummary",
     "refreshButton",
     "remoteUrlInput",
+    "repositoryTargetSelect",
     "repositorySignalsList",
     "runActionHint",
     "runActionDraftHint",
@@ -474,6 +488,13 @@ function bindEvents() {
     updateSelectedRunActionDraft({
       remoteUrl: elements.remoteUrlInput.value,
     });
+  });
+
+  elements.repositoryTargetSelect.addEventListener("change", () => {
+    updateSelectedRunActionDraft({
+      repositoryTargetId: elements.repositoryTargetSelect.value,
+    });
+    applyRepositoryTargetDefaultsToInputs(state.selectedRunDetail);
   });
 
   elements.publishPushToggle.addEventListener("change", () => {
@@ -1333,20 +1354,26 @@ function actionSpec(actionId, runId) {
 function buildRunActionBody(actionId) {
   const branchName = elements.branchNameInput.value.trim();
   const remoteUrl = elements.remoteUrlInput.value.trim();
+  const repositoryTargetId = elements.repositoryTargetSelect.value.trim();
   const push = elements.publishPushToggle.checked;
 
   switch (actionId) {
     case "export-pr":
-      return branchName ? { branch_name: branchName } : null;
+      return {
+        ...(branchName ? { branch_name: branchName } : {}),
+        ...(repositoryTargetId ? { repository_target_id: repositoryTargetId } : {}),
+      };
     case "publish-pr":
       return {
         ...(remoteUrl ? { remote_url: remoteUrl } : {}),
+        ...(repositoryTargetId ? { repository_target_id: repositoryTargetId } : {}),
         push,
       };
     case "draft-pr":
       return {
         ...(remoteUrl ? { remote_url: remoteUrl } : {}),
         ...(branchName ? { branch_name: branchName } : {}),
+        ...(repositoryTargetId ? { repository_target_id: repositoryTargetId } : {}),
       };
     default:
       return null;
@@ -1462,6 +1489,7 @@ function sanitizeRunActionDraft(draft) {
     return {
       branchName: "",
       remoteUrl: "",
+      repositoryTargetId: "",
       push: false,
     };
   }
@@ -1469,6 +1497,8 @@ function sanitizeRunActionDraft(draft) {
   return {
     branchName: typeof draft.branchName === "string" ? draft.branchName : "",
     remoteUrl: typeof draft.remoteUrl === "string" ? draft.remoteUrl : "",
+    repositoryTargetId:
+      typeof draft.repositoryTargetId === "string" ? draft.repositoryTargetId : "",
     push: draft.push === true,
   };
 }
@@ -1488,6 +1518,64 @@ function defaultPromotionBranchName(runId) {
   return `continuum/run-${String(runId).slice(0, 8)}`;
 }
 
+function repositoryTargetsConfig() {
+  return state.dashboardSnapshot.config?.repository_targets ?? {};
+}
+
+function enabledRepositoryTargets() {
+  const targets = repositoryTargetsConfig().targets;
+  return Array.isArray(targets) ? targets.filter((target) => target.enabled) : [];
+}
+
+function repositoryTargetMatchesRun(target, runDetail) {
+  const repository = runDetail?.repository ?? {};
+  const host = repository.host ?? "github";
+  return (
+    target?.host === host &&
+    target?.owner === repository.owner &&
+    target?.name === repository.name &&
+    (!repository.default_branch || target.default_branch === repository.default_branch)
+  );
+}
+
+function matchingRepositoryTargetsForRun(runDetail) {
+  return enabledRepositoryTargets().filter((target) =>
+    repositoryTargetMatchesRun(target, runDetail)
+  );
+}
+
+function repositoryTargetById(targetId) {
+  return enabledRepositoryTargets().find((target) => target.target_id === targetId) ?? null;
+}
+
+function defaultRepositoryTargetId(runDetail) {
+  const matches = matchingRepositoryTargetsForRun(runDetail);
+  return matches.length === 1 ? matches[0].target_id : "";
+}
+
+function repositoryTargetRemoteUrl(target) {
+  if (!target) {
+    return "";
+  }
+  const remotes = Array.isArray(target.allowed_remote_urls)
+    ? target.allowed_remote_urls.filter(Boolean)
+    : [];
+  if (remotes.length > 0) {
+    return remotes[0];
+  }
+  return target.host === "github" && target.owner && target.name
+    ? `https://github.com/${target.owner}/${target.name}.git`
+    : "";
+}
+
+function repositoryTargetBranchName(target, runId) {
+  if (!target || !runId) {
+    return "";
+  }
+  const prefix = target.branch_prefix || "continuum/";
+  return `${prefix}run-${String(runId).slice(0, 8)}`;
+}
+
 function inferredRemoteUrl(runDetail) {
   const repository = runDetail?.repository;
   const owner = repository?.owner?.trim();
@@ -1502,9 +1590,14 @@ function inferredRemoteUrl(runDetail) {
 }
 
 function defaultRunActionDraft(runDetail) {
+  const repositoryTargetId = defaultRepositoryTargetId(runDetail);
+  const repositoryTarget = repositoryTargetById(repositoryTargetId);
   return {
-    branchName: defaultPromotionBranchName(runDetail?.run_id),
-    remoteUrl: inferredRemoteUrl(runDetail),
+    branchName:
+      repositoryTargetBranchName(repositoryTarget, runDetail?.run_id) ||
+      defaultPromotionBranchName(runDetail?.run_id),
+    remoteUrl: repositoryTargetRemoteUrl(repositoryTarget) || inferredRemoteUrl(runDetail),
+    repositoryTargetId,
     push: false,
   };
 }
@@ -1516,10 +1609,16 @@ function runActionDraftForRun(runDetail) {
 
   const defaults = defaultRunActionDraft(runDetail);
   const stored = sanitizeRunActionDraft(state.runActionDrafts[runDetail.run_id]);
+  const storedTarget = repositoryTargetById(stored.repositoryTargetId);
+  const storedTargetMatches =
+    stored.repositoryTargetId && repositoryTargetMatchesRun(storedTarget, runDetail);
 
   return {
     branchName: stored.branchName || defaults.branchName,
     remoteUrl: stored.remoteUrl || defaults.remoteUrl,
+    repositoryTargetId: storedTargetMatches
+      ? stored.repositoryTargetId
+      : defaults.repositoryTargetId,
     push: stored.push,
   };
 }
@@ -1543,6 +1642,33 @@ function updateSelectedRunActionDraft(partialDraft) {
     ...partialDraft,
   });
   renderRunActionDraftHint(state.selectedRunDetail);
+}
+
+function applyRepositoryTargetDefaultsToInputs(runDetail) {
+  if (!runDetail?.run_id) {
+    return;
+  }
+  const repositoryTargetId = elements.repositoryTargetSelect.value;
+  const repositoryTarget = repositoryTargetById(repositoryTargetId);
+  if (!repositoryTarget) {
+    return;
+  }
+
+  const nextDraft = {
+    ...runActionDraftForRun(runDetail),
+    repositoryTargetId,
+  };
+  const branchName = repositoryTargetBranchName(repositoryTarget, runDetail.run_id);
+  const remoteUrl = repositoryTargetRemoteUrl(repositoryTarget);
+  if (branchName) {
+    nextDraft.branchName = branchName;
+  }
+  if (remoteUrl) {
+    nextDraft.remoteUrl = remoteUrl;
+  }
+
+  saveRunActionDraft(runDetail.run_id, nextDraft);
+  syncRunActionDraftInputs(runDetail);
 }
 
 function resetSelectedRunActionDraft() {
@@ -1579,6 +1705,9 @@ function updateRunActionDraftFromResult(actionId, payload) {
       nextDraft.push = payload.push_status === "pushed";
     }
   }
+  if (typeof payload.repository_target_id === "string" && payload.repository_target_id.trim()) {
+    nextDraft.repositoryTargetId = payload.repository_target_id;
+  }
   if (actionId === "draft-pr") {
     if (typeof payload.remote_url === "string" && payload.remote_url.trim()) {
       nextDraft.remoteUrl = payload.remote_url;
@@ -1612,16 +1741,33 @@ function syncRunActionDraftInputs(runDetail) {
   if (!runDetail?.run_id) {
     elements.branchNameInput.value = "";
     elements.remoteUrlInput.value = "";
+    renderRepositoryTargetOptions(null, "");
     elements.publishPushToggle.checked = false;
     renderRunActionDraftHint(null);
     return;
   }
 
   const draft = runActionDraftForRun(runDetail);
+  renderRepositoryTargetOptions(runDetail, draft.repositoryTargetId);
   elements.branchNameInput.value = draft.branchName;
   elements.remoteUrlInput.value = draft.remoteUrl;
+  elements.repositoryTargetSelect.value = draft.repositoryTargetId;
   elements.publishPushToggle.checked = draft.push;
   renderRunActionDraftHint(runDetail);
+}
+
+function renderRepositoryTargetOptions(runDetail, selectedTargetId) {
+  const targets = matchingRepositoryTargetsForRun(runDetail);
+  const options = [
+    '<option value="">Use run repository or manual remote</option>',
+    ...targets.map((target) => {
+      const label = `${target.target_id} · ${target.owner}/${target.name}:${target.default_branch}`;
+      return `<option value="${escapeHtml(target.target_id)}">${escapeHtml(label)}</option>`;
+    }),
+  ];
+  setRenderedHtml(elements.repositoryTargetSelect, options.join(""), { markUpdated: false });
+  elements.repositoryTargetSelect.value =
+    targets.some((target) => target.target_id === selectedTargetId) ? selectedTargetId : "";
 }
 
 function renderRunActionDraftHint(runDetail) {
@@ -1634,6 +1780,12 @@ function renderRunActionDraftHint(runDetail) {
   const defaults = defaultRunActionDraft(runDetail);
   const draft = runActionDraftForRun(runDetail);
   const messages = [];
+
+  if (draft.repositoryTargetId) {
+    messages.push(`Repository target ${draft.repositoryTargetId} is selected.`);
+  } else if (matchingRepositoryTargetsForRun(runDetail).length > 0) {
+    messages.push("No repository target selected; manual run defaults are active.");
+  }
 
   if (draft.branchName === defaults.branchName) {
     messages.push(`Branch defaults to ${defaults.branchName}.`);
@@ -8050,6 +8202,12 @@ function qualityEvaluationHighlightItems(payload) {
 function exportPrHighlightItems(payload) {
   const items = [];
   pushActionHighlightItem(items, "Branch", payload.branch_name, payload.commit_sha ?? "Branch resolved for PR export.");
+  pushActionHighlightItem(
+    items,
+    "Repository target",
+    payload.repository_target_id,
+    "Repository target used for branch defaults."
+  );
   pushActionHighlightItem(items, "Commit", payload.commit_sha, "Head commit captured in the exported PR bundle.", { mono: true });
   if (payload.artifact?.location_value) {
     pushActionHighlightItem(
@@ -8081,6 +8239,12 @@ function publishPrHighlightItems(payload) {
   );
   pushActionHighlightItem(items, "Head branch", payload.head_branch, payload.base_branch ?? "Base branch unavailable.");
   pushActionHighlightItem(items, "Remote", payload.remote_url, "Remote used for publication.", { mono: true });
+  pushActionHighlightItem(
+    items,
+    "Repository target",
+    payload.repository_target_id,
+    "Repository target used for remote resolution."
+  );
   if (payload.artifact?.location_value) {
     pushActionHighlightItem(
       items,
@@ -8112,6 +8276,12 @@ function draftPrHighlightItems(payload) {
     payload.base_branch ? `Targets ${payload.base_branch}` : payload.remote_url ?? "Remote unavailable."
   );
   pushActionHighlightItem(items, "Remote", payload.remote_url, "Remote used for draft PR publication.", { mono: true });
+  pushActionHighlightItem(
+    items,
+    "Repository target",
+    payload.repository_target_id,
+    "Repository target used for draft PR handoff."
+  );
   return items;
 }
 
@@ -8299,10 +8469,12 @@ function setRunActionControlsBusyState(actionId, busy) {
 
   elements.branchNameInput.disabled = true;
   elements.remoteUrlInput.disabled = true;
+  elements.repositoryTargetSelect.disabled = true;
   elements.publishPushToggle.disabled = true;
   elements.resetRunActionDraftButton.disabled = true;
   elements.branchNameInput.title = "";
   elements.remoteUrlInput.title = "";
+  elements.repositoryTargetSelect.title = "";
   elements.publishPushToggle.title = "";
   elements.resetRunActionDraftButton.title = "";
 }
@@ -8545,6 +8717,8 @@ function syncRunActionControlsWithState() {
 
   elements.branchNameInput.disabled = state.runActionInFlight || !branchActionsEnabled;
   elements.remoteUrlInput.disabled = state.runActionInFlight || !remoteActionsEnabled;
+  elements.repositoryTargetSelect.disabled =
+    state.runActionInFlight || (!branchActionsEnabled && !remoteActionsEnabled);
   elements.publishPushToggle.disabled =
     state.runActionInFlight || !availability["publish-pr"].enabled;
   elements.resetRunActionDraftButton.disabled =
@@ -8555,6 +8729,10 @@ function syncRunActionControlsWithState() {
   elements.remoteUrlInput.title = remoteActionsEnabled
     ? ""
     : availability["draft-pr"].reason || availability["publish-pr"].reason;
+  elements.repositoryTargetSelect.title =
+    branchActionsEnabled || remoteActionsEnabled
+      ? ""
+      : availability["draft-pr"].reason || availability["publish-pr"].reason;
   elements.publishPushToggle.title = availability["publish-pr"].enabled
     ? ""
     : availability["publish-pr"].reason;

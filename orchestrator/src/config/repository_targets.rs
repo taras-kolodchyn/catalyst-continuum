@@ -20,7 +20,7 @@ impl RepositoryTargetsConfig {
     pub fn load(repository_targets_file: Option<&Path>) -> Result<Self> {
         match resolve_repository_targets_file(repository_targets_file)? {
             Some(path) => Self::from_file(&path),
-            None => Ok(Self::default_config()),
+            None => Ok(Self::unrestricted()),
         }
     }
 
@@ -47,12 +47,48 @@ impl RepositoryTargetsConfig {
         Ok(config)
     }
 
-    fn default_config() -> Self {
+    pub fn unrestricted() -> Self {
         Self {
             source_path: None,
             enforcement_enabled: false,
             targets: Vec::new(),
         }
+    }
+
+    pub fn enabled_target(&self, target_id: &str) -> Result<&RepositoryTargetConfig> {
+        ensure!(
+            self.enforcement_enabled,
+            "repository target `{target_id}` was requested, but repository target enforcement is not configured"
+        );
+        self.targets
+            .iter()
+            .find(|target| target.enabled && target.target_id == target_id)
+            .with_context(|| {
+                format!("repository target `{target_id}` is not enabled or does not exist")
+            })
+    }
+
+    pub fn default_branch_for_publication(
+        &self,
+        repository_host: &str,
+        repository_owner: &str,
+        repository_name: &str,
+        remote_url: &str,
+    ) -> Option<String> {
+        if !self.enforcement_enabled {
+            return None;
+        }
+
+        self.targets
+            .iter()
+            .find(|target| {
+                target.enabled
+                    && target.host == repository_host
+                    && target.owner == repository_owner
+                    && target.name == repository_name
+                    && target.allows_remote_url(remote_url)
+            })
+            .map(|target| target.default_branch.clone())
     }
 
     pub fn validate_publication_target(
@@ -211,10 +247,29 @@ impl RepositoryTargetConfig {
             format!("git@github.com:{}/{}.git", self.owner, self.name),
         ]
     }
+
+    pub fn default_remote_url(&self) -> String {
+        self.effective_allowed_remote_urls()
+            .into_iter()
+            .next()
+            .expect("repository target should always have at least one effective remote URL")
+    }
+
+    pub fn allows_remote_url(&self, remote_url: &str) -> bool {
+        self.effective_allowed_remote_urls()
+            .iter()
+            .any(|allowed| allowed == remote_url)
+    }
+
+    pub fn default_head_branch(&self, run_id: uuid::Uuid) -> String {
+        format!("{}run-{}", self.branch_prefix, &run_id.to_string()[..8])
+    }
 }
 
-pub fn load_repository_targets_from_env() -> Result<RepositoryTargetsConfig> {
-    RepositoryTargetsConfig::load(None)
+impl Default for RepositoryTargetsConfig {
+    fn default() -> Self {
+        Self::unrestricted()
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -264,7 +319,7 @@ mod tests {
 
     #[test]
     fn defaults_to_unrestricted_when_file_is_absent() {
-        let config = RepositoryTargetsConfig::default_config();
+        let config = RepositoryTargetsConfig::unrestricted();
 
         assert_eq!(config.source_path, None);
         assert!(!config.enforcement_enabled);
@@ -372,5 +427,44 @@ targets:
             .expect_err("remote not in target allowlist should be rejected");
 
         assert!(error.to_string().contains("does not allow remote URL"));
+    }
+
+    #[test]
+    fn resolves_enabled_target_defaults() {
+        let run_id = uuid::Uuid::parse_str("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee")
+            .expect("test uuid should parse");
+        let config = RepositoryTargetsConfig {
+            source_path: Some("/tmp/repository-targets.yaml".to_string()),
+            enforcement_enabled: true,
+            targets: vec![RepositoryTargetConfig {
+                target_id: "demo".to_string(),
+                host: "github".to_string(),
+                owner: "smartit".to_string(),
+                name: "catalyst-continuum-demo".to_string(),
+                default_branch: "main".to_string(),
+                enabled: true,
+                branch_prefix: "continuum/".to_string(),
+                allowed_remote_urls: Vec::new(),
+            }],
+        };
+
+        let target = config
+            .enabled_target("demo")
+            .expect("target should resolve");
+
+        assert_eq!(
+            target.default_remote_url(),
+            "https://github.com/smartit/catalyst-continuum-demo.git"
+        );
+        assert_eq!(target.default_head_branch(run_id), "continuum/run-aaaaaaaa");
+        assert_eq!(
+            config.default_branch_for_publication(
+                "github",
+                "smartit",
+                "catalyst-continuum-demo",
+                "https://github.com/smartit/catalyst-continuum-demo.git",
+            ),
+            Some("main".to_string())
+        );
     }
 }
