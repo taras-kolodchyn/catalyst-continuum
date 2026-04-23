@@ -2456,6 +2456,7 @@ function renderMissionFlowPanel() {
           )}
         </div>
         ${renderMissionActionStrip(runDetail, guide)}
+        ${renderMissionEvidenceMap(runDetail)}
         <section class="mission-feed-shell">
           <div class="detail-section-head">
             <div>
@@ -2548,6 +2549,136 @@ function renderMissionActionStrip(runDetail, guide) {
         </p>
       </article>
     </section>
+  `;
+}
+
+function renderMissionEvidenceMap(runDetail) {
+  const evidenceItems = buildMissionEvidenceItems(runDetail);
+
+  return `
+    <section class="mission-evidence-map">
+      <div class="detail-section-head">
+        <div>
+          <p class="panel-kicker">Evidence map</p>
+          <h3>What the orchestrator has proven</h3>
+        </div>
+        <span class="badge badge-neutral">${escapeHtml(String(evidenceItems.length))} checkpoints</span>
+      </div>
+      <div class="mission-evidence-grid">
+        ${evidenceItems.map(renderMissionEvidenceItem).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function buildMissionEvidenceItems(runDetail) {
+  const artifactTypes = runArtifactTypes(runDetail);
+  const eventTypes = new Set((state.selectedRunEvents ?? []).map((event) => event.event_type));
+  const taskCounts = normalizedTaskCounts(runDetail.task_counts);
+  const planningArtifactTypes = [
+    BACKLOG_ARTIFACT_TYPE,
+    POLICY_REPORT_ARTIFACT_TYPE,
+    DISPATCH_PLAN_ARTIFACT_TYPE,
+  ];
+  const planningArtifactCount = planningArtifactTypes.filter((artifactType) =>
+    artifactTypes.has(artifactType)
+  ).length;
+  const reportCount = agentTaskReportArtifacts(runDetail).length;
+  const logCount = agentExecutionLogArtifacts(runDetail).length;
+  const agentCount = runAgents(runDetail).length;
+  const qualityReportReady =
+    artifactTypes.has(QUALITY_REPORT_ARTIFACT_TYPE) ||
+    eventTypes.has(RUN_QUALITY_EVALUATED_EVENT_TYPE);
+  const prEvidenceTypes = [
+    PR_CANDIDATE_ARTIFACT_TYPE,
+    PR_EXPORT_ARTIFACT_TYPE,
+    PR_PUBLICATION_ARTIFACT_TYPE,
+    GITHUB_PULL_REQUEST_ARTIFACT_TYPE,
+  ];
+  const prEvidenceCount = prEvidenceTypes.filter((artifactType) =>
+    artifactTypes.has(artifactType)
+  ).length;
+  const githubPrReady =
+    artifactTypes.has(GITHUB_PULL_REQUEST_ARTIFACT_TYPE) ||
+    eventTypes.has(GITHUB_PR_OPENED_EVENT_TYPE);
+  const executionBlocked = runDetail.status === "failed" || taskCounts.failed > 0;
+  const executionComplete =
+    runDetail.status === "succeeded" &&
+    taskCounts.total > 0 &&
+    taskCounts.queued === 0 &&
+    taskCounts.running === 0 &&
+    taskCounts.failed === 0;
+
+  return [
+    {
+      kicker: "Planning contract",
+      title:
+        planningArtifactCount === planningArtifactTypes.length
+          ? "Backlog and routing are materialized"
+          : "Waiting for full planning evidence",
+      tone: planningArtifactCount === planningArtifactTypes.length ? "success" : "warning",
+      summary:
+        "The run needs a backlog, policy report, and agent dispatch plan before execution is explainable.",
+      detail: `${planningArtifactCount}/${planningArtifactTypes.length} planning artifacts · ${taskCounts.total} task(s)`,
+    },
+    {
+      kicker: "Agent execution",
+      title: executionBlocked
+        ? "Execution needs inspection"
+        : executionComplete
+          ? "Agent work is complete"
+          : "Agent work is still moving",
+      tone: executionBlocked ? "error" : executionComplete ? "success" : "warning",
+      summary:
+        "Reports and logs make agent behavior inspectable instead of hiding work inside a black-box session.",
+      detail: `${agentCount || 0} agent(s) · ${reportCount} report(s) · ${logCount} log artifact(s)`,
+    },
+    {
+      kicker: "Quality gate",
+      title: qualityReportReady
+        ? "Quality evidence is present"
+        : runDetail.status === "succeeded"
+          ? "Ready for quality evaluation"
+          : "Locked until execution succeeds",
+      tone: qualityReportReady ? "success" : runDetail.status === "failed" ? "error" : "neutral",
+      summary:
+        "Promotion stays gated by an explicit quality report so draft-PR handoff is auditable.",
+      detail: qualityReportReady
+        ? "Quality report or quality event recorded"
+        : "No quality evidence recorded yet",
+    },
+    {
+      kicker: "GitHub handoff",
+      title: githubPrReady
+        ? "Draft PR handoff is recorded"
+        : prEvidenceCount > 0
+          ? "Promotion evidence is accumulating"
+          : "Promotion has not started",
+      tone: githubPrReady ? "success" : prEvidenceCount > 0 ? "warning" : "neutral",
+      summary:
+        "The orchestrator prepares reviewable artifacts, while human approval remains in GitHub.",
+      detail: `${prEvidenceCount}/${prEvidenceTypes.length} promotion artifacts`,
+    },
+  ];
+}
+
+function renderMissionEvidenceItem(item) {
+  const tone = normalizePulseTone(item.tone);
+
+  return `
+    <article class="mission-evidence-card mission-evidence-card-${escapeHtml(tone)}">
+      <div class="mission-feed-head">
+        <div>
+          <p class="panel-kicker">${escapeHtml(item.kicker)}</p>
+          <h4>${escapeHtml(item.title)}</h4>
+        </div>
+        <span class="badge badge-${escapeHtml(tone)}">${escapeHtml(toneLabel(tone))}</span>
+      </div>
+      <p>${escapeHtml(item.summary)}</p>
+      <div class="mission-feed-meta">
+        <span>${escapeHtml(item.detail)}</span>
+      </div>
+    </article>
   `;
 }
 
