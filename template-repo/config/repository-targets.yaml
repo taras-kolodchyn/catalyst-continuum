@@ -1,3 +1,6 @@
+# Replace this scaffold with the real private repository metadata before the
+# instance can publish draft PRs. You can also generate a first draft from the
+# upstream helpers before copying the template into a private repository.
 targets:
   - target_id: primary-app
     host: github

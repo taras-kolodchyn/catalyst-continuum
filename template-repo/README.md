@@ -52,4 +52,15 @@ choices into the open-source root.
   Use the configured `target_id` as `repository_target_id` during promotion so
   operators and agents do not need to duplicate the canonical remote URL in
   every request.
+- The private instance root `.env` should normally keep
+  `CATALYST_REPOSITORY_TARGETS_FILE=./config/repository-targets.yaml` so the
+  allowlist is always active for real publication paths instead of depending on
+  ad hoc operator shell exports.
+- The template ships only the config stub. If you want a generated first draft
+  instead of editing `config/repository-targets.yaml` by hand, run the upstream
+  helper before you cut the private repo, for example
+  `./scripts/init-repository-targets.sh <OWNER>/<REPO> --output template-repo/config/repository-targets.yaml`
+  or the one-shot upstream wrapper
+  `make repository-targets-bootstrap REPOSITORY=<OWNER>/<REPO> REPOSITORY_TARGET_ID=<TARGET_ID> REPOSITORY_TARGETS_FILE=template-repo/config/repository-targets.yaml REPOSITORY_BOOTSTRAP_ARGS="--skip-doctor --skip-preflight"`,
+  then review and private-tailor the generated allowlist before deployment.
 - Keep secrets and private keys out of git history even in the private template repo.
