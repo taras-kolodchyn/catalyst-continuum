@@ -56,6 +56,11 @@ choices into the open-source root.
   `CATALYST_REPOSITORY_TARGETS_FILE=./config/repository-targets.yaml` so the
   allowlist is always active for real publication paths instead of depending on
   ad hoc operator shell exports.
+- The private compose overlay should mirror that setting through
+  `deploy/compose/.env.example` by pointing
+  `CATALYST_REPOSITORY_TARGETS_FILE=/app/config/repository-targets.yaml` when
+  the bundled compose stack is the operator-facing runtime for real GitHub
+  publication.
 - The template ships only the config stub. If you want a generated first draft
   instead of editing `config/repository-targets.yaml` by hand, run the upstream
   helper before you cut the private repo, for example
