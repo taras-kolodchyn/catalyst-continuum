@@ -190,7 +190,8 @@
               aria-controls="missionFlowPanel"
               data-mission-tab="flow"
             >
-              Flow
+              <span class="mission-tab-label">Flow</span>
+              <span id="missionTabFlowBadge" class="badge badge-neutral mission-tab-badge">No run</span>
             </button>
             <button
               class="mission-tab"
@@ -201,7 +202,8 @@
               aria-controls="missionAgentsPanel"
               data-mission-tab="agents"
             >
-              Agents
+              <span class="mission-tab-label">Agents</span>
+              <span id="missionTabAgentsBadge" class="badge badge-neutral mission-tab-badge">Open run</span>
             </button>
             <button
               class="mission-tab"
@@ -212,7 +214,8 @@
               aria-controls="missionGrafanaPanel"
               data-mission-tab="grafana"
             >
-              Grafana
+              <span class="mission-tab-label">Grafana</span>
+              <span id="missionTabGrafanaBadge" class="badge badge-neutral mission-tab-badge">Unknown</span>
             </button>
             <button
               class="mission-tab"
@@ -223,7 +226,8 @@
               aria-controls="missionLitellmPanel"
               data-mission-tab="litellm"
             >
-              LiteLLM
+              <span class="mission-tab-label">LiteLLM</span>
+              <span id="missionTabLitellmBadge" class="badge badge-neutral mission-tab-badge">Gateway</span>
             </button>
           </div>
           <p id="missionTabHint" class="microcopy mission-tab-hint">

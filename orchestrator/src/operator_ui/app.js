@@ -207,8 +207,12 @@ function cacheElements() {
     "missionGrafanaPanel",
     "missionLitellmPanel",
     "missionShell",
+    "missionTabAgentsBadge",
     "missionTabBar",
+    "missionTabFlowBadge",
+    "missionTabGrafanaBadge",
     "missionTabHint",
+    "missionTabLitellmBadge",
     "packChips",
     "pulseFeed",
     "pulseSummary",
@@ -2253,8 +2257,96 @@ function syncMissionTabSelection() {
 
 function renderMissionControl() {
   syncMissionTabSelection();
+  renderMissionTabBadges();
   renderMissionTabHint();
   renderActiveMissionPanel();
+}
+
+function renderMissionTabBadges() {
+  renderMissionFlowTabBadge();
+  renderMissionAgentsTabBadge();
+  renderMissionGrafanaTabBadge();
+  renderMissionLitellmTabBadge();
+}
+
+function renderMissionFlowTabBadge() {
+  if (!state.selectedRunDetail) {
+    setMissionTabBadge(elements.missionTabFlowBadge, "neutral", "No run");
+    return;
+  }
+
+  const runStatus = state.selectedRunDetail.status ?? "unknown";
+  setMissionTabBadge(
+    elements.missionTabFlowBadge,
+    statusTone(runStatus),
+    displayRunStatus(runStatus)
+  );
+}
+
+function renderMissionAgentsTabBadge() {
+  if (!state.selectedRunDetail) {
+    setMissionTabBadge(elements.missionTabAgentsBadge, "neutral", "Open run");
+    return;
+  }
+
+  const agents = runAgents(state.selectedRunDetail);
+  if (!agents.length) {
+    setMissionTabBadge(elements.missionTabAgentsBadge, "neutral", "No agents");
+    return;
+  }
+
+  const externalTaskCount = (state.selectedRunDetail.tasks ?? []).filter(
+    (task) => task.agent_execution?.mode === "external_agent"
+  ).length;
+  setMissionTabBadge(
+    elements.missionTabAgentsBadge,
+    externalTaskCount > 0 ? "success" : "warning",
+    `${agents.length} agent${agents.length === 1 ? "" : "s"}`
+  );
+}
+
+function renderMissionGrafanaTabBadge() {
+  const grafanaSurface = missionSurfaceStatus("grafana");
+  setMissionTabBadge(
+    elements.missionTabGrafanaBadge,
+    missionSurfaceTone(grafanaSurface),
+    missionSurfaceBadge(grafanaSurface, "Ready")
+  );
+}
+
+function renderMissionLitellmTabBadge() {
+  const aiGateway = state.dashboardSnapshot.aiGateway?.data ?? {};
+  const litellmUiSurface = missionSurfaceStatus("litellm_ui");
+
+  if (missionSurfaceReady(litellmUiSurface)) {
+    setMissionTabBadge(elements.missionTabLitellmBadge, "success", "UI ready");
+    return;
+  }
+
+  if (aiGateway.ready === true) {
+    setMissionTabBadge(elements.missionTabLitellmBadge, "warning", "Gateway");
+    return;
+  }
+
+  setMissionTabBadge(
+    elements.missionTabLitellmBadge,
+    statusTone(aiGateway.status),
+    aiGateway.status ?? "Gateway"
+  );
+}
+
+function setMissionTabBadge(target, tone, text) {
+  if (!target) {
+    return;
+  }
+
+  setBadge(target, normalizePulseTone(tone), text);
+  const tabButton = target.closest("[data-mission-tab]");
+  if (tabButton) {
+    const label = tabButton.querySelector(".mission-tab-label")?.textContent?.trim() ?? "Tab";
+    tabButton.setAttribute("aria-label", `${label}: ${text}`);
+    tabButton.title = `${label}: ${text}`;
+  }
 }
 
 function renderActiveMissionPanel() {

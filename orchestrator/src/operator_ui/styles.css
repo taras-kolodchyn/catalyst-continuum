@@ -388,6 +388,7 @@ textarea,
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 8px;
   min-height: 42px;
   padding: 10px 16px;
   border: 1px solid rgba(24, 35, 29, 0.14);
@@ -413,6 +414,16 @@ textarea,
   box-shadow: inset 0 0 0 1px rgba(23, 79, 67, 0.1);
   color: var(--spruce);
   font-weight: 700;
+}
+
+.mission-tab-label {
+  line-height: 1;
+}
+
+.mission-tab-badge {
+  padding: 4px 7px;
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
 }
 
 .mission-tab-hint {
