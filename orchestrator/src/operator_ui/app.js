@@ -75,6 +75,15 @@ const RUN_ACTION_BUSY_LABELS = {
   "publish-pr": "Publishing PR...",
   "draft-pr": "Creating draft PR...",
 };
+const RUN_ACTION_SEQUENCE = [
+  "tasks-next",
+  "worker-once",
+  "evaluate-policy",
+  "evaluate-quality",
+  "export-pr",
+  "publish-pr",
+  "draft-pr",
+];
 const initialUiUrl = new URL(window.location.href);
 
 const state = {
@@ -2570,6 +2579,7 @@ function renderMissionFlowPanel() {
         </div>
         ${renderMissionJourneyTimeline(runDetail, guide)}
         ${renderMissionActionStrip(runDetail, guide)}
+        ${renderMissionControlReadinessBoard(runDetail, guide)}
         ${renderReviewHandoffChecklist(runDetail)}
         ${renderMissionEvidenceMap(runDetail)}
         <section class="mission-feed-shell">
@@ -2826,6 +2836,99 @@ function renderMissionActionStrip(runDetail, guide) {
       </article>
     </section>
   `;
+}
+
+function renderMissionControlReadinessBoard(runDetail, guide) {
+  const items = buildMissionControlReadinessItems(runDetail, guide);
+  const availableCount = items.filter((item) => item.enabled).length;
+
+  return `
+    <section class="mission-control-board">
+      <div class="detail-section-head">
+        <div>
+          <p class="panel-kicker">Control readiness</p>
+          <h3>Which orchestrator actions are safe right now</h3>
+        </div>
+        <span class="badge badge-${escapeHtml(availableCount ? "warning" : "neutral")}">
+          ${escapeHtml(`${availableCount}/${items.length} available`)}
+        </span>
+      </div>
+      <div class="mission-control-grid">
+        ${items.map(renderMissionControlReadinessItem).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function buildMissionControlReadinessItems(runDetail, guide) {
+  const availability = runActionAvailability(runDetail);
+  const recommendedActionId = guide.nextActionControlId;
+  return RUN_ACTION_SEQUENCE.map((actionId) => {
+    const actionState = availability[actionId] ?? disabledRunAction("Action unavailable.");
+    return {
+      actionId,
+      description: runActionDescription(actionId),
+      enabled: actionState.enabled === true,
+      label: displayRunActionLabel(actionId),
+      recommended: actionId === recommendedActionId,
+      reason: actionState.reason || "",
+    };
+  });
+}
+
+function renderMissionControlReadinessItem(item) {
+  const busy = state.runActionInFlight && state.runActionBusyActionId === item.actionId;
+  const tone = item.recommended ? "warning" : item.enabled ? "success" : "neutral";
+  const status = busy ? "Running" : item.recommended ? "Recommended" : item.enabled ? "Available" : "Locked";
+  const disabledAttr = state.runActionInFlight || !item.enabled ? " disabled" : "";
+  const titleAttr = item.enabled ? "" : ` title="${escapeHtml(item.reason)}"`;
+
+  return `
+    <article class="mission-control-card mission-control-card-${escapeHtml(tone)}">
+      <div class="mission-feed-head">
+        <div>
+          <p class="panel-kicker">${escapeHtml(item.label)}</p>
+          <h4>${escapeHtml(status)}</h4>
+        </div>
+        <span class="badge badge-${escapeHtml(tone)}">${escapeHtml(status)}</span>
+      </div>
+      <p>${escapeHtml(item.description)}</p>
+      <p class="microcopy">
+        ${escapeHtml(item.enabled ? "Guard passed. This action can be executed from this run context." : item.reason)}
+      </p>
+      <div class="mission-control-actions">
+        <button
+          class="button ${escapeHtml(item.recommended ? "button-primary" : "button-ghost")}"
+          type="button"
+          data-run-action="${escapeHtml(item.actionId)}"
+          ${disabledAttr}${titleAttr}
+        >
+          ${escapeHtml(busy ? runActionBusyLabel(item.actionId) : item.label)}
+        </button>
+      </div>
+    </article>
+  `;
+}
+
+function runActionDescription(actionId) {
+  switch (actionId) {
+    case "tasks-next":
+      return "Claims and executes one queued task through the shared command layer.";
+    case "worker-once":
+      return "Lets the worker drain one available task end-to-end with runtime policy applied.";
+    case "evaluate-policy":
+      return "Re-checks the run against pack, runtime, retry, and execution policy.";
+    case "evaluate-quality":
+      return "Creates or refreshes the quality gate evidence before promotion.";
+    case "export-pr":
+      return "Turns the PR candidate into an explicit branch/export bundle.";
+    case "publish-pr":
+      return "Publishes the exported branch handoff when remote publication is configured.";
+    case "draft-pr":
+      return "Creates or reuses the GitHub draft PR while preserving human review.";
+    default:
+      return "Runs a guarded orchestrator action for the selected run.";
+  }
 }
 
 function renderReviewHandoffChecklist(runDetail) {
