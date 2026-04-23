@@ -16,6 +16,7 @@ ACT_BIND_WORKDIR="${ACT_BIND_WORKDIR:-1}"
 ACT_CONCURRENT_JOBS="${ACT_CONCURRENT_JOBS:-1}"
 ACT_CARGO_BUILD_JOBS="${ACT_CARGO_BUILD_JOBS:-1}"
 ACT_SMOKE_SCENARIOS="${ACT_SMOKE_SCENARIOS:-mvp-container-service mvp-cli-tool mvp-worker-service mcp-stateful-cli-tool}"
+ACT_UI_VARIANTS="${ACT_UI_VARIANTS:-default repository-policy repository-policy-blocked}"
 
 if ! command -v act >/dev/null 2>&1; then
   echo "act is required but was not found in PATH" >&2
@@ -55,6 +56,7 @@ if [ -n "$ACT_CONTAINER_ARCHITECTURE" ]; then
 fi
 
 SMOKE_JOB_SELECTED=0
+UI_JOB_SELECTED=0
 MATRIX_SELECTED=0
 EXPECT_JOB_VALUE=0
 
@@ -62,6 +64,8 @@ for arg in "$@"; do
   if [ "$EXPECT_JOB_VALUE" = "1" ]; then
     if [ "$arg" = "smoke" ]; then
       SMOKE_JOB_SELECTED=1
+    elif [ "$arg" = "ui" ]; then
+      UI_JOB_SELECTED=1
     fi
     EXPECT_JOB_VALUE=0
     continue
@@ -73,6 +77,9 @@ for arg in "$@"; do
       ;;
     --job=smoke)
       SMOKE_JOB_SELECTED=1
+      ;;
+    --job=ui)
+      UI_JOB_SELECTED=1
       ;;
     --matrix | --matrix=*)
       MATRIX_SELECTED=1
@@ -87,6 +94,16 @@ if [ "$SMOKE_JOB_SELECTED" = "1" ] && [ "$MATRIX_SELECTED" = "0" ]; then
   for scenario in "${SMOKE_SCENARIO_LIST[@]}"; do
     printf '== act smoke scenario: %s ==\n' "$scenario"
     act -W "$WORKFLOW_PATH" "${ACT_ARGS[@]}" "$@" --matrix "scenario:${scenario}"
+  done
+  exit 0
+fi
+
+if [ "$UI_JOB_SELECTED" = "1" ] && [ "$MATRIX_SELECTED" = "0" ]; then
+  # Keep the browser UI smokes deterministic under `act`; each slice starts Docker helpers.
+  read -r -a UI_VARIANT_LIST <<<"$ACT_UI_VARIANTS"
+  for variant in "${UI_VARIANT_LIST[@]}"; do
+    printf '== act ui variant: %s ==\n' "$variant"
+    act -W "$WORKFLOW_PATH" "${ACT_ARGS[@]}" "$@" --matrix "variant:${variant}"
   done
   exit 0
 fi
