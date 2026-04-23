@@ -538,6 +538,12 @@ textarea,
   min-height: 126px;
 }
 
+.agent-overview-grid .mission-mini-card {
+  background:
+    linear-gradient(135deg, rgba(23, 79, 67, 0.08), rgba(255, 255, 255, 0.76)),
+    rgba(255, 251, 244, 0.9);
+}
+
 .mission-mini-card h3 {
   margin-top: 8px;
   font-size: 1rem;

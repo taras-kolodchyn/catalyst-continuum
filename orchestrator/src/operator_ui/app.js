@@ -2738,6 +2738,7 @@ function ensureMissionAgentsShell() {
     elements.missionAgentsPanel,
     `
       <div id="missionAgentsLayout" class="mission-flow-layout">
+        <div id="agentOverviewStrip" class="mission-mini-grid agent-overview-grid"></div>
         <div id="agentFilterRow" class="agent-filter-row"></div>
         <div id="agentLaneGrid" class="agent-lane-grid"></div>
         <section class="agent-log-shell">
@@ -2843,6 +2844,23 @@ function renderMissionAgentsPanel() {
   ensureMissionAgentsShell();
 
   setRenderedHtml(
+    document.getElementById("agentOverviewStrip"),
+    buildAgentOverviewCards({
+      agents,
+      filteredEvents,
+      filteredLanes,
+      logs,
+      reports,
+      runDetail,
+      selectedLog,
+      selectedReport,
+    })
+      .map((card) => renderMissionMiniCard(card.kicker, card.title, card.detail, card.tone))
+      .join(""),
+    { markUpdated: false }
+  );
+
+  setRenderedHtml(
     document.getElementById("agentFilterRow"),
     `
       ${renderAgentFilterChip("all", "All agents", state.selectedAgentActivityId === "all")}
@@ -2925,6 +2943,63 @@ function renderMissionAgentsPanel() {
     selectedReport ? renderSelectedAgentReportConsole(runDetail, selectedReport) : "",
     { markUpdated: false }
   );
+}
+
+function buildAgentOverviewCards({
+  agents,
+  filteredEvents,
+  filteredLanes,
+  logs,
+  reports,
+  runDetail,
+  selectedLog,
+  selectedReport,
+}) {
+  const visibleTaskCount = filteredLanes.reduce((count, lane) => count + lane.taskCount, 0);
+  const queuedCount = filteredLanes.reduce((count, lane) => count + lane.queuedCount, 0);
+  const runningCount = filteredLanes.reduce((count, lane) => count + lane.runningCount, 0);
+  const failedCount = filteredLanes.reduce((count, lane) => count + lane.failedCount, 0);
+  const succeededCount = filteredLanes.reduce((count, lane) => count + lane.succeededCount, 0);
+  const selectedAgent =
+    state.selectedAgentActivityId === "all" ? "All agents" : state.selectedAgentActivityId;
+  const agentRoster = agents.length
+    ? truncateText(agents.join(", "), 90)
+    : "No agent assignments yet";
+  const reportSummary =
+    selectedReport?.detail?.manifest?.summary ??
+    selectedReport?.artifact?.metadata?.summary ??
+    "No selected agent report yet.";
+  const selectedLogTask = selectedLog ? taskForAgentLog(runDetail, selectedLog) : null;
+  const logSummary = selectedLog
+    ? `${selectedLogTask?.backlog_item_id ?? selectedLog.detail?.manifest?.task_kind ?? "runtime"} · ${executionLogStatus(selectedLog)}`
+    : "No selected runtime log yet.";
+
+  return [
+    {
+      kicker: "Agent scope",
+      title: selectedAgent,
+      detail: `${filteredLanes.length} visible lane(s) · ${agents.length} agent(s): ${agentRoster}`,
+      tone: filteredLanes.length ? "success" : "neutral",
+    },
+    {
+      kicker: "Task pressure",
+      title: `${visibleTaskCount} visible task(s)`,
+      detail: `${runningCount} running · ${queuedCount} queued · ${succeededCount} succeeded · ${failedCount} failed`,
+      tone: failedCount > 0 ? "error" : runningCount > 0 || queuedCount > 0 ? "warning" : "success",
+    },
+    {
+      kicker: "Evidence",
+      title: `${reports.length} report(s) · ${logs.length} log(s)`,
+      detail: truncateText(reportSummary, 120),
+      tone: reports.length || logs.length ? "success" : "neutral",
+    },
+    {
+      kicker: "Latest signal",
+      title: `${filteredEvents.length} event(s)`,
+      detail: logSummary,
+      tone: filteredEvents.length ? "warning" : "neutral",
+    },
+  ];
 }
 
 function renderAgentFilterChip(agentId, label, isActive) {
