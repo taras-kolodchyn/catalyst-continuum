@@ -98,6 +98,17 @@ Prefer `--repository-target-id <TARGET_ID>` for operator-driven publication so
 the orchestrator resolves the canonical remote URL and branch prefix from that
 allowlist; keep `--remote-url` only for local smoke/dev remotes or explicit
 allowed overrides.
+To bootstrap a local allowlist from the GitHub repository metadata without
+pushing branches or opening PRs, run:
+
+```bash
+make repository-targets-init REPOSITORY=<OWNER>/<REPO> REPOSITORY_TARGET_ID=<TARGET_ID>
+export CATALYST_REPOSITORY_TARGETS_FILE="$PWD/config/repository-targets.local.yaml"
+make doctor DOCTOR_ARGS="--no-live"
+```
+
+The generated `config/repository-targets.local.yaml` is git-ignored on purpose
+because private deployments can carry private repository names and remotes.
 The shipped [config/repository-targets.example.yaml](config/repository-targets.example.yaml)
 shows the expected shape, while [template-repo/config/repository-targets.yaml](template-repo/config/repository-targets.yaml)
 is the private-instance copy point.
@@ -195,6 +206,7 @@ make ui
 make ui-smoke
 make cleanup
 make act-rust
+make repository-targets-init REPOSITORY=<OWNER>/<REPO>
 ```
 
 Use `make doctor` for a fast local readiness preflight across required tools,

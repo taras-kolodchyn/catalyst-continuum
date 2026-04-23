@@ -22,6 +22,7 @@ target
 
 # Local Docker Compose environment overrides
 deploy/compose/.env
+config/repository-targets.local.yaml
 
 # Local Catalyst Continuum generated artifacts
 .continuum/

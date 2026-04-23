@@ -9,6 +9,10 @@ OPERATOR_UI_ARGS ?=
 OPERATOR_UI_SMOKE_ARGS ?=
 REPOSITORY ?=
 REPOSITORY_DEFAULT_BRANCH ?=
+REPOSITORY_TARGET_ID ?=
+REPOSITORY_TARGETS_FILE ?= config/repository-targets.local.yaml
+REPOSITORY_TARGETS_FORCE ?=
+REPOSITORY_BRANCH_PREFIX ?= continuum/
 SMOKE_SCENARIO ?= all
 UI_PORT ?= 8080
 
@@ -98,6 +102,11 @@ cleanup: ## Stop repo-local helper sessions and disposable smoke/UI databases.
 github-repo-preflight: ## Check gh access and permissions for REPOSITORY=owner/repo before real PR publication.
 	@if [ -z "$(REPOSITORY)" ]; then echo "set REPOSITORY=owner/repo" >&2; exit 1; fi
 	./scripts/github-repo-preflight.sh "$(REPOSITORY)" $(if $(REPOSITORY_DEFAULT_BRANCH),--default-branch "$(REPOSITORY_DEFAULT_BRANCH)")
+
+.PHONY: repository-targets-init
+repository-targets-init: ## Generate a local repository-target allowlist for REPOSITORY=owner/repo.
+	@if [ -z "$(REPOSITORY)" ]; then echo "set REPOSITORY=owner/repo" >&2; exit 1; fi
+	./scripts/init-repository-targets.sh "$(REPOSITORY)" --output "$(REPOSITORY_TARGETS_FILE)" --branch-prefix "$(REPOSITORY_BRANCH_PREFIX)" $(if $(REPOSITORY_TARGET_ID),--target-id "$(REPOSITORY_TARGET_ID)") $(if $(REPOSITORY_TARGETS_FORCE),--force)
 
 .PHONY: smoke
 smoke: ## Run CI smoke tests; override SMOKE_SCENARIO for one scenario.

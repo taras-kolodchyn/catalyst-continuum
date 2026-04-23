@@ -231,6 +231,8 @@ check_repository_target_policy() {
     else
       fail "CATALYST_REPOSITORY_TARGETS_FILE points to a missing file: $CATALYST_REPOSITORY_TARGETS_FILE"
     fi
+  elif [ -f "$ROOT_DIR/config/repository-targets.local.yaml" ]; then
+    warn "local repository target config exists but is not enabled; export CATALYST_REPOSITORY_TARGETS_FILE=$ROOT_DIR/config/repository-targets.local.yaml"
   else
     warn "repository target enforcement is not configured; keep real PR publication on explicit smoke/dev remotes only"
   fi

@@ -1,0 +1,196 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
+
+REPOSITORY=""
+TARGET_ID=""
+BRANCH_PREFIX="continuum/"
+OUTPUT_FILE="$ROOT_DIR/config/repository-targets.local.yaml"
+FORCE="false"
+REQUIRE_WRITE="true"
+REPO_JSON_FILE=""
+
+usage() {
+  cat <<'EOF'
+Usage: ./scripts/init-repository-targets.sh [OWNER/REPO] [OPTIONS]
+
+Generate a local repository-target allowlist for real GitHub PR publication.
+
+The command is intentionally non-mutating: it verifies repository visibility and
+write permission through gh, then writes a local YAML config that can be enabled
+with CATALYST_REPOSITORY_TARGETS_FILE.
+
+Options:
+  --target-id ID        Target id to write (default: owner-repo)
+  --branch-prefix TEXT  Generated head-branch prefix (default: continuum/)
+  --output PATH         Output YAML path (default: config/repository-targets.local.yaml)
+  --force               Overwrite an existing output file
+  --allow-readonly      Allow generating config when gh only has read access
+  --repo-json PATH      Read gh repo JSON from a file instead of calling gh; use - for stdin
+  -h, --help            Show this help
+EOF
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --target-id)
+      TARGET_ID="${2:?missing value for --target-id}"
+      shift 2
+      ;;
+    --branch-prefix)
+      BRANCH_PREFIX="${2:?missing value for --branch-prefix}"
+      shift 2
+      ;;
+    --output)
+      OUTPUT_FILE="${2:?missing value for --output}"
+      shift 2
+      ;;
+    --force)
+      FORCE="true"
+      shift
+      ;;
+    --allow-readonly)
+      REQUIRE_WRITE="false"
+      shift
+      ;;
+    --repo-json)
+      REPO_JSON_FILE="${2:?missing value for --repo-json}"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    -*)
+      echo "unknown argument: $1" >&2
+      usage >&2
+      exit 1
+      ;;
+    *)
+      if [ -n "$REPOSITORY" ]; then
+        echo "repository was already provided: $REPOSITORY" >&2
+        exit 1
+      fi
+      REPOSITORY="$1"
+      shift
+      ;;
+  esac
+done
+
+if [ -z "$REPO_JSON_FILE" ]; then
+  if ! command -v gh >/dev/null 2>&1; then
+    echo "gh is required unless --repo-json is provided" >&2
+    exit 1
+  fi
+
+  gh auth status -h github.com >/dev/null
+
+  if [ -n "$REPOSITORY" ]; then
+    repo_json="$(gh repo view "$REPOSITORY" --json nameWithOwner,defaultBranchRef,isPrivate,viewerPermission,sshUrl,url)"
+  else
+    repo_json="$(gh repo view --json nameWithOwner,defaultBranchRef,isPrivate,viewerPermission,sshUrl,url)"
+  fi
+else
+  if [ "$REPO_JSON_FILE" = "-" ]; then
+    repo_json="$(cat)"
+  elif [ ! -r "$REPO_JSON_FILE" ]; then
+    echo "repo JSON file not found: $REPO_JSON_FILE" >&2
+    exit 1
+  else
+    repo_json="$(cat "$REPO_JSON_FILE")"
+  fi
+fi
+
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "python3 is required to render repository-target YAML" >&2
+  exit 1
+fi
+
+python3 - "$repo_json" "$TARGET_ID" "$BRANCH_PREFIX" "$OUTPUT_FILE" "$FORCE" "$REQUIRE_WRITE" <<'PY'
+import json
+import re
+import sys
+from pathlib import Path
+
+payload = json.loads(sys.argv[1])
+target_id = sys.argv[2].strip()
+branch_prefix = sys.argv[3]
+output_path = Path(sys.argv[4]).expanduser()
+if not output_path.is_absolute():
+    output_path = (Path.cwd() / output_path).resolve()
+force = sys.argv[5] == "true"
+require_write = sys.argv[6] == "true"
+
+name_with_owner = payload.get("nameWithOwner") or ""
+if "/" not in name_with_owner:
+    raise SystemExit("repository metadata is missing nameWithOwner")
+
+owner, name = name_with_owner.split("/", 1)
+default_branch = (payload.get("defaultBranchRef") or {}).get("name")
+permission = payload.get("viewerPermission") or "UNKNOWN"
+write_permissions = {"WRITE", "MAINTAIN", "ADMIN"}
+
+if not default_branch:
+    raise SystemExit(f"{name_with_owner} metadata is missing defaultBranchRef.name")
+
+if require_write and permission not in write_permissions:
+    raise SystemExit(
+        f"{name_with_owner} viewerPermission is {permission!r}; WRITE, MAINTAIN, or ADMIN is required for publication"
+    )
+
+if not target_id:
+    target_id = re.sub(r"[^A-Za-z0-9._-]+", "-", name_with_owner).strip("-").lower()
+
+if not target_id:
+    raise SystemExit("target id must not be empty")
+
+if not branch_prefix.strip():
+    raise SystemExit("branch prefix must not be empty")
+
+if output_path.exists() and not force:
+    raise SystemExit(f"{output_path} already exists; pass --force to overwrite it")
+
+html_url = (payload.get("url") or f"https://github.com/{owner}/{name}").rstrip("/")
+ssh_url = payload.get("sshUrl") or f"git@github.com:{owner}/{name}.git"
+remote_urls = []
+for url in (ssh_url, f"{html_url}.git", html_url):
+    if url and url not in remote_urls:
+        remote_urls.append(url)
+
+def q(value: str) -> str:
+    return json.dumps(value)
+
+lines = [
+    "# Local repository-target allowlist generated by scripts/init-repository-targets.sh.",
+    "# Keep this file private when it points at private repositories.",
+    "targets:",
+    f"  - target_id: {q(target_id)}",
+    "    host: github",
+    f"    owner: {q(owner)}",
+    f"    name: {q(name)}",
+    f"    default_branch: {q(default_branch)}",
+    "    enabled: true",
+    f"    branch_prefix: {q(branch_prefix)}",
+    "    allowed_remote_urls:",
+]
+lines.extend(f"      - {q(url)}" for url in remote_urls)
+lines.append("")
+
+output_path.parent.mkdir(parents=True, exist_ok=True)
+output_path.write_text("\n".join(lines), encoding="utf-8")
+
+publication_permission = "ok" if permission in write_permissions else "readonly"
+print(f"repository={name_with_owner}")
+print(f"default_branch={default_branch}")
+print(f"viewer_permission={permission}")
+print(f"publication_permission={publication_permission}")
+print(f"target_id={target_id}")
+print(f"output={output_path}")
+print("")
+print("Next:")
+print(f"  export CATALYST_REPOSITORY_TARGETS_FILE={output_path}")
+print("  ./scripts/doctor.sh --no-live")
+print(f"  ./scripts/github-repo-preflight.sh {name_with_owner} --default-branch {default_branch}")
+PY
