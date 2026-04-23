@@ -286,6 +286,8 @@ async function main() {
       bodyTextIncludesDraftPr:
         document.body.textContent.includes("draft PR") ||
         document.body.textContent.includes("Draft PR"),
+      bodyTextIncludesRepositoryBootstrap:
+        document.body.textContent.includes("repository-targets-bootstrap"),
     };
   });
 
@@ -338,6 +340,9 @@ async function main() {
   }
   if (summary.iframeCount !== 0) {
     problems.push(`unexpected iframe count ${summary.iframeCount}`);
+  }
+  if (!summary.bodyTextIncludesRepositoryBootstrap) {
+    problems.push("repository-target bootstrap guidance is missing from the UI");
   }
   if (result.unexpectedLoadEvents !== 0) {
     problems.push(`unexpected load events ${result.unexpectedLoadEvents}`);
