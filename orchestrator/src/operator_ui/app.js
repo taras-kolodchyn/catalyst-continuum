@@ -299,6 +299,14 @@ function bindEvents() {
       return;
     }
 
+    const missionActionButton = event.target.closest("[data-run-action]");
+    if (missionActionButton) {
+      executeRunAction(missionActionButton.dataset.runAction).catch((error) => {
+        console.error("mission run action failed", error);
+      });
+      return;
+    }
+
     const agentFilterButton = event.target.closest("[data-agent-filter]");
     if (agentFilterButton) {
       setSelectedAgentActivity(agentFilterButton.dataset.agentFilter);
@@ -2447,6 +2455,7 @@ function renderMissionFlowPanel() {
             statusTone(runDetail.status)
           )}
         </div>
+        ${renderMissionActionStrip(runDetail, guide)}
         <section class="mission-feed-shell">
           <div class="detail-section-head">
             <div>
@@ -2493,6 +2502,53 @@ function renderMissionFlowPanel() {
     `,
     { markUpdated: false }
   );
+}
+
+function renderMissionActionStrip(runDetail, guide) {
+  const actionId = guide.nextActionControlId;
+  const availability = runActionAvailability(runDetail);
+  const actionState = actionId
+    ? availability[actionId] ?? disabledRunAction("Recommended action is unavailable.")
+    : disabledRunAction("No direct control-plane action is recommended for this stage.");
+  const actionLabel = actionId ? displayRunActionLabel(actionId) : "No direct action";
+  const disabledAttr = actionState.enabled ? "" : " disabled";
+  const titleAttr = actionState.reason ? ` title="${escapeHtml(actionState.reason)}"` : "";
+
+  return `
+    <section class="mission-action-strip">
+      <article class="mission-action-card mission-action-primary">
+        <div>
+          <p class="panel-kicker">Recommended control</p>
+          <h3>${escapeHtml(guide.nextActionTitle)}</h3>
+          <p>${escapeHtml(guide.nextActionDetail)}</p>
+          ${
+            actionState.reason
+              ? `<p class="microcopy mission-action-reason">${escapeHtml(actionState.reason)}</p>`
+              : ""
+          }
+        </div>
+        <div class="mission-action-buttons">
+          <button
+            class="button button-primary"
+            type="button"
+            data-run-action="${escapeHtml(actionId ?? "")}"
+            ${disabledAttr}${titleAttr}
+          >
+            ${escapeHtml(actionLabel)}
+          </button>
+          <a class="button button-ghost button-link" href="#run-detail">Open selected-run guide</a>
+        </div>
+      </article>
+      <article class="mission-action-card">
+        <p class="panel-kicker">Why this matters</p>
+        <h3>One safe step at a time</h3>
+        <p>
+          Mission Control mirrors the same guarded run controls below. Actions stay disabled until
+          the selected run has the required task, artifact, quality, or promotion prerequisites.
+        </p>
+      </article>
+    </section>
+  `;
 }
 
 function renderMissionStageCard(stage, index) {

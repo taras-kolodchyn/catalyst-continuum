@@ -161,6 +161,7 @@ The brief-intake column now also exposes curated starter-brief scenario cards so
 The run-controls area now also keeps a per-run structured action summary above the raw JSON console, so operators can immediately see the latest branch, PR, quality-gate, publication, or task-execution highlights for the selected run without manually scanning the full response body.
 The Mission Control `Agents` tab now opens with a compact overview strip for the selected agent scope, visible task pressure, persisted reports/logs, and latest signal count before the operator drills into lane details, runtime logs, or raw agent reports.
 Mission Control tabs now also carry live status badges, so operators can see the selected run status, available agent count, Grafana readiness, and LiteLLM gateway/UI state before switching tabs or mounting embedded surfaces.
+The `Flow` tab also mirrors the selected-run guide's recommended control as a guarded action strip, so an operator can run the next safe control-plane step directly from Mission Control while the full run controls remain available below.
 
 The repository ships a thin `Makefile` over the canonical `./scripts/*` entrypoints. The scripts remain the source of truth, while `make` gives developers and agents a stable command surface:
 
