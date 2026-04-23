@@ -5573,7 +5573,8 @@ function repositoryTargetCapabilityCard(repositoryTargets) {
       primary: "Real-repo allowlist is not active",
       secondary:
         "Smoke and local dev can still use explicit remotes, but real GitHub publication should configure repository targets first.",
-      detail: "Set CATALYST_REPOSITORY_TARGETS_FILE to enable target enforcement.",
+      detail:
+        "Run make repository-targets-bootstrap REPOSITORY=<OWNER>/<REPO> REPOSITORY_TARGET_ID=<TARGET_ID>, then export CATALYST_REPOSITORY_TARGETS_FILE before real publication.",
     };
   }
 
