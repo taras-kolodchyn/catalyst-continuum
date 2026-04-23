@@ -163,6 +163,8 @@ The Mission Control `Agents` tab now opens with a compact overview strip for the
 The same `Agents` tab now includes an agent handoff map that tracks assignment, claim/start, workspace preparation, heartbeat lease signals, completion reports, and runtime log evidence for the current agent filter.
 Mission Control tabs now also carry live status badges, so operators can see the selected run status, available agent count, Grafana readiness, and LiteLLM gateway/UI state before switching tabs or mounting embedded surfaces.
 The `Flow` tab also mirrors the selected-run guide's recommended control as a guarded action strip, so an operator can run the next safe control-plane step directly from Mission Control while the full run controls remain available below.
+The `Flow` tab now also includes a review handoff checklist that shows quality-gate, PR-candidate, export, publication, and draft-PR readiness before the operator starts GitHub review.
+When realtime updates are enabled, Mission Control auto-selects the first available run if the URL has no valid `run` parameter, keeping the operator in a concrete run context without a manual ledger click.
 The same `Flow` tab now includes an evidence map that explains which planning, agent-execution, quality-gate, and GitHub-handoff checkpoints are already proven by persisted artifacts and events.
 Run-event feeds now render operator-friendly lifecycle labels such as `Task started`, `Quality gate evaluated`, and `Draft PR opened` while still keeping the raw `event_type` visible in metadata for audit and debugging.
 

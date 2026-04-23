@@ -78,7 +78,7 @@ const RUN_ACTION_BUSY_LABELS = {
 const initialUiUrl = new URL(window.location.href);
 
 const state = {
-  selectedRunId: initialUiUrl.searchParams.get("run"),
+  selectedRunId: normalizeRunIdQueryParam(initialUiUrl.searchParams.get("run")),
   selectedRunStatus: normalizeRunStatusFilter(initialUiUrl.searchParams.get("status")),
   runSearchQuery: normalizeRunSearchQuery(initialUiUrl.searchParams.get("run_query")),
   selectedRunDetail: null,
@@ -768,6 +768,11 @@ function applyRealtimeRunsSnapshot(response) {
     return;
   }
 
+  if (!state.selectedRunId && runs[0]?.run_id) {
+    void selectRun(runs[0].run_id);
+    return;
+  }
+
   if (state.selectedRunId && !runs.some((run) => run.run_id === state.selectedRunId)) {
     clearRunSelection(
       "Refresh the dashboard or open another run from the ledger if the previous selection is no longer present.",
@@ -946,6 +951,15 @@ function buildPendingRepositorySignalsPath() {
 function normalizeRunStatusFilter(value) {
   const candidate = String(value ?? "");
   return RUN_STATUS_FILTER_VALUES.has(candidate) ? candidate : "";
+}
+
+function normalizeRunIdQueryParam(value) {
+  const candidate = String(value ?? "").trim();
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    candidate
+  )
+    ? candidate
+    : "";
 }
 
 function normalizeRunSearchQuery(value) {
@@ -2555,6 +2569,7 @@ function renderMissionFlowPanel() {
           )}
         </div>
         ${renderMissionActionStrip(runDetail, guide)}
+        ${renderReviewHandoffChecklist(runDetail)}
         ${renderMissionEvidenceMap(runDetail)}
         <section class="mission-feed-shell">
           <div class="detail-section-head">
@@ -2648,6 +2663,146 @@ function renderMissionActionStrip(runDetail, guide) {
         </p>
       </article>
     </section>
+  `;
+}
+
+function renderReviewHandoffChecklist(runDetail) {
+  const items = buildReviewHandoffItems(runDetail);
+  const readyCount = items.filter((item) => item.ready).length;
+
+  return `
+    <section class="review-handoff-shell">
+      <div class="detail-section-head">
+        <div>
+          <p class="panel-kicker">Review handoff</p>
+          <h3>What remains before GitHub review</h3>
+        </div>
+        <span class="badge badge-${escapeHtml(readyCount === items.length ? "success" : "warning")}">
+          ${escapeHtml(`${readyCount}/${items.length} ready`)}
+        </span>
+      </div>
+      <div class="review-handoff-grid">
+        ${items.map(renderReviewHandoffItem).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function buildReviewHandoffItems(runDetail) {
+  const artifactTypes = runArtifactTypes(runDetail);
+  const eventTypes = new Set((state.selectedRunEvents ?? []).map((event) => event.event_type));
+  const availability = runActionAvailability(runDetail);
+  const qualityReady =
+    artifactTypes.has(QUALITY_REPORT_ARTIFACT_TYPE) ||
+    eventTypes.has(RUN_QUALITY_EVALUATED_EVENT_TYPE);
+  const prCandidateReady = artifactTypes.has(PR_CANDIDATE_ARTIFACT_TYPE);
+  const prExportReady =
+    artifactTypes.has(PR_EXPORT_ARTIFACT_TYPE) ||
+    eventTypes.has(PR_CANDIDATE_EXPORTED_EVENT_TYPE);
+  const publicationReady =
+    artifactTypes.has(PR_PUBLICATION_ARTIFACT_TYPE) ||
+    eventTypes.has(PR_EXPORT_PUBLISHED_EVENT_TYPE);
+  const githubPrReady =
+    artifactTypes.has(GITHUB_PULL_REQUEST_ARTIFACT_TYPE) ||
+    eventTypes.has(GITHUB_PR_OPENED_EVENT_TYPE);
+
+  return [
+    reviewHandoffItem({
+      action: availability["evaluate-quality"],
+      actionId: "evaluate-quality",
+      detail: qualityReady
+        ? "The run has explicit quality evidence. Re-run after artifact-changing work."
+        : "Quality evidence is required before the handoff can be treated as promotable.",
+      kicker: "01 Quality gate",
+      ready: qualityReady,
+      title: qualityReady ? "Quality evidence is ready" : "Quality evidence is missing",
+    }),
+    reviewHandoffItem({
+      detail: prCandidateReady
+        ? "The reviewable PR candidate artifact exists for this run."
+        : "The PR candidate appears after successful execution has produced promotable output.",
+      kicker: "02 PR candidate",
+      ready: prCandidateReady,
+      title: prCandidateReady ? "Candidate artifact exists" : "Candidate is not ready",
+      waitingReason:
+        runDetail.status === "succeeded"
+          ? "Inspect execution artifacts if this stays missing."
+          : `Run status is ${displayRunStatus(runDetail.status)}.`,
+    }),
+    reviewHandoffItem({
+      action: availability["export-pr"],
+      actionId: "export-pr",
+      detail: prExportReady
+        ? "The PR export bundle has been assembled for branch publication."
+        : "Export turns the candidate into a concrete repository branch bundle.",
+      kicker: "03 Export bundle",
+      ready: prExportReady,
+      title: prExportReady ? "Export bundle is ready" : "Export bundle is pending",
+    }),
+    reviewHandoffItem({
+      action: availability["publish-pr"],
+      actionId: "publish-pr",
+      detail: publicationReady
+        ? "Publication evidence exists for the branch handoff."
+        : "Publication pushes or prepares the exported branch before GitHub review starts.",
+      kicker: "04 Branch publication",
+      ready: publicationReady,
+      title: publicationReady ? "Branch handoff is published" : "Branch handoff is pending",
+    }),
+    reviewHandoffItem({
+      action: availability["draft-pr"],
+      actionId: "draft-pr",
+      detail: githubPrReady
+        ? "The draft PR is recorded. Human review continues in GitHub."
+        : "The final step opens or reuses the draft PR without bypassing review controls.",
+      kicker: "05 Draft PR",
+      ready: githubPrReady,
+      title: githubPrReady ? "GitHub review is ready" : "Draft PR is pending",
+    }),
+  ];
+}
+
+function reviewHandoffItem({ action, actionId, detail, kicker, ready, title, waitingReason }) {
+  const actionLabel = actionId ? displayRunActionLabel(actionId) : "";
+  const actionAvailable = action?.enabled === true;
+  const tone = ready
+    ? "success"
+    : actionAvailable
+      ? "warning"
+      : waitingReason || action?.reason
+        ? "neutral"
+        : "warning";
+  const status = ready ? "Ready" : actionAvailable ? "Next" : "Locked";
+  const control = ready
+    ? "No control needed unless evidence changes."
+    : actionAvailable
+      ? `${actionLabel} is available from the guarded run controls.`
+      : waitingReason || action?.reason || "Waiting for earlier handoff evidence.";
+
+  return {
+    control,
+    detail,
+    kicker,
+    ready,
+    status,
+    title,
+    tone,
+  };
+}
+
+function renderReviewHandoffItem(item) {
+  const tone = normalizePulseTone(item.tone);
+
+  return `
+    <article class="review-handoff-card review-handoff-card-${escapeHtml(tone)}">
+      <div class="mission-feed-head">
+        <p class="panel-kicker">${escapeHtml(item.kicker)}</p>
+        <span class="badge badge-${escapeHtml(tone)}">${escapeHtml(item.status)}</span>
+      </div>
+      <h4>${escapeHtml(item.title)}</h4>
+      <p>${escapeHtml(item.detail)}</p>
+      <p class="microcopy">${escapeHtml(item.control)}</p>
+    </article>
   `;
 }
 
