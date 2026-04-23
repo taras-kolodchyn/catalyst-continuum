@@ -197,6 +197,11 @@ make cleanup
 make act-rust
 ```
 
+Use `make doctor` for a fast local readiness preflight across required tools,
+pinned config, optional GitHub auth, repository-target policy, and live service
+probes. Live service failures are warnings by default so the command is useful
+before the stack is started; pass `DOCTOR_ARGS="--strict-live"` when the full
+local stack should already be running.
 Use `make check` for the standard fast local validation path, `make ci` for the broad local validation set, and `make act-rust-dry` when full `act` execution is blocked by the known Apple Silicon `qemu`/`rustc` issue.
 For the fastest local UI loop, run:
 

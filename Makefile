@@ -3,6 +3,7 @@ SHELL := /bin/bash
 ACT_ARGS ?=
 ACT_JOB ?= rust
 COMPOSE := docker compose --env-file deploy/compose/.env.example -f deploy/compose/compose.yaml
+DOCTOR_ARGS ?=
 LITELLM_SMOKE_ARGS ?=
 OPERATOR_UI_ARGS ?=
 OPERATOR_UI_SMOKE_ARGS ?=
@@ -18,7 +19,11 @@ help: ## Show available Make targets.
 	@awk 'BEGIN {FS = ":.*##"; printf "Catalyst Continuum targets:\n\n"} /^[a-zA-Z0-9_.-]+:.*##/ {printf "  %-28s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 .PHONY: check
-check: versions lint-shell rust ## Run the standard fast local validation set.
+check: doctor versions lint-shell rust ## Run the standard fast local validation set.
+
+.PHONY: doctor
+doctor: ## Run fast local readiness checks for tools, config, and optional live services.
+	./scripts/doctor.sh $(DOCTOR_ARGS)
 
 .PHONY: ci
 ci: versions lint-shell rust compose eval smoke ## Run the broad local validation set.
