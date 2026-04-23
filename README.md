@@ -163,6 +163,7 @@ The Mission Control `Agents` tab now opens with a compact overview strip for the
 Mission Control tabs now also carry live status badges, so operators can see the selected run status, available agent count, Grafana readiness, and LiteLLM gateway/UI state before switching tabs or mounting embedded surfaces.
 The `Flow` tab also mirrors the selected-run guide's recommended control as a guarded action strip, so an operator can run the next safe control-plane step directly from Mission Control while the full run controls remain available below.
 The same `Flow` tab now includes an evidence map that explains which planning, agent-execution, quality-gate, and GitHub-handoff checkpoints are already proven by persisted artifacts and events.
+Run-event feeds now render operator-friendly lifecycle labels such as `Task started`, `Quality gate evaluated`, and `Draft PR opened` while still keeping the raw `event_type` visible in metadata for audit and debugging.
 
 The repository ships a thin `Makefile` over the canonical `./scripts/*` entrypoints. The scripts remain the source of truth, while `make` gives developers and agents a stable command surface:
 

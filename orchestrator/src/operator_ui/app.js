@@ -37,10 +37,19 @@ const DISPATCH_PLAN_ARTIFACT_TYPE = "agent_dispatch_plan";
 const QUALITY_REPORT_ARTIFACT_TYPE = "quality_report";
 const PR_PUBLICATION_ARTIFACT_TYPE = "pr_publication";
 const GITHUB_PULL_REQUEST_ARTIFACT_TYPE = "github_pull_request";
+const RUN_SUBMITTED_EVENT_TYPE = "run_submitted";
+const RUN_STATUS_CHANGED_EVENT_TYPE = "run_status_changed";
+const RUN_POLICY_EVALUATED_EVENT_TYPE = "run_policy_evaluated";
 const RUN_QUALITY_EVALUATED_EVENT_TYPE = "run_quality_evaluated";
 const PR_CANDIDATE_EXPORTED_EVENT_TYPE = "pr_candidate_exported";
 const PR_EXPORT_PUBLISHED_EVENT_TYPE = "pr_export_published";
 const GITHUB_PR_OPENED_EVENT_TYPE = "github_pr_opened";
+const TASK_STARTED_EVENT_TYPE = "task_started";
+const TASK_WORKSPACE_PREPARED_EVENT_TYPE = "task_workspace_prepared";
+const TASK_HEARTBEAT_EVENT_TYPE = "task_heartbeat";
+const TASK_SUCCEEDED_EVENT_TYPE = "task_succeeded";
+const TASK_FAILED_EVENT_TYPE = "task_failed";
+const TASK_REQUEUED_EVENT_TYPE = "task_requeued";
 const BRIEF_BUSY_LABELS = {
   validate: "Validating...",
   submit: "Submitting...",
@@ -2015,16 +2024,9 @@ function buildOperatorPulseFeedItems() {
 
 function buildSelectedRunPulseFeedItems() {
   if (state.selectedRunEvents.length) {
-    return state.selectedRunEvents.slice(0, 6).map((event) => ({
-      id: event.event_id,
-      tone: normalizePulseTone(statusTone(event.status ?? event.scope)),
-      badge: event.status ?? event.scope ?? "event",
-      kicker: "Selected run event",
-      title: event.event_type,
-      summary: event.summary,
-      detail: `${formatTimestamp(event.created_at)} · ${shortId(event.task_id ?? event.event_id)}`,
-      sortTime: sortableTimestamp(event.created_at),
-    }));
+    return state.selectedRunEvents
+      .slice(0, 6)
+      .map((event) => runEventPresentation(event, state.selectedRunDetail));
   }
 
   if (!state.selectedRunDetail) {
@@ -2045,6 +2047,103 @@ function buildSelectedRunPulseFeedItems() {
       sortTime: sortableTimestamp(state.selectedRunDetail.created_at),
     },
   ];
+}
+
+function runEventPresentation(event, runDetail) {
+  const eventType = String(event.event_type ?? "event");
+  const task = taskForRunEvent(runDetail, event);
+  const taskLabel =
+    task?.title ??
+    task?.backlog_item_id ??
+    (event.task_id ? `Task ${shortId(event.task_id)}` : "Run-level event");
+
+  return {
+    id: event.event_id,
+    tone: normalizePulseTone(statusTone(event.status ?? event.scope)),
+    badge: displayRunEventBadge(event),
+    kicker: runEventKicker(eventType, event),
+    title: displayRunEventType(eventType),
+    summary: event.summary || runEventFallbackSummary(eventType),
+    detail: [
+      taskLabel,
+      formatTimestamp(event.created_at),
+      `raw: ${eventType}`,
+      shortId(event.task_id ?? event.event_id),
+    ].join(" · "),
+    sortTime: sortableTimestamp(event.created_at),
+  };
+}
+
+function displayRunEventType(eventType) {
+  switch (eventType) {
+    case RUN_SUBMITTED_EVENT_TYPE:
+      return "Brief accepted";
+    case RUN_STATUS_CHANGED_EVENT_TYPE:
+      return "Run status changed";
+    case RUN_POLICY_EVALUATED_EVENT_TYPE:
+      return "Policy evaluated";
+    case RUN_QUALITY_EVALUATED_EVENT_TYPE:
+      return "Quality gate evaluated";
+    case PR_CANDIDATE_EXPORTED_EVENT_TYPE:
+      return "PR candidate exported";
+    case PR_EXPORT_PUBLISHED_EVENT_TYPE:
+      return "PR export published";
+    case GITHUB_PR_OPENED_EVENT_TYPE:
+      return "Draft PR opened";
+    case TASK_STARTED_EVENT_TYPE:
+      return "Task started";
+    case TASK_WORKSPACE_PREPARED_EVENT_TYPE:
+      return "Workspace prepared";
+    case TASK_HEARTBEAT_EVENT_TYPE:
+      return "Agent heartbeat";
+    case TASK_SUCCEEDED_EVENT_TYPE:
+      return "Task succeeded";
+    case TASK_FAILED_EVENT_TYPE:
+      return "Task failed";
+    case TASK_REQUEUED_EVENT_TYPE:
+      return "Task requeued";
+    default:
+      return humanizeIdentifier(eventType);
+  }
+}
+
+function runEventKicker(eventType, event) {
+  switch (eventType) {
+    case RUN_POLICY_EVALUATED_EVENT_TYPE:
+    case RUN_QUALITY_EVALUATED_EVENT_TYPE:
+      return "Quality checkpoint";
+    case PR_CANDIDATE_EXPORTED_EVENT_TYPE:
+    case PR_EXPORT_PUBLISHED_EVENT_TYPE:
+    case GITHUB_PR_OPENED_EVENT_TYPE:
+      return "Promotion checkpoint";
+    case TASK_STARTED_EVENT_TYPE:
+    case TASK_WORKSPACE_PREPARED_EVENT_TYPE:
+    case TASK_HEARTBEAT_EVENT_TYPE:
+    case TASK_SUCCEEDED_EVENT_TYPE:
+    case TASK_FAILED_EVENT_TYPE:
+    case TASK_REQUEUED_EVENT_TYPE:
+      return "Agent/task checkpoint";
+    default:
+      return event?.scope === "task" || event?.task_id
+        ? "Agent/task checkpoint"
+        : "Control-plane checkpoint";
+  }
+}
+
+function displayRunEventBadge(event) {
+  return humanizeIdentifier(event.status ?? event.scope ?? "event");
+}
+
+function runEventFallbackSummary(eventType) {
+  return `The control plane recorded ${humanizeIdentifier(eventType).toLowerCase()} for this run.`;
+}
+
+function taskForRunEvent(runDetail, event) {
+  if (!event?.task_id) {
+    return null;
+  }
+
+  return (runDetail?.tasks || []).find((task) => task.task_id === event.task_id) ?? null;
 }
 
 function buildGlobalPulseFeedItems() {
@@ -3408,24 +3507,26 @@ function filteredAgentEvents(runDetail, events, agentId) {
 }
 
 function renderAgentLogItem(runDetail, event) {
-  const task = (runDetail?.tasks || []).find((candidate) => candidate.task_id === event.task_id);
+  const task = taskForRunEvent(runDetail, event);
   const agentId = task ? agentNameForTask(task) : "run";
   const taskLabel = task?.title ?? task?.backlog_item_id ?? "Run-level event";
+  const eventTone = normalizePulseTone(statusTone(event.status ?? event.scope));
 
   return `
     <article class="agent-log-item">
       <div class="agent-log-head">
         <div>
           <p class="panel-kicker">${escapeHtml(agentId || "run")}</p>
-          <h4>${escapeHtml(event.event_type)}</h4>
+          <h4>${escapeHtml(displayRunEventType(event.event_type))}</h4>
         </div>
-        <span class="badge badge-${escapeHtml(statusTone(event.status ?? event.scope))}">
-          ${escapeHtml(event.status ?? event.scope)}
+        <span class="badge badge-${escapeHtml(eventTone)}">
+          ${escapeHtml(displayRunEventBadge(event))}
         </span>
       </div>
-      <p>${escapeHtml(event.summary)}</p>
+      <p>${escapeHtml(event.summary || runEventFallbackSummary(event.event_type))}</p>
       <div class="agent-log-meta">
         <span>${escapeHtml(taskLabel)}</span>
+        <span>${escapeHtml(`raw: ${event.event_type}`)}</span>
         <span>${escapeHtml(formatTimestamp(event.created_at))}</span>
         <span class="mono">${escapeHtml(
           event.task_id ? shortId(event.task_id) : shortId(event.event_id)
@@ -7176,6 +7277,18 @@ function displayRunStatus(value) {
     default:
       return String(value ?? "unknown");
   }
+}
+
+function humanizeIdentifier(value) {
+  const rendered = String(value ?? "unknown")
+    .trim()
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ");
+  if (!rendered) {
+    return "Unknown";
+  }
+
+  return rendered.replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function displayRunActionLabel(actionId) {
