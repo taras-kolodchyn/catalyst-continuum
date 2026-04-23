@@ -2568,6 +2568,7 @@ function renderMissionFlowPanel() {
             statusTone(runDetail.status)
           )}
         </div>
+        ${renderMissionJourneyTimeline(runDetail, guide)}
         ${renderMissionActionStrip(runDetail, guide)}
         ${renderReviewHandoffChecklist(runDetail)}
         ${renderMissionEvidenceMap(runDetail)}
@@ -2617,6 +2618,167 @@ function renderMissionFlowPanel() {
     `,
     { markUpdated: false }
   );
+}
+
+function renderMissionJourneyTimeline(runDetail, guide) {
+  const items = buildMissionJourneyItems(runDetail, guide);
+  const activeItem = items.find((item) => item.state === "blocked" || item.state === "active");
+
+  return `
+    <section class="mission-journey-shell">
+      <div class="detail-section-head">
+        <div>
+          <p class="panel-kicker">Run journey</p>
+          <h3>How this run reached the current stage</h3>
+        </div>
+        <span class="badge badge-${escapeHtml(activeItem ? guideTone(activeItem.state) : "success")}">
+          ${escapeHtml(activeItem ? activeItem.badge : "Complete")}
+        </span>
+      </div>
+      <div class="mission-journey-rail">
+        ${items.map(renderMissionJourneyItem).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function buildMissionJourneyItems(runDetail, guide) {
+  const artifacts = runArtifacts(runDetail);
+  const events = Array.isArray(state.selectedRunEvents) ? state.selectedRunEvents : [];
+  const artifactTypes = runArtifactTypes(runDetail);
+  const eventTypes = new Set(events.map((event) => event.event_type));
+  const taskCounts = normalizedTaskCounts(runDetail.task_counts);
+  const planningArtifactTypes = [
+    BACKLOG_ARTIFACT_TYPE,
+    POLICY_REPORT_ARTIFACT_TYPE,
+    DISPATCH_PLAN_ARTIFACT_TYPE,
+  ];
+  const prEvidenceTypes = [
+    PR_CANDIDATE_ARTIFACT_TYPE,
+    PR_EXPORT_ARTIFACT_TYPE,
+    PR_PUBLICATION_ARTIFACT_TYPE,
+    GITHUB_PULL_REQUEST_ARTIFACT_TYPE,
+  ];
+  const planningArtifactCount = planningArtifactTypes.filter((type) =>
+    artifactTypes.has(type)
+  ).length;
+  const prEvidenceCount = prEvidenceTypes.filter((type) => artifactTypes.has(type)).length;
+  const qualityReady =
+    artifactTypes.has(QUALITY_REPORT_ARTIFACT_TYPE) ||
+    eventTypes.has(RUN_QUALITY_EVALUATED_EVENT_TYPE);
+  const githubPrReady =
+    artifactTypes.has(GITHUB_PULL_REQUEST_ARTIFACT_TYPE) ||
+    eventTypes.has(GITHUB_PR_OPENED_EVENT_TYPE);
+  const stages = Array.isArray(guide.stages) ? guide.stages : [];
+
+  return [
+    missionJourneyItem({
+      stage: stages[0],
+      fallbackTitle: "Brief intake",
+      timestamp:
+        firstRunEventTimestamp([RUN_SUBMITTED_EVENT_TYPE], events) ?? runDetail.created_at,
+      evidence: `${runDetail.trigger} · run ${shortId(runDetail.run_id)}`,
+      detail: "The operator request was accepted and materialized as durable run state.",
+    }),
+    missionJourneyItem({
+      stage: stages[1],
+      fallbackTitle: "Plan and routing",
+      timestamp:
+        latestRunEventTimestamp([RUN_POLICY_EVALUATED_EVENT_TYPE], events) ??
+        latestArtifactTimestamp(planningArtifactTypes, artifacts),
+      evidence: `${planningArtifactCount}/${planningArtifactTypes.length} planning artifacts · ${taskCounts.total} task(s)`,
+      detail:
+        planningArtifactCount === planningArtifactTypes.length
+          ? "Backlog, policy, and dispatch routing are inspectable."
+          : "Planning evidence is still incomplete or has not been highlighted yet.",
+    }),
+    missionJourneyItem({
+      stage: stages[2],
+      fallbackTitle: "Task execution",
+      timestamp:
+        latestRunEventTimestamp(
+          [
+            TASK_STARTED_EVENT_TYPE,
+            TASK_WORKSPACE_PREPARED_EVENT_TYPE,
+            TASK_HEARTBEAT_EVENT_TYPE,
+            TASK_SUCCEEDED_EVENT_TYPE,
+            TASK_FAILED_EVENT_TYPE,
+            TASK_REQUEUED_EVENT_TYPE,
+          ],
+          events
+        ) ?? latestTaskTimestamp(runDetail),
+      evidence: `${taskCounts.succeeded} succeeded · ${taskCounts.running} running · ${taskCounts.queued} queued · ${taskCounts.failed} failed`,
+      detail: "Execution status comes from persisted task state and agent/task events.",
+    }),
+    missionJourneyItem({
+      stage: stages[3],
+      fallbackTitle: "Quality gate",
+      timestamp:
+        latestRunEventTimestamp([RUN_QUALITY_EVALUATED_EVENT_TYPE], events) ??
+        latestArtifactTimestamp([QUALITY_REPORT_ARTIFACT_TYPE], artifacts),
+      evidence: qualityReady ? "Quality evidence recorded" : "No quality evidence yet",
+      detail: qualityReady
+        ? "Quality can be re-evaluated after artifact-changing work."
+        : "Promotion should stay blocked until a quality report is recorded.",
+    }),
+    missionJourneyItem({
+      stage: stages[4],
+      fallbackTitle: "GitHub handoff",
+      timestamp:
+        latestRunEventTimestamp(
+          [
+            PR_CANDIDATE_EXPORTED_EVENT_TYPE,
+            PR_EXPORT_PUBLISHED_EVENT_TYPE,
+            GITHUB_PR_OPENED_EVENT_TYPE,
+          ],
+          events
+        ) ?? latestArtifactTimestamp(prEvidenceTypes, artifacts),
+      evidence: githubPrReady
+        ? "Draft PR recorded"
+        : `${prEvidenceCount}/${prEvidenceTypes.length} promotion artifacts`,
+      detail: githubPrReady
+        ? "The remaining decision belongs to GitHub review."
+        : "The orchestrator is still preparing the review handoff evidence.",
+    }),
+  ];
+}
+
+function missionJourneyItem({ detail, evidence, fallbackTitle, stage, timestamp }) {
+  const state = stage?.state ?? "pending";
+  const tone = guideTone(state);
+
+  return {
+    badge: guideBadgeLabel(state),
+    detail,
+    evidence,
+    state,
+    timestamp: timestamp ? formatTimestamp(timestamp) : "not recorded yet",
+    title: stage?.title ?? fallbackTitle,
+    tone,
+  };
+}
+
+function renderMissionJourneyItem(item) {
+  return `
+    <article class="mission-journey-item mission-journey-item-${escapeHtml(item.state)}">
+      <div class="mission-journey-marker">
+        <span></span>
+      </div>
+      <div class="mission-journey-card">
+        <div class="mission-feed-head">
+          <div>
+            <p class="panel-kicker">${escapeHtml(item.timestamp)}</p>
+            <h4>${escapeHtml(item.title)}</h4>
+          </div>
+          <span class="badge badge-${escapeHtml(item.tone)}">${escapeHtml(item.badge)}</span>
+        </div>
+        <p>${escapeHtml(item.detail)}</p>
+        <div class="mission-feed-meta">
+          <span>${escapeHtml(item.evidence)}</span>
+        </div>
+      </div>
+    </article>
+  `;
 }
 
 function renderMissionActionStrip(runDetail, guide) {
@@ -7995,11 +8157,80 @@ function enabledRunAction() {
 }
 
 function runArtifactTypes(runDetail) {
-  return new Set(
-    (runDetail?.artifacts ?? runDetail?.artifact_highlights ?? []).map(
-      (artifact) => artifact.artifact_type
-    )
+  return new Set(runArtifacts(runDetail).map((artifact) => artifact.artifact_type));
+}
+
+function runArtifacts(runDetail) {
+  const artifacts = [];
+  const seen = new Set();
+  for (const artifact of [
+    ...(Array.isArray(runDetail?.artifacts) ? runDetail.artifacts : []),
+    ...(Array.isArray(runDetail?.artifact_highlights) ? runDetail.artifact_highlights : []),
+  ]) {
+    const key =
+      artifact.artifact_id ??
+      [artifact.artifact_type, artifact.location_value, artifact.created_at].join(":");
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    artifacts.push(artifact);
+  }
+  return artifacts;
+}
+
+function latestRunEventTimestamp(eventTypes, events = state.selectedRunEvents) {
+  return latestTimestamp(
+    events
+      .filter((event) => eventTypes.includes(event.event_type))
+      .map((event) => event.created_at)
   );
+}
+
+function firstRunEventTimestamp(eventTypes, events = state.selectedRunEvents) {
+  return firstTimestamp(
+    events
+      .filter((event) => eventTypes.includes(event.event_type))
+      .map((event) => event.created_at)
+  );
+}
+
+function latestArtifactTimestamp(artifactTypes, artifacts = runArtifacts(state.selectedRunDetail)) {
+  return latestTimestamp(
+    artifacts
+      .filter((artifact) => artifactTypes.includes(artifact.artifact_type))
+      .map((artifact) => artifact.created_at)
+  );
+}
+
+function latestTaskTimestamp(runDetail) {
+  return latestTimestamp(
+    (Array.isArray(runDetail?.tasks) ? runDetail.tasks : []).flatMap((task) => [
+      task.completed_at,
+      task.lease_expires_at,
+      task.started_at,
+      task.created_at,
+    ])
+  );
+}
+
+function latestTimestamp(values) {
+  return timestampByOrder(values, "desc");
+}
+
+function firstTimestamp(values) {
+  return timestampByOrder(values, "asc");
+}
+
+function timestampByOrder(values, order) {
+  const sortedValues = values
+    .filter(Boolean)
+    .sort((left, right) =>
+      order === "asc"
+        ? sortableTimestamp(left) - sortableTimestamp(right)
+        : sortableTimestamp(right) - sortableTimestamp(left)
+    );
+  return sortedValues[0] ?? null;
 }
 
 function prCandidateAvailability(runDetail, artifactTypes, actionLabel) {
