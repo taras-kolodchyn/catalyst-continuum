@@ -18,7 +18,8 @@ Run a browser-level smoke test for the built-in operator UI. The script:
   - seeds a full MVP run through the existing CLI smoke flow
   - starts the host-run operator UI against that state
   - clicks the run ledger, Flow/Agents tabs, report cards, and manual refresh
-  - verifies WebSocket live updates, no hard reloads, no iframe refresh, and no browser errors
+  - verifies WebSocket live updates, no hard reloads, stable agent-panel focus,
+    no iframe refresh, and no browser errors
 
 Options:
   --scenario NAME       CI smoke scenario used to seed UI data (default: mvp-cli-tool)
@@ -212,6 +213,7 @@ async function main() {
   const requestFailures = [];
   let loadEvents = 0;
   let mainFrameNavigations = 0;
+  const focusChecks = [];
 
   page.on("console", (message) => {
     if (["error", "warning"].includes(message.type())) {
@@ -251,14 +253,47 @@ async function main() {
 
   const agentFilters = await page.locator("[data-agent-filter]").count();
   if (agentFilters > 1) {
+    const expectedFocusKey = await page
+      .locator("[data-agent-filter]")
+      .nth(1)
+      .getAttribute("data-ui-stable-key");
     await page.locator("[data-agent-filter]").nth(1).click();
     await page.waitForTimeout(250);
+    focusChecks.push({
+      surface: "agent-filter",
+      expected: expectedFocusKey,
+      actual: await stableFocusKey(page),
+    });
   }
 
   const reportCards = await page.locator("[data-agent-report-artifact-id]").count();
   if (reportCards > 0) {
+    const expectedFocusKey = await page
+      .locator("[data-agent-report-artifact-id]")
+      .first()
+      .getAttribute("data-ui-stable-key");
     await page.locator("[data-agent-report-artifact-id]").first().click();
     await page.waitForTimeout(250);
+    focusChecks.push({
+      surface: "agent-report",
+      expected: expectedFocusKey,
+      actual: await stableFocusKey(page),
+    });
+  }
+
+  const logCards = await page.locator("[data-agent-log-artifact-id]").count();
+  if (logCards > 0) {
+    const expectedFocusKey = await page
+      .locator("[data-agent-log-artifact-id]")
+      .first()
+      .getAttribute("data-ui-stable-key");
+    await page.locator("[data-agent-log-artifact-id]").first().click();
+    await page.waitForTimeout(250);
+    focusChecks.push({
+      surface: "agent-log",
+      expected: expectedFocusKey,
+      actual: await stableFocusKey(page),
+    });
   }
 
   await page.click('[data-mission-tab="flow"]');
@@ -337,6 +372,7 @@ async function main() {
     mainFrameNavigationsAfterInitial,
     unexpectedMainFrameNavigations: mainFrameNavigations - mainFrameNavigationsAfterInitial,
     summary,
+    focusChecks,
     screenshotPath,
     ok: false,
   };
@@ -368,6 +404,13 @@ async function main() {
   }
   if (summary.agentReportCardCount < 1) {
     problems.push("no agent report cards visible");
+  }
+  for (const check of focusChecks) {
+    if (!check.expected || check.actual !== check.expected) {
+      problems.push(
+        `focus was not preserved for ${check.surface}: expected ${check.expected}, got ${check.actual}`
+      );
+    }
   }
   if (summary.iframeCount !== 0) {
     problems.push(`unexpected iframe count ${summary.iframeCount}`);
@@ -423,6 +466,17 @@ async function main() {
   if (!result.ok) {
     process.exit(1);
   }
+}
+
+async function stableFocusKey(page) {
+  return page.evaluate(() => {
+    const active = document.activeElement;
+    if (!active || typeof active.closest !== "function") {
+      return "";
+    }
+    const stableElement = active.closest("[data-ui-stable-key]");
+    return stableElement?.dataset?.uiStableKey || "";
+  });
 }
 
 main().catch((error) => {

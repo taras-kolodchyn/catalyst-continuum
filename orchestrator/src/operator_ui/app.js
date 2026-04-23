@@ -4148,6 +4148,7 @@ function renderAgentFilterChip(agentId, label, isActive) {
       class="agent-filter-chip${isActive ? " is-active" : ""}"
       type="button"
       data-agent-filter="${escapeHtml(agentId)}"
+      data-ui-stable-key="agent-filter:${escapeHtml(agentId)}"
       aria-pressed="${isActive ? "true" : "false"}"
     >
       ${escapeHtml(label)}
@@ -4418,6 +4419,7 @@ function renderAgentReportCard(report) {
       class="agent-report-card${isSelected ? " is-selected" : ""}"
       type="button"
       data-agent-report-artifact-id="${escapeHtml(report.artifact.artifact_id)}"
+      data-ui-stable-key="agent-report:${escapeHtml(report.artifact.artifact_id)}"
       aria-pressed="${isSelected ? "true" : "false"}"
     >
       <div class="surface-link-head">
@@ -4478,6 +4480,7 @@ function renderAgentExecutionLogCard(runDetail, log) {
       class="agent-report-card${isSelected ? " is-selected" : ""}"
       type="button"
       data-agent-log-artifact-id="${escapeHtml(log.artifact.artifact_id)}"
+      data-ui-stable-key="agent-log:${escapeHtml(log.artifact.artifact_id)}"
       aria-pressed="${isSelected ? "true" : "false"}"
     >
       <div class="surface-link-head">
@@ -5952,6 +5955,7 @@ function renderRuns(response) {
             class="run-card${isSelected ? " is-selected" : ""}"
             type="button"
             data-run-id="${escapeHtml(run.run_id)}"
+            data-ui-stable-key="run-card:${escapeHtml(run.run_id)}"
             data-ui-run-card="true"
             aria-pressed="${isSelected ? "true" : "false"}"
             aria-label="${escapeHtml(`Open run ${shortId(run.run_id)} ${run.title}`)}"
@@ -6191,6 +6195,7 @@ function renderRailItems(
           type="button"
           data-queue-kind="${escapeHtml(queueKind)}"
           data-queue-id="${escapeHtml(itemId)}"
+          data-ui-stable-key="queue:${escapeHtml(queueKind)}:${escapeHtml(itemId)}"
           aria-pressed="${isSelected ? "true" : "false"}"
         >
           <div class="rail-item-head">
@@ -7492,9 +7497,13 @@ function setRenderedHtml(target, html, options = {}) {
     return false;
   }
 
+  const focusRestore = captureStableFocus(target);
+  const scrollRestore = captureScrollPosition(target);
   preserveTargetHeight(target, () => {
     target.innerHTML = nextHtml;
   });
+  restoreScrollPosition(target, scrollRestore);
+  restoreStableFocus(target, focusRestore);
   target.__lastRenderedHtml = nextHtml;
   if (options.markUpdated !== false) {
     markRefreshTargetUpdated(target);
@@ -7511,6 +7520,62 @@ function preserveTargetHeight(target, update) {
   window.requestAnimationFrame(() => {
     target.style.removeProperty("min-height");
   });
+}
+
+function captureStableFocus(target) {
+  const active = document.activeElement;
+  if (!active || !target.contains(active) || typeof active.closest !== "function") {
+    return null;
+  }
+
+  const stableElement = active.closest("[data-ui-stable-key]");
+  if (!stableElement || !target.contains(stableElement)) {
+    return null;
+  }
+
+  const stableKey = stableElement.dataset.uiStableKey;
+  if (!stableKey) {
+    return null;
+  }
+
+  return `[data-ui-stable-key="${cssAttributeValue(stableKey)}"]`;
+}
+
+function restoreStableFocus(target, selector) {
+  if (!selector) {
+    return;
+  }
+
+  const nextActiveElement = target.querySelector(selector);
+  if (!nextActiveElement || typeof nextActiveElement.focus !== "function") {
+    return;
+  }
+
+  nextActiveElement.focus({ preventScroll: true });
+}
+
+function captureScrollPosition(target) {
+  return {
+    left: target.scrollLeft,
+    top: target.scrollTop,
+  };
+}
+
+function restoreScrollPosition(target, position) {
+  if (!position) {
+    return;
+  }
+
+  if (target.scrollLeft !== position.left) {
+    target.scrollLeft = position.left;
+  }
+  if (target.scrollTop !== position.top) {
+    target.scrollTop = position.top;
+  }
+}
+
+function cssAttributeValue(value) {
+  return String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
 function markRefreshTargetUpdated(target) {

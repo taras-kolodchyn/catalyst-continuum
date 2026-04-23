@@ -996,6 +996,17 @@ textarea,
   border-color: rgba(180, 95, 47, 0.24);
 }
 
+.agent-filter-chip:focus-visible,
+.agent-report-card:focus-visible,
+.run-card:focus-visible,
+.rail-item-button:focus-visible {
+  outline: 3px solid rgba(23, 79, 67, 0.3);
+  outline-offset: 3px;
+  box-shadow:
+    0 0 0 1px rgba(23, 79, 67, 0.16),
+    0 12px 28px rgba(23, 79, 67, 0.12);
+}
+
 .agent-filter-chip.is-active {
   border-color: rgba(180, 95, 47, 0.28);
   background: rgba(180, 95, 47, 0.12);
