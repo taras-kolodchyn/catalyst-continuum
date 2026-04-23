@@ -159,25 +159,38 @@ The same HTTP surface now also ships a built-in operator UI at `/ui`. It is inte
 The first screen now also explains the product before it explains the controls: it states that Catalyst Continuum turns a structured brief into an auditable delivery run and finally a draft PR, separates the common manual brief-driven path from the optional automation-driven webhook or signal path, adds direct jump links into the main operator panels, translates raw service state into operator-facing readiness cards for `brief -> run`, execution, and GitHub handoff, demotes lower-level health cards into explicit diagnostics context, and makes the GitHub review boundary explicit instead of assuming the operator already knows the product model. The selected-run surface is now also narrative instead of table-first: it explains which orchestration stage is active, what the control plane already materialized, what remains blocked, and which operator action should happen next, and it now exposes that recommended control directly inside the guide so a first-time operator can follow the brief-to-run-to-quality-to-draft-PR flow without reverse-engineering raw run state or hunting for the right button.
 The brief-intake column now also exposes curated starter-brief scenario cards sourced from the repository, so a first-time operator can load a known-good container, CLI, worker, or OpenHands bootstrap brief directly into the editor before validating or submitting it. Empty states in the run ledger and selected-run panel now also point the operator to the next concrete action instead of stopping at a passive “no runs” message. The run ledger itself now includes a short stage-and-next-step preview on every run card, and successful brief or automation submissions auto-reveal the selected run detail so the operator does not have to hunt for the next panel manually. Structured response panes stay summary-first, with the raw JSON payload available on demand instead of dominating the page.
 The run-controls area now also keeps a per-run structured action summary above the raw JSON console, so operators can immediately see the latest branch, PR, quality-gate, publication, or task-execution highlights for the selected run without manually scanning the full response body.
+
+The repository ships a thin `Makefile` over the canonical `./scripts/*` entrypoints. The scripts remain the source of truth, while `make` gives developers and agents a stable command surface:
+
+```bash
+make help
+make check
+make ci
+make ui
+make cleanup
+make act-rust
+```
+
+Use `make check` for the standard fast local validation path, `make ci` for the broad local validation set, and `make act-rust-dry` when full `act` execution is blocked by the known Apple Silicon `qemu`/`rustc` issue.
 For the fastest local UI loop, run:
 
 ```bash
-./scripts/run-operator-ui.sh
+make ui
 ```
 
-That host-run launcher builds the orchestrator, starts a disposable pinned Postgres container when `CATALYST_DATABASE_URL` is unset, serves the UI at `http://127.0.0.1:8080/ui`, and uses the repo-pinned `config/runtime-providers.yaml`, `config/mcp-servers.yaml`, and `config/ai-gateway.yaml` contracts.
+That host-run launcher builds the orchestrator, starts a disposable pinned Postgres container when `CATALYST_DATABASE_URL` is unset, serves the UI at `http://127.0.0.1:8080/ui`, and uses the repo-pinned `config/runtime-providers.yaml`, `config/mcp-servers.yaml`, and `config/ai-gateway.yaml` contracts. `make ui` delegates to `./scripts/run-operator-ui.sh`; pass script flags through `OPERATOR_UI_ARGS` and override the port with `UI_PORT`, for example `make ui UI_PORT=18086 OPERATOR_UI_ARGS="--skip-build"`.
 When you want the UI to inspect an existing stateful run set instead of a disposable local database, point it at the matching database and artifact root:
 
 ```bash
 CATALYST_DATABASE_URL="postgres://postgres:postgres@127.0.0.1:5432/continuum" \
 CATALYST_ARTIFACT_ROOT=".continuum/artifacts" \
-./scripts/run-operator-ui.sh --skip-build
+make ui OPERATOR_UI_ARGS="--skip-build"
 ```
 
 If a local UI or smoke session gets interrupted and leaves repo-local helper state behind, run:
 
 ```bash
-./scripts/cleanup-local-dev.sh
+make cleanup
 ```
 
 That cleanup helper stops repo-local `run-operator-ui` sessions, removes their tracked helper PIDs, and deletes disposable Postgres containers labeled by the repository smoke and UI helpers without touching the main compose stack.

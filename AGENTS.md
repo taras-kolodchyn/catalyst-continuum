@@ -85,6 +85,7 @@ When the change touches agent integrations or MCP behavior, also review:
 
 Before delivering, run the smallest meaningful validation set that proves the change. Use these repository-standard checks:
 
+- Prefer the checked-in `Makefile` for common local entrypoints such as `make check`, `make ci`, `make ui`, `make cleanup`, and `make act-rust`, but keep the underlying `./scripts/*` helpers as the source of truth. When a standard workflow changes, update the script, Make target, and docs together.
 - `./scripts/check-versions.sh` for version pins, workflow pins, image refs, and shared version metadata
 - `./scripts/lint-shell.sh` for shell scripts and workflow helper changes
 - `./scripts/ci-rust.sh` for Rust logic, CLI commands, HTTP routes, MCP handlers, storage, and tests
