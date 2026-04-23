@@ -25,12 +25,15 @@ Options:
   --runtime-providers-file    Runtime provider config path
   --mcp-servers-file          External MCP config path
   --ai-gateway-file           AI gateway config path
+  --repository-targets-file   Repository target allowlist config path
   --skip-build                Reuse the existing debug binary instead of running cargo build
   --help                      Show this help text
 
 Environment:
   CATALYST_DATABASE_URL       Existing database URL for stateful operator inspection
   CATALYST_ARTIFACT_ROOT      Existing artifact root matching that database
+  CATALYST_REPOSITORY_TARGETS_FILE
+                              Existing repository target allowlist to expose in the UI
   OPERATOR_UI_POSTGRES_PORT   Fixed host port for the disposable Postgres container
 EOF
 }
@@ -103,6 +106,7 @@ BIND_ADDR=""
 RUNTIME_PROVIDERS_FILE="${CATALYST_RUNTIME_PROVIDERS_FILE:-$ROOT_DIR/config/runtime-providers.yaml}"
 MCP_SERVERS_FILE="${CATALYST_MCP_SERVERS_FILE:-$ROOT_DIR/config/mcp-servers.yaml}"
 AI_GATEWAY_FILE="${CATALYST_AI_GATEWAY_FILE:-$ROOT_DIR/config/ai-gateway.yaml}"
+REPOSITORY_TARGETS_FILE="${CATALYST_REPOSITORY_TARGETS_FILE:-}"
 SKIP_BUILD=0
 POSTGRES_IMAGE="${OPERATOR_UI_POSTGRES_IMAGE:-postgres:${POSTGRES_VERSION}@${POSTGRES_IMAGE_DIGEST}}"
 POSTGRES_DB="${OPERATOR_UI_POSTGRES_DB:-continuum}"
@@ -151,6 +155,10 @@ while [ "$#" -gt 0 ]; do
       AI_GATEWAY_FILE="${2:?missing value for --ai-gateway-file}"
       shift 2
       ;;
+    --repository-targets-file)
+      REPOSITORY_TARGETS_FILE="${2:?missing value for --repository-targets-file}"
+      shift 2
+      ;;
     --skip-build)
       SKIP_BUILD=1
       shift
@@ -181,6 +189,10 @@ if [ ! -f "$MCP_SERVERS_FILE" ]; then
 fi
 if [ ! -f "$AI_GATEWAY_FILE" ]; then
   echo "AI gateway file not found: $AI_GATEWAY_FILE" >&2
+  exit 1
+fi
+if [ -n "$REPOSITORY_TARGETS_FILE" ] && [ ! -f "$REPOSITORY_TARGETS_FILE" ]; then
+  echo "repository targets file not found: $REPOSITORY_TARGETS_FILE" >&2
   exit 1
 fi
 
@@ -238,14 +250,19 @@ mkdir -p "$ARTIFACT_ROOT"
 
 ORCHESTRATOR_LOG_FILE="$ARTIFACT_ROOT/operator-ui.log"
 ORCHESTRATOR_READYZ_FILE="$TEMP_DIR/readyz.json"
-"$BIN" \
-  serve \
-  --bind-addr "$BIND_ADDR" \
-  --database-url "$DATABASE_URL" \
-  --artifact-root "$ARTIFACT_ROOT" \
-  --runtime-providers-file "$RUNTIME_PROVIDERS_FILE" \
-  --mcp-servers-file "$MCP_SERVERS_FILE" \
-  --ai-gateway-file "$AI_GATEWAY_FILE" >"$ORCHESTRATOR_LOG_FILE" 2>&1 &
+serve_args=(
+  serve
+  --bind-addr "$BIND_ADDR"
+  --database-url "$DATABASE_URL"
+  --artifact-root "$ARTIFACT_ROOT"
+  --runtime-providers-file "$RUNTIME_PROVIDERS_FILE"
+  --mcp-servers-file "$MCP_SERVERS_FILE"
+  --ai-gateway-file "$AI_GATEWAY_FILE"
+)
+if [ -n "$REPOSITORY_TARGETS_FILE" ]; then
+  serve_args+=(--repository-targets-file "$REPOSITORY_TARGETS_FILE")
+fi
+"$BIN" "${serve_args[@]}" >"$ORCHESTRATOR_LOG_FILE" 2>&1 &
 ORCHESTRATOR_PID=$!
 mkdir -p "$HELPER_PID_DIR"
 printf '%s\n' "$ORCHESTRATOR_PID" >"$ORCHESTRATOR_PID_FILE"
@@ -268,6 +285,9 @@ fi
 log_phase "UI ready at http://${BIND_ADDR}/ui"
 log_phase "artifact root: ${ARTIFACT_ROOT}"
 log_phase "orchestrator log: ${ORCHESTRATOR_LOG_FILE}"
+if [ -n "$REPOSITORY_TARGETS_FILE" ]; then
+  log_phase "repository targets: ${REPOSITORY_TARGETS_FILE}"
+fi
 if [ "$STARTED_POSTGRES" -eq 1 ]; then
   log_phase "Ctrl-C stops the UI and removes the disposable Postgres container."
 else

@@ -7,6 +7,7 @@ DOCTOR_ARGS ?=
 LITELLM_SMOKE_ARGS ?=
 OPERATOR_UI_ARGS ?=
 OPERATOR_UI_SMOKE_ARGS ?=
+OPERATOR_UI_REPOSITORY_TARGETS_FILE ?=
 REPOSITORY ?=
 REPOSITORY_DEFAULT_BRANCH ?=
 REPOSITORY_TARGET_ID ?=
@@ -88,7 +89,7 @@ compose-down: ## Stop the full local compose stack without deleting volumes.
 
 .PHONY: ui
 ui: ## Start the host-run operator UI; override UI_PORT and OPERATOR_UI_ARGS as needed.
-	./scripts/run-operator-ui.sh --http-port "$(UI_PORT)" $(OPERATOR_UI_ARGS)
+	./scripts/run-operator-ui.sh --http-port "$(UI_PORT)" $(if $(OPERATOR_UI_REPOSITORY_TARGETS_FILE),--repository-targets-file "$(OPERATOR_UI_REPOSITORY_TARGETS_FILE)") $(OPERATOR_UI_ARGS)
 
 .PHONY: ui-smoke
 ui-smoke: ## Run browser-level operator UI smoke against seeded MVP run data.
