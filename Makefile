@@ -27,14 +27,14 @@ help: ## Show available Make targets.
 	@awk 'BEGIN {FS = ":.*##"; printf "Catalyst Continuum targets:\n\n"} /^[a-zA-Z0-9_.-]+:.*##/ {printf "  %-28s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 .PHONY: check
-check: doctor versions lint-shell rust ## Run the standard fast local validation set.
+check: doctor versions repository-targets-smoke lint-shell rust ## Run the standard fast local validation set.
 
 .PHONY: doctor
 doctor: ## Run fast local readiness checks for tools, config, and optional live services.
 	./scripts/doctor.sh $(DOCTOR_ARGS)
 
 .PHONY: ci
-ci: versions lint-shell rust compose eval smoke ## Run the broad local validation set.
+ci: versions lint-shell repository-targets-smoke rust compose eval smoke ## Run the broad local validation set.
 
 .PHONY: ci-full
 ci-full: ci sbom ## Run broad local validation plus SBOM generation.
@@ -181,6 +181,14 @@ act-job: ## Run one act job; override ACT_JOB and ACT_ARGS as needed.
 .PHONY: act-rust
 act-rust: ## Run the Rust GitHub Actions job through act.
 	./scripts/ci-act.sh -j rust $(ACT_ARGS)
+
+.PHONY: act-shell
+act-shell: ## Run the shell GitHub Actions job through act.
+	./scripts/ci-act.sh -j shell $(ACT_ARGS)
+
+.PHONY: act-shell-dry
+act-shell-dry: ## Dry-run the shell GitHub Actions job shape through act.
+	./scripts/ci-act.sh -j shell -n $(ACT_ARGS)
 
 .PHONY: act-rust-dry
 act-rust-dry: ## Dry-run the Rust GitHub Actions job shape through act.

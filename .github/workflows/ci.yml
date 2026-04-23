@@ -36,6 +36,9 @@ jobs:
       - name: Lint shell scripts
         run: ./scripts/lint-shell.sh
 
+      - name: Validate repository-target bootstrap smoke
+        run: ./scripts/repository-target-bootstrap-smoke.sh
+
   sbom:
     needs:
       - versions
