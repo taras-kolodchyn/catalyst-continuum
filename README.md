@@ -115,6 +115,9 @@ run in your current shell before launching the UI or draft-PR flows. The
 individual `make repository-targets-init`, `make doctor`, and
 `make github-repo-preflight` steps still stay available when you want tighter
 control over each stage.
+For offline regression coverage of that bootstrap path, run
+`./scripts/repository-target-bootstrap-smoke.sh` or
+`make repository-targets-smoke`.
 
 The generated `config/repository-targets.local.yaml` is git-ignored on purpose
 because private deployments can carry private repository names and remotes.

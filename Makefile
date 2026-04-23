@@ -114,6 +114,10 @@ repository-targets-init: ## Generate a local repository-target allowlist for REP
 repository-targets-bootstrap: ## Bootstrap a local repository-target allowlist plus doctor/preflight in one step.
 	./scripts/bootstrap-repository-target.sh $(if $(REPOSITORY),"$(REPOSITORY)") --output "$(REPOSITORY_TARGETS_FILE)" --branch-prefix "$(REPOSITORY_BRANCH_PREFIX)" $(if $(REPOSITORY_TARGET_ID),--target-id "$(REPOSITORY_TARGET_ID)") $(if $(REPOSITORY_TARGETS_FORCE),--force) $(if $(REPOSITORY_ALLOW_READONLY),--allow-readonly) $(if $(REPOSITORY_JSON),--repo-json "$(REPOSITORY_JSON)") $(REPOSITORY_BOOTSTRAP_ARGS)
 
+.PHONY: repository-targets-smoke
+repository-targets-smoke: ## Run offline smoke coverage for repository-target bootstrap helpers.
+	./scripts/repository-target-bootstrap-smoke.sh
+
 .PHONY: smoke
 smoke: ## Run CI smoke tests; override SMOKE_SCENARIO for one scenario.
 	CI_SMOKE_SCENARIO="$(SMOKE_SCENARIO)" ./scripts/ci-smoke.sh
