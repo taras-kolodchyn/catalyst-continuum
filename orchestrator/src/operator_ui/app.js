@@ -3117,6 +3117,16 @@ function ensureMissionAgentsShell() {
     `
       <div id="missionAgentsLayout" class="mission-flow-layout">
         <div id="agentOverviewStrip" class="mission-mini-grid agent-overview-grid"></div>
+        <section class="agent-handoff-shell">
+          <div class="detail-section-head">
+            <div>
+              <p class="panel-kicker">Agent handoff map</p>
+              <h3>How work moves through the selected agent scope</h3>
+            </div>
+            <span id="agentHandoffCount" class="badge badge-neutral">0</span>
+          </div>
+          <div id="agentHandoffStrip" class="agent-handoff-strip"></div>
+        </section>
         <div id="agentFilterRow" class="agent-filter-row"></div>
         <div id="agentLaneGrid" class="agent-lane-grid"></div>
         <section class="agent-log-shell">
@@ -3235,6 +3245,21 @@ function renderMissionAgentsPanel() {
     })
       .map((card) => renderMissionMiniCard(card.kicker, card.title, card.detail, card.tone))
       .join(""),
+    { markUpdated: false }
+  );
+
+  const handoffItems = buildAgentHandoffItems({
+    filteredEvents,
+    filteredLanes,
+    logs,
+    reports,
+  });
+  setTextContent(document.getElementById("agentHandoffCount"), String(handoffItems.length), {
+    markUpdated: false,
+  });
+  setRenderedHtml(
+    document.getElementById("agentHandoffStrip"),
+    handoffItems.map(renderAgentHandoffItem).join(""),
     { markUpdated: false }
   );
 
@@ -3378,6 +3403,80 @@ function buildAgentOverviewCards({
       tone: filteredEvents.length ? "warning" : "neutral",
     },
   ];
+}
+
+function buildAgentHandoffItems({ filteredEvents, filteredLanes, logs, reports }) {
+  const visibleTaskCount = filteredLanes.reduce((count, lane) => count + lane.taskCount, 0);
+  const startedCount = filteredEvents.filter(
+    (event) => event.event_type === TASK_STARTED_EVENT_TYPE
+  ).length;
+  const workspaceCount = filteredEvents.filter(
+    (event) => event.event_type === TASK_WORKSPACE_PREPARED_EVENT_TYPE
+  ).length;
+  const heartbeatCount = filteredEvents.filter(
+    (event) => event.event_type === TASK_HEARTBEAT_EVENT_TYPE
+  ).length;
+  const failedCount = filteredLanes.reduce((count, lane) => count + lane.failedCount, 0);
+  const succeededCount = filteredLanes.reduce((count, lane) => count + lane.succeededCount, 0);
+  const completedCount = succeededCount + failedCount;
+  const activeCount = filteredLanes.reduce(
+    (count, lane) => count + lane.runningCount + lane.queuedCount,
+    0
+  );
+
+  return [
+    {
+      kicker: "Assignment",
+      title: visibleTaskCount ? `${visibleTaskCount} task(s) routed` : "No routed tasks",
+      detail: `${filteredLanes.length} visible lane(s) in the current filter`,
+      tone: visibleTaskCount ? "success" : "neutral",
+    },
+    {
+      kicker: "Claim / start",
+      title: startedCount ? `${startedCount} start event(s)` : "No start event yet",
+      detail: "A start event proves a worker or external agent began the task path.",
+      tone: startedCount ? "success" : visibleTaskCount ? "warning" : "neutral",
+    },
+    {
+      kicker: "Workspace prep",
+      title: workspaceCount ? `${workspaceCount} workspace handoff(s)` : "No workspace handoff",
+      detail: "Prepared workspaces bind agent output to a run-scoped input artifact.",
+      tone: workspaceCount ? "success" : startedCount ? "warning" : "neutral",
+    },
+    {
+      kicker: "Lease signal",
+      title: heartbeatCount ? `${heartbeatCount} heartbeat(s)` : "No heartbeat recorded",
+      detail: "Heartbeats prove longer agent sessions are still actively leased.",
+      tone: heartbeatCount ? "success" : activeCount ? "warning" : "neutral",
+    },
+    {
+      kicker: "Completion report",
+      title: reports.length ? `${reports.length} report(s)` : "No report yet",
+      detail: `${succeededCount} succeeded · ${failedCount} failed · ${activeCount} active or queued`,
+      tone: failedCount > 0 ? "error" : reports.length || completedCount > 0 ? "success" : "neutral",
+    },
+    {
+      kicker: "Runtime evidence",
+      title: logs.length ? `${logs.length} log artifact(s)` : "No runtime logs",
+      detail: "Logs preserve command context, stdout, stderr, and workspace linkage.",
+      tone: logs.length ? "success" : reports.length ? "warning" : "neutral",
+    },
+  ];
+}
+
+function renderAgentHandoffItem(item) {
+  const tone = normalizePulseTone(item.tone);
+
+  return `
+    <article class="agent-handoff-card agent-handoff-card-${escapeHtml(tone)}">
+      <div class="mission-feed-head">
+        <p class="panel-kicker">${escapeHtml(item.kicker)}</p>
+        <span class="badge badge-${escapeHtml(tone)}">${escapeHtml(toneLabel(tone))}</span>
+      </div>
+      <h4>${escapeHtml(item.title)}</h4>
+      <p>${escapeHtml(item.detail)}</p>
+    </article>
+  `;
 }
 
 function renderAgentFilterChip(agentId, label, isActive) {

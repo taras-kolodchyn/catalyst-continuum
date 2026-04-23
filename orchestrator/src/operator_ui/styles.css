@@ -667,10 +667,61 @@ textarea,
 .agent-log-shell,
 .agent-execution-shell,
 .agent-report-shell,
+.agent-handoff-shell,
 .surface-frame-shell {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.agent-handoff-shell {
+  border: 1px solid rgba(24, 35, 29, 0.1);
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(135deg, rgba(255, 251, 244, 0.86), rgba(236, 243, 239, 0.76));
+  padding: 16px;
+}
+
+.agent-handoff-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(185px, 1fr));
+  gap: 10px;
+}
+
+.agent-handoff-card {
+  min-width: 0;
+  padding: 13px;
+  border: 1px solid rgba(24, 35, 29, 0.08);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.68);
+}
+
+.agent-handoff-card-success {
+  background:
+    linear-gradient(135deg, rgba(226, 241, 235, 0.82), rgba(255, 255, 255, 0.66));
+}
+
+.agent-handoff-card-warning {
+  background:
+    linear-gradient(135deg, rgba(255, 234, 209, 0.76), rgba(255, 255, 255, 0.66));
+}
+
+.agent-handoff-card-error {
+  background:
+    linear-gradient(135deg, rgba(255, 220, 214, 0.76), rgba(255, 255, 255, 0.66));
+}
+
+.agent-handoff-card h4 {
+  margin: 8px 0 6px;
+  font-family: var(--serif);
+  font-size: 0.96rem;
+  letter-spacing: -0.02em;
+}
+
+.agent-handoff-card p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
 }
 
 .mission-feed-list,
