@@ -107,6 +107,8 @@ export CATALYST_REPOSITORY_TARGETS_FILE="$PWD/config/repository-targets.local.ya
 make doctor DOCTOR_ARGS="--no-live"
 ```
 
+When you run it inside the target repository itself, `REPOSITORY=<OWNER>/<REPO>` is optional because the helper can fall back to `gh repo view` for the current checkout.
+
 The generated `config/repository-targets.local.yaml` is git-ignored on purpose
 because private deployments can carry private repository names and remotes.
 The shipped [config/repository-targets.example.yaml](config/repository-targets.example.yaml)

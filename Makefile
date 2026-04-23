@@ -106,8 +106,7 @@ github-repo-preflight: ## Check gh access and permissions for REPOSITORY=owner/r
 
 .PHONY: repository-targets-init
 repository-targets-init: ## Generate a local repository-target allowlist for REPOSITORY=owner/repo.
-	@if [ -z "$(REPOSITORY)" ]; then echo "set REPOSITORY=owner/repo" >&2; exit 1; fi
-	./scripts/init-repository-targets.sh "$(REPOSITORY)" --output "$(REPOSITORY_TARGETS_FILE)" --branch-prefix "$(REPOSITORY_BRANCH_PREFIX)" $(if $(REPOSITORY_TARGET_ID),--target-id "$(REPOSITORY_TARGET_ID)") $(if $(REPOSITORY_TARGETS_FORCE),--force)
+	./scripts/init-repository-targets.sh $(if $(REPOSITORY),"$(REPOSITORY)") --output "$(REPOSITORY_TARGETS_FILE)" --branch-prefix "$(REPOSITORY_BRANCH_PREFIX)" $(if $(REPOSITORY_TARGET_ID),--target-id "$(REPOSITORY_TARGET_ID)") $(if $(REPOSITORY_TARGETS_FORCE),--force)
 
 .PHONY: smoke
 smoke: ## Run CI smoke tests; override SMOKE_SCENARIO for one scenario.
