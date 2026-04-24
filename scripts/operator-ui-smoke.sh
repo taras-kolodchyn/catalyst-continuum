@@ -363,6 +363,7 @@ async function main() {
       lastRefresh: text("#lastRefresh"),
       selectedRunLabel: text("#selectedRunLabel"),
       runCardCount: count("#runsList [data-run-id]"),
+      runCardNextStepCount: count("[data-run-card-next-step]"),
       taskRows: count("#taskTableWrap tbody tr"),
       artifactRows: count("#artifactTableWrap tbody tr"),
       eventItems: count("#eventTimeline article"),
@@ -459,6 +460,11 @@ async function main() {
   }
   if (summary.runCardCount < 1) {
     problems.push("no run cards visible");
+  }
+  if (summary.runCardNextStepCount !== summary.runCardCount) {
+    problems.push(
+      `expected one next-step hint per run card, got ${summary.runCardNextStepCount}/${summary.runCardCount}`
+    );
   }
   if (summary.taskRows < 1) {
     problems.push("no task rows visible");

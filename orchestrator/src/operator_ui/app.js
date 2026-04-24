@@ -6246,6 +6246,10 @@ function renderRuns(response) {
                 <span class="badge badge-${escapeHtml(guide.tone)}">${escapeHtml(guide.stage)}</span>
               </div>
               <p>${escapeHtml(guide.detail)}</p>
+              <div class="run-card-next-step" data-run-card-next-step="true">
+                <span>Next step</span>
+                <strong>${escapeHtml(guide.nextStep)}</strong>
+              </div>
             </div>
             <div class="run-card-stats">
               <span>${escapeHtml(repositoryName)}</span>
@@ -6274,6 +6278,7 @@ function runCardGuide(run) {
       tone: "error",
       stage: "Blocked",
       detail: "Open this run and inspect failed tasks plus run events before continuing promotion or retries.",
+      nextStep: "Inspect failure evidence",
     };
   }
 
@@ -6285,6 +6290,7 @@ function runCardGuide(run) {
         taskCounts.running > 0
           ? `${taskCounts.running} task(s) are running right now. Open the run to watch progress and next actions.`
           : "Execution is in progress. Open the run to inspect the active stage and remaining backlog.",
+      nextStep: "Watch agent progress",
     };
   }
 
@@ -6296,6 +6302,7 @@ function runCardGuide(run) {
         taskCounts.queued > 0
           ? `${taskCounts.queued} queued task(s) are waiting. Open the run and use Run next task or Worker once.`
           : "The run is ready to start execution. Open it and trigger the first controlled step.",
+      nextStep: "Start controlled execution",
     };
   }
 
@@ -6307,6 +6314,7 @@ function runCardGuide(run) {
         run.artifact_count > 0
           ? "Execution finished. Open the run to evaluate quality or continue PR export and draft-PR handoff."
           : "Execution finished. Open the run to inspect promotion readiness and persisted outputs.",
+      nextStep: "Verify quality and handoff",
     };
   }
 
@@ -6314,6 +6322,7 @@ function runCardGuide(run) {
     tone: "neutral",
     stage: "Materialized",
     detail: "Open this run to inspect the current orchestration stage, backlog, and next operator action.",
+    nextStep: "Open selected-run guide",
   };
 }
 

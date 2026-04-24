@@ -2041,6 +2041,24 @@ textarea {
   margin-bottom: 8px;
 }
 
+.run-card-next-step {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(24, 35, 29, 0.08);
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.run-card-next-step strong {
+  color: var(--ink);
+  font-size: 0.86rem;
+  text-align: right;
+}
+
 .run-card-stats,
 .run-card-foot,
 .timeline-meta {
