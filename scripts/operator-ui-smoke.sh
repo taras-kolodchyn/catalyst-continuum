@@ -365,6 +365,9 @@ async function main() {
       runCardCount: count("#runsList [data-run-id]"),
       runCardNextStepCount: count("[data-run-card-next-step]"),
       taskRows: count("#taskTableWrap tbody tr"),
+      artifactEvidenceCardCount: count("[data-artifact-evidence-card]"),
+      artifactEvidenceIncludesPlanning:
+        document.body.textContent.includes("Planning evidence"),
       artifactRows: count("#artifactTableWrap tbody tr"),
       eventItems: count("#eventTimeline article"),
       agentLaneCount: count("#agentLaneGrid .agent-lane"),
@@ -468,6 +471,12 @@ async function main() {
   }
   if (summary.taskRows < 1) {
     problems.push("no task rows visible");
+  }
+  if (summary.artifactEvidenceCardCount !== 4) {
+    problems.push(`expected four artifact evidence cards, got ${summary.artifactEvidenceCardCount}`);
+  }
+  if (!summary.artifactEvidenceIncludesPlanning) {
+    problems.push("artifact evidence strip should explain planning evidence");
   }
   if (summary.artifactRows < 1) {
     problems.push("no artifact rows visible");

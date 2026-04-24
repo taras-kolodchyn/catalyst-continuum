@@ -211,6 +211,7 @@ function cacheElements() {
     "actionConsoleStatus",
     "actionHighlights",
     "actionSummaryHeadline",
+    "artifactEvidenceStrip",
     "artifactHeadline",
     "artifactHighlights",
     "artifactTableWrap",
@@ -7504,6 +7505,10 @@ function renderArtifacts(runDetail) {
     elements.artifactHeadline,
     `${artifacts.length} artifact(s), ${highlights.length} highlight(s)`
   );
+  setRenderedHtml(
+    elements.artifactEvidenceStrip,
+    renderArtifactEvidenceStrip(runDetail, artifacts)
+  );
 
   setRenderedHtml(
     elements.artifactHighlights,
@@ -7587,6 +7592,121 @@ function renderArtifacts(runDetail) {
       </table>
     </div>
   `);
+}
+
+function renderArtifactEvidenceStrip(runDetail, artifacts) {
+  return artifactEvidenceSummaryItems(runDetail, artifacts)
+    .map(renderArtifactEvidenceSummaryItem)
+    .join("");
+}
+
+function artifactEvidenceSummaryItems(runDetail, artifacts) {
+  const safeArtifacts = Array.isArray(artifacts) ? artifacts : [];
+  const planningTypes = [
+    BACKLOG_ARTIFACT_TYPE,
+    POLICY_REPORT_ARTIFACT_TYPE,
+    DISPATCH_PLAN_ARTIFACT_TYPE,
+    "scaffold_bundle",
+    "code_bundle",
+  ];
+  const executionTypes = [
+    "workspace_snapshot",
+    "task_workspace_input",
+    "workspace_patch",
+    "agent_task_report",
+    "log",
+  ];
+  const qualityTypes = [QUALITY_REPORT_ARTIFACT_TYPE];
+  const handoffTypes = [
+    PR_CANDIDATE_ARTIFACT_TYPE,
+    PR_EXPORT_ARTIFACT_TYPE,
+    PR_PUBLICATION_ARTIFACT_TYPE,
+    GITHUB_PULL_REQUEST_ARTIFACT_TYPE,
+  ];
+
+  return [
+    artifactEvidenceSummaryItem({
+      artifacts: safeArtifacts,
+      detail: "Brief, backlog, policy, routing, and generated repository inputs.",
+      label: "Planning evidence",
+      readyTone: "success",
+      types: planningTypes,
+    }),
+    artifactEvidenceSummaryItem({
+      artifacts: safeArtifacts,
+      detail: "Runtime logs, prepared workspaces, snapshots, patches, and agent reports.",
+      label: "Execution evidence",
+      readyTone: runDetail.status === "failed" ? "error" : "success",
+      types: executionTypes,
+    }),
+    artifactEvidenceSummaryItem({
+      artifacts: safeArtifacts,
+      detail: "Quality reports that gate promotion and should follow the latest execution output.",
+      emptyTone: runDetail.status === "succeeded" ? "warning" : "neutral",
+      label: "Quality evidence",
+      readyTone: "success",
+      types: qualityTypes,
+    }),
+    artifactEvidenceSummaryItem({
+      artifacts: safeArtifacts,
+      detail: "PR candidate, export, branch publication, and GitHub draft-PR handoff records.",
+      label: "Handoff evidence",
+      readyTone: artifactTypesInclude(safeArtifacts, GITHUB_PULL_REQUEST_ARTIFACT_TYPE)
+        ? "success"
+        : "warning",
+      types: handoffTypes,
+    }),
+  ];
+}
+
+function artifactEvidenceSummaryItem({
+  artifacts,
+  detail,
+  emptyTone = "neutral",
+  label,
+  readyTone,
+  types,
+}) {
+  const matchingArtifacts = artifacts.filter((artifact) => types.includes(artifact.artifact_type));
+  const latest = latestArtifactTimestamp(types, artifacts);
+
+  return {
+    count: matchingArtifacts.length,
+    detail,
+    label,
+    latest,
+    tone: matchingArtifacts.length ? readyTone : emptyTone,
+    types,
+  };
+}
+
+function renderArtifactEvidenceSummaryItem(item) {
+  const tone = normalizePulseTone(item.tone);
+  const latestLabel = item.latest ? formatTimestamp(item.latest) : "not recorded yet";
+
+  return `
+    <article
+      class="artifact-evidence-card artifact-evidence-card-${escapeHtml(tone)}"
+      data-artifact-evidence-card="true"
+    >
+      <div class="mission-feed-head">
+        <div>
+          <p class="panel-kicker">${escapeHtml(item.label)}</p>
+          <h4>${escapeHtml(`${item.count} artifact(s)`)}</h4>
+        </div>
+        <span class="badge badge-${escapeHtml(tone)}">${escapeHtml(toneLabel(tone))}</span>
+      </div>
+      <p>${escapeHtml(item.detail)}</p>
+      <div class="mission-feed-meta">
+        <span>${escapeHtml(latestLabel)}</span>
+        <span>${escapeHtml(item.types.join(", "))}</span>
+      </div>
+    </article>
+  `;
+}
+
+function artifactTypesInclude(artifacts, artifactType) {
+  return artifacts.some((artifact) => artifact.artifact_type === artifactType);
 }
 
 function renderDataCardField(label, value, detail = "", valueClass = "") {

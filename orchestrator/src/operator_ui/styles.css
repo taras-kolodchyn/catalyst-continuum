@@ -2356,6 +2356,54 @@ textarea {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 12px;
+  margin-top: 12px;
+}
+
+.artifact-evidence-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(215px, 1fr));
+  gap: 12px;
+  margin: 12px 0 0;
+}
+
+.artifact-evidence-card {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid rgba(24, 35, 29, 0.1);
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(135deg, rgba(255, 251, 244, 0.92), rgba(255, 255, 255, 0.68));
+  padding: 14px;
+}
+
+.artifact-evidence-card-success {
+  background:
+    linear-gradient(135deg, rgba(226, 241, 235, 0.82), rgba(255, 255, 255, 0.66));
+}
+
+.artifact-evidence-card-warning {
+  background:
+    linear-gradient(135deg, rgba(255, 234, 209, 0.78), rgba(255, 255, 255, 0.66));
+}
+
+.artifact-evidence-card-error {
+  background:
+    linear-gradient(135deg, rgba(255, 220, 214, 0.78), rgba(255, 255, 255, 0.66));
+}
+
+.artifact-evidence-card h4 {
+  margin: 6px 0 0;
+  font-family: var(--serif);
+  font-size: 0.98rem;
+  letter-spacing: -0.02em;
+}
+
+.artifact-evidence-card p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
 }
 
 .artifact-card h4 {
@@ -2691,6 +2739,7 @@ textarea {
   .mission-action-strip,
   .mission-freshness-grid,
   .mission-evidence-grid,
+  .artifact-evidence-strip,
   .surface-link-grid,
   .agent-lane-grid,
   .agent-report-grid,
