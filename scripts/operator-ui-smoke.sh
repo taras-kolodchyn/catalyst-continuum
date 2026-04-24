@@ -350,6 +350,12 @@ async function main() {
       missionContextCardCount: count('[data-mission-context-card="true"]'),
       missionContextIncludesApprovalBoundary:
         document.body.textContent.includes("GitHub remains the human approval boundary"),
+      missionFreshnessCardCount: count('[data-mission-freshness-card="true"]'),
+      missionFreshnessLatest: text('[data-mission-freshness-latest="true"]'),
+      missionFreshnessIncludesQuality:
+        document.body.textContent.includes("Quality evidence is fresh") ||
+        document.body.textContent.includes("Quality evidence may be stale") ||
+        document.body.textContent.includes("Quality evidence is missing"),
       runGuideProgressNow:
         document.querySelector("#runGuideProgressMeter")?.getAttribute("aria-valuenow") || "",
       runGuideProgressMax:
@@ -433,6 +439,15 @@ async function main() {
   }
   if (!summary.missionContextIncludesApprovalBoundary) {
     problems.push("mission context should explain that GitHub remains the approval boundary");
+  }
+  if (summary.missionFreshnessCardCount !== 4) {
+    problems.push(`expected four mission freshness cards, got ${summary.missionFreshnessCardCount}`);
+  }
+  if (!summary.missionFreshnessLatest) {
+    problems.push("mission freshness latest evidence badge is missing");
+  }
+  if (!summary.missionFreshnessIncludesQuality) {
+    problems.push("mission freshness board should summarize quality freshness");
   }
   if (summary.runGuideProgressNow !== "5" || summary.runGuideProgressMax !== "5") {
     problems.push(

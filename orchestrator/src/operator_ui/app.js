@@ -2852,6 +2852,7 @@ function renderMissionFlowPanel() {
         ${renderMissionActionStrip(runDetail, guide)}
         ${renderMissionControlReadinessBoard(runDetail, guide)}
         ${renderReviewHandoffChecklist(runDetail)}
+        ${renderMissionEvidenceFreshnessBoard(runDetail)}
         ${renderMissionEvidenceMap(runDetail)}
         <section class="mission-feed-shell">
           <div class="detail-section-head">
@@ -3390,6 +3391,195 @@ function renderReviewHandoffItem(item) {
       <h4>${escapeHtml(item.title)}</h4>
       <p>${escapeHtml(item.detail)}</p>
       <p class="microcopy">${escapeHtml(item.control)}</p>
+    </article>
+  `;
+}
+
+function renderMissionEvidenceFreshnessBoard(runDetail) {
+  const items = buildMissionEvidenceFreshnessItems(runDetail);
+  const latestItem = items
+    .filter((item) => item.timestamp)
+    .sort((left, right) => sortableTimestamp(right.timestamp) - sortableTimestamp(left.timestamp))[0];
+  const latestLabel = latestItem
+    ? `${latestItem.kicker} updated ${formatTimestamp(latestItem.timestamp)}`
+    : "No timestamped evidence yet";
+
+  return `
+    <section class="mission-freshness-board" aria-label="Evidence freshness">
+      <div class="detail-section-head">
+        <div>
+          <p class="panel-kicker">Evidence freshness</p>
+          <h3>What changed last, and what must not be stale</h3>
+        </div>
+        <span
+          class="badge badge-${escapeHtml(latestItem ? latestItem.tone : "neutral")}"
+          data-mission-freshness-latest="true"
+        >
+          ${escapeHtml(latestLabel)}
+        </span>
+      </div>
+      <div class="mission-freshness-grid">
+        ${items.map(renderMissionEvidenceFreshnessItem).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function buildMissionEvidenceFreshnessItems(runDetail) {
+  const artifacts = runArtifacts(runDetail);
+  const artifactTypes = runArtifactTypes(runDetail);
+  const events = Array.isArray(state.selectedRunEvents) ? state.selectedRunEvents : [];
+  const eventTypes = new Set(events.map((event) => event.event_type));
+  const taskCounts = normalizedTaskCounts(runDetail.task_counts);
+  const planningArtifactTypes = [
+    BACKLOG_ARTIFACT_TYPE,
+    POLICY_REPORT_ARTIFACT_TYPE,
+    DISPATCH_PLAN_ARTIFACT_TYPE,
+  ];
+  const taskEventTypes = [
+    TASK_STARTED_EVENT_TYPE,
+    TASK_WORKSPACE_PREPARED_EVENT_TYPE,
+    TASK_HEARTBEAT_EVENT_TYPE,
+    TASK_SUCCEEDED_EVENT_TYPE,
+    TASK_FAILED_EVENT_TYPE,
+    TASK_REQUEUED_EVENT_TYPE,
+  ];
+  const promotionEventTypes = [
+    PR_CANDIDATE_EXPORTED_EVENT_TYPE,
+    PR_EXPORT_PUBLISHED_EVENT_TYPE,
+    GITHUB_PR_OPENED_EVENT_TYPE,
+  ];
+  const promotionArtifactTypes = [
+    PR_CANDIDATE_ARTIFACT_TYPE,
+    PR_EXPORT_ARTIFACT_TYPE,
+    PR_PUBLICATION_ARTIFACT_TYPE,
+    GITHUB_PULL_REQUEST_ARTIFACT_TYPE,
+  ];
+  const planningArtifactCount = planningArtifactTypes.filter((artifactType) =>
+    artifactTypes.has(artifactType)
+  ).length;
+  const promotionArtifactCount = promotionArtifactTypes.filter((artifactType) =>
+    artifactTypes.has(artifactType)
+  ).length;
+  const latestPlanningAt =
+    latestArtifactTimestamp(planningArtifactTypes, artifacts) ??
+    firstRunEventTimestamp([RUN_SUBMITTED_EVENT_TYPE], events) ??
+    runDetail.created_at;
+  const latestExecutionAt = latestTimestamp([
+    latestRunEventTimestamp(taskEventTypes, events),
+    latestTaskTimestamp(runDetail),
+    latestArtifactTimestamp(["agent_task_report", "log", "task_workspace_input"], artifacts),
+  ]);
+  const latestQualityAt = latestTimestamp([
+    latestRunEventTimestamp([RUN_QUALITY_EVALUATED_EVENT_TYPE], events),
+    latestArtifactTimestamp([QUALITY_REPORT_ARTIFACT_TYPE], artifacts),
+  ]);
+  const latestPromotionAt = latestTimestamp([
+    latestRunEventTimestamp(promotionEventTypes, events),
+    latestArtifactTimestamp(promotionArtifactTypes, artifacts),
+  ]);
+  const planningReady = planningArtifactCount === planningArtifactTypes.length;
+  const executionFailed = runDetail.status === "failed" || taskCounts.failed > 0;
+  const executionComplete =
+    runDetail.status === "succeeded" &&
+    taskCounts.total > 0 &&
+    taskCounts.queued === 0 &&
+    taskCounts.running === 0 &&
+    taskCounts.failed === 0;
+  const qualityReady =
+    artifactTypes.has(QUALITY_REPORT_ARTIFACT_TYPE) ||
+    eventTypes.has(RUN_QUALITY_EVALUATED_EVENT_TYPE);
+  const qualityFollowsExecution = qualityReady && timestampAtLeast(latestQualityAt, latestExecutionAt);
+  const githubPrReady =
+    artifactTypes.has(GITHUB_PULL_REQUEST_ARTIFACT_TYPE) ||
+    eventTypes.has(GITHUB_PR_OPENED_EVENT_TYPE);
+  const promotionFollowsQuality =
+    promotionArtifactCount > 0 && timestampAtLeast(latestPromotionAt, latestQualityAt);
+
+  return [
+    {
+      checkpoint: `${planningArtifactCount}/${planningArtifactTypes.length} planning artifacts`,
+      detail:
+        "Backlog, policy, and dispatch artifacts should exist before agent execution is treated as explainable.",
+      kicker: "Planning",
+      timestamp: latestPlanningAt,
+      title: planningReady ? "Planning evidence is ready" : "Planning evidence is incomplete",
+      tone: planningReady ? "success" : "warning",
+    },
+    {
+      checkpoint: `${taskCounts.succeeded}/${taskCounts.total} task(s) succeeded · ${taskCounts.running} running`,
+      detail:
+        "Task events, agent reports, and runtime logs are the freshest read on what the agents actually did.",
+      kicker: "Execution",
+      timestamp: latestExecutionAt,
+      title: executionFailed
+        ? "Execution evidence needs inspection"
+        : executionComplete
+          ? "Execution evidence is complete"
+          : "Execution evidence is still moving",
+      tone: executionFailed ? "error" : executionComplete ? "success" : taskCounts.total ? "warning" : "neutral",
+    },
+    {
+      checkpoint: qualityReady
+        ? qualityFollowsExecution
+          ? "Quality follows latest execution movement"
+          : "Quality may predate latest execution movement"
+        : "No quality report or quality event",
+      detail:
+        "Promotion should use a quality report created after the latest execution-changing event or artifact.",
+      kicker: "Quality",
+      timestamp: latestQualityAt,
+      title: qualityReady
+        ? qualityFollowsExecution
+          ? "Quality evidence is fresh"
+          : "Quality evidence may be stale"
+        : "Quality evidence is missing",
+      tone: qualityReady
+        ? qualityFollowsExecution
+          ? "success"
+          : "warning"
+        : executionComplete
+          ? "warning"
+          : "neutral",
+    },
+    {
+      checkpoint: `${promotionArtifactCount}/${promotionArtifactTypes.length} handoff artifacts`,
+      detail:
+        "The orchestrator prepares the branch and draft PR record; GitHub review remains the human decision point.",
+      kicker: "Handoff",
+      timestamp: latestPromotionAt,
+      title: githubPrReady
+        ? "Draft PR evidence is recorded"
+        : promotionFollowsQuality
+          ? "Handoff evidence follows quality"
+          : promotionArtifactCount > 0
+            ? "Handoff evidence is accumulating"
+            : "Handoff evidence has not started",
+      tone: githubPrReady ? "success" : promotionArtifactCount > 0 ? "warning" : "neutral",
+    },
+  ];
+}
+
+function renderMissionEvidenceFreshnessItem(item) {
+  const tone = normalizePulseTone(item.tone);
+
+  return `
+    <article
+      class="mission-freshness-card mission-freshness-card-${escapeHtml(tone)}"
+      data-mission-freshness-card="true"
+    >
+      <div class="mission-feed-head">
+        <div>
+          <p class="panel-kicker">${escapeHtml(item.kicker)}</p>
+          <h4>${escapeHtml(item.title)}</h4>
+        </div>
+        <span class="badge badge-${escapeHtml(tone)}">${escapeHtml(toneLabel(tone))}</span>
+      </div>
+      <p>${escapeHtml(item.detail)}</p>
+      <div class="mission-feed-meta">
+        <span>${escapeHtml(item.timestamp ? formatTimestamp(item.timestamp) : "not recorded yet")}</span>
+        <span>${escapeHtml(item.checkpoint)}</span>
+      </div>
     </article>
   `;
 }
@@ -8925,6 +9115,16 @@ function timestampByOrder(values, order) {
         : sortableTimestamp(right) - sortableTimestamp(left)
     );
   return sortedValues[0] ?? null;
+}
+
+function timestampAtLeast(candidate, reference) {
+  if (!reference) {
+    return Boolean(candidate);
+  }
+  if (!candidate) {
+    return false;
+  }
+  return sortableTimestamp(candidate) >= sortableTimestamp(reference);
 }
 
 function prCandidateAvailability(runDetail, artifactTypes, actionLabel) {
