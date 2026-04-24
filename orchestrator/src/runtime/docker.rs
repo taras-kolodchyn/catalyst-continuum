@@ -588,46 +588,42 @@ fn wait_with_timeout(
 fn force_remove_timed_out_container(
     container_identity: &DockerContainerIdentity,
 ) -> Option<String> {
-    let inspect_output = Command::new("docker")
-        .args(["container", "inspect", &container_identity.name])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .output();
-
-    match inspect_output {
-        Ok(output) if output.status.success() => {}
-        Ok(_) => return None,
-        Err(error) => {
-            return Some(format!(
-                "failed to inspect timed-out Docker container {}: {error}",
-                container_identity.name
-            ));
-        }
-    }
-
     let remove_output = Command::new("docker")
         .args(["rm", "-f", &container_identity.name])
         .output();
 
     match remove_output {
-        Ok(output) if output.status.success() => None,
-        Ok(output) => {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            if stderr.contains("No such container") {
-                None
-            } else {
-                Some(format!(
-                    "failed to remove timed-out Docker container {}: {}",
-                    container_identity.name,
-                    stderr.trim()
-                ))
-            }
-        }
+        Ok(output) => timed_out_container_removal_error(
+            &container_identity.name,
+            output.status.success(),
+            &output.stderr,
+        ),
         Err(error) => Some(format!(
             "failed to remove timed-out Docker container {}: {error}",
             container_identity.name
         )),
     }
+}
+
+fn timed_out_container_removal_error(
+    container_name: &str,
+    status_success: bool,
+    stderr: &[u8],
+) -> Option<String> {
+    if status_success {
+        return None;
+    }
+
+    let stderr = String::from_utf8_lossy(stderr);
+    if stderr.contains("No such container") {
+        return None;
+    }
+
+    Some(format!(
+        "failed to remove timed-out Docker container {}: {}",
+        container_name,
+        stderr.trim()
+    ))
 }
 
 fn collect_child_output(
@@ -1019,6 +1015,33 @@ mod tests {
             output
                 .stderr
                 .contains("timeout cleanup failed: container cleanup failed")
+        );
+    }
+
+    #[test]
+    fn timed_out_container_cleanup_ignores_absent_container() {
+        let error = super::timed_out_container_removal_error(
+            "continuum-task-deadbeef",
+            false,
+            b"Error response from daemon: No such container: continuum-task-deadbeef\n",
+        );
+
+        assert!(error.is_none());
+    }
+
+    #[test]
+    fn timed_out_container_cleanup_reports_remove_failures() {
+        let error = super::timed_out_container_removal_error(
+            "continuum-task-deadbeef",
+            false,
+            b"Error response from daemon: removal already in progress\n",
+        );
+
+        assert_eq!(
+            error.as_deref(),
+            Some(
+                "failed to remove timed-out Docker container continuum-task-deadbeef: Error response from daemon: removal already in progress"
+            )
         );
     }
 
