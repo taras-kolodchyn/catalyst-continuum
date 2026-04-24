@@ -25,6 +25,7 @@ pub mod list_repository_signals;
 pub mod list_run_events;
 pub mod list_runs;
 pub mod mcp_server;
+mod mcp_tool_definitions;
 pub mod open_github_pr;
 pub mod prepare_agent_task_workspace;
 pub mod promotion_target;
