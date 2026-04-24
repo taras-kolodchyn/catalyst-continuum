@@ -7,6 +7,8 @@ cd "$ROOT_DIR"
 PID_DIR="${CATALYST_LOCAL_HELPER_PID_DIR:-$ROOT_DIR/.continuum/local-helper-pids}"
 HELPER_LABEL_KEY="io.catalyst-continuum.local-helper"
 HELPER_LABEL_VALUE="true"
+DISPOSABLE_LABEL_KEY="io.catalyst-continuum.disposable"
+DISPOSABLE_LABEL_VALUE="true"
 
 log_phase() {
   printf '[cleanup-local-dev] %s\n' "$1"
@@ -96,7 +98,10 @@ cleanup_labeled_containers() {
   local container_name=""
 
   container_ids="$(
-    docker ps -aq --filter "label=${HELPER_LABEL_KEY}=${HELPER_LABEL_VALUE}" 2>/dev/null || true
+    {
+      docker ps -aq --filter "label=${HELPER_LABEL_KEY}=${HELPER_LABEL_VALUE}" 2>/dev/null || true
+      docker ps -aq --filter "label=${DISPOSABLE_LABEL_KEY}=${DISPOSABLE_LABEL_VALUE}" 2>/dev/null || true
+    } | sort -u
   )"
 
   if [ -z "$container_ids" ]; then
@@ -110,7 +115,7 @@ cleanup_labeled_containers() {
     container_name="$(
       docker inspect --format '{{.Name}}' "$container_id" 2>/dev/null | sed 's#^/##'
     )"
-    log_phase "removing disposable helper container ${container_name:-$container_id}"
+    log_phase "removing disposable Catalyst container ${container_name:-$container_id}"
     docker rm -f "$container_id" >/dev/null 2>&1 || true
   done <<EOF
 $container_ids

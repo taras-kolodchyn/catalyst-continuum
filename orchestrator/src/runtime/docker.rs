@@ -67,6 +67,7 @@ impl DockerRuntimeProvider {
         task: &TaskSummary,
         execution_context: &TaskExecutionContext,
         execution_settings: &DockerExecutionSettings,
+        container_identity: &DockerContainerIdentity,
     ) -> Result<Command> {
         let image = task
             .execution
@@ -92,6 +93,11 @@ impl DockerRuntimeProvider {
 
         let mut command = Command::new("docker");
         command.args(["run", "--rm"]);
+        command.args(["--name", &container_identity.name]);
+
+        for label in &container_identity.labels {
+            command.args(["--label", label]);
+        }
 
         if let Some(network_mode) = execution_settings.network_mode.as_deref() {
             command.args(["--network", network_mode]);
@@ -209,9 +215,17 @@ impl RuntimeProvider for DockerRuntimeProvider {
             .context("docker task is missing execution.image")?;
         let working_directory = container_working_directory(task, execution_context);
         let execution_settings = self.execution_settings(task, execution_context, artifact_root)?;
-        let mut command = self.build_command(task, execution_context, &execution_settings)?;
+        let container_identity = DockerContainerIdentity::for_task(task);
+        let mut command = self.build_command(
+            task,
+            execution_context,
+            &execution_settings,
+            &container_identity,
+        )?;
         let timeout = task.execution.timeout_seconds.map(Duration::from_secs);
-        let output = run_command_with_optional_timeout(&mut command, timeout);
+        let timeout_cleanup = || force_remove_timed_out_container(&container_identity);
+        let output =
+            run_command_with_optional_timeout(&mut command, timeout, Some(&timeout_cleanup));
 
         let exit_code = output.exit_code;
         let stdout = output.stdout;
@@ -277,6 +291,8 @@ impl RuntimeProvider for DockerRuntimeProvider {
             rootless_requested: execution_settings.rootless_requested,
             rootless_applied: execution_settings.rootless_applied(),
             rootless_user: execution_settings.rootless_user.clone(),
+            container_name: container_identity.name.clone(),
+            container_labels: container_identity.labels.clone(),
             exit_code,
             timed_out: output.timed_out,
             timeout_seconds: task.execution.timeout_seconds,
@@ -349,6 +365,8 @@ impl RuntimeProvider for DockerRuntimeProvider {
                 "rootless_requested": execution_settings.rootless_requested,
                 "rootless_applied": execution_settings.rootless_applied(),
                 "rootless_user": execution_settings.rootless_user,
+                "container_name": container_identity.name,
+                "container_labels": container_identity.labels,
             }),
         };
 
@@ -383,6 +401,8 @@ struct ExecutionArtifactPayload {
     rootless_requested: bool,
     rootless_applied: bool,
     rootless_user: Option<String>,
+    container_name: String,
+    container_labels: Vec<String>,
     exit_code: i32,
     timed_out: bool,
     timeout_seconds: Option<u64>,
@@ -406,6 +426,30 @@ struct DockerExecutionSettings {
     rootless_user: Option<String>,
     sandbox_profile: Option<String>,
     sandbox_flags: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DockerContainerIdentity {
+    name: String,
+    labels: Vec<String>,
+}
+
+impl DockerContainerIdentity {
+    fn for_task(task: &TaskSummary) -> Self {
+        Self {
+            name: format!(
+                "continuum-task-{}-{}",
+                task.run_id.simple(),
+                task.task_id.simple()
+            ),
+            labels: vec![
+                "io.catalyst-continuum.disposable=true".to_string(),
+                "io.catalyst-continuum.runtime=docker".to_string(),
+                format!("io.catalyst-continuum.run-id={}", task.run_id),
+                format!("io.catalyst-continuum.task-id={}", task.task_id),
+            ],
+        }
+    }
 }
 
 impl DockerExecutionSettings {
@@ -440,6 +484,7 @@ fn sandbox_flags_for_profile(profile: Option<&str>) -> Result<Vec<String>> {
 fn run_command_with_optional_timeout(
     command: &mut Command,
     timeout: Option<Duration>,
+    timeout_cleanup: Option<&dyn Fn() -> Option<String>>,
 ) -> CommandOutput {
     let child = match command.spawn() {
         Ok(child) => child,
@@ -454,12 +499,18 @@ fn run_command_with_optional_timeout(
     };
 
     match timeout {
-        Some(timeout) if timeout > Duration::ZERO => wait_with_timeout(child, timeout),
+        Some(timeout) if timeout > Duration::ZERO => {
+            wait_with_timeout(child, timeout, timeout_cleanup)
+        }
         _ => collect_child_output(child, None, false),
     }
 }
 
-fn wait_with_timeout(mut child: Child, timeout: Duration) -> CommandOutput {
+fn wait_with_timeout(
+    mut child: Child,
+    timeout: Duration,
+    timeout_cleanup: Option<&dyn Fn() -> Option<String>>,
+) -> CommandOutput {
     let started_at = Instant::now();
 
     loop {
@@ -470,7 +521,15 @@ fn wait_with_timeout(mut child: Child, timeout: Duration) -> CommandOutput {
             }
             Ok(None) => {
                 let _ = child.kill();
-                return collect_child_output(child, None, true);
+                let cleanup_error = timeout_cleanup.and_then(|cleanup| cleanup());
+                let mut output = collect_child_output(child, None, true);
+                if let Some(error) = cleanup_error {
+                    append_stderr(
+                        &mut output.stderr,
+                        &format!("timeout cleanup failed: {error}"),
+                    );
+                }
+                return output;
             }
             Err(error) => {
                 return CommandOutput {
@@ -481,6 +540,51 @@ fn wait_with_timeout(mut child: Child, timeout: Duration) -> CommandOutput {
                 };
             }
         }
+    }
+}
+
+fn force_remove_timed_out_container(
+    container_identity: &DockerContainerIdentity,
+) -> Option<String> {
+    let inspect_output = Command::new("docker")
+        .args(["container", "inspect", &container_identity.name])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .output();
+
+    match inspect_output {
+        Ok(output) if output.status.success() => {}
+        Ok(_) => return None,
+        Err(error) => {
+            return Some(format!(
+                "failed to inspect timed-out Docker container {}: {error}",
+                container_identity.name
+            ));
+        }
+    }
+
+    let remove_output = Command::new("docker")
+        .args(["rm", "-f", &container_identity.name])
+        .output();
+
+    match remove_output {
+        Ok(output) if output.status.success() => None,
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if stderr.contains("No such container") {
+                None
+            } else {
+                Some(format!(
+                    "failed to remove timed-out Docker container {}: {}",
+                    container_identity.name,
+                    stderr.trim()
+                ))
+            }
+        }
+        Err(error) => Some(format!(
+            "failed to remove timed-out Docker container {}: {error}",
+            container_identity.name
+        )),
     }
 }
 
@@ -512,6 +616,18 @@ fn collect_child_output(
         stderr,
         timed_out,
     }
+}
+
+fn append_stderr(stderr: &mut String, message: &str) {
+    if stderr.trim().is_empty() {
+        *stderr = message.to_string();
+        return;
+    }
+
+    if !stderr.ends_with('\n') {
+        stderr.push('\n');
+    }
+    stderr.push_str(message);
 }
 
 fn read_pipe_to_string(pipe: Option<impl Read>) -> String {
@@ -576,7 +692,9 @@ fn resolve_rootless_user(
 
 #[cfg(test)]
 mod tests {
-    use super::{DockerRuntimeProvider, run_command_with_optional_timeout};
+    use super::{
+        DockerContainerIdentity, DockerRuntimeProvider, run_command_with_optional_timeout,
+    };
     use crate::models::task::TaskSummary;
     use serde_json::json;
     use std::{
@@ -584,6 +702,7 @@ mod tests {
         fs,
         path::Path,
         process::{Command, Stdio},
+        sync::atomic::{AtomicBool, Ordering},
         time::Duration,
     };
     use uuid::Uuid;
@@ -596,7 +715,8 @@ mod tests {
         command.stdout(Stdio::piped()).stderr(Stdio::piped());
         command.args(["-lc", "printf ok"]);
 
-        let output = run_command_with_optional_timeout(&mut command, Some(Duration::from_secs(1)));
+        let output =
+            run_command_with_optional_timeout(&mut command, Some(Duration::from_secs(1)), None);
 
         assert_eq!(output.exit_code, 0);
         assert_eq!(output.stdout, "ok");
@@ -610,10 +730,36 @@ mod tests {
         command.args(["-lc", "sleep 1"]);
 
         let output =
-            run_command_with_optional_timeout(&mut command, Some(Duration::from_millis(50)));
+            run_command_with_optional_timeout(&mut command, Some(Duration::from_millis(50)), None);
 
         assert!(output.timed_out);
         assert_ne!(output.exit_code, 0);
+    }
+
+    #[test]
+    fn runs_timeout_cleanup_when_timeout_is_exceeded() {
+        let mut command = Command::new("sh");
+        command.stdout(Stdio::piped()).stderr(Stdio::piped());
+        command.args(["-lc", "sleep 1"]);
+
+        let cleanup_called = AtomicBool::new(false);
+        let cleanup = || {
+            cleanup_called.store(true, Ordering::SeqCst);
+            Some("container cleanup failed".to_string())
+        };
+        let output = run_command_with_optional_timeout(
+            &mut command,
+            Some(Duration::from_millis(50)),
+            Some(&cleanup),
+        );
+
+        assert!(output.timed_out);
+        assert!(cleanup_called.load(Ordering::SeqCst));
+        assert!(
+            output
+                .stderr
+                .contains("timeout cleanup failed: container cleanup failed")
+        );
     }
 
     #[test]
@@ -635,18 +781,17 @@ mod tests {
             container_path: "/workspace".to_string(),
             bundle_path: None,
         });
+        let task = sample_task(Some("restricted"));
+        let container_identity = DockerContainerIdentity::for_task(&task);
         let execution_settings = provider
-            .execution_settings(
-                &sample_task(Some("restricted")),
-                &execution_context,
-                &temp_root,
-            )
+            .execution_settings(&task, &execution_context, &temp_root)
             .expect("execution settings should resolve");
         let command = provider
             .build_command(
-                &sample_task(Some("restricted")),
+                &task,
                 &execution_context,
                 &execution_settings,
+                &container_identity,
             )
             .expect("docker command should build");
         let args = command
@@ -654,6 +799,15 @@ mod tests {
             .map(|arg: &OsStr| arg.to_string_lossy().into_owned())
             .collect::<Vec<_>>();
 
+        assert!(args.windows(2).any(
+            |pair| pair[0] == "--name" && pair[1].as_str() == container_identity.name.as_str()
+        ));
+        for label in &container_identity.labels {
+            assert!(
+                args.windows(2)
+                    .any(|pair| pair[0] == "--label" && pair[1].as_str() == label.as_str())
+            );
+        }
         assert!(args.windows(2).any(|pair| pair == ["--network", "bridge"]));
         assert!(args.iter().any(|arg| arg == "--cap-drop=ALL"));
         assert!(
@@ -689,11 +843,18 @@ mod tests {
     fn build_command_omits_optional_runtime_flags_when_disabled() {
         let provider = DockerRuntimeProvider::default();
         let execution_context = TaskExecutionContext::default();
+        let task = sample_task(None);
+        let container_identity = DockerContainerIdentity::for_task(&task);
         let execution_settings = provider
-            .execution_settings(&sample_task(None), &execution_context, Path::new("."))
+            .execution_settings(&task, &execution_context, Path::new("."))
             .expect("execution settings should resolve");
         let command = provider
-            .build_command(&sample_task(None), &execution_context, &execution_settings)
+            .build_command(
+                &task,
+                &execution_context,
+                &execution_settings,
+                &container_identity,
+            )
             .expect("docker command should build");
         let args = command
             .get_args()
