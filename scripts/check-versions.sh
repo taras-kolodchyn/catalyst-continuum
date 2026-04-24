@@ -47,6 +47,16 @@ check_many() {
   done
 }
 
+check_file_contains() {
+  local label="$1"
+  local file="$2"
+  local expected="$3"
+
+  if ! grep -Fq "$expected" "$file"; then
+    report_mismatch "$label" "$expected" "missing from $file"
+  fi
+}
+
 rust_toolchain="$(sed -nE 's/^channel = "(.+)"$/\1/p' rust-toolchain.toml)"
 workspace_rust_version="$(sed -nE 's/^rust-version = "(.+)"$/\1/p' Cargo.toml)"
 declared_rust_image_digest="$(sed -nE 's/^RUST_IMAGE_DIGEST=(.+)$/\1/p' versions.env)"
@@ -229,6 +239,36 @@ check_many \
   "orchestrator/src/planning/tasks.rs busybox references" \
   "busybox:${BUSYBOX_VERSION}@${BUSYBOX_IMAGE_DIGEST}" \
   "${planning_busybox_images[@]}"
+
+check_file_contains "VERSIONS.md Rust toolchain pin" VERSIONS.md "Rust toolchain: \`${RUST_VERSION}\`"
+check_file_contains "VERSIONS.md actions/checkout pin" VERSIONS.md "\`actions/checkout\`: commit \`${ACTIONS_CHECKOUT_REF}\`"
+check_file_contains "VERSIONS.md rust-toolchain action pin" VERSIONS.md "\`dtolnay/rust-toolchain\`: commit \`${RUST_TOOLCHAIN_ACTION_REF}\`"
+check_file_contains "VERSIONS.md rust-cache action pin" VERSIONS.md "\`Swatinem/rust-cache\`: commit \`${RUST_CACHE_ACTION_REF}\`"
+check_file_contains "VERSIONS.md upload-artifact action pin" VERSIONS.md "\`actions/upload-artifact\`: commit \`${UPLOAD_ARTIFACT_ACTION_REF}\`"
+check_file_contains "VERSIONS.md attest action pin" VERSIONS.md "\`actions/attest\`: commit \`${ATTEST_ACTION_REF}\`"
+check_file_contains "VERSIONS.md PostgreSQL image pin" VERSIONS.md "postgres:${POSTGRES_VERSION}@${POSTGRES_IMAGE_DIGEST}"
+check_file_contains "VERSIONS.md Redis image pin" VERSIONS.md "redis:${REDIS_VERSION}@${REDIS_IMAGE_DIGEST}"
+check_file_contains "VERSIONS.md OpenTelemetry Collector image pin" VERSIONS.md "otel/opentelemetry-collector-contrib:${OTEL_COLLECTOR_VERSION}@${OTEL_COLLECTOR_IMAGE_DIGEST}"
+check_file_contains "VERSIONS.md Loki image pin" VERSIONS.md "grafana/loki:${LOKI_VERSION}@${LOKI_IMAGE_DIGEST}"
+check_file_contains "VERSIONS.md Tempo image pin" VERSIONS.md "grafana/tempo:${TEMPO_VERSION}@${TEMPO_IMAGE_DIGEST}"
+check_file_contains "VERSIONS.md Prometheus image pin" VERSIONS.md "prom/prometheus:${PROMETHEUS_VERSION}@${PROMETHEUS_IMAGE_DIGEST}"
+check_file_contains "VERSIONS.md Grafana image pin" VERSIONS.md "grafana/grafana:${GRAFANA_VERSION}@${GRAFANA_IMAGE_DIGEST}"
+check_file_contains "VERSIONS.md LiteLLM image pin" VERSIONS.md "ghcr.io/berriai/litellm:${LITELLM_VERSION}@${LITELLM_IMAGE_DIGEST}"
+check_file_contains "VERSIONS.md orchestrator image tag pin" VERSIONS.md "Orchestrator local image tag: \`${ORCHESTRATOR_IMAGE_TAG}\`"
+check_file_contains "VERSIONS.md Rust base image pin" VERSIONS.md "rust:${RUST_IMAGE_TAG}@${RUST_IMAGE_DIGEST}"
+check_file_contains "VERSIONS.md pack execution image pin" VERSIONS.md "busybox:${BUSYBOX_VERSION}@${BUSYBOX_IMAGE_DIGEST}"
+check_file_contains "VERSIONS.md ShellCheck image pin" VERSIONS.md "$SHELLCHECK_IMAGE"
+check_file_contains "VERSIONS.md Syft image pin" VERSIONS.md "$SYFT_IMAGE"
+check_file_contains "VERSIONS.md act runner image pin" VERSIONS.md "$ACT_RUNNER_IMAGE"
+check_file_contains "VERSIONS.md act architecture pin" VERSIONS.md "Local \`act\` container architecture: \`${ACT_CONTAINER_ARCHITECTURE}\`"
+check_file_contains "VERSIONS.md Everything reference server pin" VERSIONS.md "@modelcontextprotocol/server-everything@${MCP_EVERYTHING_NPM_VERSION}"
+check_file_contains "VERSIONS.md Fetch server pin" VERSIONS.md "mcp-server-fetch==${MCP_FETCH_PYPI_VERSION}"
+check_file_contains "VERSIONS.md Fetch wheel hash pin" VERSIONS.md "sha256:${MCP_FETCH_WHEEL_SHA256}"
+check_file_contains "VERSIONS.md MCP inspector pin" VERSIONS.md "@modelcontextprotocol/inspector@${MCP_INSPECTOR_NPM_VERSION}"
+check_file_contains "VERSIONS.md Playwright pin" VERSIONS.md "playwright@${PLAYWRIGHT_NPM_VERSION}"
+check_file_contains "VERSIONS.md OpenHands CLI pin" VERSIONS.md "openhands==${OPENHANDS_CLI_VERSION}"
+check_file_contains "VERSIONS.md OpenHands Python pin" VERSIONS.md "OpenHands uv Python runtime: \`${OPENHANDS_UV_PYTHON_VERSION}\`"
+check_file_contains "VERSIONS.md OpenHands agent server pin" VERSIONS.md "${OPENHANDS_AGENT_SERVER_REPOSITORY}:${OPENHANDS_AGENT_SERVER_TAG}"
 
 expected_smoke_postgres="POSTGRES_IMAGE=\"\${SMOKE_POSTGRES_IMAGE:-postgres:\${POSTGRES_VERSION}@\${POSTGRES_IMAGE_DIGEST}}\""
 if ! grep -Fq "$expected_smoke_postgres" scripts/smoke-mvp.sh; then

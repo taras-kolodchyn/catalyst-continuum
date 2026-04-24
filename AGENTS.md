@@ -46,7 +46,9 @@ When the change touches agent integrations or MCP behavior, also review:
 
 - Keep changes focused and coherent. Do not mix unrelated refactors into feature or bug-fix work.
 - Preserve version pinning. Do not introduce floating versions, unpinned container tags, or
-  unreviewed dependency drift.
+  unreviewed dependency drift. When a pin changes, update `versions.env`, `VERSIONS.md`, and the
+  matching `./scripts/check-versions.sh` coverage together so docs cannot silently drift from the
+  enforced version contract.
 - Keep generated contracts aligned. If you change pack behavior, update the relevant pack
   descriptors, examples, smoke coverage, and documentation in the same change.
 - Keep deployment scaffolds aligned. If you change runtime-provider config or deployment

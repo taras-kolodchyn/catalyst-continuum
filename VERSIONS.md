@@ -128,6 +128,25 @@ directly are validated by `./scripts/check-versions.sh` in CI.
   - Declared in [versions.env](versions.env)
   - Used by [scripts/operator-ui-smoke.sh](scripts/operator-ui-smoke.sh)
 
+### OpenHands Launcher Tooling
+
+- OpenHands CLI package: `openhands==1.14.0`
+
+  - Declared in [versions.env](versions.env)
+  - Used by [scripts/openhands-launch.sh](scripts/openhands-launch.sh)
+
+- OpenHands uv Python runtime: `3.12`
+
+  - Declared in [versions.env](versions.env)
+  - Used by [scripts/openhands-launch.sh](scripts/openhands-launch.sh)
+
+- OpenHands Docker agent server:
+  `ghcr.io/openhands/agent-server:1.15.0-python`
+
+  - Declared in [versions.env](versions.env)
+  - Used by the Docker-sandbox OpenHands launch profile rendered by
+    [scripts/openhands-launch.sh](scripts/openhands-launch.sh)
+
 ## Update Policy
 
 - Cargo dependencies are updated through Dependabot PRs and validated by CI.
@@ -141,6 +160,8 @@ directly are validated by `./scripts/check-versions.sh` in CI.
   pinned by tag and digest in the same way as application dependencies.
 - Browser-level smoke tooling such as Playwright is pinned in [versions.env](versions.env) even
   though its generated local runner lives under ignored `.continuum/` state.
+- OpenHands launcher tooling is pinned in [versions.env](versions.env) and mirrored here so the
+  host-process and Docker-sandbox launch profiles remain reviewable.
 - Local `act` runner image and architecture should be updated together with [`.actrc`](.actrc) and
   validated by `./scripts/check-versions.sh`.
 - Host-managed local model backends such as MLX-LM on macOS Apple Silicon or Ollama on other
