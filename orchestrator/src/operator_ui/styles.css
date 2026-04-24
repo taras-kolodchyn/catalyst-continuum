@@ -3,11 +3,14 @@
   --bg-bottom: #ebe3d4;
   --surface: rgba(255, 252, 246, 0.88);
   --surface-strong: rgba(255, 250, 240, 0.96);
+  --paper: #fffaf0;
   --border: rgba(40, 52, 46, 0.14);
   --ink: #18231d;
   --muted: #5e685f;
+  --sage: #6f7d72;
   --spruce: #174f43;
   --spruce-soft: #e2f1eb;
+  --amber: #d99a2b;
   --ember: #b45f2f;
   --ember-soft: #f8eadf;
   --brick: #8d3030;

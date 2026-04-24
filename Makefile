@@ -29,14 +29,14 @@ help: ## Show available Make targets.
 	@awk 'BEGIN {FS = ":.*##"; printf "Catalyst Continuum targets:\n\n"} /^[a-zA-Z0-9_.-]+:.*##/ {printf "  %-38s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 .PHONY: check
-check: doctor versions repository-targets-smoke template-repo-check lint-shell rust ## Run the standard fast local validation set.
+check: doctor versions repository-targets-smoke template-repo-check lint-shell lint-ui-assets rust ## Run the standard fast local validation set.
 
 .PHONY: doctor
 doctor: ## Run fast local readiness checks for tools, config, and optional live services.
 	./scripts/doctor.sh $(DOCTOR_ARGS)
 
 .PHONY: ci
-ci: versions lint-shell repository-targets-smoke template-repo-check rust compose eval smoke ## Run the broad local validation set.
+ci: versions lint-shell lint-ui-assets repository-targets-smoke template-repo-check rust compose eval smoke ## Run the broad local validation set.
 
 .PHONY: ci-full
 ci-full: ci sbom ## Run broad local validation plus SBOM generation.
@@ -51,6 +51,10 @@ versions: ## Check pinned versions, workflow pins, and image refs.
 .PHONY: lint-shell
 lint-shell: ## Lint shell scripts with shellcheck or the pinned shellcheck image.
 	./scripts/lint-shell.sh
+
+.PHONY: lint-ui-assets
+lint-ui-assets: ## Lint static operator UI assets for JS syntax and CSS token drift.
+	./scripts/lint-operator-ui-assets.sh
 
 .PHONY: rust
 rust: ## Run Rust fmt, clippy, build, tests, and MCP smoke checks.

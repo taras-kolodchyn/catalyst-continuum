@@ -54,6 +54,7 @@ make doctor
 make check
 make ci
 make release-check
+make lint-ui-assets
 make ui
 make ui-smoke
 make cleanup
@@ -65,6 +66,7 @@ Important direct scripts:
 
 ```bash
 ./scripts/check-versions.sh
+./scripts/lint-operator-ui-assets.sh
 ./scripts/ci-rust.sh
 ./scripts/ci-compose.sh
 ./scripts/ci-smoke.sh

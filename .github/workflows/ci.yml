@@ -36,6 +36,9 @@ jobs:
       - name: Lint shell scripts
         run: ./scripts/lint-shell.sh
 
+      - name: Lint operator UI assets
+        run: ./scripts/lint-operator-ui-assets.sh
+
       - name: Validate repository-target bootstrap smoke
         run: ./scripts/repository-target-bootstrap-smoke.sh
 

@@ -149,9 +149,9 @@ Before delivering, run the smallest meaningful validation set that proves the ch
 repository-standard checks:
 
 - Prefer the checked-in `Makefile` for common local entrypoints such as `make check`, `make ci`,
-  `make release-check`, `make ui`, `make cleanup`, and `make act-rust`, but keep the underlying
-  `./scripts/*` helpers as the source of truth. When a standard workflow changes, update the script,
-  Make target, and docs together.
+  `make release-check`, `make lint-ui-assets`, `make ui`, `make cleanup`, and `make act-rust`, but
+  keep the underlying `./scripts/*` helpers as the source of truth. When a standard workflow
+  changes, update the script, Make target, and docs together.
 - `./scripts/check-versions.sh` for version pins, workflow pins, image refs, and shared version
   metadata
 - `./scripts/doctor.sh` for fast local prerequisite, config, repository-target policy, and optional
@@ -165,6 +165,8 @@ repository-standard checks:
 - `./scripts/check-template-repo.sh` for `template-repo/` scaffold alignment whenever
   private-instance env/config expectations change
 - `./scripts/lint-shell.sh` for shell scripts and workflow helper changes
+- `./scripts/lint-operator-ui-assets.sh` for operator UI JavaScript syntax, HTML asset wiring, and
+  CSS design-token drift
 - `./scripts/ci-rust.sh` for Rust logic, CLI commands, HTTP routes, MCP handlers, storage, and tests
 - `./scripts/ci-compose.sh` for compose or deployment changes
 - `./scripts/compose-runtime-check.sh` for container image layout, shared-volume wiring, or compose
