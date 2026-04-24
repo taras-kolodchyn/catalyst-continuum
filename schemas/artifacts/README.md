@@ -12,6 +12,7 @@ Current published set:
 - `policy-report.schema.yaml`
 - `quality-report.schema.yaml`
 - `agent-task-report.schema.yaml`
+- `execution-log.schema.yaml`
 - `pr-candidate.schema.yaml`
 - `pr-export.schema.yaml`
 

@@ -830,8 +830,9 @@ fn resolve_rootless_user(
 #[cfg(test)]
 mod tests {
     use super::{
-        DockerContainerIdentity, DockerRuntimeProvider, FAILURE_REASON_STDERR_PREVIEW_CHARS,
-        MAX_CAPTURED_STREAM_BYTES, docker_failure_reason, run_command_with_optional_timeout,
+        DockerContainerIdentity, DockerRuntimeProvider, ExecutionArtifactPayload,
+        FAILURE_REASON_STDERR_PREVIEW_CHARS, MAX_CAPTURED_STREAM_BYTES, docker_failure_reason,
+        run_command_with_optional_timeout,
     };
     use crate::models::task::TaskSummary;
     use serde_json::json;
@@ -846,6 +847,58 @@ mod tests {
     use uuid::Uuid;
 
     use crate::runtime::{TaskExecutionContext, TaskWorkspace};
+
+    #[test]
+    fn execution_artifact_payload_matches_published_schema() {
+        let run_id = Uuid::new_v4();
+        let task_id = Uuid::new_v4();
+        let payload = ExecutionArtifactPayload {
+            schema_version: "v0.1".to_string(),
+            artifact_type: "log".to_string(),
+            provider: "docker".to_string(),
+            run_id,
+            task_id,
+            task_kind: "plan".to_string(),
+            task_title: "Draft architecture".to_string(),
+            image: "busybox:1.37.0@sha256:1487d0af5f52b4ba31c7e465126ee2123fe3f2305d638e7827681e7cf6c83d5e".to_string(),
+            working_directory: Some("/workspace".to_string()),
+            workspace_path: Some("/workspace".to_string()),
+            workspace_source_artifact_id: Some(Uuid::new_v4()),
+            workspace_input_artifact_id: Some(Uuid::new_v4()),
+            workspace_bundle_path: Some("/tmp/catalyst/workspace.tar".to_string()),
+            sandbox_profile: Some("restricted".to_string()),
+            sandbox_flags: vec![
+                "--cap-drop=ALL".to_string(),
+                "--security-opt=no-new-privileges".to_string(),
+            ],
+            network_mode: Some("none".to_string()),
+            rootless_requested: true,
+            rootless_applied: true,
+            rootless_user: Some("1000:1000".to_string()),
+            container_name: format!("catalyst-task-{run_id}-{task_id}"),
+            container_labels: vec![
+                "catalyst.continuum.managed=true".to_string(),
+                format!("catalyst.continuum.run_id={run_id}"),
+                format!("catalyst.continuum.task_id={task_id}"),
+            ],
+            exit_code: 0,
+            timed_out: false,
+            timeout_seconds: Some(120),
+            status: "succeeded".to_string(),
+            stdout_bytes: 2,
+            stderr_bytes: 0,
+            stdout_truncated: false,
+            stderr_truncated: false,
+            stdout: "ok".to_string(),
+            stderr: String::new(),
+        };
+
+        crate::test_support::assert_serialized_matches_schema(
+            "schemas/artifacts/execution-log.schema.yaml",
+            "docker execution log artifact",
+            &payload,
+        );
+    }
 
     #[test]
     fn collects_output_when_command_finishes_within_timeout() {
