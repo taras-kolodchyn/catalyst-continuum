@@ -2019,10 +2019,10 @@ function renderOperatorPulse() {
   }
 
   const cards = [
+    buildOperatorPulseFocusCard(),
     liveTransportPulseCard(),
     runEstatePulseCard(),
     automationBacklogPulseCard(),
-    buildOperatorPulseFocusCard(),
   ];
   const feedItems = buildOperatorPulseFeedItems();
 
@@ -2051,6 +2051,7 @@ function liveTransportPulseCard() {
 
   if (state.realtimeConnected) {
     return {
+      key: "transport",
       tone: "success",
       badge: "Live",
       kicker: "Transport",
@@ -2062,6 +2063,7 @@ function liveTransportPulseCard() {
 
   if (state.realtimeConnecting) {
     return {
+      key: "transport",
       tone: "warning",
       badge: "Reconnect",
       kicker: "Transport",
@@ -2073,6 +2075,7 @@ function liveTransportPulseCard() {
 
   if (supportsRealtimeUpdates()) {
     return {
+      key: "transport",
       tone: state.lastHttpRefreshAt ? "warning" : "neutral",
       badge: state.lastHttpRefreshAt ? "Fallback" : "Waiting",
       kicker: "Transport",
@@ -2087,6 +2090,7 @@ function liveTransportPulseCard() {
   }
 
   return {
+    key: "transport",
     tone: "neutral",
     badge: "HTTP",
     kicker: "Transport",
@@ -2104,6 +2108,7 @@ function runEstatePulseCard() {
 
   if (!counts.total) {
     return {
+      key: "run-estate",
       tone: "neutral",
       badge: "Idle",
       kicker: "Run estate",
@@ -2117,6 +2122,7 @@ function runEstatePulseCard() {
   }
 
   return {
+    key: "run-estate",
     tone: inFlightCount > 0 ? "warning" : counts.failed > 0 ? "error" : "success",
     badge: `${counts.total} loaded`,
     kicker: "Run estate",
@@ -2144,6 +2150,7 @@ function automationBacklogPulseCard() {
 
   if (!automationCount && !deliveryCount) {
     return {
+      key: "automation",
       tone: "neutral",
       badge: "Quiet",
       kicker: "Automation",
@@ -2157,6 +2164,7 @@ function automationBacklogPulseCard() {
   }
 
   return {
+    key: "automation",
     tone: automationCount > 0 ? "warning" : "success",
     badge: `${automationCount} pending`,
     kicker: "Automation",
@@ -2179,6 +2187,8 @@ function buildOperatorPulseFocusCard() {
   if (state.selectedRunDetail) {
     const guide = buildRunGuide(state.selectedRunDetail, state.selectedRunEvents);
     return {
+      key: "current-focus",
+      emphasis: true,
       tone: normalizePulseTone(guide.badgeTone),
       badge: guide.badgeLabel,
       kicker: "Current focus",
@@ -2194,6 +2204,8 @@ function buildOperatorPulseFocusCard() {
   const activeRun = state.latestRuns.find((run) => run.status === "executing");
   if (activeRun) {
     return {
+      key: "current-focus",
+      emphasis: true,
       tone: "warning",
       badge: "Running",
       kicker: "Current focus",
@@ -2209,6 +2221,8 @@ function buildOperatorPulseFocusCard() {
   const queuedRun = state.latestRuns.find((run) => run.status === "queued");
   if (queuedRun) {
     return {
+      key: "current-focus",
+      emphasis: true,
       tone: "warning",
       badge: "Queued",
       kicker: "Current focus",
@@ -2223,6 +2237,8 @@ function buildOperatorPulseFocusCard() {
 
   if (state.latestWebhookActions.length || state.latestRepositorySignals.length) {
     return {
+      key: "current-focus",
+      emphasis: true,
       tone: "warning",
       badge: "Automation",
       kicker: "Current focus",
@@ -2236,6 +2252,8 @@ function buildOperatorPulseFocusCard() {
   }
 
   return {
+    key: "current-focus",
+    emphasis: true,
     tone: "neutral",
     badge: "Start",
     kicker: "Current focus",
@@ -2249,8 +2267,16 @@ function buildOperatorPulseFocusCard() {
 }
 
 function renderPulseCard(card) {
+  const classes = [
+    "pulse-card",
+    `pulse-card-${card.tone}`,
+    card.emphasis ? "pulse-card-emphasis" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return `
-    <article class="pulse-card pulse-card-${escapeHtml(card.tone)}">
+    <article class="${escapeHtml(classes)}" data-pulse-card="${escapeHtml(card.key)}">
       <div class="pulse-card-head">
         <p class="panel-kicker">${escapeHtml(card.kicker)}</p>
         <span class="badge badge-${escapeHtml(card.tone)}">${escapeHtml(card.badge)}</span>

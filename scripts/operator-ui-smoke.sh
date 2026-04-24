@@ -343,6 +343,10 @@ async function main() {
       heroHeading: document.querySelector("h1")?.textContent?.trim() || "",
       firstRunPlaybookHeading: text("#first-run-playbook h2"),
       firstRunPlaybookStepCount: count("#first-run-playbook li"),
+      currentFocusCardCount: count('[data-pulse-card="current-focus"]'),
+      currentFocusHeading: text('[data-pulse-card="current-focus"] h3'),
+      currentFocusActionHref:
+        document.querySelector('[data-pulse-card="current-focus"] a')?.getAttribute("href") || "",
       lastRefresh: text("#lastRefresh"),
       selectedRunLabel: text("#selectedRunLabel"),
       runCardCount: count("#runsList [data-run-id]"),
@@ -407,6 +411,15 @@ async function main() {
   }
   if (summary.firstRunPlaybookStepCount !== 4) {
     problems.push(`expected 4 first-run playbook steps, got ${summary.firstRunPlaybookStepCount}`);
+  }
+  if (summary.currentFocusCardCount !== 1) {
+    problems.push(`expected one current-focus pulse card, got ${summary.currentFocusCardCount}`);
+  }
+  if (!summary.currentFocusHeading) {
+    problems.push("current-focus pulse card heading is missing");
+  }
+  if (summary.currentFocusActionHref !== "#run-detail") {
+    problems.push(`current-focus pulse action should target #run-detail, got ${summary.currentFocusActionHref}`);
   }
   if (!summary.lastRefresh.includes("WebSocket stream active")) {
     problems.push(`websocket not active: ${summary.lastRefresh}`);

@@ -383,6 +383,26 @@ textarea,
   font-size: 1.08rem;
 }
 
+.pulse-card-emphasis {
+  grid-column: 1 / -1;
+  border-color: rgba(23, 79, 67, 0.18);
+  background:
+    linear-gradient(135deg, rgba(226, 241, 235, 0.9), rgba(255, 251, 244, 0.9)),
+    radial-gradient(circle at top right, rgba(23, 79, 67, 0.16), transparent 42%);
+  box-shadow:
+    inset 0 0 0 1px rgba(23, 79, 67, 0.08),
+    0 20px 38px rgba(24, 35, 29, 0.09);
+}
+
+.pulse-card-emphasis h3 {
+  font-size: clamp(1.25rem, 2vw, 1.6rem);
+}
+
+.pulse-card-emphasis > p:not(.microcopy) {
+  max-width: 74ch;
+  font-size: 0.96rem;
+}
+
 .pulse-feed-shell {
   display: flex;
   flex-direction: column;
