@@ -29,14 +29,14 @@ help: ## Show available Make targets.
 	@awk 'BEGIN {FS = ":.*##"; printf "Catalyst Continuum targets:\n\n"} /^[a-zA-Z0-9_.-]+:.*##/ {printf "  %-38s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 .PHONY: check
-check: doctor versions repository-targets-smoke template-repo-check lint-shell lint-ui-assets rust ## Run the standard fast local validation set.
+check: doctor versions markdown-links repository-targets-smoke template-repo-check lint-shell lint-ui-assets rust ## Run the standard fast local validation set.
 
 .PHONY: doctor
 doctor: ## Run fast local readiness checks for tools, config, and optional live services.
 	./scripts/doctor.sh $(DOCTOR_ARGS)
 
 .PHONY: ci
-ci: versions lint-shell lint-ui-assets repository-targets-smoke template-repo-check rust compose eval smoke ## Run the broad local validation set.
+ci: versions markdown-links lint-shell lint-ui-assets repository-targets-smoke template-repo-check rust compose eval smoke ## Run the broad local validation set.
 
 .PHONY: ci-full
 ci-full: ci sbom ## Run broad local validation plus SBOM generation.
@@ -47,6 +47,10 @@ release-check: doctor ci ui-smoke ui-smoke-repository-policy ui-smoke-repository
 .PHONY: versions
 versions: ## Check pinned versions, workflow pins, and image refs.
 	./scripts/check-versions.sh
+
+.PHONY: markdown-links
+markdown-links: ## Check local Markdown links and reject absolute local paths.
+	./scripts/check-markdown-links.sh
 
 .PHONY: lint-shell
 lint-shell: ## Lint shell scripts with shellcheck or the pinned shellcheck image.

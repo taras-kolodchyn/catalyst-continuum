@@ -156,6 +156,8 @@ repository-standard checks:
   changes, update the script, Make target, and docs together.
 - `./scripts/check-versions.sh` for version pins, workflow pins, image refs, and shared version
   metadata
+- `./scripts/check-markdown-links.sh` for local Markdown links and to reject machine-specific
+  absolute local paths in docs
 - `./scripts/doctor.sh` for fast local prerequisite, config, repository-target policy, and optional
   live-service readiness checks
 - `./scripts/repository-target-bootstrap-smoke.sh` for repository-target bootstrap regressions, plus

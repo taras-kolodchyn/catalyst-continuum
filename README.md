@@ -54,6 +54,7 @@ make doctor
 make check
 make ci
 make release-check
+make markdown-links
 make lint-ui-assets
 make ui
 make ui-smoke
@@ -66,6 +67,7 @@ Important direct scripts:
 
 ```bash
 ./scripts/check-versions.sh
+./scripts/check-markdown-links.sh
 ./scripts/lint-operator-ui-assets.sh
 ./scripts/ci-rust.sh
 ./scripts/ci-compose.sh

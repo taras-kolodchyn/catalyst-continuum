@@ -36,6 +36,9 @@ jobs:
       - name: Lint shell scripts
         run: ./scripts/lint-shell.sh
 
+      - name: Check Markdown links
+        run: ./scripts/check-markdown-links.sh
+
       - name: Lint operator UI assets
         run: ./scripts/lint-operator-ui-assets.sh
 
