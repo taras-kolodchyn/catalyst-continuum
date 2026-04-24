@@ -358,6 +358,13 @@ async function main() {
       currentFocusHeading: text('[data-pulse-card="current-focus"] h3'),
       currentFocusActionHref:
         document.querySelector('[data-pulse-card="current-focus"] a')?.getAttribute("href") || "",
+      operatorDockCardCount: count("[data-operator-dock-card]"),
+      operatorDockPosition:
+        window.getComputedStyle(document.querySelector("#operator-dock")).position,
+      operatorDockIncludesSelectedRun:
+        document.body.textContent.includes("Selected run"),
+      operatorDockIncludesNextStep:
+        document.body.textContent.includes("Next step"),
       missionContextCardCount: count('[data-mission-context-card="true"]'),
       missionContextIncludesApprovalBoundary:
         document.body.textContent.includes("GitHub remains the human approval boundary"),
@@ -460,6 +467,18 @@ async function main() {
   }
   if (summary.currentFocusActionHref !== "#run-detail") {
     problems.push(`current-focus pulse action should target #run-detail, got ${summary.currentFocusActionHref}`);
+  }
+  if (summary.operatorDockCardCount !== 4) {
+    problems.push(`expected four operator dock cards, got ${summary.operatorDockCardCount}`);
+  }
+  if (summary.operatorDockPosition !== "sticky") {
+    problems.push(`operator dock should stay sticky on desktop, got ${summary.operatorDockPosition}`);
+  }
+  if (!summary.operatorDockIncludesSelectedRun) {
+    problems.push("operator dock should keep selected-run context visible");
+  }
+  if (!summary.operatorDockIncludesNextStep) {
+    problems.push("operator dock should keep the next operator step visible");
   }
   if (summary.missionContextCardCount !== 4) {
     problems.push(`expected four mission context cards, got ${summary.missionContextCardCount}`);

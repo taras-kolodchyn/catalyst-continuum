@@ -318,6 +318,79 @@ textarea,
   overflow-wrap: anywhere;
 }
 
+.operator-dock {
+  position: sticky;
+  top: 12px;
+  z-index: 20;
+  margin: 0 0 18px;
+  border: 1px solid rgba(24, 35, 29, 0.12);
+  border-radius: var(--radius-xl);
+  background:
+    linear-gradient(135deg, rgba(255, 252, 246, 0.92), rgba(240, 232, 216, 0.78)),
+    radial-gradient(circle at 9% 50%, rgba(23, 79, 67, 0.12), transparent 28%);
+  box-shadow: 0 18px 40px rgba(22, 33, 28, 0.12);
+  backdrop-filter: blur(20px);
+  padding: 10px;
+}
+
+.operator-dock-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.operator-dock-card {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid rgba(24, 35, 29, 0.09);
+  border-radius: var(--radius-lg);
+  background: rgba(255, 255, 255, 0.66);
+  padding: 12px;
+}
+
+.operator-dock-card-success {
+  background:
+    linear-gradient(135deg, rgba(226, 241, 235, 0.86), rgba(255, 255, 255, 0.66));
+}
+
+.operator-dock-card-warning {
+  background:
+    linear-gradient(135deg, rgba(255, 234, 209, 0.8), rgba(255, 255, 255, 0.66));
+}
+
+.operator-dock-card-error {
+  background:
+    linear-gradient(135deg, rgba(255, 220, 214, 0.8), rgba(255, 255, 255, 0.66));
+}
+
+.operator-dock-card-copy {
+  min-width: 0;
+}
+
+.operator-dock-card h3 {
+  margin: 5px 0 4px;
+  overflow: hidden;
+  font-family: var(--serif);
+  font-size: 0.98rem;
+  letter-spacing: -0.02em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.operator-dock-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.operator-dock-card .button {
+  white-space: nowrap;
+}
+
 .status-overview {
   margin-bottom: 18px;
 }
@@ -2746,6 +2819,10 @@ textarea {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .operator-dock-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .guide-grid,
   .guide-stage-list {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2780,8 +2857,21 @@ textarea {
     align-items: stretch;
   }
 
+  .operator-dock {
+    position: static;
+  }
+
+  .operator-dock-card {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .operator-dock-card .button {
+    width: 100%;
+  }
+
   .status-grid,
   .dashboard-grid,
+  .operator-dock-grid,
   .mission-context-ribbon,
   .mission-stage-strip,
   .mission-mini-grid,

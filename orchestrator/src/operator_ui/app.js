@@ -247,6 +247,7 @@ function cacheElements() {
     "missionTabGrafanaBadge",
     "missionTabHint",
     "missionTabLitellmBadge",
+    "operatorDockSummary",
     "packChips",
     "pulseFeed",
     "pulseSummary",
@@ -359,6 +360,17 @@ function bindEvents() {
     if (logButton) {
       setSelectedAgentLog(logButton.dataset.agentLogArtifactId);
     }
+  });
+
+  elements.operatorDockSummary.addEventListener("click", (event) => {
+    const actionButton = event.target.closest("[data-run-action]");
+    if (!actionButton) {
+      return;
+    }
+
+    executeRunAction(actionButton.dataset.runAction).catch((error) => {
+      console.error("operator dock run action failed", error);
+    });
   });
 
   elements.autoRefreshToggle.addEventListener("change", () => {
@@ -2019,10 +2031,221 @@ function renderStatusGrid(payload) {
   renderMissionControl();
 }
 
+function renderOperatorDock() {
+  if (!elements.operatorDockSummary) {
+    return;
+  }
+
+  const cards = buildOperatorDockCards();
+  setRenderedHtml(
+    elements.operatorDockSummary,
+    cards.map(renderOperatorDockCard).join(""),
+    { markUpdated: false }
+  );
+}
+
+function buildOperatorDockCards() {
+  if (state.selectedRunDetail) {
+    return buildSelectedRunDockCards(state.selectedRunDetail);
+  }
+
+  const focusCard = buildOperatorPulseFocusCard();
+  const transportCard = liveTransportPulseCard();
+  const estateCard = runEstatePulseCard();
+  const automationCard = automationBacklogPulseCard();
+
+  return [
+    operatorDockCard({
+      actionHref: focusCard.actionHref,
+      actionLabel: focusCard.actionLabel,
+      detail: focusCard.detail,
+      key: "start",
+      kicker: focusCard.kicker,
+      title: focusCard.title,
+      tone: focusCard.tone,
+    }),
+    operatorDockCard({
+      detail: transportCard.summary,
+      key: "transport",
+      kicker: transportCard.kicker,
+      title: transportCard.title,
+      tone: transportCard.tone,
+    }),
+    operatorDockCard({
+      actionHref: estateCard.actionHref,
+      actionLabel: estateCard.actionLabel,
+      detail: estateCard.summary,
+      key: "run-estate",
+      kicker: estateCard.kicker,
+      title: estateCard.title,
+      tone: estateCard.tone,
+    }),
+    operatorDockCard({
+      actionHref: automationCard.actionHref,
+      actionLabel: automationCard.actionLabel,
+      detail: automationCard.summary,
+      key: "automation",
+      kicker: automationCard.kicker,
+      title: automationCard.title,
+      tone: automationCard.tone,
+    }),
+  ];
+}
+
+function buildSelectedRunDockCards(runDetail) {
+  const guide = buildRunGuide(runDetail, state.selectedRunEvents);
+  const taskCounts = normalizedTaskCounts(runDetail.task_counts);
+  const agentCount = runAgents(runDetail).length;
+  const handoffItems = buildReviewHandoffItems(runDetail);
+  const handoffReadyCount = handoffItems.filter((item) => item.ready).length;
+  const actionState = guide.nextActionControlId
+    ? runActionAvailability(runDetail)[guide.nextActionControlId]
+    : null;
+  const actionEnabled =
+    actionState?.enabled === true &&
+    state.runActionInFlight !== true;
+
+  return [
+    operatorDockCard({
+      actionHref: "#run-detail",
+      actionLabel: "Open guide",
+      detail: `${shortId(runDetail.run_id)} · ${displayRunStatus(runDetail.status)} · ${repositoryLabel(runDetail) || "No repository target"}`,
+      key: "selected-run",
+      kicker: "Selected run",
+      title: runDetail.title,
+      tone: statusTone(runDetail.status),
+    }),
+    operatorDockCard({
+      actionDisabled: !actionEnabled,
+      actionHint: actionState?.reason || guide.nextActionDetail,
+      actionId: guide.nextActionControlId,
+      actionLabel: guide.nextActionControlId
+        ? displayRunActionLabel(guide.nextActionControlId)
+        : "",
+      detail: guide.nextActionDetail,
+      key: "next-step",
+      kicker: "Next step",
+      title: guide.nextActionTitle,
+      tone: guide.badgeTone,
+    }),
+    operatorDockCard({
+      actionHref: "#mission-control",
+      actionLabel: "Open agents",
+      detail: `${agentCount} agent lane(s) · ${taskCounts.running} running · ${taskCounts.failed} failed`,
+      key: "execution",
+      kicker: "Execution",
+      title: `${taskCounts.succeeded}/${taskCounts.total} task(s) complete`,
+      tone:
+        taskCounts.failed > 0
+          ? "error"
+          : taskCounts.running > 0 || taskCounts.queued > 0
+            ? "warning"
+            : taskCounts.total > 0
+              ? "success"
+              : "neutral",
+    }),
+    operatorDockCard({
+      actionHref: "#run-detail",
+      actionLabel: "Review evidence",
+      detail: guide.progressSummary,
+      key: "handoff",
+      kicker: "Review handoff",
+      title: `${handoffReadyCount}/${handoffItems.length} handoff checks ready`,
+      tone: handoffReadyCount === handoffItems.length ? "success" : "warning",
+    }),
+  ];
+}
+
+function operatorDockCard({
+  actionDisabled = false,
+  actionHint = "",
+  actionHref = "",
+  actionId = "",
+  actionLabel = "",
+  detail,
+  key,
+  kicker,
+  title,
+  tone,
+}) {
+  return {
+    actionDisabled,
+    actionHint,
+    actionHref,
+    actionId,
+    actionLabel,
+    detail,
+    key,
+    kicker,
+    title,
+    tone: normalizePulseTone(tone),
+  };
+}
+
+function renderOperatorDockCard(card) {
+  const action = renderOperatorDockCardAction(card);
+
+  return `
+    <article
+      class="operator-dock-card operator-dock-card-${escapeHtml(card.tone)}"
+      data-operator-dock-card="${escapeHtml(card.key)}"
+    >
+      <div class="operator-dock-card-copy">
+        <div class="mission-feed-head">
+          <p class="panel-kicker">${escapeHtml(card.kicker)}</p>
+          <span class="badge badge-${escapeHtml(card.tone)}">${escapeHtml(
+            toneLabel(card.tone)
+          )}</span>
+        </div>
+        <h3>${escapeHtml(card.title)}</h3>
+        <p>${escapeHtml(card.detail)}</p>
+        ${
+          card.actionHint
+            ? `<p class="microcopy">${escapeHtml(card.actionHint)}</p>`
+            : ""
+        }
+      </div>
+      ${action}
+    </article>
+  `;
+}
+
+function renderOperatorDockCardAction(card) {
+  if (card.actionId) {
+    const busy =
+      state.runActionInFlight && state.runActionBusyActionId === card.actionId;
+    const disabledAttr = card.actionDisabled || busy ? " disabled" : "";
+    const titleAttr = card.actionHint ? ` title="${escapeHtml(card.actionHint)}"` : "";
+
+    return `
+      <button
+        class="button ${escapeHtml(card.tone === "warning" ? "button-primary" : "button-ghost")}"
+        type="button"
+        data-run-action="${escapeHtml(card.actionId)}"
+        ${disabledAttr}${titleAttr}
+      >
+        ${escapeHtml(busy ? runActionBusyLabel(card.actionId) : card.actionLabel)}
+      </button>
+    `;
+  }
+
+  if (card.actionHref && card.actionLabel) {
+    return `
+      <a class="button button-ghost button-link" href="${escapeHtml(card.actionHref)}">
+        ${escapeHtml(card.actionLabel)}
+      </a>
+    `;
+  }
+
+  return "";
+}
+
 function renderOperatorPulse() {
   if (!elements.pulseSummary || !elements.pulseFeed) {
     return;
   }
+
+  renderOperatorDock();
 
   const cards = [
     buildOperatorPulseFocusCard(),
@@ -8510,6 +8733,7 @@ function restoreBriefDraft() {
 
 function renderDashboardLoadingState() {
   renderLastRefreshStatus();
+  renderOperatorDock();
   setRenderedHtml(elements.packChips, '<span class="chip chip-loading">Loading pack catalog...</span>', {
     markUpdated: false,
   });
@@ -9212,6 +9436,7 @@ function setRunActionControlsBusyState(actionId, busy) {
   const activeButtons = runActionButtons().filter(
     (button) => button.dataset.runAction === actionId
   );
+  renderOperatorDock();
 
   if (!busy) {
     syncRunActionControlsWithState();
