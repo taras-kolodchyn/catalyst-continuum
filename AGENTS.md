@@ -152,6 +152,8 @@ When the change touches agent integrations or MCP behavior, also review:
   URL state so the UI stays smooth and does not remount embedded surfaces.
 - External UI links that open a new tab must keep `rel="noreferrer noopener"` with
   `target="_blank"` to avoid opener access.
+- Do not introduce inline event-handler attributes or `javascript:` URLs in operator UI markup.
+  Bind behavior through `app.js` event listeners and keep markup inert.
 
 ## Validation Rules
 

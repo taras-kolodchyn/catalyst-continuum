@@ -77,6 +77,16 @@ for link in blank_target_links:
             "operator UI target=_blank links must include rel=\"noreferrer noopener\": "
             f"{compact_link}"
         )
+
+rendered_markup = app + "\n" + index
+for pattern, message in {
+    r"<[^>]+\son[a-zA-Z]+\s*=": "inline event handlers are not allowed in operator UI markup",
+    r"javascript\s*:": "javascript: URLs are not allowed in operator UI markup",
+}.items():
+    match = re.search(pattern, rendered_markup, re.I | re.S)
+    if match:
+        line = rendered_markup.count("\n", 0, match.start()) + 1
+        raise SystemExit(f"{message} near rendered markup line {line}")
 PY
 
 echo "operator UI assets lint passed"
