@@ -123,7 +123,8 @@ The smoke starts disposable local state, seeds MVP run data, opens `/ui`, exerci
 Mission Control `Flow` and `Agents` tabs, agent filters, report/log cards, manual refresh, iframe
 mounts, WebSocket live updates, and stable focus behavior. It fails on browser console errors,
 request failures, unexpected hard reloads, missing live updates, or lost stable focus in the agent
-panel.
+panel. On first run it installs the pinned Playwright package and matching Chromium browser binary
+under `.continuum/operator-ui-smoke-playwright`.
 
 Repository-policy UI coverage is split into explicit postures:
 

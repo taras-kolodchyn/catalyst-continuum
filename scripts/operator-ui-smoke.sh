@@ -17,6 +17,7 @@ Run a browser-level smoke test for the built-in operator UI. The script:
   - starts a disposable pinned Postgres container
   - seeds a full MVP run through the existing CLI smoke flow
   - starts the host-run operator UI against that state
+  - installs the pinned Playwright runner and Chromium browser binary
   - clicks the run ledger, Flow/Agents tabs, report cards, and manual refresh
   - verifies WebSocket live updates, no hard reloads, stable agent-panel focus,
     no iframe refresh, and no browser errors
@@ -112,6 +113,18 @@ EOF
     --no-audit \
     --no-fund \
     "playwright@${PLAYWRIGHT_NPM_VERSION}" >/dev/null
+}
+
+ensure_playwright_browser() {
+  local install_args=(install chromium)
+
+  if [ "${OPERATOR_UI_SMOKE_INSTALL_BROWSER_DEPS:-0}" = "1" ]; then
+    install_args=(install --with-deps chromium)
+  fi
+
+  npm exec \
+    --prefix "$PLAYWRIGHT_RUNNER_DIR" \
+    -- playwright "${install_args[@]}" >/dev/null
 }
 
 postgres_is_healthy() {
@@ -619,6 +632,7 @@ if [ ! -x "$BIN" ]; then
 fi
 
 ensure_playwright_runner
+ensure_playwright_browser
 write_browser_check
 
 log_phase "starting disposable Postgres on 127.0.0.1:${POSTGRES_PORT}"
