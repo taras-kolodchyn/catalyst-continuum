@@ -295,7 +295,12 @@ Client examples live under [examples/mcp/](examples/mcp/).
 
 ## CI
 
-GitHub Actions runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml) with these check groups:
+GitHub Actions runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml) for pull requests,
+pushes to `main`, and manual `workflow_dispatch` runs. Feature branches should be validated through
+a PR or an explicit manual dispatch instead of duplicating every PR update through both `push` and
+`pull_request` events.
+
+The workflow has these check groups:
 
 | Job        | Purpose                                                                               |
 | ---------- | ------------------------------------------------------------------------------------- |
