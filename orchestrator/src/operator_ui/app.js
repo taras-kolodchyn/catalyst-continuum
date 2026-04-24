@@ -279,6 +279,7 @@ function cacheElements() {
     "runGuideProgressSummary",
     "runGuideRecommendation",
     "runGuideStages",
+    "runOutcomeBanner",
     "runSectionNav",
     "runLedgerHint",
     "runSearchInput",
@@ -7369,6 +7370,7 @@ function renderRunDetail(runDetail, eventsResponse) {
   ].join(""));
 
   const guide = renderRunGuide(runDetail, events);
+  renderRunOutcomeBanner(runDetail, guide, events);
   renderRunSectionNav(runDetail, guide, events);
   renderRunControlReadinessBoard(runDetail, guide);
   renderTasks(runDetail.tasks || []);
@@ -7442,6 +7444,91 @@ function renderRunGuide(runDetail, events) {
       : '<div class="empty-state compact">No run-stage guidance is available for this run yet.</div>'
   );
   return guide;
+}
+
+function renderRunOutcomeBanner(runDetail, guide, events) {
+  if (!runDetail) {
+    setRenderedHtml(
+      elements.runOutcomeBanner,
+      '<div class="empty-state compact">Select a run to see the delivery outcome, proof, and safest next action.</div>',
+      { markUpdated: false }
+    );
+    return;
+  }
+
+  const taskCounts = normalizedTaskCounts(runDetail.task_counts);
+  const artifactCount = Number(runDetail.artifact_count ?? runDetail.artifacts?.length ?? 0);
+  const eventCount = Array.isArray(events) ? events.length : 0;
+  const publicationGuard = repositoryTargetGuardSummary(runDetail);
+  const tone = normalizePulseTone(guide.badgeTone);
+  const actionMarkup = guide.nextActionControlId
+    ? `
+      <button
+        class="button button-primary"
+        type="button"
+        data-run-action="${escapeHtml(guide.nextActionControlId)}"
+      >
+        ${escapeHtml(displayRunActionLabel(guide.nextActionControlId))}
+      </button>
+    `
+    : '<a class="button button-ghost button-link" href="#run-events">Review evidence</a>';
+
+  const proofItems = [
+    {
+      detail: guide.currentStageTitle,
+      label: "Delivery flow",
+      value: compactGuideProgress(guide),
+    },
+    {
+      detail: `${taskCounts.queued} queued · ${taskCounts.running} running · ${taskCounts.failed} failed`,
+      label: "Task execution",
+      value: `${taskCounts.succeeded}/${taskCounts.total} succeeded`,
+    },
+    {
+      detail: `${eventCount} event${eventCount === 1 ? "" : "s"} recorded`,
+      label: "Evidence trail",
+      value: `${artifactCount} artifact${artifactCount === 1 ? "" : "s"}`,
+    },
+    {
+      detail: publicationGuard.detail,
+      label: "GitHub handoff",
+      value: publicationGuard.title,
+    },
+  ];
+
+  setRenderedHtml(
+    elements.runOutcomeBanner,
+    `
+      <article
+        class="run-outcome-card run-outcome-card-${escapeHtml(tone)}"
+        data-run-outcome-banner="true"
+      >
+        <div class="run-outcome-copy">
+          <p class="panel-kicker">Selected run outcome</p>
+          <h3>${escapeHtml(guide.nextActionTitle)}</h3>
+          <p>${escapeHtml(guide.nextActionDetail)}</p>
+        </div>
+        <div class="run-outcome-proof-grid">
+          ${proofItems.map(renderRunOutcomeProofItem).join("")}
+        </div>
+        <div class="run-outcome-action">
+          <span class="badge badge-${escapeHtml(tone)}">${escapeHtml(guide.badgeLabel)}</span>
+          ${actionMarkup}
+        </div>
+      </article>
+    `,
+    { markUpdated: false }
+  );
+}
+
+function renderRunOutcomeProofItem(item) {
+  return `
+    <div class="run-outcome-proof" data-run-outcome-proof="true">
+      <span>${escapeHtml(item.label)}</span>
+      <strong>${escapeHtml(item.value)}</strong>
+      <small>${escapeHtml(item.detail)}</small>
+    </div>
+  `;
 }
 
 function renderRunSectionNav(runDetail, guide, events) {
@@ -8459,6 +8546,7 @@ function clearRunSelection(message, title = "No run selected") {
   elements.detailEmptyState.classList.remove("hidden");
   elements.runDetailShell.classList.add("hidden");
   const guide = renderRunGuide(null, []);
+  renderRunOutcomeBanner(null, guide, []);
   renderRunSectionNav(null, guide, []);
   renderRunControlReadinessBoard(null, guide);
   renderRunActionHighlights(null);
@@ -9054,6 +9142,7 @@ function restoreBriefDraft() {
   renderBriefReadiness();
   renderQueueInspectorEmpty();
   const guide = renderRunGuide(null, []);
+  renderRunOutcomeBanner(null, guide, []);
   renderRunSectionNav(null, guide, []);
   renderRunControlReadinessBoard(null, guide);
   renderRunActionHighlights(null);

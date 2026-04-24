@@ -2340,6 +2340,103 @@ textarea {
   gap: 18px;
 }
 
+.run-outcome-banner {
+  display: block;
+}
+
+.run-outcome-card {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.9fr) minmax(360px, 1.45fr) auto;
+  align-items: center;
+  gap: 16px;
+  border: 1px solid rgba(24, 35, 29, 0.1);
+  border-radius: var(--radius-xl);
+  background:
+    linear-gradient(135deg, rgba(255, 251, 244, 0.94), rgba(255, 255, 255, 0.72)),
+    radial-gradient(circle at 8% 50%, rgba(23, 79, 67, 0.12), transparent 30%);
+  padding: 18px;
+}
+
+.run-outcome-card-success {
+  border-color: rgba(23, 79, 67, 0.22);
+  background:
+    linear-gradient(135deg, rgba(226, 241, 235, 0.88), rgba(255, 251, 244, 0.86));
+}
+
+.run-outcome-card-warning {
+  border-color: rgba(180, 95, 47, 0.22);
+  background:
+    linear-gradient(135deg, rgba(248, 234, 223, 0.9), rgba(255, 251, 244, 0.86));
+}
+
+.run-outcome-card-error {
+  border-color: rgba(141, 48, 48, 0.24);
+  background:
+    linear-gradient(135deg, rgba(244, 225, 225, 0.92), rgba(255, 251, 244, 0.86));
+}
+
+.run-outcome-copy {
+  min-width: 0;
+}
+
+.run-outcome-copy h3 {
+  margin: 6px 0 8px;
+  font-family: var(--serif);
+  font-size: clamp(1.25rem, 1.8vw, 1.7rem);
+  letter-spacing: -0.02em;
+}
+
+.run-outcome-copy p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.run-outcome-proof-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.run-outcome-proof {
+  min-width: 0;
+  border: 1px solid rgba(24, 35, 29, 0.08);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.62);
+  padding: 10px 12px;
+}
+
+.run-outcome-proof span,
+.run-outcome-proof small {
+  display: block;
+  color: var(--muted);
+  font-size: 0.74rem;
+  line-height: 1.35;
+}
+
+.run-outcome-proof span {
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.run-outcome-proof strong {
+  display: block;
+  margin: 5px 0 3px;
+  overflow: hidden;
+  font-size: 0.94rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-outcome-action {
+  display: flex;
+  min-width: 140px;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+}
+
 .run-section-nav {
   display: flex;
   flex-wrap: wrap;
@@ -3077,6 +3174,14 @@ textarea {
   .guide-stage-list {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .run-outcome-card {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .run-outcome-action {
+    align-items: flex-start;
+  }
 }
 
 @media (max-width: 960px) {
@@ -3134,6 +3239,7 @@ textarea {
   .agent-lane-grid,
   .agent-report-grid,
   .pulse-summary-grid,
+  .run-outcome-proof-grid,
   .summary-grid,
   .form-grid,
   .guide-grid,
@@ -3206,6 +3312,10 @@ textarea {
 
   .run-card-phase-rail {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .run-outcome-action .button {
+    width: 100%;
   }
 
   .surface-frame {

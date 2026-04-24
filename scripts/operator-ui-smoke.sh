@@ -390,6 +390,11 @@ async function main() {
       runSectionNavEventText: text('[data-run-section-count="events"]'),
       lastRefresh: text("#lastRefresh"),
       selectedRunLabel: text("#selectedRunLabel"),
+      runOutcomeBannerCount: count("[data-run-outcome-banner]"),
+      runOutcomeProofCount: count("[data-run-outcome-proof]"),
+      runOutcomeIncludesDeliveryFlow:
+        document.body.textContent.includes("Selected run outcome") &&
+        document.body.textContent.includes("Delivery flow"),
       runCardCount: count("#runsList [data-run-id]"),
       runCardNextStepCount: count("[data-run-card-next-step]"),
       runCardPhaseRailCount: count("[data-run-card-phase-rail]"),
@@ -549,6 +554,15 @@ async function main() {
   }
   if (!summary.lastRefresh.includes("WebSocket stream active")) {
     problems.push(`websocket not active: ${summary.lastRefresh}`);
+  }
+  if (summary.runOutcomeBannerCount !== 1) {
+    problems.push(`expected one selected-run outcome banner, got ${summary.runOutcomeBannerCount}`);
+  }
+  if (summary.runOutcomeProofCount !== 4) {
+    problems.push(`expected four selected-run proof chips, got ${summary.runOutcomeProofCount}`);
+  }
+  if (!summary.runOutcomeIncludesDeliveryFlow) {
+    problems.push("selected-run outcome banner should summarize the delivery flow");
   }
   if (summary.runCardCount < 1) {
     problems.push("no run cards visible");
