@@ -6603,6 +6603,7 @@ function renderRuns(response) {
                 <strong>${escapeHtml(guide.nextStep)}</strong>
               </div>
             </div>
+            ${renderRunCardTaskMeter(run.task_counts)}
             <div class="run-card-stats">
               <span>${escapeHtml(repositoryName)}</span>
               <span>${escapeHtml(run.task_counts?.total ?? 0)} task(s)</span>
@@ -6619,7 +6620,65 @@ function renderRuns(response) {
       })
       .join("")
   );
+  syncRunCardTaskMeters();
   renderOperatorPulse();
+}
+
+function renderRunCardTaskMeter(taskCounts) {
+  const counts = normalizedTaskCounts(taskCounts);
+  const total = Math.max(counts.total, 0);
+  const denominator = total > 0 ? total : 1;
+  const segments = [
+    { key: "succeeded", label: "ok", count: counts.succeeded },
+    { key: "running", label: "running", count: counts.running },
+    { key: "failed", label: "failed", count: counts.failed },
+    { key: "queued", label: "queued", count: counts.queued },
+  ].filter((segment) => segment.count > 0);
+  const summary = total > 0
+    ? `${counts.succeeded}/${total} done · ${counts.running} running · ${counts.failed} failed`
+    : "No tasks materialized yet";
+
+  return `
+    <div
+      class="run-card-task-meter"
+      data-run-card-task-meter="true"
+      aria-label="${escapeHtml(`Task progress: ${summary}`)}"
+    >
+      <div class="run-card-task-meter-head">
+        <span>Task progress</span>
+        <strong>${escapeHtml(summary)}</strong>
+      </div>
+      <div class="run-card-task-meter-track">
+        ${
+          segments.length
+            ? segments
+                .map((segment) => renderRunCardTaskMeterSegment(segment, denominator))
+                .join("")
+            : '<span class="run-card-task-meter-empty"></span>'
+        }
+      </div>
+    </div>
+  `;
+}
+
+function renderRunCardTaskMeterSegment(segment, denominator) {
+  const width = Math.max(4, Math.round((segment.count / denominator) * 100));
+  return `
+    <span
+      class="run-card-task-meter-segment run-card-task-meter-${escapeHtml(segment.key)}"
+      title="${escapeHtml(`${segment.count} ${segment.label}`)}"
+      data-run-card-task-meter-segment="${escapeHtml(segment.key)}"
+      data-run-card-task-meter-width="${escapeHtml(width)}"
+    ></span>
+  `;
+}
+
+function syncRunCardTaskMeters() {
+  document.querySelectorAll("[data-run-card-task-meter-width]").forEach((segment) => {
+    const width = Number(segment.dataset.runCardTaskMeterWidth ?? 0);
+    const safeWidth = Number.isFinite(width) ? Math.min(100, Math.max(0, width)) : 0;
+    segment.style.width = `${safeWidth}%`;
+  });
 }
 
 function runCardGuide(run) {

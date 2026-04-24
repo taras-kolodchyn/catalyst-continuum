@@ -2181,6 +2181,64 @@ textarea {
   text-align: right;
 }
 
+.run-card-task-meter {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.run-card-task-meter-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.run-card-task-meter-head strong {
+  color: var(--ink);
+  font-size: 0.82rem;
+  text-align: right;
+}
+
+.run-card-task-meter-track {
+  display: flex;
+  overflow: hidden;
+  height: 9px;
+  border: 1px solid rgba(24, 35, 29, 0.08);
+  border-radius: 999px;
+  background: rgba(24, 35, 29, 0.08);
+}
+
+.run-card-task-meter-segment,
+.run-card-task-meter-empty {
+  display: block;
+  min-width: 4px;
+}
+
+.run-card-task-meter-succeeded {
+  background: rgba(23, 79, 67, 0.76);
+}
+
+.run-card-task-meter-running {
+  background: rgba(180, 95, 47, 0.72);
+}
+
+.run-card-task-meter-failed {
+  background: rgba(141, 48, 48, 0.76);
+}
+
+.run-card-task-meter-queued {
+  background: rgba(24, 35, 29, 0.24);
+}
+
+.run-card-task-meter-empty {
+  width: 100%;
+  background: linear-gradient(90deg, rgba(24, 35, 29, 0.12), rgba(24, 35, 29, 0.06));
+}
+
 .run-card-stats,
 .run-card-foot,
 .timeline-meta {

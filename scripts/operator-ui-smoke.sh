@@ -392,6 +392,8 @@ async function main() {
       selectedRunLabel: text("#selectedRunLabel"),
       runCardCount: count("#runsList [data-run-id]"),
       runCardNextStepCount: count("[data-run-card-next-step]"),
+      runCardTaskMeterCount: count("[data-run-card-task-meter]"),
+      runCardTaskMeterSegmentCount: count("[data-run-card-task-meter-segment]"),
       taskRows: count("#taskTableWrap tbody tr"),
       artifactEvidenceCardCount: count("[data-artifact-evidence-card]"),
       artifactEvidenceIncludesPlanning:
@@ -546,6 +548,14 @@ async function main() {
     problems.push(
       `expected one next-step hint per run card, got ${summary.runCardNextStepCount}/${summary.runCardCount}`
     );
+  }
+  if (summary.runCardTaskMeterCount !== summary.runCardCount) {
+    problems.push(
+      `expected one task-progress meter per run card, got ${summary.runCardTaskMeterCount}/${summary.runCardCount}`
+    );
+  }
+  if (summary.runCardTaskMeterSegmentCount < 1) {
+    problems.push("run cards should expose task-progress meter segments");
   }
   if (summary.taskRows < 1) {
     problems.push("no task rows visible");
