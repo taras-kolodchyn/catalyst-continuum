@@ -300,7 +300,7 @@ GitHub Actions runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml) with 
 | Job        | Purpose                                                                               |
 | ---------- | ------------------------------------------------------------------------------------- |
 | `versions` | Validate pinned versions, workflow SHAs, image refs, and shared metadata.             |
-| `shell`    | Run ShellCheck, Markdown links, repository-target smoke, and template checks.         |
+| `shell`    | Run ShellCheck, Markdown links, UI asset lint, repository smoke, and template checks. |
 | `sbom`     | Build the orchestrator image, generate SPDX SBOM, upload artifact, and attest it.     |
 | `rust`     | Run format, clippy, build, tests, MCP smoke, and MCP reference smoke.                 |
 | `compose`  | Validate Compose and run runtime/observability stack checks.                          |
