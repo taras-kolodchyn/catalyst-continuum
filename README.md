@@ -53,6 +53,7 @@ make help
 make doctor
 make check
 make ci
+make release-check
 make ui
 make ui-smoke
 make cleanup
@@ -133,6 +134,15 @@ Repository-policy UI coverage is split into explicit postures:
 make ui-smoke-repository-policy
 make ui-smoke-repository-policy-blocked
 ```
+
+Before cutting or promoting a local alpha baseline, run the full release gate:
+
+```bash
+make release-check
+```
+
+That target keeps the normal `make ci` path intact, then adds the release-only doctor and operator UI
+policy postures.
 
 ## Validate OpenHands
 

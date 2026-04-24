@@ -41,6 +41,9 @@ ci: versions lint-shell repository-targets-smoke template-repo-check rust compos
 .PHONY: ci-full
 ci-full: ci sbom ## Run broad local validation plus SBOM generation.
 
+.PHONY: release-check
+release-check: doctor ci ui-smoke ui-smoke-repository-policy ui-smoke-repository-policy-blocked ## Run the v0.1 release-baseline validation gate.
+
 .PHONY: versions
 versions: ## Check pinned versions, workflow pins, and image refs.
 	./scripts/check-versions.sh
