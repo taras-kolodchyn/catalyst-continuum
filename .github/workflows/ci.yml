@@ -98,6 +98,9 @@ jobs:
       - name: Run Rust CI checks
         run: ./scripts/ci-rust.sh
 
+      - name: Run repository doctor
+        run: ./scripts/doctor.sh --no-live
+
   compose:
     needs:
       - versions
