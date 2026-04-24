@@ -753,9 +753,24 @@ function connectRealtime(options = {}) {
   clearRealtimeReconnect();
   cleanupRealtimeSocket();
 
-  const socket = new window.WebSocket(nextUrl);
   const token = state.realtimeSocketToken + 1;
   state.realtimeSocketToken = token;
+  let socket;
+  try {
+    socket = new window.WebSocket(nextUrl);
+  } catch (error) {
+    state.realtimeSupported = false;
+    state.realtimeConnecting = false;
+    state.realtimeConnected = false;
+    console.error("operator UI websocket could not start", error);
+    syncRefreshModeControls();
+    refreshDashboard().catch((refreshError) => {
+      console.error("operator UI websocket fallback refresh failed", refreshError);
+    });
+    renderLastRefreshStatus();
+    return;
+  }
+
   state.realtimeSocket = socket;
   state.realtimeConnecting = true;
   state.realtimeConnected = false;
@@ -810,6 +825,10 @@ function handleRealtimeMessage(rawMessage) {
     console.error("failed to parse operator UI websocket message", error, rawMessage);
     return;
   }
+  if (!message || typeof message !== "object") {
+    console.warn("operator UI websocket message was not an object", message);
+    return;
+  }
 
   switch (message.type) {
     case "hello":
@@ -848,7 +867,7 @@ function handleRealtimeMessage(rawMessage) {
   }
 }
 
-function applyRealtimeDashboardSnapshot(snapshot) {
+function applyRealtimeDashboardSnapshot(snapshot = {}) {
   renderStatusGrid({
     readyz: snapshot.readyz ?? failedEnvelope(new Error("missing readyz snapshot")),
     aiGateway:

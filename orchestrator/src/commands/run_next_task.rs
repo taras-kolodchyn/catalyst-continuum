@@ -622,6 +622,23 @@ mod tests {
     }
 
     #[test]
+    fn keeps_terminal_failure_when_retryable_failure_has_no_budget() {
+        let run_context = sample_run_context(None);
+        let task = sample_task(None);
+        let execution = TaskExecutionResult::retryable_failure("transient docker failure");
+
+        let plan = plan_execution_completion(&run_context, &task, &execution);
+
+        assert_eq!(plan.status, "failed");
+        assert!(!plan.retry_scheduled);
+        assert_eq!(
+            plan.failure_reason.as_deref(),
+            Some("transient docker failure")
+        );
+        assert_eq!(retry_state_from_metadata(&plan.metadata), None);
+    }
+
+    #[test]
     fn keeps_terminal_failure_when_retry_budget_is_exhausted() {
         let run_context = sample_run_context(Some(1));
         let task = sample_task(Some(TaskRetryState {

@@ -76,14 +76,11 @@ pub(crate) fn plan_failure_completion(
 ) -> TaskCompletionPlan {
     let retry_state = task_retry_state(run_context, task);
 
-    if retryable
-        && retry_state
-            .as_ref()
-            .is_some_and(TaskRetryState::can_schedule_retry)
+    if let Some(retry_state) = retry_state
+        .as_ref()
+        .filter(|state| retryable && state.can_schedule_retry())
     {
-        let next_retry_state = retry_state
-            .expect("retry state should exist when retry is allowed")
-            .after_requeue(failure_reason.clone());
+        let next_retry_state = retry_state.after_requeue(failure_reason.clone());
         TaskCompletionPlan {
             status: "queued".to_string(),
             failure_reason: Some(failure_reason),
