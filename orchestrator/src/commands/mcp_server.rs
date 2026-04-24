@@ -3,11 +3,27 @@ use std::{
     io::{BufRead, Write},
 };
 
-use anyhow::{Context, anyhow, bail};
-use serde::Deserialize;
+use anyhow::{Context, bail};
 use serde_json::{Value, json};
 
 use super::{
+    mcp_tool_args::{
+        CallToolParams, ClaimNextAgentTaskToolArgs, CompleteAgentTaskToolArgs,
+        DescribeArtifactToolArgs, DescribeGithubDefaultBranchStateToolArgs,
+        DescribeGithubWebhookActionReportToolArgs, DescribeGithubWebhookActionRequestToolArgs,
+        DescribeGithubWebhookReceiptToolArgs, DescribeGithubWebhookToolArgs,
+        DescribeLatestArtifactToolArgs, DescribePackToolArgs,
+        DescribeRepositorySignalPayloadToolArgs, DescribeRepositorySignalToolArgs,
+        DescribeRunToolArgs, EmptyToolArgs, EvaluateRunPolicyToolArgs, EvaluateRunQualityToolArgs,
+        ExportPrCandidateToolArgs, HeartbeatAgentTaskToolArgs, InitializeParams,
+        ListGithubWebhookActionRequestsToolArgs, ListGithubWebhooksToolArgs,
+        ListRepositorySignalsToolArgs, ListRunEventsToolArgs, ListRunsToolArgs,
+        OpenGithubPrToolArgs, PaginationParams, PrepareAgentTaskWorkspaceToolArgs,
+        PublishPrExportToolArgs, RunNextGithubWebhookActionToolArgs,
+        RunNextRepositoryAutomationToolArgs, RunScopedToolArgs, SubmitBriefToolArgs,
+        SubmitNextRepositorySignalToolArgs, SubmitRepositorySignalToolArgs, ValidateBriefToolArgs,
+        normalize_arguments, parse_params, parse_tool_arguments,
+    },
     mcp_tool_definitions::{filtered_tool_definitions, validate_tool_allowlist},
     mcp_tool_results::{
         call_tool, jsonrpc_error_response, jsonrpc_result_response, negotiate_protocol_version,
@@ -79,310 +95,6 @@ struct SessionState {
     initialize_seen: bool,
     initialized_notification_seen: bool,
     negotiated_protocol_version: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct InitializeParams {
-    #[serde(rename = "protocolVersion")]
-    protocol_version: String,
-    #[serde(default)]
-    capabilities: Option<Value>,
-    #[serde(rename = "clientInfo", default)]
-    client_info: Option<McpClientInfo>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct McpClientInfo {
-    name: String,
-    version: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct PaginationParams {
-    #[allow(dead_code)]
-    cursor: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct CallToolParams {
-    name: String,
-    #[serde(default)]
-    arguments: Value,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct DescribePackToolArgs {
-    pack_id: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct DescribeArtifactToolArgs {
-    artifact_id: uuid::Uuid,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct DescribeLatestArtifactToolArgs {
-    run_id: uuid::Uuid,
-    artifact_type: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ValidateBriefToolArgs {
-    brief_content: String,
-    #[serde(default = "default_inline_brief_source_path")]
-    brief_source_path: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct SubmitBriefToolArgs {
-    brief_content: String,
-    #[serde(default = "default_inline_brief_source_path")]
-    brief_source_path: String,
-    #[serde(default)]
-    dry_run: bool,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct SubmitRepositorySignalToolArgs {
-    signal_id: String,
-    brief_content: String,
-    #[serde(default = "default_inline_brief_source_path")]
-    brief_source_path: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct SubmitNextRepositorySignalToolArgs {
-    brief_content: String,
-    #[serde(default = "default_inline_brief_source_path")]
-    brief_source_path: String,
-    #[serde(default)]
-    signal_kind: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RunNextRepositoryAutomationToolArgs {
-    brief_content: String,
-    #[serde(default = "default_inline_brief_source_path")]
-    brief_source_path: String,
-    #[serde(default)]
-    action: Option<String>,
-    #[serde(default)]
-    signal_kind: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ListRunsToolArgs {
-    #[serde(default = "default_run_limit")]
-    limit: usize,
-    #[serde(default)]
-    status: Option<String>,
-    #[serde(default)]
-    target_pack: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct DescribeRunToolArgs {
-    run_id: uuid::Uuid,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ListRunEventsToolArgs {
-    run_id: uuid::Uuid,
-    #[serde(default = "default_run_event_limit")]
-    limit: usize,
-    #[serde(default)]
-    event_type: Option<String>,
-    #[serde(default)]
-    task_id: Option<uuid::Uuid>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ListGithubWebhooksToolArgs {
-    #[serde(default = "default_webhook_limit")]
-    limit: usize,
-    #[serde(default)]
-    event: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct DescribeGithubWebhookToolArgs {
-    delivery_id: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct DescribeGithubWebhookReceiptToolArgs {
-    delivery_id: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ListGithubWebhookActionRequestsToolArgs {
-    #[serde(default = "default_webhook_limit")]
-    limit: usize,
-    #[serde(default)]
-    status: Option<String>,
-    #[serde(default)]
-    action: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct DescribeGithubWebhookActionRequestToolArgs {
-    request_id: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct DescribeGithubWebhookActionReportToolArgs {
-    request_id: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ListRepositorySignalsToolArgs {
-    #[serde(default = "default_repository_signal_limit")]
-    limit: usize,
-    #[serde(default)]
-    status: Option<String>,
-    #[serde(default)]
-    signal_kind: Option<String>,
-    #[serde(default)]
-    repository_full_name: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct DescribeRepositorySignalToolArgs {
-    signal_id: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct DescribeRepositorySignalPayloadToolArgs {
-    signal_id: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct DescribeGithubDefaultBranchStateToolArgs {
-    repository_full_name: String,
-    #[serde(default = "default_github_provider")]
-    provider: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RunScopedToolArgs {
-    run_id: Option<uuid::Uuid>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ClaimNextAgentTaskToolArgs {
-    agent: String,
-    #[serde(default)]
-    run_id: Option<uuid::Uuid>,
-    #[serde(default)]
-    executor_id: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct PrepareAgentTaskWorkspaceToolArgs {
-    task_id: uuid::Uuid,
-    agent: String,
-    #[serde(default)]
-    executor_id: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct HeartbeatAgentTaskToolArgs {
-    task_id: uuid::Uuid,
-    agent: String,
-    #[serde(default)]
-    executor_id: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct CompleteAgentTaskToolArgs {
-    task_id: uuid::Uuid,
-    agent: String,
-    status: String,
-    summary: String,
-    #[serde(default)]
-    details: Option<String>,
-    #[serde(default)]
-    executor_id: Option<String>,
-    #[serde(default)]
-    workspace_root: Option<std::path::PathBuf>,
-    #[serde(default)]
-    retryable: bool,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RunNextGithubWebhookActionToolArgs {
-    #[serde(default)]
-    action: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ExportPrCandidateToolArgs {
-    run_id: uuid::Uuid,
-    #[serde(default)]
-    branch_name: Option<String>,
-    #[serde(default)]
-    repository_target_id: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct PublishPrExportToolArgs {
-    run_id: uuid::Uuid,
-    #[serde(default)]
-    remote_url: Option<String>,
-    #[serde(default)]
-    repository_target_id: Option<String>,
-    #[serde(default)]
-    push: bool,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct OpenGithubPrToolArgs {
-    run_id: uuid::Uuid,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct EvaluateRunQualityToolArgs {
-    run_id: uuid::Uuid,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct EvaluateRunPolicyToolArgs {
-    run_id: uuid::Uuid,
 }
 
 impl StdioMcpServer {
@@ -1425,77 +1137,6 @@ impl StdioMcpServer {
             ))
         })
     }
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct EmptyToolArgs {}
-
-fn parse_params<T>(params: Option<Value>) -> anyhow::Result<T>
-where
-    T: for<'de> Deserialize<'de>,
-{
-    serde_json::from_value(params.unwrap_or_else(|| json!({})))
-        .map_err(|error| anyhow!("invalid JSON-RPC params: {error}"))
-}
-
-fn parse_tool_arguments<T>(arguments: Value) -> anyhow::Result<T>
-where
-    T: for<'de> Deserialize<'de>,
-{
-    match serde_json::from_value(arguments.clone()) {
-        Ok(parsed) => Ok(parsed),
-        Err(error) => {
-            let sanitized = strip_openhands_wrapper_metadata(arguments);
-            match serde_json::from_value(sanitized) {
-                Ok(parsed) => Ok(parsed),
-                Err(_) => Err(anyhow!("invalid tool arguments: {error}")),
-            }
-        }
-    }
-}
-
-fn normalize_arguments(arguments: Value) -> anyhow::Result<Value> {
-    match arguments {
-        Value::Null => Ok(json!({})),
-        Value::Object(_) => Ok(arguments),
-        _ => Err(anyhow!("tool arguments must be a JSON object")),
-    }
-}
-
-fn strip_openhands_wrapper_metadata(arguments: Value) -> Value {
-    let Value::Object(mut object) = arguments else {
-        return arguments;
-    };
-
-    object.remove("security_risk");
-    object.remove("summary");
-
-    Value::Object(object)
-}
-
-fn default_inline_brief_source_path() -> String {
-    "mcp:inline-brief.yaml".to_string()
-}
-
-fn default_run_limit() -> usize {
-    20
-}
-
-fn default_run_event_limit() -> usize {
-    20
-}
-
-fn default_webhook_limit() -> usize {
-    20
-}
-
-fn default_repository_signal_limit() -> usize {
-    20
-}
-
-fn default_github_provider() -> String {
-    "github".to_string()
 }
 
 fn normalize_tool_allowlist(entries: Vec<String>) -> Option<BTreeSet<String>> {
