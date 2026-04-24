@@ -3,7 +3,7 @@ use std::{
     io::Read,
     path::Path,
     process::{Child, Command, Stdio},
-    thread,
+    thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
 
@@ -419,6 +419,11 @@ struct CommandOutput {
     timed_out: bool,
 }
 
+struct ChildOutputReaders {
+    stdout: JoinHandle<String>,
+    stderr: JoinHandle<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct DockerExecutionSettings {
     network_mode: Option<String>,
@@ -486,7 +491,7 @@ fn run_command_with_optional_timeout(
     timeout: Option<Duration>,
     timeout_cleanup: Option<&dyn Fn() -> Option<String>>,
 ) -> CommandOutput {
-    let child = match command.spawn() {
+    let mut child = match command.spawn() {
         Ok(child) => child,
         Err(error) => {
             return CommandOutput {
@@ -497,17 +502,19 @@ fn run_command_with_optional_timeout(
             };
         }
     };
+    let readers = spawn_child_output_readers(&mut child);
 
     match timeout {
         Some(timeout) if timeout > Duration::ZERO => {
-            wait_with_timeout(child, timeout, timeout_cleanup)
+            wait_with_timeout(child, readers, timeout, timeout_cleanup)
         }
-        _ => collect_child_output(child, None, false),
+        _ => collect_child_output(child, readers, None, false),
     }
 }
 
 fn wait_with_timeout(
     mut child: Child,
+    readers: ChildOutputReaders,
     timeout: Duration,
     timeout_cleanup: Option<&dyn Fn() -> Option<String>>,
 ) -> CommandOutput {
@@ -515,14 +522,16 @@ fn wait_with_timeout(
 
     loop {
         match child.try_wait() {
-            Ok(Some(status)) => return collect_child_output(child, status.code(), false),
+            Ok(Some(status)) => {
+                return collect_child_output(child, readers, status.code(), false);
+            }
             Ok(None) if started_at.elapsed() < timeout => {
                 thread::sleep(Duration::from_millis(100));
             }
             Ok(None) => {
                 let _ = child.kill();
                 let cleanup_error = timeout_cleanup.and_then(|cleanup| cleanup());
-                let mut output = collect_child_output(child, None, true);
+                let mut output = collect_child_output(child, readers, None, true);
                 if let Some(error) = cleanup_error {
                     append_stderr(
                         &mut output.stderr,
@@ -532,12 +541,11 @@ fn wait_with_timeout(
                 return output;
             }
             Err(error) => {
-                return CommandOutput {
-                    exit_code: -1,
-                    stdout: String::new(),
-                    stderr: error.to_string(),
-                    timed_out: false,
-                };
+                let _ = child.kill();
+                let mut output = collect_child_output(child, readers, None, false);
+                output.exit_code = -1;
+                append_stderr(&mut output.stderr, &error.to_string());
+                return output;
             }
         }
     }
@@ -590,6 +598,7 @@ fn force_remove_timed_out_container(
 
 fn collect_child_output(
     mut child: Child,
+    readers: ChildOutputReaders,
     exit_code: Option<i32>,
     timed_out: bool,
 ) -> CommandOutput {
@@ -607,8 +616,8 @@ fn collect_child_output(
             }
         },
     };
-    let stdout = read_pipe_to_string(child.stdout.take());
-    let stderr = read_pipe_to_string(child.stderr.take());
+    let stdout = join_pipe_reader(readers.stdout);
+    let stderr = join_pipe_reader(readers.stderr);
 
     CommandOutput {
         exit_code,
@@ -616,6 +625,21 @@ fn collect_child_output(
         stderr,
         timed_out,
     }
+}
+
+fn spawn_child_output_readers(child: &mut Child) -> ChildOutputReaders {
+    ChildOutputReaders {
+        stdout: spawn_pipe_reader(child.stdout.take()),
+        stderr: spawn_pipe_reader(child.stderr.take()),
+    }
+}
+
+fn spawn_pipe_reader(pipe: Option<impl Read + Send + 'static>) -> JoinHandle<String> {
+    thread::spawn(move || read_pipe_to_string(pipe))
+}
+
+fn join_pipe_reader(reader: JoinHandle<String>) -> String {
+    reader.join().unwrap_or_default()
 }
 
 fn append_stderr(stderr: &mut String, message: &str) {
@@ -721,6 +745,26 @@ mod tests {
         assert_eq!(output.exit_code, 0);
         assert_eq!(output.stdout, "ok");
         assert!(!output.timed_out);
+    }
+
+    #[test]
+    fn drains_large_stdout_and_stderr_without_deadlocking() {
+        let mut command = Command::new("sh");
+        command.stdout(Stdio::piped()).stderr(Stdio::piped());
+        command.args([
+            "-lc",
+            "i=0; while [ \"$i\" -lt 20000 ]; do printf xxxxxxxxxx; printf eeeeeeeeee >&2; i=$((i + 1)); done",
+        ]);
+
+        let output =
+            run_command_with_optional_timeout(&mut command, Some(Duration::from_secs(3)), None);
+
+        assert_eq!(output.exit_code, 0);
+        assert!(!output.timed_out);
+        assert_eq!(output.stdout.len(), 200_000);
+        assert_eq!(output.stderr.len(), 200_000);
+        assert!(output.stdout.chars().all(|value| value == 'x'));
+        assert!(output.stderr.chars().all(|value| value == 'e'));
     }
 
     #[test]
