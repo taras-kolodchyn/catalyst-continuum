@@ -479,6 +479,27 @@ mod tests {
     }
 
     #[test]
+    fn parses_noisy_blank_watch_query_as_default_filters() {
+        let watch = parse_watch_query(Some("&&unknown=value&run=&status=&=ignored&orphan"))
+            .expect("noisy watch query should parse");
+
+        assert_eq!(watch.run_id, None);
+        assert_eq!(watch.run_filters.status, None);
+        assert_eq!(watch.run_filters.target_pack, None);
+    }
+
+    #[test]
+    fn parses_trimmed_watch_query_and_normalizes_status_alias() {
+        let run_id = Uuid::new_v4();
+        let watch = parse_watch_query(Some(&format!("run= {run_id} &status= running ")))
+            .expect("watch query should parse");
+
+        assert_eq!(watch.run_id, Some(run_id));
+        assert_eq!(watch.run_filters.status.as_deref(), Some("executing"));
+        assert_eq!(watch.run_filters.target_pack, None);
+    }
+
+    #[test]
     fn rejects_invalid_selected_run() {
         let error =
             parse_watch_query(Some("run=not-a-uuid")).expect_err("invalid run id should fail");
@@ -488,6 +509,14 @@ mod tests {
                 .to_string()
                 .contains("invalid operator UI websocket run")
         );
+    }
+
+    #[test]
+    fn rejects_invalid_status_filter() {
+        let error = parse_watch_query(Some("status=unknown"))
+            .expect_err("invalid status filter should fail");
+
+        assert!(error.to_string().contains("invalid run status filter"));
     }
 
     #[test]
