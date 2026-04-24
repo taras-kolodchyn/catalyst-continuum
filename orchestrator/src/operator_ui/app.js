@@ -279,6 +279,7 @@ function cacheElements() {
     "runGuideProgressSummary",
     "runGuideRecommendation",
     "runGuideStages",
+    "runSectionNav",
     "runLedgerHint",
     "runSearchInput",
     "runNextWebhookButton",
@@ -7169,7 +7170,8 @@ function renderRunDetail(runDetail, eventsResponse) {
     summaryCard("Created", formatTimestamp(runDetail.created_at), runDetail.brief_source_path ?? "no brief path"),
   ].join(""));
 
-  renderRunGuide(runDetail, events);
+  const guide = renderRunGuide(runDetail, events);
+  renderRunSectionNav(runDetail, guide, events);
   renderTasks(runDetail.tasks || []);
   renderArtifacts(runDetail);
   renderEvents(events);
@@ -7240,6 +7242,76 @@ function renderRunGuide(runDetail, events) {
       ? guide.stages.map(renderGuideStage).join("")
       : '<div class="empty-state compact">No run-stage guidance is available for this run yet.</div>'
   );
+  return guide;
+}
+
+function renderRunSectionNav(runDetail, guide, events) {
+  const taskCounts = normalizedTaskCounts(runDetail?.task_counts);
+  const artifactCount = Number(runDetail?.artifact_count ?? runDetail?.artifacts?.length ?? 0);
+  const eventCount = Array.isArray(events) ? events.length : 0;
+  const nextActionLabel = guide?.nextActionControlId
+    ? displayRunActionLabel(guide.nextActionControlId)
+    : guide?.badgeLabel ?? "Idle";
+  const links = [
+    {
+      key: "guide",
+      href: "#run-guide",
+      label: "Guide",
+      detail: compactGuideProgress(guide),
+    },
+    {
+      key: "controls",
+      href: "#run-controls",
+      label: "Controls",
+      detail: nextActionLabel,
+    },
+    {
+      key: "tasks",
+      href: "#run-tasks",
+      label: "Tasks",
+      detail: `${taskCounts.total} task${taskCounts.total === 1 ? "" : "s"}`,
+    },
+    {
+      key: "artifacts",
+      href: "#run-artifacts",
+      label: "Artifacts",
+      detail: `${artifactCount} artifact${artifactCount === 1 ? "" : "s"}`,
+    },
+    {
+      key: "events",
+      href: "#run-events",
+      label: "Events",
+      detail: `${eventCount} event${eventCount === 1 ? "" : "s"}`,
+    },
+  ];
+
+  setRenderedHtml(elements.runSectionNav, links.map(renderRunSectionLink).join(""), {
+    markUpdated: false,
+  });
+}
+
+function compactGuideProgress(guide) {
+  const completed = Number(guide?.completedStageCount ?? 0);
+  const total = Number(guide?.totalStageCount ?? 5);
+  const safeCompleted = Number.isFinite(completed) ? completed : 0;
+  const safeTotal = Number.isFinite(total) && total > 0 ? total : 5;
+  return `${safeCompleted}/${safeTotal} done`;
+}
+
+function renderRunSectionLink(link) {
+  return `
+    <a
+      class="run-section-link"
+      href="${escapeHtml(link.href)}"
+      data-run-section-link="${escapeHtml(link.key)}"
+      data-ui-stable-key="run-section:${escapeHtml(link.key)}"
+    >
+      <span class="run-section-label">${escapeHtml(link.label)}</span>
+      <span class="run-section-count" data-run-section-count="${escapeHtml(link.key)}">
+        ${escapeHtml(link.detail)}
+      </span>
+    </a>
+  `;
 }
 
 function syncRunGuideProgressMeter(guide) {
@@ -8131,7 +8203,8 @@ function clearRunSelection(message, title = "No run selected") {
   }));
   elements.detailEmptyState.classList.remove("hidden");
   elements.runDetailShell.classList.add("hidden");
-  renderRunGuide(null, []);
+  const guide = renderRunGuide(null, []);
+  renderRunSectionNav(null, guide, []);
   renderRunActionHighlights(null);
   syncRunActionDraftInputs(null);
   syncRunActionControlsWithState();
@@ -8724,7 +8797,8 @@ function restoreBriefDraft() {
   renderBriefExampleHint();
   renderBriefReadiness();
   renderQueueInspectorEmpty();
-  renderRunGuide(null, []);
+  const guide = renderRunGuide(null, []);
+  renderRunSectionNav(null, guide, []);
   renderRunActionHighlights(null);
   syncRunActionDraftInputs(null);
   syncRunActionControlsWithState();

@@ -2227,6 +2227,7 @@ textarea {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 8px;
   min-height: 36px;
   border: 1px solid rgba(23, 79, 67, 0.12);
   border-radius: 999px;
@@ -2246,6 +2247,30 @@ textarea {
   border-color: rgba(23, 79, 67, 0.32);
   background: rgba(226, 241, 235, 0.88);
   transform: translateY(-1px);
+}
+
+.run-section-link:focus-visible {
+  outline: 3px solid rgba(23, 79, 67, 0.3);
+  outline-offset: 3px;
+  box-shadow:
+    0 0 0 1px rgba(23, 79, 67, 0.16),
+    0 12px 28px rgba(23, 79, 67, 0.12);
+}
+
+.run-section-label,
+.run-section-count {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
+
+.run-section-count {
+  border-radius: 999px;
+  background: rgba(23, 79, 67, 0.08);
+  color: rgba(23, 79, 67, 0.86);
+  padding: 4px 8px;
+  font-size: 0.74rem;
+  font-weight: 800;
 }
 
 .detail-section {

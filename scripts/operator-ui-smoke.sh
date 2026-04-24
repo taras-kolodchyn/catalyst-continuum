@@ -379,10 +379,15 @@ async function main() {
       runGuideProgressMax:
         document.querySelector("#runGuideProgressMeter")?.getAttribute("aria-valuemax") || "",
       runSectionNavLinkCount: count("#runSectionNav a"),
+      runSectionNavBadgeCount: count("[data-run-section-count]"),
       runSectionNavIncludesArtifacts:
         Array.from(document.querySelectorAll("#runSectionNav a")).some(
           (link) => link.getAttribute("href") === "#run-artifacts"
         ),
+      runSectionNavGuideText: text('[data-run-section-count="guide"]'),
+      runSectionNavTaskText: text('[data-run-section-count="tasks"]'),
+      runSectionNavArtifactText: text('[data-run-section-count="artifacts"]'),
+      runSectionNavEventText: text('[data-run-section-count="events"]'),
       lastRefresh: text("#lastRefresh"),
       selectedRunLabel: text("#selectedRunLabel"),
       runCardCount: count("#runsList [data-run-id]"),
@@ -508,8 +513,23 @@ async function main() {
   if (summary.runSectionNavLinkCount !== 5) {
     problems.push(`expected five selected-run nav links, got ${summary.runSectionNavLinkCount}`);
   }
+  if (summary.runSectionNavBadgeCount !== 5) {
+    problems.push(`expected five selected-run nav status badges, got ${summary.runSectionNavBadgeCount}`);
+  }
   if (!summary.runSectionNavIncludesArtifacts) {
     problems.push("selected-run nav should include a direct artifacts jump link");
+  }
+  if (!summary.runSectionNavGuideText.includes("5/5")) {
+    problems.push(`selected-run nav should expose guide progress, got ${summary.runSectionNavGuideText}`);
+  }
+  if (!summary.runSectionNavTaskText.includes("task")) {
+    problems.push(`selected-run nav should expose task count, got ${summary.runSectionNavTaskText}`);
+  }
+  if (!summary.runSectionNavArtifactText.includes("artifact")) {
+    problems.push(`selected-run nav should expose artifact count, got ${summary.runSectionNavArtifactText}`);
+  }
+  if (!summary.runSectionNavEventText.includes("event")) {
+    problems.push(`selected-run nav should expose event count, got ${summary.runSectionNavEventText}`);
   }
   if (!summary.lastRefresh.includes("WebSocket stream active")) {
     problems.push(`websocket not active: ${summary.lastRefresh}`);
