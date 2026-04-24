@@ -45,6 +45,83 @@ POSTGRES_CONTAINER_SUFFIX="executor-smoke-$$"
 POSTGRES_CONTAINER_SUFFIX="${POSTGRES_CONTAINER_SUFFIX//[^a-zA-Z0-9_.-]/-}"
 POSTGRES_CONTAINER_NAME="continuum-openhands-executor-smoke-postgres-${POSTGRES_CONTAINER_SUFFIX}"
 STARTED_POSTGRES=0
+SMOKE_MODE="${OPENHANDS_EXECUTOR_SMOKE_MODE:-contract}"
+OPENHANDS_PROFILE="${OPENHANDS_EXECUTOR_SMOKE_PROFILE:-container-sandbox}"
+
+usage() {
+  cat <<'EOF'
+Usage: scripts/openhands-run-agent-task-smoke.sh [options]
+
+Validate the OpenHands executor task handoff path.
+
+By default this runs the deterministic contract smoke: it submits a real run,
+executes the initial planning task, and drives the executor wrapper through a
+fake launcher that validates the pinned OpenHands launch contract without
+starting a real OpenHands session.
+
+Options:
+  --contract        Run the default deterministic wrapper contract smoke.
+  --real-agent     Run one live OpenHands agent task through the real launcher.
+                   Requires OPENHANDS_REAL_AGENT_SMOKE=1.
+  --profile NAME   OpenHands launcher profile to use. Defaults to container-sandbox.
+  -h, --help       Show this help.
+EOF
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --contract)
+      SMOKE_MODE="contract"
+      shift
+      ;;
+    --real-agent)
+      SMOKE_MODE="real-agent"
+      shift
+      ;;
+    --profile)
+      if [ "$#" -lt 2 ] || [ -z "$2" ]; then
+        echo "--profile requires a non-empty value" >&2
+        exit 2
+      fi
+      OPENHANDS_PROFILE="$2"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "unknown OpenHands executor smoke option: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+case "$SMOKE_MODE" in
+  contract|real-agent)
+    ;;
+  *)
+    echo "unsupported OpenHands executor smoke mode: $SMOKE_MODE" >&2
+    exit 2
+    ;;
+esac
+
+if [ "$SMOKE_MODE" = "real-agent" ] && [ "${OPENHANDS_REAL_AGENT_SMOKE:-0}" != "1" ]; then
+  cat >&2 <<'EOF'
+The live OpenHands agent smoke is opt-in because it starts the real pinned
+OpenHands launcher and expects a reachable LiteLLM/local model setup.
+
+Run it explicitly with:
+
+  OPENHANDS_REAL_AGENT_SMOKE=1 make openhands-agent-task-real-smoke
+
+or:
+
+  OPENHANDS_REAL_AGENT_SMOKE=1 ./scripts/openhands-run-agent-task-smoke.sh --real-agent
+EOF
+  exit 2
+fi
 
 cleanup() {
   if [ "$STARTED_POSTGRES" -eq 1 ]; then
@@ -381,29 +458,30 @@ PY
   printf '%s\n' "$plan_output" >"$plan_output_file"
   printf '%s\n' "$plan_output" | grep -q '^execution_status: succeeded$'
 
-  log_phase "run external OpenHands executor wrapper for scenario ${scenario_name}"
-  OPENHANDS_LAUNCH_SCRIPT="$FAKE_LAUNCH_SCRIPT" \
-  REAL_OPENHANDS_LAUNCH_SCRIPT="$ROOT_DIR/scripts/openhands-launch.sh" \
-  CATALYST_SKIP_WORKSPACE_BUILD=1 \
-    run_with_transient_postgres_retry \
-      "run OpenHands executor wrapper for scenario ${scenario_name}" \
-      "$ROOT_DIR/scripts/openhands-run-agent-task.sh" \
-        --database-url "$DATABASE_URL" \
-        --artifact-root "$scenario_artifact_root" \
-        --state-root "$scenario_state_root" \
-        --mcp-servers-file "$mcp_servers_file" \
-        --profile container-sandbox \
-        --run-id "$run_id" \
-        --executor-id "executor-${scenario_name}" >"$completion_json_file"
+  log_phase "run external OpenHands executor wrapper for scenario ${scenario_name} (${SMOKE_MODE})"
+  if [ "$SMOKE_MODE" = "contract" ]; then
+    OPENHANDS_LAUNCH_SCRIPT="$FAKE_LAUNCH_SCRIPT" \
+    REAL_OPENHANDS_LAUNCH_SCRIPT="$ROOT_DIR/scripts/openhands-launch.sh" \
+    CATALYST_SKIP_WORKSPACE_BUILD=1 \
+      run_with_transient_postgres_retry \
+        "run OpenHands executor wrapper for scenario ${scenario_name}" \
+        "$ROOT_DIR/scripts/openhands-run-agent-task.sh" \
+          --database-url "$DATABASE_URL" \
+          --artifact-root "$scenario_artifact_root" \
+          --state-root "$scenario_state_root" \
+          --mcp-servers-file "$mcp_servers_file" \
+          --profile "$OPENHANDS_PROFILE" \
+          --run-id "$run_id" \
+          --executor-id "executor-${scenario_name}" >"$completion_json_file"
 
-  fake_report_path="$(find "$scenario_state_root" -name fake-launch-report.json -print -quit)"
-  test -n "$fake_report_path"
+    fake_report_path="$(find "$scenario_state_root" -name fake-launch-report.json -print -quit)"
+    test -n "$fake_report_path"
 
-  python3 - \
-    "$completion_json_file" \
-    "$fake_report_path" \
-    "$expected_openhands_allowlist" \
-    "$expected_server_names_csv" <<'PY'
+    python3 - \
+      "$completion_json_file" \
+      "$fake_report_path" \
+      "$expected_openhands_allowlist" \
+      "$expected_server_names_csv" <<'PY'
 import json
 import pathlib
 import sys
@@ -439,6 +517,55 @@ if not (workspace_root / ".fake-openhands-output.txt").exists():
         "executor smoke failed: fake launcher did not write workspace output marker"
     )
 PY
+  else
+    OPENHANDS_LAUNCH_SCRIPT="$ROOT_DIR/scripts/openhands-launch.sh" \
+    CATALYST_SKIP_WORKSPACE_BUILD=1 \
+      run_with_transient_postgres_retry \
+        "run live OpenHands executor wrapper for scenario ${scenario_name}" \
+        "$ROOT_DIR/scripts/openhands-run-agent-task.sh" \
+          --database-url "$DATABASE_URL" \
+          --artifact-root "$scenario_artifact_root" \
+          --state-root "$scenario_state_root" \
+          --mcp-servers-file "$mcp_servers_file" \
+          --profile "$OPENHANDS_PROFILE" \
+          --run-id "$run_id" \
+          --executor-id "executor-${scenario_name}" >"$completion_json_file"
+
+    python3 - "$completion_json_file" "$scenario_state_root" <<'PY'
+import json
+import pathlib
+import sys
+
+completion = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+state_root = pathlib.Path(sys.argv[2])
+
+if completion["reported_status"] != "succeeded":
+    raise SystemExit(
+        "real OpenHands executor smoke failed: expected reported_status=succeeded, got "
+        f"{completion['reported_status']!r}"
+    )
+if completion["task_status"] != "succeeded":
+    raise SystemExit(
+        "real OpenHands executor smoke failed: expected task_status=succeeded, got "
+        f"{completion['task_status']!r}"
+    )
+
+base_states = sorted(state_root.glob("**/conversations/*/base_state.json"))
+if not base_states:
+    raise SystemExit(
+        "real OpenHands executor smoke failed: no OpenHands conversation base_state.json found"
+    )
+finished = []
+for path in base_states:
+    base_state = json.loads(path.read_text(encoding="utf-8"))
+    if base_state.get("execution_status") == "finished":
+        finished.append(path)
+if not finished:
+    raise SystemExit(
+        "real OpenHands executor smoke failed: no finished OpenHands conversation found"
+    )
+PY
+  fi
 }
 
 if [ ! -f "$BRIEF_FILE" ]; then
@@ -511,18 +638,29 @@ CODEX_ONLY_MCP_SERVERS_FILE="$ARTIFACT_ROOT/mcp-servers-codex-only.yaml"
 write_fake_launch_script "$FAKE_LAUNCH_SCRIPT"
 write_codex_only_mcp_servers_file "$CODEX_ONLY_MCP_SERVERS_FILE"
 
-run_executor_scenario \
-  "fetch-allowed-for-openhands" \
-  "$ROOT_DIR/config/mcp-servers.yaml" \
-  "codex,openhands" \
-  "fetch" \
-  "catalyst-continuum,fetch"
+if [ "$SMOKE_MODE" = "contract" ]; then
+  run_executor_scenario \
+    "fetch-allowed-for-openhands" \
+    "$ROOT_DIR/config/mcp-servers.yaml" \
+    "codex,openhands" \
+    "fetch" \
+    "catalyst-continuum,fetch"
 
-run_executor_scenario \
-  "fetch-denied-for-openhands" \
-  "$CODEX_ONLY_MCP_SERVERS_FILE" \
-  "codex" \
-  "" \
-  "catalyst-continuum"
+  run_executor_scenario \
+    "fetch-denied-for-openhands" \
+    "$CODEX_ONLY_MCP_SERVERS_FILE" \
+    "codex" \
+    "" \
+    "catalyst-continuum"
 
-echo "OpenHands executor wrapper projects run-scoped external MCP policy"
+  echo "OpenHands executor wrapper projects run-scoped external MCP policy"
+else
+  run_executor_scenario \
+    "real-openhands-agent-task" \
+    "$CODEX_ONLY_MCP_SERVERS_FILE" \
+    "codex" \
+    "" \
+    "catalyst-continuum"
+
+  echo "OpenHands executor wrapper completed a live OpenHands agent task"
+fi

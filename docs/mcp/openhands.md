@@ -554,8 +554,21 @@ inspection. The heavier full-run quality-gate path stays in `./scripts/smoke-mvp
 `./scripts/ci-smoke.sh`, so the MCP smoke stays focused on agent-facing transport and stateful tool
 contracts. `./scripts/openhands-run-agent-task-smoke.sh` validates the executor wrapper path itself:
 it submits a real run, executes the initial planning task, then drives
-`./scripts/openhands-run-agent-task.sh` through a fake pinned launcher so the repository can prove
-that the wrapper projects only the run-scoped external MCP allowlist into the OpenHands session.
+`./scripts/openhands-run-agent-task.sh` through a deterministic contract launcher so the repository
+can prove that the wrapper renders the pinned OpenHands profile and projects only the run-scoped
+external MCP allowlist into the launched session. This is the default CI-safe check; it does not
+claim to prove model quality or the real OpenHands runtime.
+
+When a local LiteLLM gateway and coding model are available, run the opt-in live agent smoke:
+
+```bash
+OPENHANDS_REAL_AGENT_SMOKE=1 make openhands-agent-task-real-smoke
+```
+
+That live path starts the real pinned OpenHands launcher, claims one OpenHands-assigned task, and
+requires the session to finish successfully before the wrapper can complete the task through the
+control plane. It is intentionally not part of the default CI baseline because it depends on local
+model availability, gateway readiness, and the pinned OpenHands CLI runtime.
 
 ## Scripted Executor Loop
 

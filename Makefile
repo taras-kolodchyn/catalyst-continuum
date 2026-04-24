@@ -176,7 +176,11 @@ openhands-launch-smoke: ## Validate pinned OpenHands launch-profile rendering.
 
 .PHONY: openhands-agent-task-smoke
 openhands-agent-task-smoke: ## Validate OpenHands executor-wrapper task handoff behavior.
-	./scripts/openhands-run-agent-task-smoke.sh
+	./scripts/openhands-run-agent-task-smoke.sh $(OPENHANDS_AGENT_TASK_SMOKE_ARGS)
+
+.PHONY: openhands-agent-task-real-smoke
+openhands-agent-task-real-smoke: ## Run opt-in live OpenHands executor smoke against LiteLLM/local model.
+	OPENHANDS_REAL_AGENT_SMOKE=1 ./scripts/openhands-run-agent-task-smoke.sh --real-agent $(OPENHANDS_AGENT_TASK_REAL_SMOKE_ARGS)
 
 .PHONY: litellm-smoke
 litellm-smoke: ## Validate the local LiteLLM gateway contract.

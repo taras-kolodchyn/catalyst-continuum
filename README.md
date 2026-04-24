@@ -68,6 +68,7 @@ Important direct scripts:
 ./scripts/ci-compose.sh
 ./scripts/ci-smoke.sh
 ./scripts/operator-ui-smoke.sh
+./scripts/openhands-run-agent-task-smoke.sh
 ./scripts/mcp-reference-smoke.sh
 ./scripts/mcp-stateful-smoke.sh
 ./scripts/compose-observability-smoke.sh
@@ -131,6 +132,22 @@ Repository-policy UI coverage is split into explicit postures:
 ```bash
 make ui-smoke-repository-policy
 make ui-smoke-repository-policy-blocked
+```
+
+## Validate OpenHands
+
+The default OpenHands executor smoke is deterministic and CI-safe. It proves the handoff contract,
+rendered launcher config, and run-scoped external MCP projection without starting a live agent:
+
+```bash
+make openhands-agent-task-smoke
+```
+
+When LiteLLM and a local coding model are running, use the opt-in live smoke to start the real
+pinned OpenHands launcher and complete one assigned task through the control plane:
+
+```bash
+OPENHANDS_REAL_AGENT_SMOKE=1 make openhands-agent-task-real-smoke
 ```
 
 ## Run The Full Local Stack
