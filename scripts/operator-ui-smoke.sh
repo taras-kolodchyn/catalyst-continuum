@@ -347,6 +347,9 @@ async function main() {
       currentFocusHeading: text('[data-pulse-card="current-focus"] h3'),
       currentFocusActionHref:
         document.querySelector('[data-pulse-card="current-focus"] a')?.getAttribute("href") || "",
+      missionContextCardCount: count('[data-mission-context-card="true"]'),
+      missionContextIncludesApprovalBoundary:
+        document.body.textContent.includes("GitHub remains the human approval boundary"),
       lastRefresh: text("#lastRefresh"),
       selectedRunLabel: text("#selectedRunLabel"),
       runCardCount: count("#runsList [data-run-id]"),
@@ -420,6 +423,12 @@ async function main() {
   }
   if (summary.currentFocusActionHref !== "#run-detail") {
     problems.push(`current-focus pulse action should target #run-detail, got ${summary.currentFocusActionHref}`);
+  }
+  if (summary.missionContextCardCount !== 4) {
+    problems.push(`expected four mission context cards, got ${summary.missionContextCardCount}`);
+  }
+  if (!summary.missionContextIncludesApprovalBoundary) {
+    problems.push("mission context should explain that GitHub remains the approval boundary");
   }
   if (!summary.lastRefresh.includes("WebSocket stream active")) {
     problems.push(`websocket not active: ${summary.lastRefresh}`);

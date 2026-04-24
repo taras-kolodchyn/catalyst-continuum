@@ -2817,6 +2817,7 @@ function renderMissionFlowPanel() {
     elements.missionFlowPanel,
     `
       <div class="mission-flow-layout">
+        ${renderMissionContextRibbon(runDetail, guide, publicationGuard)}
         <div class="mission-stage-strip">
           ${guide.stages.map((stage, index) => renderMissionStageCard(stage, index)).join("")}
         </div>
@@ -2897,6 +2898,58 @@ function renderMissionFlowPanel() {
     `,
     { markUpdated: false }
   );
+}
+
+function renderMissionContextRibbon(runDetail, guide, publicationGuard) {
+  const repository = repositoryLabel(runDetail) || "No repository target";
+  const currentStage = guide.currentStageTitle || "Current stage unknown";
+  const recommendedAction = guide.nextActionTitle || "No recommended action";
+
+  return `
+    <section class="mission-context-ribbon" aria-label="Selected run context">
+      ${renderMissionContextCard(
+        "Selected run",
+        runDetail.title,
+        `${shortId(runDetail.run_id)} · ${displayRunStatus(runDetail.status)} · ${formatTimestamp(runDetail.created_at)}`,
+        "warning"
+      )}
+      ${renderMissionContextCard(
+        "Repository target",
+        repository,
+        `${runDetail.repository?.default_branch ?? "default branch unknown"} · ${publicationGuard.title}`,
+        publicationGuard.tone
+      )}
+      ${renderMissionContextCard(
+        "Pack and routing",
+        runDetail.target_pack ?? "unassigned",
+        `${runDetail.trigger} trigger · ${runAgents(runDetail).length} agent lane(s)`,
+        "neutral"
+      )}
+      ${renderMissionContextCard(
+        currentStage,
+        recommendedAction,
+        "The orchestrator prepares evidence; GitHub remains the human approval boundary.",
+        guide.badgeTone
+      )}
+    </section>
+  `;
+}
+
+function renderMissionContextCard(kicker, title, detail, tone) {
+  const normalizedTone = normalizePulseTone(tone);
+
+  return `
+    <article class="mission-context-card" data-mission-context-card="true">
+      <div class="mission-feed-head">
+        <p class="panel-kicker">${escapeHtml(kicker)}</p>
+        <span class="badge badge-${escapeHtml(normalizedTone)}">${escapeHtml(
+          toneLabel(normalizedTone)
+        )}</span>
+      </div>
+      <h3>${escapeHtml(title)}</h3>
+      <p>${escapeHtml(detail)}</p>
+    </article>
+  `;
 }
 
 function renderMissionJourneyTimeline(runDetail, guide) {

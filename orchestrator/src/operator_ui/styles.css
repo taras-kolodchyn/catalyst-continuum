@@ -537,6 +537,7 @@ textarea,
 
 .mission-stage-strip,
 .mission-mini-grid,
+.mission-context-ribbon,
 .surface-link-grid,
 .agent-lane-grid,
 .agent-report-grid {
@@ -550,6 +551,39 @@ textarea,
 
 .mission-mini-grid {
   grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.mission-context-ribbon {
+  grid-template-columns: minmax(260px, 1.35fr) repeat(3, minmax(190px, 1fr));
+  align-items: stretch;
+  border: 1px solid rgba(24, 35, 29, 0.1);
+  border-radius: var(--radius-xl);
+  background:
+    radial-gradient(circle at 4% 15%, rgba(23, 79, 67, 0.14), transparent 24%),
+    linear-gradient(135deg, rgba(255, 251, 244, 0.96), rgba(235, 244, 238, 0.74));
+  padding: 14px;
+}
+
+.mission-context-card {
+  min-width: 0;
+  border: 1px solid rgba(24, 35, 29, 0.1);
+  border-radius: var(--radius-lg);
+  background: rgba(255, 255, 255, 0.64);
+  padding: 14px;
+}
+
+.mission-context-card h3 {
+  margin: 8px 0 7px;
+  font-family: var(--serif);
+  font-size: 1rem;
+  letter-spacing: -0.02em;
+}
+
+.mission-context-card p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .mission-stage-card,
@@ -2465,6 +2499,10 @@ textarea {
 }
 
 @media (max-width: 1320px) {
+  .mission-context-ribbon {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .mission-stage-strip {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -2549,6 +2587,7 @@ textarea {
 
   .status-grid,
   .dashboard-grid,
+  .mission-context-ribbon,
   .mission-stage-strip,
   .mission-mini-grid,
   .mission-action-strip,
