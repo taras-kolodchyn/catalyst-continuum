@@ -283,6 +283,7 @@ function cacheElements() {
     "runLedgerHint",
     "runSearchInput",
     "runNextWebhookButton",
+    "runControlReadinessBoard",
     "runRepositoryAutomationButton",
     "runDetailShell",
     "runStatusFilter",
@@ -7172,6 +7173,7 @@ function renderRunDetail(runDetail, eventsResponse) {
 
   const guide = renderRunGuide(runDetail, events);
   renderRunSectionNav(runDetail, guide, events);
+  renderRunControlReadinessBoard(runDetail, guide);
   renderTasks(runDetail.tasks || []);
   renderArtifacts(runDetail);
   renderEvents(events);
@@ -7311,6 +7313,56 @@ function renderRunSectionLink(link) {
         ${escapeHtml(link.detail)}
       </span>
     </a>
+  `;
+}
+
+function renderRunControlReadinessBoard(runDetail, guide) {
+  const items = buildMissionControlReadinessItems(runDetail, guide);
+  const availableCount = items.filter((item) => item.enabled).length;
+
+  setRenderedHtml(
+    elements.runControlReadinessBoard,
+    `
+      <div class="run-control-readiness-head">
+        <div>
+          <p class="panel-kicker">Control readiness</p>
+          <h4>Why each run action is safe or locked</h4>
+        </div>
+        <span class="badge badge-${escapeHtml(availableCount ? "warning" : "neutral")}">
+          ${escapeHtml(`${availableCount}/${items.length} available`)}
+        </span>
+      </div>
+      <div class="run-control-readiness-grid">
+        ${items.map(renderRunControlReadinessCard).join("")}
+      </div>
+    `,
+    { markUpdated: false }
+  );
+}
+
+function renderRunControlReadinessCard(item) {
+  const tone = item.recommended ? "warning" : item.enabled ? "success" : "neutral";
+  const status = item.recommended ? "Recommended" : item.enabled ? "Available" : "Locked";
+  const detail = item.enabled
+    ? "Guard passed. This control can run from the selected run context."
+    : item.reason;
+
+  return `
+    <article
+      class="run-control-readiness-card run-control-readiness-card-${escapeHtml(tone)}"
+      data-run-control-readiness-card="true"
+      data-run-control-action="${escapeHtml(item.actionId)}"
+    >
+      <div class="run-control-readiness-card-head">
+        <div>
+          <p class="panel-kicker">${escapeHtml(status)}</p>
+          <h4>${escapeHtml(item.label)}</h4>
+        </div>
+        <span class="badge badge-${escapeHtml(tone)}">${escapeHtml(status)}</span>
+      </div>
+      <p>${escapeHtml(item.description)}</p>
+      <p class="microcopy">${escapeHtml(detail)}</p>
+    </article>
   `;
 }
 
@@ -8205,6 +8257,7 @@ function clearRunSelection(message, title = "No run selected") {
   elements.runDetailShell.classList.add("hidden");
   const guide = renderRunGuide(null, []);
   renderRunSectionNav(null, guide, []);
+  renderRunControlReadinessBoard(null, guide);
   renderRunActionHighlights(null);
   syncRunActionDraftInputs(null);
   syncRunActionControlsWithState();
@@ -8799,6 +8852,7 @@ function restoreBriefDraft() {
   renderQueueInspectorEmpty();
   const guide = renderRunGuide(null, []);
   renderRunSectionNav(null, guide, []);
+  renderRunControlReadinessBoard(null, guide);
   renderRunActionHighlights(null);
   syncRunActionDraftInputs(null);
   syncRunActionControlsWithState();

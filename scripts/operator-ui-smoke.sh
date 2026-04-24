@@ -415,6 +415,11 @@ async function main() {
         document.body.textContent.includes("local promotion artifact") ||
         document.body.textContent.includes("local PR bundle"),
       runActionHint: text("#runActionHint"),
+      runControlReadinessCardCount: count("[data-run-control-readiness-card]"),
+      runControlReadinessDraftPrCount: count('[data-run-control-action="draft-pr"]'),
+      runControlReadinessIncludesGuard:
+        document.body.textContent.includes("Guard passed") ||
+        document.body.textContent.includes("No queued tasks remain"),
       exportPrButtons: buttonStats("export-pr"),
       publishPrButtons: buttonStats("publish-pr"),
       draftPrButtons: buttonStats("draft-pr"),
@@ -562,6 +567,17 @@ async function main() {
   }
   if (summary.agentReportCardCount < 1) {
     problems.push("no agent report cards visible");
+  }
+  if (summary.runControlReadinessCardCount !== 7) {
+    problems.push(
+      `expected seven run-control readiness cards, got ${summary.runControlReadinessCardCount}`
+    );
+  }
+  if (summary.runControlReadinessDraftPrCount !== 1) {
+    problems.push("run-control readiness board should explain the draft PR control");
+  }
+  if (!summary.runControlReadinessIncludesGuard) {
+    problems.push("run-control readiness board should expose guard pass or lock reasons");
   }
   for (const check of focusChecks) {
     if (!check.expected || check.actual !== check.expected) {
