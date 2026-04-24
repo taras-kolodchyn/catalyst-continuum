@@ -226,10 +226,16 @@ impl RuntimeProvider for DockerRuntimeProvider {
         let timeout_cleanup = || force_remove_timed_out_container(&container_identity);
         let output =
             run_command_with_optional_timeout(&mut command, timeout, Some(&timeout_cleanup));
-
-        let exit_code = output.exit_code;
-        let stdout = output.stdout;
-        let stderr = output.stderr;
+        let CommandOutput {
+            exit_code,
+            stdout,
+            stderr,
+            stdout_bytes,
+            stderr_bytes,
+            stdout_truncated,
+            stderr_truncated,
+            timed_out,
+        } = output;
 
         let task_status = if exit_code == 0 {
             "succeeded".to_string()
@@ -237,11 +243,11 @@ impl RuntimeProvider for DockerRuntimeProvider {
             "failed".to_string()
         };
 
-        if output.timed_out {
+        if timed_out {
             telemetry::record_runtime_timeout("docker", &task.kind, task.execution.timeout_seconds);
         }
 
-        let failure_reason = if output.timed_out {
+        let failure_reason = if timed_out {
             Some(format!(
                 "docker execution exceeded timeout of {}s",
                 task.execution.timeout_seconds.unwrap_or_default()
@@ -253,9 +259,7 @@ impl RuntimeProvider for DockerRuntimeProvider {
                 "docker execution failed with exit code {exit_code}"
             ))
         } else {
-            Some(format!(
-                "docker execution failed with exit code {exit_code}: {stderr}"
-            ))
+            Some(docker_failure_reason(exit_code, &stderr, stderr_truncated))
         };
 
         let artifact_payload = ExecutionArtifactPayload {
@@ -294,9 +298,13 @@ impl RuntimeProvider for DockerRuntimeProvider {
             container_name: container_identity.name.clone(),
             container_labels: container_identity.labels.clone(),
             exit_code,
-            timed_out: output.timed_out,
+            timed_out,
             timeout_seconds: task.execution.timeout_seconds,
             status: task_status.clone(),
+            stdout_bytes,
+            stderr_bytes,
+            stdout_truncated,
+            stderr_truncated,
             stdout,
             stderr,
         };
@@ -339,6 +347,10 @@ impl RuntimeProvider for DockerRuntimeProvider {
                 "exit_code": exit_code,
                 "timed_out": artifact_payload.timed_out,
                 "timeout_seconds": artifact_payload.timeout_seconds,
+                "stdout_bytes": artifact_payload.stdout_bytes,
+                "stderr_bytes": artifact_payload.stderr_bytes,
+                "stdout_truncated": artifact_payload.stdout_truncated,
+                "stderr_truncated": artifact_payload.stderr_truncated,
                 "image": image,
                 "command": task.execution.command,
                 "working_directory": working_directory,
@@ -375,7 +387,7 @@ impl RuntimeProvider for DockerRuntimeProvider {
             exit_code: artifact_payload.exit_code,
             artifacts: vec![artifact],
             failure_reason,
-            retryable: artifact_payload.exit_code != 0 || artifact_payload.timed_out,
+            retryable: artifact_payload.exit_code != 0 || timed_out,
         })
     }
 }
@@ -407,6 +419,10 @@ struct ExecutionArtifactPayload {
     timed_out: bool,
     timeout_seconds: Option<u64>,
     status: String,
+    stdout_bytes: u64,
+    stderr_bytes: u64,
+    stdout_truncated: bool,
+    stderr_truncated: bool,
     stdout: String,
     stderr: String,
 }
@@ -416,13 +432,27 @@ struct CommandOutput {
     exit_code: i32,
     stdout: String,
     stderr: String,
+    stdout_bytes: u64,
+    stderr_bytes: u64,
+    stdout_truncated: bool,
+    stderr_truncated: bool,
     timed_out: bool,
 }
 
-struct ChildOutputReaders {
-    stdout: JoinHandle<String>,
-    stderr: JoinHandle<String>,
+#[derive(Debug, Default)]
+struct CapturedStream {
+    content: String,
+    byte_count: u64,
+    truncated: bool,
 }
+
+struct ChildOutputReaders {
+    stdout: JoinHandle<CapturedStream>,
+    stderr: JoinHandle<CapturedStream>,
+}
+
+const MAX_CAPTURED_STREAM_BYTES: usize = 1024 * 1024;
+const FAILURE_REASON_STDERR_PREVIEW_CHARS: usize = 4096;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct DockerExecutionSettings {
@@ -498,6 +528,10 @@ fn run_command_with_optional_timeout(
                 exit_code: -1,
                 stdout: String::new(),
                 stderr: error.to_string(),
+                stdout_bytes: 0,
+                stderr_bytes: error.to_string().len() as u64,
+                stdout_truncated: false,
+                stderr_truncated: false,
                 timed_out: false,
             };
         }
@@ -607,22 +641,49 @@ fn collect_child_output(
         None => match child.wait() {
             Ok(status) => status.code().unwrap_or(-1),
             Err(error) => {
+                let CapturedStream {
+                    content: stdout,
+                    byte_count: stdout_bytes,
+                    truncated: stdout_truncated,
+                } = join_pipe_reader(readers.stdout);
+                let CapturedStream {
+                    content: mut stderr,
+                    byte_count: stderr_bytes,
+                    truncated: stderr_truncated,
+                } = join_pipe_reader(readers.stderr);
+                append_stderr(&mut stderr, &error.to_string());
                 return CommandOutput {
                     exit_code: -1,
-                    stdout: String::new(),
-                    stderr: error.to_string(),
+                    stdout,
+                    stderr,
+                    stdout_bytes,
+                    stderr_bytes,
+                    stdout_truncated,
+                    stderr_truncated,
                     timed_out,
                 };
             }
         },
     };
-    let stdout = join_pipe_reader(readers.stdout);
-    let stderr = join_pipe_reader(readers.stderr);
+    let CapturedStream {
+        content: stdout,
+        byte_count: stdout_bytes,
+        truncated: stdout_truncated,
+    } = join_pipe_reader(readers.stdout);
+    let CapturedStream {
+        content: stderr,
+        byte_count: stderr_bytes,
+        truncated: stderr_truncated,
+    } = join_pipe_reader(readers.stderr);
 
     CommandOutput {
         exit_code,
         stdout,
         stderr,
+        stdout_bytes,
+        stderr_bytes,
+        stdout_truncated,
+        stderr_truncated,
         timed_out,
     }
 }
@@ -634,11 +695,11 @@ fn spawn_child_output_readers(child: &mut Child) -> ChildOutputReaders {
     }
 }
 
-fn spawn_pipe_reader(pipe: Option<impl Read + Send + 'static>) -> JoinHandle<String> {
-    thread::spawn(move || read_pipe_to_string(pipe))
+fn spawn_pipe_reader(pipe: Option<impl Read + Send + 'static>) -> JoinHandle<CapturedStream> {
+    thread::spawn(move || read_pipe_to_captured_stream(pipe))
 }
 
-fn join_pipe_reader(reader: JoinHandle<String>) -> String {
+fn join_pipe_reader(reader: JoinHandle<CapturedStream>) -> CapturedStream {
     reader.join().unwrap_or_default()
 }
 
@@ -654,16 +715,68 @@ fn append_stderr(stderr: &mut String, message: &str) {
     stderr.push_str(message);
 }
 
-fn read_pipe_to_string(pipe: Option<impl Read>) -> String {
+fn read_pipe_to_captured_stream(pipe: Option<impl Read>) -> CapturedStream {
     let Some(mut pipe) = pipe else {
-        return String::new();
+        return CapturedStream::default();
     };
     let mut buffer = Vec::new();
-    if pipe.read_to_end(&mut buffer).is_err() {
-        return String::new();
+    let mut total_bytes = 0_u64;
+    let mut chunk = [0_u8; 8192];
+
+    loop {
+        let read = match pipe.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(read) => read,
+            Err(_) => break,
+        };
+        total_bytes += read as u64;
+        let remaining = MAX_CAPTURED_STREAM_BYTES.saturating_sub(buffer.len());
+        if remaining > 0 {
+            buffer.extend_from_slice(&chunk[..remaining.min(read)]);
+        }
     }
 
-    String::from_utf8_lossy(&buffer).to_string()
+    let truncated = total_bytes > buffer.len() as u64;
+    let mut content = String::from_utf8_lossy(&buffer).to_string();
+    if truncated {
+        append_stream_truncation_notice(&mut content, total_bytes);
+    }
+
+    CapturedStream {
+        content,
+        byte_count: total_bytes,
+        truncated,
+    }
+}
+
+fn append_stream_truncation_notice(content: &mut String, total_bytes: u64) {
+    if !content.ends_with('\n') {
+        content.push('\n');
+    }
+    content.push_str(&format!(
+        "[continuum truncated stream after {MAX_CAPTURED_STREAM_BYTES} bytes; original stream length {total_bytes} bytes]"
+    ));
+}
+
+fn docker_failure_reason(exit_code: i32, stderr: &str, stderr_truncated: bool) -> String {
+    let trimmed = stderr.trim();
+    let mut chars = trimmed.chars();
+    let mut preview = chars
+        .by_ref()
+        .take(FAILURE_REASON_STDERR_PREVIEW_CHARS)
+        .collect::<String>();
+    let preview_truncated = chars.next().is_some();
+
+    if preview_truncated || stderr_truncated {
+        if !preview.ends_with('\n') {
+            preview.push('\n');
+        }
+        preview.push_str(
+            "[continuum truncated stderr preview; inspect execution artifact for bounded stream capture]",
+        );
+    }
+
+    format!("docker execution failed with exit code {exit_code}: {preview}")
 }
 
 fn container_working_directory(
@@ -717,7 +830,8 @@ fn resolve_rootless_user(
 #[cfg(test)]
 mod tests {
     use super::{
-        DockerContainerIdentity, DockerRuntimeProvider, run_command_with_optional_timeout,
+        DockerContainerIdentity, DockerRuntimeProvider, FAILURE_REASON_STDERR_PREVIEW_CHARS,
+        MAX_CAPTURED_STREAM_BYTES, docker_failure_reason, run_command_with_optional_timeout,
     };
     use crate::models::task::TaskSummary;
     use serde_json::json;
@@ -744,6 +858,10 @@ mod tests {
 
         assert_eq!(output.exit_code, 0);
         assert_eq!(output.stdout, "ok");
+        assert_eq!(output.stdout_bytes, 2);
+        assert_eq!(output.stderr_bytes, 0);
+        assert!(!output.stdout_truncated);
+        assert!(!output.stderr_truncated);
         assert!(!output.timed_out);
     }
 
@@ -761,10 +879,55 @@ mod tests {
 
         assert_eq!(output.exit_code, 0);
         assert!(!output.timed_out);
+        assert_eq!(output.stdout_bytes, 200_000);
+        assert_eq!(output.stderr_bytes, 200_000);
+        assert!(!output.stdout_truncated);
+        assert!(!output.stderr_truncated);
         assert_eq!(output.stdout.len(), 200_000);
         assert_eq!(output.stderr.len(), 200_000);
         assert!(output.stdout.chars().all(|value| value == 'x'));
         assert!(output.stderr.chars().all(|value| value == 'e'));
+    }
+
+    #[test]
+    fn caps_captured_stdout_and_stderr_while_draining_process() {
+        let iterations = (MAX_CAPTURED_STREAM_BYTES / 10) + 20_000;
+        let expected_bytes = (iterations * 10) as u64;
+        let script = format!(
+            "i=0; while [ \"$i\" -lt {iterations} ]; do printf xxxxxxxxxx; printf eeeeeeeeee >&2; i=$((i + 1)); done"
+        );
+        let mut command = Command::new("sh");
+        command.stdout(Stdio::piped()).stderr(Stdio::piped());
+        command.args(["-lc", &script]);
+
+        let output =
+            run_command_with_optional_timeout(&mut command, Some(Duration::from_secs(3)), None);
+
+        assert_eq!(output.exit_code, 0);
+        assert!(!output.timed_out);
+        assert!(output.stdout_truncated);
+        assert!(output.stderr_truncated);
+        assert_eq!(output.stdout_bytes, expected_bytes);
+        assert_eq!(output.stderr_bytes, expected_bytes);
+        assert!(output.stdout.len() < output.stdout_bytes as usize);
+        assert!(output.stderr.len() < output.stderr_bytes as usize);
+        assert!(output.stdout.contains("[continuum truncated stream after"));
+        assert!(output.stderr.contains("[continuum truncated stream after"));
+    }
+
+    #[test]
+    fn caps_stderr_failure_reason_preview() {
+        let stderr = "e".repeat(FAILURE_REASON_STDERR_PREVIEW_CHARS + 1000);
+
+        let reason = docker_failure_reason(2, &stderr, true);
+
+        assert!(reason.starts_with("docker execution failed with exit code 2:"));
+        assert!(reason.len() < stderr.len());
+        assert!(
+            reason.contains(
+                "[continuum truncated stderr preview; inspect execution artifact for bounded stream capture]"
+            )
+        );
     }
 
     #[test]

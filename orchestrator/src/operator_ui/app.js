@@ -5037,6 +5037,15 @@ function executionLogPreview(log) {
   return preview || log?.detail?.error || "Select this log to inspect stdout and stderr.";
 }
 
+function formatStreamCaptureBytes(byteCount, content) {
+  const numeric = Number(byteCount);
+  if (Number.isFinite(numeric) && numeric >= 0) {
+    return `${numeric.toLocaleString()} bytes`;
+  }
+
+  return `${String(content ?? "").length.toLocaleString()} char(s)`;
+}
+
 function renderAgentExecutionLogCard(runDetail, log) {
   const task = taskForAgentLog(runDetail, log);
   const manifest = log.detail?.manifest ?? null;
@@ -5161,6 +5170,8 @@ function buildSelectedAgentLogSummaryCards(task, log) {
   const timedOut = manifest.timed_out === true;
   const exitCode =
     manifest.exit_code == null ? "n/a" : String(manifest.exit_code);
+  const outputTruncated =
+    manifest.stdout_truncated === true || manifest.stderr_truncated === true;
 
   return [
     {
@@ -5193,6 +5204,15 @@ function buildSelectedAgentLogSummaryCards(task, log) {
         manifest.workspace_bundle_path ??
         "No prepared workspace artifact was linked",
       tone: workspaceArtifactId ? "warning" : "neutral",
+    },
+    {
+      kicker: "Output capture",
+      title: outputTruncated ? "Truncated" : "Bounded",
+      detail: `stdout ${formatStreamCaptureBytes(
+        manifest.stdout_bytes,
+        manifest.stdout
+      )} · stderr ${formatStreamCaptureBytes(manifest.stderr_bytes, manifest.stderr)}`,
+      tone: outputTruncated ? "warning" : "success",
     },
   ];
 }
@@ -5233,6 +5253,10 @@ function renderAgentExecutionCommandCard(task, log) {
         networkMode: manifest.network_mode ?? metadata.network_mode ?? null,
         timeoutSeconds: manifest.timeout_seconds ?? null,
         timedOut: manifest.timed_out === true,
+        stdoutBytes: manifest.stdout_bytes ?? null,
+        stderrBytes: manifest.stderr_bytes ?? null,
+        stdoutTruncated: manifest.stdout_truncated === true,
+        stderrTruncated: manifest.stderr_truncated === true,
       },
       summaryEntries,
       false
