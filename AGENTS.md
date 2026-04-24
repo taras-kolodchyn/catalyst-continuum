@@ -145,6 +145,14 @@ When the change touches agent integrations or MCP behavior, also review:
 - When MCP behavior changes, update the matching tool definitions, handler validation, docs, and MCP
   smoke coverage in the same change so the transport contract stays inspectable and reproducible.
 
+## Operator UI Rules
+
+- Do not use hard page refreshes or browser redirects for operator UI synchronization. Prefer
+  WebSocket live updates, in-place rendering, explicit user actions, and `history.replaceState` for
+  URL state so the UI stays smooth and does not remount embedded surfaces.
+- External UI links that open a new tab must keep `rel="noreferrer noopener"` with
+  `target="_blank"` to avoid opener access.
+
 ## Validation Rules
 
 Before delivering, run the smallest meaningful validation set that proves the change. Use these
