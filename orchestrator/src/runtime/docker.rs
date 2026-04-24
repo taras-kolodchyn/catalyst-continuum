@@ -615,7 +615,7 @@ fn timed_out_container_removal_error(
     }
 
     let stderr = String::from_utf8_lossy(stderr);
-    if stderr.contains("No such container") {
+    if is_benign_timed_out_container_removal_race(&stderr) {
         return None;
     }
 
@@ -624,6 +624,11 @@ fn timed_out_container_removal_error(
         container_name,
         stderr.trim()
     ))
+}
+
+fn is_benign_timed_out_container_removal_race(stderr: &str) -> bool {
+    stderr.contains("No such container")
+        || (stderr.contains("removal of container") && stderr.contains("already in progress"))
 }
 
 fn collect_child_output(
@@ -1030,17 +1035,28 @@ mod tests {
     }
 
     #[test]
+    fn timed_out_container_cleanup_ignores_removal_in_progress() {
+        let error = super::timed_out_container_removal_error(
+            "continuum-task-deadbeef",
+            false,
+            b"Error response from daemon: removal of container continuum-task-deadbeef is already in progress\n",
+        );
+
+        assert!(error.is_none());
+    }
+
+    #[test]
     fn timed_out_container_cleanup_reports_remove_failures() {
         let error = super::timed_out_container_removal_error(
             "continuum-task-deadbeef",
             false,
-            b"Error response from daemon: removal already in progress\n",
+            b"Error response from daemon: permission denied\n",
         );
 
         assert_eq!(
             error.as_deref(),
             Some(
-                "failed to remove timed-out Docker container continuum-task-deadbeef: Error response from daemon: removal already in progress"
+                "failed to remove timed-out Docker container continuum-task-deadbeef: Error response from daemon: permission denied"
             )
         );
     }
