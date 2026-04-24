@@ -1680,6 +1680,112 @@ mod tests {
     }
 
     #[test]
+    fn rejects_malformed_jsonrpc_messages_without_crashing() {
+        let mut server = new_test_server(Vec::new());
+        let input = concat!(
+            "not-json\n",
+            "[]\n",
+            "{\"jsonrpc\":\"2.1\",\"id\":2,\"method\":\"ping\"}\n",
+            "{\"jsonrpc\":\"2.0\",\"id\":3}\n",
+            "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"unknown/method\"}\n"
+        );
+
+        let output = run_session(&mut server, input);
+
+        assert_eq!(output.len(), 5);
+        assert_eq!(output[0]["id"], Value::Null);
+        assert_eq!(output[0]["error"]["code"], JSONRPC_PARSE_ERROR);
+        assert!(
+            output[0]["error"]["message"]
+                .as_str()
+                .is_some_and(|message| message.contains("failed to parse JSON-RPC message"))
+        );
+        assert_eq!(output[1]["id"], Value::Null);
+        assert_eq!(output[1]["error"]["code"], JSONRPC_INVALID_REQUEST);
+        assert_eq!(
+            output[1]["error"]["message"],
+            "batch JSON-RPC messages are not supported"
+        );
+        assert_eq!(output[2]["id"], json!(2));
+        assert_eq!(output[2]["error"]["code"], JSONRPC_INVALID_REQUEST);
+        assert_eq!(output[2]["error"]["message"], "jsonrpc must be \"2.0\"");
+        assert_eq!(output[3]["id"], json!(3));
+        assert_eq!(output[3]["error"]["code"], JSONRPC_INVALID_REQUEST);
+        assert_eq!(
+            output[3]["error"]["message"],
+            "JSON-RPC request must include method"
+        );
+        assert_eq!(output[4]["id"], json!(4));
+        assert_eq!(output[4]["error"]["code"], JSONRPC_METHOD_NOT_FOUND);
+        assert_eq!(
+            output[4]["error"]["message"],
+            "unsupported method: unknown/method"
+        );
+    }
+
+    #[test]
+    fn ignores_initialized_notification_before_initialize_without_stdout_noise() {
+        let mut server = new_test_server(Vec::new());
+        let input = concat!(
+            "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n",
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{},\"clientInfo\":{\"name\":\"test-client\",\"version\":\"0.1.0\"}}}\n"
+        );
+
+        let output = run_session(&mut server, input);
+
+        assert_eq!(output.len(), 1);
+        assert_eq!(output[0]["id"], json!(1));
+        assert_eq!(output[0]["result"]["protocolVersion"], "2025-11-25");
+    }
+
+    #[test]
+    fn rejects_duplicate_initialize_requests() {
+        let mut server = new_test_server(Vec::new());
+        let input = concat!(
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{},\"clientInfo\":{\"name\":\"test-client\",\"version\":\"0.1.0\"}}}\n",
+            "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{},\"clientInfo\":{\"name\":\"test-client\",\"version\":\"0.1.0\"}}}\n"
+        );
+
+        let output = run_session(&mut server, input);
+
+        assert_eq!(output.len(), 2);
+        assert_eq!(output[0]["result"]["protocolVersion"], "2025-11-25");
+        assert_eq!(output[1]["id"], json!(2));
+        assert_eq!(output[1]["error"]["code"], JSONRPC_INVALID_REQUEST);
+        assert_eq!(
+            output[1]["error"]["message"],
+            "initialize has already completed for this stdio session"
+        );
+    }
+
+    #[test]
+    fn normalize_tool_allowlist_trims_deduplicates_and_discards_blank_entries() {
+        let allowlist = normalize_tool_allowlist(vec![
+            " list_packs ".to_string(),
+            "".to_string(),
+            "validate_brief".to_string(),
+            "list_packs".to_string(),
+            "   ".to_string(),
+        ]);
+
+        assert_eq!(
+            allowlist,
+            Some(BTreeSet::from([
+                "list_packs".to_string(),
+                "validate_brief".to_string(),
+            ]))
+        );
+    }
+
+    #[test]
+    fn normalize_tool_allowlist_returns_none_when_entries_are_empty() {
+        assert_eq!(
+            normalize_tool_allowlist(vec!["".to_string(), "  ".to_string()]),
+            None
+        );
+    }
+
+    #[test]
     fn validates_brief_through_tool_call() {
         let mut server = StdioMcpServer::new(McpServerArgs {
             database_url: None,
@@ -1792,6 +1898,19 @@ servers:
             .lines()
             .map(|line| serde_json::from_str(line).expect("each line should be valid JSON"))
             .collect()
+    }
+
+    fn new_test_server(tool_allowlist: Vec<String>) -> StdioMcpServer {
+        StdioMcpServer::new(McpServerArgs {
+            database_url: None,
+            artifact_root: PathBuf::from(".continuum/artifacts"),
+            runtime_providers_file: None,
+            mcp_servers_file: None,
+            ai_gateway_file: None,
+            repository_targets_file: None,
+            tool_allowlist,
+        })
+        .expect("server should initialize")
     }
 
     fn sample_brief() -> &'static str {
