@@ -331,6 +331,40 @@ async function main() {
   }, { timeout: 10000 });
   await page.waitForTimeout(500);
 
+  const eventFilterCheck = {
+    count: await page.locator("[data-run-event-filter]").count(),
+    handoffItems: 0,
+    handoffIncludesDraftPr: false,
+    restoredAllFilter: false,
+  };
+  if (eventFilterCheck.count > 1) {
+    const handoffFilter = page.locator('[data-run-event-filter="handoff"]');
+    const expectedFocusKey = await handoffFilter.getAttribute("data-ui-stable-key");
+    await handoffFilter.click();
+    await page.waitForFunction(() => {
+      const filter = document.querySelector('[data-run-event-filter="handoff"]');
+      return filter && filter.classList.contains("is-active");
+    }, { timeout: 10000 });
+    await page.waitForTimeout(250);
+    eventFilterCheck.handoffItems = await page.locator("#eventTimeline article").count();
+    eventFilterCheck.handoffIncludesDraftPr = await page.evaluate(() => {
+      const timeline = document.querySelector("#eventTimeline");
+      return Boolean(timeline && timeline.textContent.includes("Draft PR opened"));
+    });
+    focusChecks.push({
+      surface: "run-event-filter",
+      expected: expectedFocusKey,
+      actual: await stableFocusKey(page),
+    });
+
+    await page.locator('[data-run-event-filter="all"]').click();
+    await page.waitForFunction(() => {
+      const filter = document.querySelector('[data-run-event-filter="all"]');
+      return filter && filter.classList.contains("is-active");
+    }, { timeout: 10000 });
+    eventFilterCheck.restoredAllFilter = true;
+  }
+
   const summary = await page.evaluate(() => {
     const text = (selector) => document.querySelector(selector)?.textContent?.trim() || "";
     const count = (selector) => document.querySelectorAll(selector).length;
@@ -459,6 +493,7 @@ async function main() {
     summary,
     focusChecks,
     screenshotPath,
+    eventFilterCheck,
     ok: false,
   };
 
@@ -615,6 +650,18 @@ async function main() {
   }
   if (!summary.eventTimelineIncludesHumanTitle) {
     problems.push("event timeline should expose human-readable event titles");
+  }
+  if (eventFilterCheck.count !== 5) {
+    problems.push(`expected five run event filters, got ${eventFilterCheck.count}`);
+  }
+  if (eventFilterCheck.handoffItems < 1) {
+    problems.push("PR handoff event filter should expose at least one handoff event");
+  }
+  if (!eventFilterCheck.handoffIncludesDraftPr) {
+    problems.push("PR handoff event filter should include the draft PR event");
+  }
+  if (!eventFilterCheck.restoredAllFilter) {
+    problems.push("run event filters should restore the all-events view after interaction");
   }
   if (summary.agentLaneCount < 1) {
     problems.push("no agent lanes visible");

@@ -86,12 +86,57 @@ const RUN_ACTION_SEQUENCE = [
   "publish-pr",
   "draft-pr",
 ];
+const RUN_EVENT_FILTERS = [
+  {
+    id: "all",
+    label: "All",
+    types: null,
+  },
+  {
+    id: "tasks",
+    label: "Tasks",
+    types: [
+      TASK_STARTED_EVENT_TYPE,
+      TASK_WORKSPACE_PREPARED_EVENT_TYPE,
+      TASK_HEARTBEAT_EVENT_TYPE,
+      TASK_SUCCEEDED_EVENT_TYPE,
+      TASK_FAILED_EVENT_TYPE,
+      TASK_REQUEUED_EVENT_TYPE,
+    ],
+  },
+  {
+    id: "quality",
+    label: "Policy & quality",
+    types: [
+      RUN_POLICY_EVALUATED_EVENT_TYPE,
+      RUN_QUALITY_EVALUATED_EVENT_TYPE,
+    ],
+  },
+  {
+    id: "handoff",
+    label: "PR handoff",
+    types: [
+      PR_CANDIDATE_EXPORTED_EVENT_TYPE,
+      PR_EXPORT_PUBLISHED_EVENT_TYPE,
+      GITHUB_PR_OPENED_EVENT_TYPE,
+    ],
+  },
+  {
+    id: "run-state",
+    label: "Run state",
+    types: [
+      RUN_SUBMITTED_EVENT_TYPE,
+      RUN_STATUS_CHANGED_EVENT_TYPE,
+    ],
+  },
+];
 const initialUiUrl = new URL(window.location.href);
 
 const state = {
   selectedRunId: normalizeRunIdQueryParam(initialUiUrl.searchParams.get("run")),
   selectedRunStatus: normalizeRunStatusFilter(initialUiUrl.searchParams.get("status")),
   runSearchQuery: normalizeRunSearchQuery(initialUiUrl.searchParams.get("run_query")),
+  selectedRunEventFilter: "all",
   selectedRunDetail: null,
   selectedRunEvents: [],
   dashboardSnapshot: {
@@ -233,6 +278,7 @@ function cacheElements() {
     "clearBriefButton",
     "deliveryCount",
     "detailEmptyState",
+    "eventFilterBar",
     "eventHeadline",
     "eventTimeline",
     "lastRefresh",
@@ -497,6 +543,15 @@ function bindEvents() {
     executeRunAction(actionButton.dataset.runAction).catch((error) => {
       console.error("run action failed", error);
     });
+  });
+
+  elements.eventFilterBar.addEventListener("click", (event) => {
+    const filterButton = event.target.closest("[data-run-event-filter]");
+    if (!filterButton) {
+      return;
+    }
+
+    setSelectedRunEventFilter(filterButton.dataset.runEventFilter);
   });
 
   elements.branchNameInput.addEventListener("input", () => {
@@ -8481,8 +8536,20 @@ function renderDataCardField(label, value, detail = "", valueClass = "") {
 }
 
 function renderEvents(events) {
-  setTextContent(elements.eventHeadline, `${events.length} recent event(s)`);
-  if (!events.length) {
+  const safeEvents = Array.isArray(events) ? events : [];
+  const visibleEvents = filteredRunEvents(safeEvents, state.selectedRunEventFilter);
+  const filterLabel = runEventFilterLabel(state.selectedRunEventFilter);
+  setTextContent(
+    elements.eventHeadline,
+    state.selectedRunEventFilter === "all"
+      ? `${safeEvents.length} recent event(s)`
+      : `${visibleEvents.length} of ${safeEvents.length} event(s) · ${filterLabel}`
+  );
+  setRenderedHtml(elements.eventFilterBar, renderRunEventFilterBar(safeEvents), {
+    markUpdated: false,
+  });
+
+  if (!safeEvents.length) {
     setRenderedHtml(
       elements.eventTimeline,
       '<div class="empty-state compact">No run events persisted for this run yet.</div>'
@@ -8490,12 +8557,79 @@ function renderEvents(events) {
     return;
   }
 
+  if (!visibleEvents.length) {
+    setRenderedHtml(
+      elements.eventTimeline,
+      `<div class="empty-state compact">No run events match the ${escapeHtml(filterLabel)} filter.</div>`
+    );
+    return;
+  }
+
   setRenderedHtml(
     elements.eventTimeline,
-    events
+    visibleEvents
       .map(renderRunEventTimelineItem)
       .join("")
   );
+}
+
+function renderRunEventFilterBar(events) {
+  return RUN_EVENT_FILTERS.map((filter) => {
+    const count = runEventFilterCount(events, filter.id);
+    const active = filter.id === state.selectedRunEventFilter;
+    return `
+      <button
+        class="event-filter-chip${active ? " is-active" : ""}"
+        type="button"
+        data-run-event-filter="${escapeHtml(filter.id)}"
+        data-ui-stable-key="run-event-filter:${escapeHtml(filter.id)}"
+        aria-pressed="${active ? "true" : "false"}"
+      >
+        <span>${escapeHtml(filter.label)}</span>
+        <strong>${escapeHtml(count)}</strong>
+      </button>
+    `;
+  }).join("");
+}
+
+function setSelectedRunEventFilter(filterId) {
+  const nextFilter = normalizeRunEventFilter(filterId);
+  if (state.selectedRunEventFilter === nextFilter) {
+    return;
+  }
+
+  state.selectedRunEventFilter = nextFilter;
+  renderEvents(state.selectedRunEvents);
+}
+
+function filteredRunEvents(events, filterId) {
+  const normalizedFilterId = normalizeRunEventFilter(filterId);
+  return events.filter((event) => matchesRunEventFilter(event, normalizedFilterId));
+}
+
+function runEventFilterCount(events, filterId) {
+  if (filterId === "all") {
+    return events.length;
+  }
+
+  return filteredRunEvents(events, filterId).length;
+}
+
+function matchesRunEventFilter(event, filterId) {
+  const filter = RUN_EVENT_FILTERS.find((item) => item.id === filterId);
+  if (!filter || !Array.isArray(filter.types)) {
+    return true;
+  }
+
+  return filter.types.includes(event.event_type);
+}
+
+function normalizeRunEventFilter(filterId) {
+  return RUN_EVENT_FILTERS.some((filter) => filter.id === filterId) ? filterId : "all";
+}
+
+function runEventFilterLabel(filterId) {
+  return RUN_EVENT_FILTERS.find((filter) => filter.id === normalizeRunEventFilter(filterId))?.label ?? "All";
 }
 
 function renderRunEventTimelineItem(event) {

@@ -1228,6 +1228,7 @@ textarea,
 }
 
 .agent-filter-row,
+.event-filter-row,
 .surface-link-actions,
 .agent-report-actions {
   display: flex;
@@ -1235,10 +1236,12 @@ textarea,
   gap: 10px;
 }
 
-.agent-filter-chip {
+.agent-filter-chip,
+.event-filter-chip {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 8px;
   min-height: 38px;
   padding: 8px 14px;
   border: 1px solid rgba(24, 35, 29, 0.12);
@@ -1251,12 +1254,14 @@ textarea,
     background var(--transition-soft);
 }
 
-.agent-filter-chip:hover {
+.agent-filter-chip:hover,
+.event-filter-chip:hover {
   transform: translateY(-1px);
   border-color: rgba(180, 95, 47, 0.24);
 }
 
 .agent-filter-chip:focus-visible,
+.event-filter-chip:focus-visible,
 .agent-report-card:focus-visible,
 .run-card:focus-visible,
 .rail-item-button:focus-visible {
@@ -1267,11 +1272,24 @@ textarea,
     0 12px 28px rgba(23, 79, 67, 0.12);
 }
 
-.agent-filter-chip.is-active {
+.agent-filter-chip.is-active,
+.event-filter-chip.is-active {
   border-color: rgba(180, 95, 47, 0.28);
   background: rgba(180, 95, 47, 0.12);
   color: #77421d;
   font-weight: 700;
+}
+
+.event-filter-chip strong {
+  display: inline-flex;
+  min-width: 24px;
+  min-height: 24px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: rgba(24, 35, 29, 0.08);
+  color: var(--ink);
+  font-size: 0.78rem;
 }
 
 .agent-lane-grid {
