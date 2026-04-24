@@ -145,3 +145,125 @@ fn tool_error_value(message: &str) -> Value {
 fn pretty_json(value: &Value) -> String {
     serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use anyhow::anyhow;
+
+    #[test]
+    fn call_tool_returns_success_object_when_handler_succeeds() {
+        let result = call_tool(|| {
+            Ok(tool_success_with_text(
+                "pack",
+                json!({"id": "cli-tool"}),
+                "ok".to_string(),
+            ))
+        });
+
+        assert_eq!(
+            result,
+            json!({
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "ok"
+                    }
+                ],
+                "structuredContent": {
+                    "pack": {
+                        "id": "cli-tool"
+                    }
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn call_tool_returns_mcp_error_envelope_when_handler_fails() {
+        let result = call_tool(|| Err(anyhow!("pack was not found")));
+
+        assert_eq!(
+            result,
+            json!({
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "pack was not found"
+                    }
+                ],
+                "structuredContent": {
+                    "error": {
+                        "message": "pack was not found"
+                    }
+                },
+                "isError": true
+            })
+        );
+    }
+
+    #[test]
+    fn tool_success_object_exposes_text_and_structured_content() {
+        let result = Value::Object(tool_success_object("run", json!({"status": "queued"})));
+
+        assert_eq!(
+            result,
+            json!({
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "{\n  \"status\": \"queued\"\n}"
+                    }
+                ],
+                "structuredContent": {
+                    "run": {
+                        "status": "queued"
+                    }
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn jsonrpc_result_response_uses_standard_shape() {
+        assert_eq!(
+            jsonrpc_result_response(json!(42), json!({"ok": true})),
+            json!({
+                "jsonrpc": "2.0",
+                "id": 42,
+                "result": {
+                    "ok": true
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn jsonrpc_error_response_uses_standard_shape() {
+        assert_eq!(
+            jsonrpc_error_response(json!("request-1"), -32602, "invalid params"),
+            json!({
+                "jsonrpc": "2.0",
+                "id": "request-1",
+                "error": {
+                    "code": -32602,
+                    "message": "invalid params"
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn negotiate_protocol_version_accepts_supported_versions() {
+        assert_eq!(negotiate_protocol_version("2025-03-26"), "2025-03-26");
+        assert_eq!(negotiate_protocol_version("2024-11-05"), "2024-11-05");
+    }
+
+    #[test]
+    fn negotiate_protocol_version_falls_back_to_latest_for_unknown_versions() {
+        assert_eq!(
+            negotiate_protocol_version("2099-01-01"),
+            MCP_PROTOCOL_LATEST
+        );
+    }
+}
