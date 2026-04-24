@@ -341,6 +341,8 @@ async function main() {
     return {
       title: document.title,
       heroHeading: document.querySelector("h1")?.textContent?.trim() || "",
+      firstRunPlaybookHeading: text("#first-run-playbook h2"),
+      firstRunPlaybookStepCount: count("#first-run-playbook li"),
       lastRefresh: text("#lastRefresh"),
       selectedRunLabel: text("#selectedRunLabel"),
       runCardCount: count("#runsList [data-run-id]"),
@@ -396,6 +398,15 @@ async function main() {
   }
   if (summary.title !== "Catalyst Continuum Control Surface") {
     problems.push(`unexpected title ${summary.title}`);
+  }
+  if (summary.heroHeading !== "Turn a product brief into a draft pull request") {
+    problems.push(`unexpected hero heading ${summary.heroHeading}`);
+  }
+  if (summary.firstRunPlaybookHeading !== "If you are new, follow this exact order") {
+    problems.push(`first-run playbook heading is missing: ${summary.firstRunPlaybookHeading}`);
+  }
+  if (summary.firstRunPlaybookStepCount !== 4) {
+    problems.push(`expected 4 first-run playbook steps, got ${summary.firstRunPlaybookStepCount}`);
   }
   if (!summary.lastRefresh.includes("WebSocket stream active")) {
     problems.push(`websocket not active: ${summary.lastRefresh}`);

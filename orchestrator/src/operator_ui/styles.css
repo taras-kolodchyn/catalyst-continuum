@@ -218,6 +218,80 @@ textarea,
   gap: 12px;
 }
 
+.hero-playbook {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.68fr) minmax(0, 1.32fr);
+  gap: 14px;
+  border: 1px solid rgba(23, 79, 67, 0.14);
+  border-radius: var(--radius-xl);
+  background:
+    linear-gradient(135deg, rgba(226, 241, 235, 0.88), rgba(255, 251, 244, 0.9)),
+    radial-gradient(circle at top right, rgba(180, 95, 47, 0.16), transparent 42%);
+  padding: 18px;
+}
+
+.hero-playbook-copy {
+  min-width: 0;
+  padding-right: 8px;
+}
+
+.hero-playbook-copy h2 {
+  margin: 8px 0 10px;
+  font-family: var(--serif);
+  font-size: clamp(1.35rem, 2vw, 1.8rem);
+  letter-spacing: -0.02em;
+}
+
+.hero-playbook-copy p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.hero-playbook-steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hero-playbook-steps li {
+  min-width: 0;
+  border: 1px solid rgba(24, 35, 29, 0.1);
+  border-radius: var(--radius-lg);
+  background: rgba(255, 251, 244, 0.82);
+  padding: 14px;
+}
+
+.hero-playbook-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  background: var(--spruce);
+  color: var(--paper);
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.hero-playbook-steps h3 {
+  margin: 12px 0 8px;
+  font-family: var(--serif);
+  font-size: 1.02rem;
+}
+
+.hero-playbook-steps p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
 .hero-flow-step {
   position: relative;
   padding-top: 54px;
@@ -2391,6 +2465,14 @@ textarea {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .hero-playbook {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .hero-playbook-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .hero-flow {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -2429,6 +2511,8 @@ textarea {
 
   .hero-head,
   .hero-callout-grid,
+  .hero-playbook,
+  .hero-playbook-steps,
   .hero-flow {
     grid-template-columns: minmax(0, 1fr);
     flex-direction: column;
