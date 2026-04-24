@@ -2181,6 +2181,57 @@ textarea {
   text-align: right;
 }
 
+.run-card-phase-rail {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.run-card-phase-step {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+  border: 1px solid rgba(24, 35, 29, 0.08);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.58);
+  padding: 8px 9px;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.run-card-phase-step strong {
+  color: var(--ink);
+  font-size: 0.78rem;
+}
+
+.run-card-phase-label {
+  color: rgba(24, 35, 29, 0.72);
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.run-card-phase-done {
+  border-color: rgba(23, 79, 67, 0.22);
+  background: rgba(226, 241, 235, 0.72);
+}
+
+.run-card-phase-active {
+  border-color: rgba(180, 95, 47, 0.28);
+  background: rgba(248, 217, 187, 0.46);
+}
+
+.run-card-phase-blocked {
+  border-color: rgba(141, 48, 48, 0.28);
+  background: rgba(246, 214, 206, 0.48);
+}
+
+.run-card-phase-pending {
+  background: rgba(24, 35, 29, 0.04);
+}
+
 .run-card-task-meter {
   display: flex;
   flex-direction: column;
@@ -3132,6 +3183,10 @@ textarea {
 
   .data-card-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .run-card-phase-rail {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .surface-frame {

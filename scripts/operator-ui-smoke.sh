@@ -392,6 +392,10 @@ async function main() {
       selectedRunLabel: text("#selectedRunLabel"),
       runCardCount: count("#runsList [data-run-id]"),
       runCardNextStepCount: count("[data-run-card-next-step]"),
+      runCardPhaseRailCount: count("[data-run-card-phase-rail]"),
+      runCardPhaseStepCount: count("[data-run-card-phase-step]"),
+      runCardPhaseIncludesHandoff:
+        document.body.textContent.includes("PR handoff"),
       runCardTaskMeterCount: count("[data-run-card-task-meter]"),
       runCardTaskMeterSegmentCount: count("[data-run-card-task-meter-segment]"),
       taskRows: count("#taskTableWrap tbody tr"),
@@ -548,6 +552,19 @@ async function main() {
     problems.push(
       `expected one next-step hint per run card, got ${summary.runCardNextStepCount}/${summary.runCardCount}`
     );
+  }
+  if (summary.runCardPhaseRailCount !== summary.runCardCount) {
+    problems.push(
+      `expected one phase rail per run card, got ${summary.runCardPhaseRailCount}/${summary.runCardCount}`
+    );
+  }
+  if (summary.runCardPhaseStepCount < summary.runCardCount * 4) {
+    problems.push(
+      `expected four phase steps per run card, got ${summary.runCardPhaseStepCount}/${summary.runCardCount}`
+    );
+  }
+  if (!summary.runCardPhaseIncludesHandoff) {
+    problems.push("run-card phase rail should expose the PR handoff phase");
   }
   if (summary.runCardTaskMeterCount !== summary.runCardCount) {
     problems.push(

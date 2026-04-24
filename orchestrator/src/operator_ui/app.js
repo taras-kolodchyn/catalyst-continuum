@@ -6603,6 +6603,7 @@ function renderRuns(response) {
                 <strong>${escapeHtml(guide.nextStep)}</strong>
               </div>
             </div>
+            ${renderRunCardPhaseRail(run)}
             ${renderRunCardTaskMeter(run.task_counts)}
             <div class="run-card-stats">
               <span>${escapeHtml(repositoryName)}</span>
@@ -6622,6 +6623,143 @@ function renderRuns(response) {
   );
   syncRunCardTaskMeters();
   renderOperatorPulse();
+}
+
+function renderRunCardPhaseRail(run) {
+  const counts = normalizedTaskCounts(run.task_counts);
+  const artifactCount = Number(run.artifact_count ?? 0);
+  const hasFailures = run.status === "failed" || counts.failed > 0;
+  const hasActiveTasks = counts.running > 0 || counts.queued > 0;
+  const tasksComplete = counts.total > 0 && !hasActiveTasks && counts.failed === 0;
+
+  let taskPhase = {
+    state: "pending",
+    status: "Pending",
+    detail: "No tasks yet",
+  };
+  if (hasFailures) {
+    taskPhase = {
+      state: "blocked",
+      status: "Blocked",
+      detail: `${counts.failed} failed`,
+    };
+  } else if (counts.running > 0) {
+    taskPhase = {
+      state: "active",
+      status: "Running",
+      detail: `${counts.running} active`,
+    };
+  } else if (counts.queued > 0) {
+    taskPhase = {
+      state: "active",
+      status: "Ready",
+      detail: `${counts.queued} queued`,
+    };
+  } else if (tasksComplete) {
+    taskPhase = {
+      state: "done",
+      status: "Done",
+      detail: `${counts.succeeded}/${counts.total} done`,
+    };
+  }
+
+  let evidencePhase = {
+    state: "pending",
+    status: "Pending",
+    detail: "Awaiting artifacts",
+  };
+  if (artifactCount > 0) {
+    evidencePhase = {
+      state: "done",
+      status: "Captured",
+      detail: `${artifactCount} artifact(s)`,
+    };
+  } else if (hasFailures) {
+    evidencePhase = {
+      state: "blocked",
+      status: "Blocked",
+      detail: "Fix tasks first",
+    };
+  } else if (tasksComplete) {
+    evidencePhase = {
+      state: "active",
+      status: "Needed",
+      detail: "Evaluate quality",
+    };
+  }
+
+  let handoffPhase = {
+    state: "pending",
+    status: "Pending",
+    detail: "Not ready yet",
+  };
+  if (hasFailures) {
+    handoffPhase = {
+      state: "blocked",
+      status: "Blocked",
+      detail: "Needs recovery",
+    };
+  } else if (run.status === "succeeded" && artifactCount > 0) {
+    handoffPhase = {
+      state: "active",
+      status: "Ready",
+      detail: "Verify and publish",
+    };
+  } else if (tasksComplete && artifactCount > 0) {
+    handoffPhase = {
+      state: "active",
+      status: "Review",
+      detail: "Check quality",
+    };
+  }
+
+  const phases = [
+    {
+      label: "Brief",
+      state: "done",
+      status: "Done",
+      detail: "Run created",
+    },
+    {
+      label: "Tasks",
+      ...taskPhase,
+    },
+    {
+      label: "Evidence",
+      ...evidencePhase,
+    },
+    {
+      label: "PR handoff",
+      ...handoffPhase,
+    },
+  ];
+  const summary = phases
+    .map((phase) => `${phase.label}: ${phase.status}`)
+    .join(", ");
+
+  return `
+    <div
+      class="run-card-phase-rail"
+      data-run-card-phase-rail="true"
+      aria-label="${escapeHtml(`Run phase rail: ${summary}`)}"
+    >
+      ${phases.map(renderRunCardPhaseStep).join("")}
+    </div>
+  `;
+}
+
+function renderRunCardPhaseStep(phase) {
+  return `
+    <span
+      class="run-card-phase-step run-card-phase-${escapeHtml(phase.state)}"
+      data-run-card-phase-step="true"
+      data-run-card-phase-state="${escapeHtml(phase.state)}"
+    >
+      <span class="run-card-phase-label">${escapeHtml(phase.label)}</span>
+      <strong>${escapeHtml(phase.status)}</strong>
+      <span>${escapeHtml(phase.detail)}</span>
+    </span>
+  `;
 }
 
 function renderRunCardTaskMeter(taskCounts) {
