@@ -2317,6 +2317,25 @@ textarea {
   font-size: 1rem;
 }
 
+.timeline-item-success {
+  border-color: rgba(23, 79, 67, 0.2);
+  background: linear-gradient(135deg, rgba(226, 241, 235, 0.62), rgba(255, 251, 244, 0.86));
+}
+
+.timeline-item-warning {
+  border-color: rgba(180, 95, 47, 0.2);
+  background: linear-gradient(135deg, rgba(248, 217, 187, 0.42), rgba(255, 251, 244, 0.86));
+}
+
+.timeline-item-error {
+  border-color: rgba(141, 48, 48, 0.24);
+  background: linear-gradient(135deg, rgba(246, 214, 206, 0.46), rgba(255, 251, 244, 0.86));
+}
+
+.timeline-item-neutral {
+  background: rgba(255, 251, 244, 0.82);
+}
+
 .detail-shell {
   gap: 18px;
 }

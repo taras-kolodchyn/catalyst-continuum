@@ -8406,28 +8406,34 @@ function renderEvents(events) {
   setRenderedHtml(
     elements.eventTimeline,
     events
-      .map(
-        (event) => `
-          <article class="timeline-item">
-            <div class="timeline-head">
-              <div>
-                <p class="panel-kicker">${escapeHtml(event.scope)}</p>
-                <h4>${escapeHtml(event.event_type)}</h4>
-              </div>
-              <span class="badge badge-${escapeHtml(statusTone(event.status ?? event.scope))}">
-                ${escapeHtml(event.status ?? event.scope)}
-              </span>
-            </div>
-            <p>${escapeHtml(event.summary)}</p>
-            <div class="timeline-meta">
-              <span>${escapeHtml(formatTimestamp(event.created_at))}</span>
-              <span class="mono">${escapeHtml(event.task_id ? shortId(event.task_id) : shortId(event.event_id))}</span>
-            </div>
-          </article>
-        `
-      )
+      .map(renderRunEventTimelineItem)
       .join("")
   );
+}
+
+function renderRunEventTimelineItem(event) {
+  const item = runEventPresentation(event, state.selectedRunDetail);
+
+  return `
+    <article
+      class="timeline-item timeline-item-${escapeHtml(item.tone)}"
+      data-run-event-card="true"
+    >
+      <div class="timeline-head">
+        <div>
+          <p class="panel-kicker">${escapeHtml(item.kicker)}</p>
+          <h4 data-run-event-human-title="true">${escapeHtml(item.title)}</h4>
+        </div>
+        <span class="badge badge-${escapeHtml(item.tone)}">
+          ${escapeHtml(item.badge)}
+        </span>
+      </div>
+      <p>${escapeHtml(item.summary)}</p>
+      <div class="timeline-meta">
+        <span>${escapeHtml(item.detail)}</span>
+      </div>
+    </article>
+  `;
 }
 
 function clearRunSelection(message, title = "No run selected") {

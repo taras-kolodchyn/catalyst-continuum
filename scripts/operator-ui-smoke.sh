@@ -404,6 +404,11 @@ async function main() {
         document.body.textContent.includes("Planning evidence"),
       artifactRows: count("#artifactTableWrap tbody tr"),
       eventItems: count("#eventTimeline article"),
+      eventHumanTitleCount: count("[data-run-event-human-title]"),
+      eventTimelineIncludesHumanTitle:
+        document.body.textContent.includes("Draft PR opened") ||
+        document.body.textContent.includes("Task succeeded") ||
+        document.body.textContent.includes("Quality gate evaluated"),
       agentLaneCount: count("#agentLaneGrid .agent-lane"),
       agentFilterCount: count("[data-agent-filter]"),
       agentReportCardCount: count("[data-agent-report-artifact-id]"),
@@ -588,6 +593,14 @@ async function main() {
   }
   if (summary.eventItems < 1) {
     problems.push("no event items visible");
+  }
+  if (summary.eventHumanTitleCount !== summary.eventItems) {
+    problems.push(
+      `expected humanized event titles for every timeline item, got ${summary.eventHumanTitleCount}/${summary.eventItems}`
+    );
+  }
+  if (!summary.eventTimelineIncludesHumanTitle) {
+    problems.push("event timeline should expose human-readable event titles");
   }
   if (summary.agentLaneCount < 1) {
     problems.push("no agent lanes visible");
