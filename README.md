@@ -150,6 +150,10 @@ pinned OpenHands launcher and complete one assigned task through the control pla
 OPENHANDS_REAL_AGENT_SMOKE=1 make openhands-agent-task-real-smoke
 ```
 
+Pass live-smoke launcher overrides through `OPENHANDS_AGENT_TASK_REAL_SMOKE_ARGS`, for example
+`OPENHANDS_AGENT_TASK_REAL_SMOKE_ARGS="--profile host-full-access"` when deliberately debugging the
+unsafe host-run profile.
+
 ## Run The Full Local Stack
 
 The Docker Compose baseline includes orchestrator, worker, LiteLLM, Postgres, Redis, OpenTelemetry

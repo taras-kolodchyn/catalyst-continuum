@@ -185,6 +185,9 @@ repository-standard checks:
   and LiteLLM/MCP launcher-contract changes
 - `./scripts/openhands-run-agent-task-smoke.sh` for external OpenHands executor-wrapper changes,
   especially run-scoped external MCP projection and claimed-task handoff behavior
+- `OPENHANDS_REAL_AGENT_SMOKE=1 make openhands-agent-task-real-smoke` for opt-in live OpenHands
+  validation when a change specifically claims real OpenHands/LiteLLM execution works and the local
+  gateway plus coding model are reachable; do not substitute this for the CI-safe contract smoke
 - `./scripts/operator-ui-smoke.sh` for operator UI, WebSocket live-update, Mission Control,
   run-ledger, or agent-panel changes that need browser-level regression coverage
 - `make ui-smoke-repository-policy` and `make ui-smoke-repository-policy-blocked` for operator UI
