@@ -227,6 +227,8 @@ function cacheElements() {
     "briefEditor",
     "briefExampleHint",
     "briefExamples",
+    "briefReadinessBadge",
+    "briefReadinessList",
     "capabilityGrid",
     "clearBriefButton",
     "deliveryCount",
@@ -401,6 +403,7 @@ function bindEvents() {
 
   elements.briefEditor.addEventListener("input", () => {
     window.localStorage.setItem(BRIEF_STORAGE_KEY, elements.briefEditor.value);
+    renderBriefReadiness();
   });
 
   elements.briefExamples.addEventListener("click", (event) => {
@@ -417,6 +420,7 @@ function bindEvents() {
     elements.briefEditor.value = "";
     window.localStorage.removeItem(BRIEF_STORAGE_KEY);
     renderBriefExamples();
+    renderBriefReadiness();
     writeConsole(
       elements.briefConsole,
       elements.briefConsoleStatus,
@@ -6136,6 +6140,127 @@ function renderBriefExampleHint(activeExample) {
   );
 }
 
+function renderBriefReadiness() {
+  const items = buildBriefReadinessItems(elements.briefEditor.value);
+  const readyCount = items.filter((item) => item.ready).length;
+  const tone = readyCount === items.length ? "success" : readyCount > 0 ? "warning" : "neutral";
+
+  setBadge(elements.briefReadinessBadge, tone, `${readyCount}/${items.length} ready`);
+  setRenderedHtml(
+    elements.briefReadinessList,
+    items.map(renderBriefReadinessItem).join("")
+  );
+}
+
+function buildBriefReadinessItems(value) {
+  const content = value.trim();
+  const repositoryBlock = yamlTopLevelBlock(content, "repository");
+  const executionBlock = yamlTopLevelBlock(content, "execution_preferences");
+
+  return [
+    briefReadinessItem({
+      detail: "Needed so the run is auditable and traceable back to a requester.",
+      fields: ["schema_version", "brief_id", "title", "requested_by"],
+      label: "Brief identity",
+      ready: hasYamlFields(content, ["schema_version", "brief_id", "title", "requested_by"]),
+    }),
+    briefReadinessItem({
+      detail: "Goals, requirements, and deliverables tell the planner what to materialize.",
+      fields: ["goals", "functional_requirements", "deliverables"],
+      label: "Delivery scope",
+      ready: hasYamlFields(content, ["goals", "functional_requirements", "deliverables"]),
+    }),
+    briefReadinessItem({
+      detail: "Repository metadata decides where PR handoff can be exported or published.",
+      fields: ["repository.host", "repository.owner", "repository.name", "repository.default_branch"],
+      label: "Repository target",
+      ready:
+        hasYamlFields(repositoryBlock, ["host", "owner", "name", "default_branch"]) &&
+        hasYamlField(content, "repository"),
+    }),
+    briefReadinessItem({
+      detail: "Pack, runtime, sandbox, and default agent keep execution policy explicit.",
+      fields: [
+        "execution_preferences.repo_pack",
+        "execution_preferences.default_runtime_provider",
+        "execution_preferences.sandbox_profile",
+        "execution_preferences.default_agent",
+      ],
+      label: "Execution policy",
+      ready:
+        hasYamlFields(executionBlock, [
+          "repo_pack",
+          "default_runtime_provider",
+          "sandbox_profile",
+          "default_agent",
+        ]) && hasYamlField(content, "execution_preferences"),
+    }),
+  ];
+}
+
+function briefReadinessItem({ detail, fields, label, ready }) {
+  return {
+    detail,
+    fields,
+    label,
+    ready,
+    status: ready ? "Ready" : "Needs input",
+    tone: ready ? "success" : "neutral",
+  };
+}
+
+function renderBriefReadinessItem(item) {
+  const tone = normalizePulseTone(item.tone);
+
+  return `
+    <article class="brief-readiness-card brief-readiness-card-${escapeHtml(tone)}" data-brief-readiness-item="true">
+      <div class="mission-feed-head">
+        <p class="panel-kicker">${escapeHtml(item.label)}</p>
+        <span class="badge badge-${escapeHtml(tone)}">${escapeHtml(item.status)}</span>
+      </div>
+      <p>${escapeHtml(item.detail)}</p>
+      <p class="microcopy">${escapeHtml(item.fields.join(", "))}</p>
+    </article>
+  `;
+}
+
+function hasYamlFields(content, fields) {
+  return fields.every((field) => hasYamlField(content, field));
+}
+
+function hasYamlField(content, field) {
+  if (!content.trim()) {
+    return false;
+  }
+
+  return new RegExp(`(^|\\n)\\s*${field}:`, "m").test(content);
+}
+
+function yamlTopLevelBlock(content, field) {
+  if (!content.trim()) {
+    return "";
+  }
+
+  const lines = content.split(/\r?\n/);
+  const startIndex = lines.findIndex((line) =>
+    new RegExp(`^${field}:\\s*(?:#.*)?$`).test(line)
+  );
+  if (startIndex === -1) {
+    return "";
+  }
+
+  const block = [];
+  for (let index = startIndex + 1; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (/^\S/.test(line) && line.trim()) {
+      break;
+    }
+    block.push(line);
+  }
+
+  return block.join("\n");
+}
+
 function loadBriefExampleIntoEditor(exampleId) {
   const example = state.briefExamples.find((candidate) => candidate.example_id === exampleId);
   if (!example) {
@@ -6147,6 +6272,7 @@ function loadBriefExampleIntoEditor(exampleId) {
   window.localStorage.setItem(BRIEF_STORAGE_KEY, example.content);
   renderBriefExamples();
   renderBriefExampleHint(example);
+  renderBriefReadiness();
   writeConsole(
     elements.briefConsole,
     elements.briefConsoleStatus,
@@ -8373,6 +8499,7 @@ function restoreBriefDraft() {
   syncRefreshModeControls();
   renderDashboardLoadingState();
   renderBriefExampleHint();
+  renderBriefReadiness();
   renderQueueInspectorEmpty();
   renderRunGuide(null, []);
   renderRunActionHighlights(null);

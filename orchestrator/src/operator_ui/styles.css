@@ -1620,6 +1620,55 @@ textarea,
   margin-top: 14px;
 }
 
+.brief-readiness {
+  margin-top: 14px;
+  border: 1px solid rgba(23, 79, 67, 0.12);
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(135deg, rgba(226, 241, 235, 0.68), rgba(255, 251, 244, 0.9));
+  padding: 14px;
+}
+
+.brief-readiness-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.brief-readiness-head h3 {
+  margin: 4px 0 0;
+  font-family: var(--serif);
+  font-size: 1rem;
+  letter-spacing: -0.02em;
+}
+
+.brief-readiness-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.brief-readiness-card {
+  min-width: 0;
+  border: 1px solid rgba(24, 35, 29, 0.1);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.66);
+  padding: 12px;
+}
+
+.brief-readiness-card-success {
+  border-color: rgba(23, 79, 67, 0.18);
+  background: rgba(226, 241, 235, 0.72);
+}
+
+.brief-readiness-card p {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
 .chip-button {
   appearance: none;
   cursor: pointer;
@@ -2739,6 +2788,7 @@ textarea {
   .mission-action-strip,
   .mission-freshness-grid,
   .mission-evidence-grid,
+  .brief-readiness-grid,
   .artifact-evidence-strip,
   .surface-link-grid,
   .agent-lane-grid,

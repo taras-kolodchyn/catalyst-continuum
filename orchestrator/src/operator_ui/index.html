@@ -390,6 +390,16 @@
             placeholder="Paste a structured product brief here to validate or submit it."
             data-ui-input="brief-editor"
           ></textarea>
+          <div class="brief-readiness" aria-live="polite">
+            <div class="brief-readiness-head">
+              <div>
+                <p class="panel-kicker">Brief readiness</p>
+                <h3>Before validation, make these fields explicit</h3>
+              </div>
+              <span id="briefReadinessBadge" class="badge badge-neutral">0/4 ready</span>
+            </div>
+            <div id="briefReadinessList" class="brief-readiness-grid" data-ui-region="brief-readiness"></div>
+          </div>
           <div class="control-row">
             <button
               id="validateBriefButton"

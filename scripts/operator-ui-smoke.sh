@@ -258,6 +258,13 @@ async function main() {
   const loadEventsAfterInitial = loadEvents;
   const mainFrameNavigationsAfterInitial = mainFrameNavigations;
 
+  await page.waitForSelector("[data-ui-brief-example]", { timeout: 10000 });
+  await page.click("[data-ui-brief-example]");
+  await page.waitForFunction(() => {
+    const badge = document.querySelector("#briefReadinessBadge");
+    return badge && badge.textContent.includes("4/4 ready");
+  }, { timeout: 10000 });
+
   await page.click("#runsList [data-run-id]");
   await page.waitForSelector("#runDetailShell");
   await page.click('[data-mission-tab="agents"]');
@@ -343,6 +350,10 @@ async function main() {
       heroHeading: document.querySelector("h1")?.textContent?.trim() || "",
       firstRunPlaybookHeading: text("#first-run-playbook h2"),
       firstRunPlaybookStepCount: count("#first-run-playbook li"),
+      briefReadinessItemCount: count("[data-brief-readiness-item]"),
+      briefReadinessBadge: text("#briefReadinessBadge"),
+      briefReadinessIncludesRepository:
+        document.body.textContent.includes("Repository target"),
       currentFocusCardCount: count('[data-pulse-card="current-focus"]'),
       currentFocusHeading: text('[data-pulse-card="current-focus"] h3'),
       currentFocusActionHref:
@@ -428,6 +439,18 @@ async function main() {
   }
   if (summary.firstRunPlaybookStepCount !== 4) {
     problems.push(`expected 4 first-run playbook steps, got ${summary.firstRunPlaybookStepCount}`);
+  }
+  if (summary.briefReadinessItemCount !== 4) {
+    problems.push(`expected 4 brief readiness items, got ${summary.briefReadinessItemCount}`);
+  }
+  if (!summary.briefReadinessBadge) {
+    problems.push("brief readiness badge is missing");
+  }
+  if (!summary.briefReadinessBadge.includes("4/4 ready")) {
+    problems.push(`starter brief should make readiness complete, got ${summary.briefReadinessBadge}`);
+  }
+  if (!summary.briefReadinessIncludesRepository) {
+    problems.push("brief readiness checklist should explain repository target metadata");
   }
   if (summary.currentFocusCardCount !== 1) {
     problems.push(`expected one current-focus pulse card, got ${summary.currentFocusCardCount}`);
