@@ -550,3 +550,89 @@ fn optional_integer_property<'a>(name: &'a str, description: &'a str) -> Propert
         required: false,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn filtered_tool_definitions_returns_all_tools_without_allowlist() {
+        let definitions = filtered_tool_definitions(None);
+        let names = tool_names(&definitions);
+
+        assert!(names.contains("list_packs"));
+        assert!(names.contains("submit_brief"));
+        assert!(names.contains("claim_next_agent_task"));
+        assert!(names.contains("open_github_pr"));
+    }
+
+    #[test]
+    fn filtered_tool_definitions_respects_allowlist() {
+        let allowlist = BTreeSet::from([
+            "list_packs".to_string(),
+            "validate_brief".to_string(),
+            "describe_run".to_string(),
+        ]);
+        let definitions = filtered_tool_definitions(Some(&allowlist));
+
+        assert_eq!(tool_names(&definitions), allowlist);
+    }
+
+    #[test]
+    fn validate_tool_allowlist_rejects_unknown_entries() {
+        let allowlist = BTreeSet::from(["list_packs".to_string(), "not_a_tool".to_string()]);
+        let error = validate_tool_allowlist(Some(&allowlist))
+            .unwrap_err()
+            .to_string();
+
+        assert!(error.contains("unknown MCP tool allowlist entries: not_a_tool"));
+        assert!(error.contains("known tools:"));
+        assert!(error.contains("list_packs"));
+    }
+
+    #[test]
+    fn every_tool_schema_rejects_additional_properties() {
+        for tool in filtered_tool_definitions(None) {
+            let name = tool
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("<unnamed>");
+            assert_eq!(
+                tool.pointer("/inputSchema/additionalProperties"),
+                Some(&Value::Bool(false)),
+                "{name} should reject unadvertised input fields"
+            );
+        }
+    }
+
+    #[test]
+    fn inspection_tools_advertise_read_only_hint() {
+        let definitions = filtered_tool_definitions(None);
+
+        for name in [
+            "list_packs",
+            "describe_pack",
+            "describe_instance_config",
+            "describe_ai_gateway_status",
+            "describe_run",
+        ] {
+            let tool = definitions
+                .iter()
+                .find(|tool| tool.get("name").and_then(Value::as_str) == Some(name))
+                .unwrap_or_else(|| panic!("{name} tool should exist"));
+            assert_eq!(
+                tool.pointer("/annotations/readOnlyHint"),
+                Some(&Value::Bool(true)),
+                "{name} should be advertised as read-only"
+            );
+        }
+    }
+
+    fn tool_names(definitions: &[Value]) -> BTreeSet<String> {
+        definitions
+            .iter()
+            .filter_map(|tool| tool.get("name").and_then(Value::as_str))
+            .map(ToOwned::to_owned)
+            .collect()
+    }
+}
