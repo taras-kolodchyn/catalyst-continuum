@@ -34,7 +34,7 @@ pub(super) struct CallToolParams {
     pub(super) arguments: Value,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub(super) struct DescribePackToolArgs {
     pub(super) pack_id: Option<String>,
@@ -53,7 +53,7 @@ pub(super) struct DescribeLatestArtifactToolArgs {
     pub(super) artifact_type: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub(super) struct ValidateBriefToolArgs {
     pub(super) brief_content: String,
@@ -61,7 +61,7 @@ pub(super) struct ValidateBriefToolArgs {
     pub(super) brief_source_path: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub(super) struct SubmitBriefToolArgs {
     pub(super) brief_content: String,
@@ -306,7 +306,7 @@ pub(super) struct EvaluateRunPolicyToolArgs {
     pub(super) run_id: uuid::Uuid,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub(super) struct EmptyToolArgs {}
 
@@ -375,4 +375,98 @@ fn default_repository_signal_limit() -> usize {
 
 fn default_github_provider() -> String {
     "github".to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_arguments_converts_null_to_empty_object() {
+        assert_eq!(normalize_arguments(Value::Null).unwrap(), json!({}));
+    }
+
+    #[test]
+    fn normalize_arguments_rejects_non_object_values() {
+        let error = normalize_arguments(json!(["not", "an", "object"]))
+            .unwrap_err()
+            .to_string();
+
+        assert!(error.contains("tool arguments must be a JSON object"));
+    }
+
+    #[test]
+    fn parse_tool_arguments_strips_openhands_metadata_for_empty_tools() {
+        let args: EmptyToolArgs = parse_tool_arguments(json!({
+            "security_risk": "LOW",
+            "summary": "List available repository packs."
+        }))
+        .unwrap();
+
+        assert_eq!(args, EmptyToolArgs {});
+    }
+
+    #[test]
+    fn parse_tool_arguments_strips_openhands_metadata_after_validation_retry() {
+        let args: DescribePackToolArgs = parse_tool_arguments(json!({
+            "pack_id": "cli-tool",
+            "security_risk": "LOW",
+            "summary": "Describe the CLI tool pack."
+        }))
+        .unwrap();
+
+        assert_eq!(
+            args,
+            DescribePackToolArgs {
+                pack_id: Some("cli-tool".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn parse_tool_arguments_preserves_default_brief_source_path() {
+        let args: ValidateBriefToolArgs = parse_tool_arguments(json!({
+            "brief_content": "name: demo"
+        }))
+        .unwrap();
+
+        assert_eq!(
+            args,
+            ValidateBriefToolArgs {
+                brief_content: "name: demo".to_string(),
+                brief_source_path: "mcp:inline-brief.yaml".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn parse_tool_arguments_preserves_submit_brief_defaults() {
+        let args: SubmitBriefToolArgs = parse_tool_arguments(json!({
+            "brief_content": "name: demo"
+        }))
+        .unwrap();
+
+        assert_eq!(
+            args,
+            SubmitBriefToolArgs {
+                brief_content: "name: demo".to_string(),
+                brief_source_path: "mcp:inline-brief.yaml".to_string(),
+                dry_run: false,
+            }
+        );
+    }
+
+    #[test]
+    fn parse_tool_arguments_does_not_hide_unexpected_fields() {
+        let error = parse_tool_arguments::<EmptyToolArgs>(json!({
+            "unexpected": true,
+            "security_risk": "LOW",
+            "summary": "List available repository packs."
+        }))
+        .unwrap_err()
+        .to_string();
+
+        assert!(error.contains("invalid tool arguments"));
+        assert!(error.contains("unknown field"));
+    }
 }
