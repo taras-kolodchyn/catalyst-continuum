@@ -23,7 +23,9 @@ explicit policy, budget, and approval boundaries.
 ## Operating Principles
 
 - Human approval is required before merges.
-- Budgets are enforced per repository and per agent.
+- Model spend and token budgets are enforced at the LiteLLM edge. The orchestrator owns
+  non-model policy such as task limits, runtime limits, sandbox posture, retries, quality gates,
+  repository-target rules, and promotion safety.
 - Tool usage is controlled through allow/deny lists.
 - Untrusted work runs on GitHub-hosted runners.
 - Trusted tasks can use self-hosted runners or local agents.
@@ -248,45 +250,45 @@ Trust model:
 - GitHub-hosted runners for untrusted pull requests.
 - Self-hosted runners and agents only for trusted workloads.
 
-## Immediate MVP Direction
+## Current v0.1 Operating Path
 
-The first implementation should optimize for a narrow but complete path:
+The closed `v0.1` baseline now optimizes for a narrow but complete local-to-PR path:
 
 1. Ingest a structured brief.
-2. Produce a backlog and minimal architecture artifacts.
-3. Scaffold a repository using one initial pack.
-4. Run tasks in disposable Docker sandboxes.
-5. Open a draft PR with generated changes and traceable metadata.
+2. Produce backlog, dispatch, policy, quality, workspace, and PR-lineage artifacts.
+3. Resolve repository packs, agent assignments, and run-scoped external MCP capability policy.
+4. Execute bounded work through Docker-first runtime paths or OpenHands executor handoff.
+5. Expose run progress, agent logs, artifacts, Grafana, and LiteLLM through the operator UI.
+6. Export or publish a draft PR through repository-target controlled promotion.
 
-## Recommended Initial Modules
+## Current Repository Map
 
-Useful early modules for the repository:
+Primary implementation areas:
 
-- `orchestrator/` for the Rust control plane
-- `gateway/` or `infra/litellm/` for the LiteLLM proxy setup
-- `runtime/` for provider abstractions and Docker execution
-- `packs/` for repository pack definitions
-- `schemas/` for briefs, artifacts, and event contracts
-- `deploy/compose/` for the local MVP stack
-- `docs/` for ADRs, architecture notes, and operator guidance
+- `orchestrator/` for the Rust control plane, CLI, HTTP, MCP, storage, runtime execution, and
+  built-in operator UI.
+- `config/` for runtime-provider, MCP allowlist, LiteLLM AI-gateway, repository-target, and
+  agent-launch profile contracts.
+- `packs/` for repository pack definitions and generated repository behavior.
+- `scripts/` for CI, smoke, OpenHands, LiteLLM, repository-target, UI, and release-validation
+  helpers.
+- `deploy/compose/` for the pinned Docker Compose local stack.
+- `template-repo/` for the private/self-hosted deployment seed.
+- `docs/` for ADRs, architecture notes, MCP guidance, roadmap, scope, and operator guidance.
 
 ## Next Actions
 
+- Keep the closed `v0.1` baseline stable through CI, smoke, UI, version-pin, and Markdown-link
+  guards before tagging an alpha.
+- Validate the opt-in live OpenHands executor path against a reachable LiteLLM gateway and local
+  coding model before claiming real-agent readiness for a specific developer machine.
+- Continue UI polish only when it improves operator clarity around the brief-to-run-to-quality-to-PR
+  flow, not as cosmetic churn.
 - Keep `v0.2` centered on two coupled themes: remote runtime expansion and AI security hardening.
 - Use [ai-security-roadmap.md](ai-security-roadmap.md) as the source document for the
   security-envelope, taint/provenance, threat-model, and security-eval work.
-
-- Define the brief schema for v0.1 input.
-- Define artifact schemas for backlog, architecture, scaffold plan, and run metadata.
-- Model the orchestrator domain objects and event flow.
-- Implement the `RuntimeProvider` trait with Docker first.
-- Stand up a pinned Docker Compose development stack.
-- Add observability wiring from day one, with OpenTelemetry for logs, metrics, and traces plus
-  Grafana dashboards as part of the MVP baseline.
-- Create the first repository pack for a simple containerized service.
-- Document policy boundaries, budget handling, and approval checkpoints.
-- Add a first MCP adapter/server that exposes pack inspection, brief submission, run inspection,
-  worker control, and PR publication tools on top of the existing Rust command layer.
+- Implement Proxmox and Kubernetes runtime providers behind the existing provider-neutral workspace
+  handoff instead of changing the business logic contract.
 
 ## How To Use This File
 
