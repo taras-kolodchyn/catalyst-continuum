@@ -675,7 +675,19 @@
               <div id="runSummaryCards" class="summary-grid" data-ui-region="run-summary"></div>
             </section>
 
-            <section class="detail-section guide-section">
+            <nav
+              id="runSectionNav"
+              class="run-section-nav"
+              aria-label="Selected run sections"
+            >
+              <a class="run-section-link" href="#run-guide">Guide</a>
+              <a class="run-section-link" href="#run-controls">Controls</a>
+              <a class="run-section-link" href="#run-tasks">Tasks</a>
+              <a class="run-section-link" href="#run-artifacts">Artifacts</a>
+              <a class="run-section-link" href="#run-events">Events</a>
+            </nav>
+
+            <section id="run-guide" class="detail-section guide-section">
               <div class="detail-section-head">
                 <div>
                   <h3>What the orchestrator is doing</h3>
@@ -821,7 +833,7 @@
               </div>
             </section>
 
-            <section class="detail-section">
+            <section id="run-tasks" class="detail-section">
               <div class="detail-section-head">
                 <h3>Tasks</h3>
                 <p id="taskHeadline" class="microcopy"></p>
@@ -829,7 +841,7 @@
               <div id="taskTableWrap" class="table-wrap" data-ui-region="task-results"></div>
             </section>
 
-            <section class="detail-section">
+            <section id="run-artifacts" class="detail-section">
               <div class="detail-section-head">
                 <h3>Artifacts</h3>
                 <p id="artifactHeadline" class="microcopy"></p>
@@ -839,7 +851,7 @@
               <div id="artifactTableWrap" class="table-wrap" data-ui-region="artifact-results"></div>
             </section>
 
-            <section class="detail-section">
+            <section id="run-events" class="detail-section">
               <div class="detail-section-head">
                 <h3>Run events</h3>
                 <p id="eventHeadline" class="microcopy"></p>

@@ -378,6 +378,11 @@ async function main() {
         document.querySelector("#runGuideProgressMeter")?.getAttribute("aria-valuenow") || "",
       runGuideProgressMax:
         document.querySelector("#runGuideProgressMeter")?.getAttribute("aria-valuemax") || "",
+      runSectionNavLinkCount: count("#runSectionNav a"),
+      runSectionNavIncludesArtifacts:
+        Array.from(document.querySelectorAll("#runSectionNav a")).some(
+          (link) => link.getAttribute("href") === "#run-artifacts"
+        ),
       lastRefresh: text("#lastRefresh"),
       selectedRunLabel: text("#selectedRunLabel"),
       runCardCount: count("#runsList [data-run-id]"),
@@ -499,6 +504,12 @@ async function main() {
     problems.push(
       `completed smoke run should show 5/5 guide progress, got ${summary.runGuideProgressNow}/${summary.runGuideProgressMax}`
     );
+  }
+  if (summary.runSectionNavLinkCount !== 5) {
+    problems.push(`expected five selected-run nav links, got ${summary.runSectionNavLinkCount}`);
+  }
+  if (!summary.runSectionNavIncludesArtifacts) {
+    problems.push("selected-run nav should include a direct artifacts jump link");
   }
   if (!summary.lastRefresh.includes("WebSocket stream active")) {
     problems.push(`websocket not active: ${summary.lastRefresh}`);

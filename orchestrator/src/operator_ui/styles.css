@@ -2212,6 +2212,42 @@ textarea {
   gap: 18px;
 }
 
+.run-section-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  border: 1px solid rgba(24, 35, 29, 0.1);
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(135deg, rgba(255, 251, 244, 0.86), rgba(226, 241, 235, 0.5));
+  padding: 10px;
+}
+
+.run-section-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  border: 1px solid rgba(23, 79, 67, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.58);
+  color: var(--spruce);
+  font-size: 0.86rem;
+  font-weight: 800;
+  padding: 8px 13px;
+  text-decoration: none;
+  transition:
+    transform var(--transition-soft),
+    border-color var(--transition-soft),
+    background var(--transition-soft);
+}
+
+.run-section-link:hover {
+  border-color: rgba(23, 79, 67, 0.32);
+  background: rgba(226, 241, 235, 0.88);
+  transform: translateY(-1px);
+}
+
 .detail-section {
   padding-top: 4px;
 }
