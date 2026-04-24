@@ -271,6 +271,7 @@ function cacheElements() {
     "runGuideCurrentStageDetail",
     "runGuideHeadline",
     "runGuideNextAction",
+    "runGuideProgressMeter",
     "runGuideProgressSummary",
     "runGuideRecommendation",
     "runGuideStages",
@@ -6681,6 +6682,7 @@ function renderRunGuide(runDetail, events) {
   setTextContent(elements.runGuideCurrentStage, guide.currentStageTitle);
   setTextContent(elements.runGuideCurrentStageDetail, guide.currentStageDetail);
   setTextContent(elements.runGuideProgressSummary, guide.progressSummary);
+  syncRunGuideProgressMeter(guide);
   setTextContent(elements.runGuideBlockers, guide.blockerDetail);
   renderRunGuideAction(runDetail, guide);
   setRenderedHtml(
@@ -6689,6 +6691,27 @@ function renderRunGuide(runDetail, events) {
       ? guide.stages.map(renderGuideStage).join("")
       : '<div class="empty-state compact">No run-stage guidance is available for this run yet.</div>'
   );
+}
+
+function syncRunGuideProgressMeter(guide) {
+  const total = Number(guide.totalStageCount ?? 5);
+  const completed = Number(guide.completedStageCount ?? 0);
+  const safeTotal = Number.isFinite(total) && total > 0 ? total : 5;
+  const safeCompleted = Math.min(
+    safeTotal,
+    Math.max(0, Number.isFinite(completed) ? completed : 0)
+  );
+  const progressPercent = `${Math.round((safeCompleted / safeTotal) * 100)}%`;
+  const progressFill = elements.runGuideProgressMeter?.querySelector("span");
+
+  if (!elements.runGuideProgressMeter || !progressFill) {
+    return;
+  }
+
+  elements.runGuideProgressMeter.setAttribute("aria-valuemax", String(safeTotal));
+  elements.runGuideProgressMeter.setAttribute("aria-valuenow", String(safeCompleted));
+  elements.runGuideProgressMeter.title = `${safeCompleted} of ${safeTotal} stages complete`;
+  progressFill.style.width = progressPercent;
 }
 
 function renderRunGuideAction(runDetail, guide) {
@@ -6726,6 +6749,8 @@ function buildRunGuide(runDetail, events) {
       currentStageDetail:
         "The selected-run guide only activates once a concrete run, task set, and artifact history exist.",
       progressSummary: "0 of 5 stages complete",
+      completedStageCount: 0,
+      totalStageCount: 5,
       blockerDetail:
         "Execution, quality, and PR handoff stay pending until a run is materialized from the brief.",
       stages: [],
@@ -6879,6 +6904,8 @@ function buildRunGuide(runDetail, events) {
     currentStageTitle: currentStage.title,
     currentStageDetail: currentStage.detail,
     progressSummary: `${completedStageCount} of ${stages.length} stages complete`,
+    completedStageCount,
+    totalStageCount: stages.length,
     blockerDetail: guideBlockerDetail({
       availability,
       executionBlocked,

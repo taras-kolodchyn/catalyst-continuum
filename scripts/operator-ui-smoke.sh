@@ -350,6 +350,10 @@ async function main() {
       missionContextCardCount: count('[data-mission-context-card="true"]'),
       missionContextIncludesApprovalBoundary:
         document.body.textContent.includes("GitHub remains the human approval boundary"),
+      runGuideProgressNow:
+        document.querySelector("#runGuideProgressMeter")?.getAttribute("aria-valuenow") || "",
+      runGuideProgressMax:
+        document.querySelector("#runGuideProgressMeter")?.getAttribute("aria-valuemax") || "",
       lastRefresh: text("#lastRefresh"),
       selectedRunLabel: text("#selectedRunLabel"),
       runCardCount: count("#runsList [data-run-id]"),
@@ -429,6 +433,11 @@ async function main() {
   }
   if (!summary.missionContextIncludesApprovalBoundary) {
     problems.push("mission context should explain that GitHub remains the approval boundary");
+  }
+  if (summary.runGuideProgressNow !== "5" || summary.runGuideProgressMax !== "5") {
+    problems.push(
+      `completed smoke run should show 5/5 guide progress, got ${summary.runGuideProgressNow}/${summary.runGuideProgressMax}`
+    );
   }
   if (!summary.lastRefresh.includes("WebSocket stream active")) {
     problems.push(`websocket not active: ${summary.lastRefresh}`);
