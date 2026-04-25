@@ -8,6 +8,23 @@ The project is intentionally not another opaque “AI developer.” The orchestr
 runtime control, artifact lineage, observability, and promotion safety. Coding agents such as
 OpenHands or Codex do the implementation work through explicit contracts.
 
+## First User: Individual Developers
+
+The first adoption target is a solo developer working on one repository. Before expanding into team
+governance, Catalyst Continuum must make a single developer faster and safer by showing exactly what
+the agents did, which artifacts were produced, which quality gates passed, and what should be
+reviewed before trusting a generated change.
+
+Run the seeded first-run demo:
+
+```bash
+make solo-demo
+```
+
+Open the printed `/ui` URL and start with `Mission Control` -> `Developer`. That path shows the
+review package, agent handoff, artifacts, logs, and next actions without needing to configure a real
+GitHub repository first.
+
 ## Current MVP
 
 The closed `v0.1` baseline is Docker-first and local-development friendly:
@@ -28,6 +45,7 @@ Proxmox and Kubernetes runtime providers are intentionally deferred to `v0.2`.
 
 | Need                             | Read                                                                                                 |
 | -------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Solo developer first run         | [docs/solo-developer.md](docs/solo-developer.md)                                                     |
 | Product and architecture context | [docs/summary.md](docs/summary.md)                                                                   |
 | Closed `v0.1` release boundary   | [docs/v0.1-scope.md](docs/v0.1-scope.md)                                                             |
 | Operator-facing `v0.1` baseline  | [docs/v0.1-release.md](docs/v0.1-release.md)                                                         |
@@ -56,6 +74,8 @@ make ci
 make release-check
 make markdown-links
 make lint-ui-assets
+make solo-demo
+make solo-demo-check
 make ui
 make ui-smoke
 make cleanup
@@ -72,12 +92,38 @@ Important direct scripts:
 ./scripts/ci-rust.sh
 ./scripts/ci-compose.sh
 ./scripts/ci-smoke.sh
+./scripts/solo-demo.sh
 ./scripts/operator-ui-smoke.sh
 ./scripts/openhands-run-agent-task-smoke.sh
 ./scripts/mcp-reference-smoke.sh
 ./scripts/mcp-stateful-smoke.sh
 ./scripts/compose-observability-smoke.sh
 ```
+
+## Run The Solo Developer Demo
+
+For the fastest value check, run:
+
+```bash
+make solo-demo
+```
+
+This starts disposable local state, seeds one complete MVP delivery run through the same scenario
+used by CI, starts the UI, and prints the URL. Open the URL and inspect:
+
+- `Mission Control` -> `Developer` for the review handoff.
+- `Mission Control` -> `Agents` for agent lanes, reports, and logs.
+- `Mission Control` -> `Flow` for the lifecycle from brief to PR handoff.
+
+For a non-interactive verification that starts the same path and exits after checking the seeded
+state:
+
+```bash
+make solo-demo-check
+```
+
+Read [docs/solo-developer.md](docs/solo-developer.md) for the developer-first workflow and the
+current boundary between the local demo and real repository publication.
 
 ## Run The Operator UI
 

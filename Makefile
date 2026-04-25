@@ -10,6 +10,7 @@ OPENHANDS_AGENT_TASK_REAL_SMOKE_ARGS ?=
 OPERATOR_UI_ARGS ?=
 OPERATOR_UI_SMOKE_ARGS ?=
 OPERATOR_UI_REPOSITORY_TARGETS_FILE ?=
+SOLO_DEMO_ARGS ?=
 REPOSITORY ?=
 REPOSITORY_ALLOW_READONLY ?=
 REPOSITORY_DEFAULT_BRANCH ?=
@@ -42,7 +43,7 @@ ci: versions markdown-links lint-shell lint-ui-assets repository-targets-smoke t
 ci-full: ci sbom ## Run broad local validation plus SBOM generation.
 
 .PHONY: release-check
-release-check: doctor ci ui-smoke ui-smoke-repository-policy ui-smoke-repository-policy-blocked ## Run the v0.1 release-baseline validation gate.
+release-check: doctor ci solo-demo-check ui-smoke ui-smoke-repository-policy ui-smoke-repository-policy-blocked ## Run the v0.1 release-baseline validation gate.
 
 .PHONY: versions
 versions: ## Check pinned versions, workflow pins, and image refs.
@@ -106,6 +107,17 @@ compose-down: ## Stop the full local compose stack without deleting volumes.
 .PHONY: ui
 ui: ## Start the host-run operator UI; override UI_PORT and OPERATOR_UI_ARGS as needed.
 	./scripts/run-operator-ui.sh --http-port "$(UI_PORT)" $(if $(OPERATOR_UI_REPOSITORY_TARGETS_FILE),--repository-targets-file "$(OPERATOR_UI_REPOSITORY_TARGETS_FILE)") $(OPERATOR_UI_ARGS)
+
+.PHONY: solo-demo
+solo-demo: ## Start a seeded solo-developer demo UI session.
+	./scripts/solo-demo.sh $(SOLO_DEMO_ARGS)
+
+.PHONY: solo-demo-check
+solo-demo-check: ## Verify the seeded solo-developer demo starts and exposes run state.
+	./scripts/solo-demo.sh --check-only $(SOLO_DEMO_ARGS)
+
+.PHONY: dev-demo
+dev-demo: solo-demo ## Alias for solo-demo.
 
 .PHONY: ui-smoke
 ui-smoke: ## Run browser-level operator UI smoke against seeded MVP run data.

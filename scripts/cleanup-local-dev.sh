@@ -27,7 +27,7 @@ pid_is_repo_local_helper() {
   local command=""
   command="$(pid_command "$pid")"
   case "$command" in
-    *operator-ui-smoke.sh*|*run-operator-ui.sh*|*catalyst-continuum-orchestrator*serve*)
+    *operator-ui-smoke.sh*|*run-operator-ui.sh*|*solo-demo.sh*|*catalyst-continuum-orchestrator*serve*)
       return 0
       ;;
   esac

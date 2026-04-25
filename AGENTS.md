@@ -6,6 +6,9 @@ Catalyst Continuum is an open-source AI SDLC control plane that turns a structur
 auditable proof of concept, executes work in isolated runtimes, and prepares draft pull requests for
 human review.
 
+The first adoption target is individual developers. Keep the solo-developer path obvious and useful
+before optimizing for team or enterprise workflows.
+
 Agents working in this repository should optimize for correctness, verification, and architectural
 consistency over speed.
 
@@ -181,6 +184,8 @@ repository-standard checks:
 - `./scripts/lint-shell.sh` for shell scripts and workflow helper changes
 - `./scripts/lint-operator-ui-assets.sh` for operator UI JavaScript syntax, HTML asset wiring, and
   CSS design-token drift
+- `make solo-demo-check` for the seeded solo-developer first-run path
+  when entrypoint docs, Make targets, UI launch behavior, or demo onboarding changes
 - `./scripts/ci-rust.sh` for Rust logic, CLI commands, HTTP routes, MCP handlers, storage, and tests
 - `./scripts/ci-compose.sh` for compose or deployment changes
 - `./scripts/compose-runtime-check.sh` for container image layout, shared-volume wiring, or compose
