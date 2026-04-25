@@ -209,6 +209,10 @@ github-issue-latest: ## Show the latest GitHub issue workflow runs and recommend
 github-issue-review: ## Show the latest GitHub issue workflow report.
 	./scripts/show-github-issue-workflows.sh --report $(if $(CONTINUUM_ROOT),--root "$(CONTINUUM_ROOT)") $(if $(GITHUB_ISSUE_WORKFLOW_DIR),--workflow-dir "$(GITHUB_ISSUE_WORKFLOW_DIR)") $(GITHUB_ISSUE_WORKFLOW_LATEST_ARGS)
 
+.PHONY: github-issue-next-command
+github-issue-next-command: ## Print only the recommended next GitHub issue workflow command.
+	@./scripts/show-github-issue-workflows.sh --next-command $(if $(CONTINUUM_ROOT),--root "$(CONTINUUM_ROOT)") $(if $(GITHUB_ISSUE_WORKFLOW_DIR),--workflow-dir "$(GITHUB_ISSUE_WORKFLOW_DIR)") $(GITHUB_ISSUE_WORKFLOW_LATEST_ARGS)
+
 .PHONY: dev-session-smoke
 dev-session-smoke: ## Validate developer session package generation.
 	./scripts/dev-session-smoke.sh
@@ -253,7 +257,7 @@ dev-next: ## Show only the recommended next solo-developer action.
 
 .PHONY: dev-next-command
 dev-next-command: ## Print only the recommended next solo-developer command.
-	./scripts/show-dev-artifacts.sh --next-command $(DEV_LATEST_ARGS)
+	@./scripts/show-dev-artifacts.sh --next-command $(DEV_LATEST_ARGS)
 
 .PHONY: dev-review
 dev-review: ## Show the latest local run review package and PR export inspection commands.

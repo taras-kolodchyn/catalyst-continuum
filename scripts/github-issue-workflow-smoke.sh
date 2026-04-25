@@ -363,6 +363,16 @@ assert "## Planned Actions" in markdown, markdown
 assert "```bash" in markdown, markdown
 PY
 
+./scripts/show-github-issue-workflows.sh \
+  --workflow-dir "$PLAN_OUT" \
+  --next-command \
+  >"$TMP_DIR/plan-next-command.out"
+grep -F "./scripts/run-github-issue-workflow.sh" "$TMP_DIR/plan-next-command.out" >/dev/null
+if grep -F -- "--plan-only" "$TMP_DIR/plan-next-command.out" >/dev/null; then
+  echo "plan next command must be executable, not another plan-only preview" >&2
+  exit 1
+fi
+
 : >"$COMMAND_LOG"
 
 COMMAND_LOG="$COMMAND_LOG" \
@@ -440,6 +450,15 @@ grep -F "Recommended next action" "$TMP_DIR/per-issue-latest.out" >/dev/null
 grep -F "command: make github-issue-review" "$TMP_DIR/per-issue-latest.out" >/dev/null
 grep -F "report:" "$TMP_DIR/per-issue-latest.out" >/dev/null
 grep -F "workflow-report.md" "$TMP_DIR/per-issue-latest.out" >/dev/null
+
+make github-issue-next-command \
+  GITHUB_ISSUE_WORKFLOW_DIR="$PER_ISSUE_OUT" \
+  >"$TMP_DIR/per-issue-next-command.out"
+if [ "$(cat "$TMP_DIR/per-issue-next-command.out")" != "make github-issue-review" ]; then
+  echo "unexpected GitHub issue workflow next command" >&2
+  cat "$TMP_DIR/per-issue-next-command.out" >&2
+  exit 1
+fi
 
 ./scripts/show-github-issue-workflows.sh \
   --workflow-dir "$PER_ISSUE_OUT" \

@@ -168,11 +168,14 @@ To rediscover that report later:
 ```bash
 make github-issue-latest
 make github-issue-review
+make github-issue-next-command
 ```
 
 `github-issue-latest` lists recent workflow output directories and the recommended next action.
 `github-issue-review` prints the latest or selected `workflow-report.md`; pass
 `GITHUB_ISSUE_WORKFLOW_DIR=/path/to/workflow-output` when you want a specific run.
+`github-issue-next-command` prints only the recommended command so scripts can continue from the
+latest plan or report without parsing the full human-readable output.
 
 If you want to inspect that choice before running agents, use the plan-only wrapper:
 

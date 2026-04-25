@@ -105,6 +105,8 @@ REVIEW_OUTPUT="$TMP_DIR/dev-review.txt"
 ./scripts/show-dev-artifacts.sh --root "$CONTINUUM_ROOT" --limit 1 --next-command >"$NEXT_COMMAND_OUTPUT"
 ./scripts/show-dev-artifacts.sh --root "$CONTINUUM_ROOT" --kind briefs --limit 1 --next-command \
   >"$BRIEF_NEXT_COMMAND_OUTPUT"
+make dev-next-command DEV_LATEST_ARGS="--root '$CONTINUUM_ROOT' --limit 1" \
+  >"$TMP_DIR/dev-next-command-make.txt"
 ./scripts/show-dev-artifacts.sh --root "$CONTINUUM_ROOT" --limit 3 --review >"$REVIEW_OUTPUT"
 
 grep -F "Catalyst Continuum developer artifacts" "$TEXT_OUTPUT" >/dev/null
@@ -134,6 +136,11 @@ fi
 if [ "$(cat "$NEXT_COMMAND_OUTPUT")" != "make dev-review" ]; then
   echo "dev artifacts smoke failed: unexpected --next-command output" >&2
   cat "$NEXT_COMMAND_OUTPUT" >&2
+  exit 1
+fi
+if [ "$(cat "$TMP_DIR/dev-next-command-make.txt")" != "make dev-review" ]; then
+  echo "dev artifacts smoke failed: make dev-next-command should print only the command" >&2
+  cat "$TMP_DIR/dev-next-command-make.txt" >&2
   exit 1
 fi
 grep -F "make dev-run-brief BRIEF_FILE='" "$BRIEF_NEXT_COMMAND_OUTPUT" >/dev/null

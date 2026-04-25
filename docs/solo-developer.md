@@ -129,11 +129,13 @@ If you need to find it later, run:
 
 ```bash
 make github-issue-review
+make github-issue-next-command
 ```
 
 Use `make github-issue-latest` when you want the recent workflow list instead of printing the report
 body. For a specific workflow output directory, pass
-`GITHUB_ISSUE_WORKFLOW_DIR=/path/to/workflow-output`.
+`GITHUB_ISSUE_WORKFLOW_DIR=/path/to/workflow-output`. Use `make github-issue-next-command` when you
+only want the next shell command, especially after a plan-only preview.
 
 If you want to preview the selected issue and GitHub mutation posture before starting agents, run:
 
