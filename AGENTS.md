@@ -179,6 +179,9 @@ repository-standard checks:
   you only need one stage; use
   `./scripts/bootstrap-repository-target.sh --repo-json <fixture> --skip-doctor` when you need to
   prove the wrapper path without depending on live GitHub metadata or local service state
+- `./scripts/dev-session-smoke.sh` for solo-developer session package changes that affect
+  `dev-session`, task recipes, generated brief files, Codex/Cursor/OpenHands prompts, or detected
+  validation commands
 - `./scripts/check-template-repo.sh` for `template-repo/` scaffold alignment whenever
   private-instance env/config expectations change
 - `./scripts/lint-shell.sh` for shell scripts and workflow helper changes

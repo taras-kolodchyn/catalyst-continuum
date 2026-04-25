@@ -44,6 +44,9 @@ jobs:
       - name: Validate repository-target bootstrap smoke
         run: ./scripts/repository-target-bootstrap-smoke.sh
 
+      - name: Validate developer session smoke
+        run: ./scripts/dev-session-smoke.sh
+
       - name: Validate template-repo scaffolds
         run: ./scripts/check-template-repo.sh
 

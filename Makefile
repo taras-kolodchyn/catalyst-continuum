@@ -5,6 +5,8 @@ ACT_JOB ?= rust
 ARTIFACT_ROOT ?=
 COMPOSE := docker compose --env-file deploy/compose/.env.example -f deploy/compose/compose.yaml
 DATABASE_URL ?=
+DEV_SESSION_ARGS ?=
+DEV_SESSION_OUTPUT_DIR ?=
 DOCTOR_ARGS ?=
 LITELLM_SMOKE_ARGS ?=
 OPENHANDS_AGENT_TASK_SMOKE_ARGS ?=
@@ -37,7 +39,7 @@ help: ## Show available Make targets.
 	@awk 'BEGIN {FS = ":.*##"; printf "Catalyst Continuum targets:\n\n"} /^[a-zA-Z0-9_.-]+:.*##/ {printf "  %-38s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 .PHONY: check
-check: doctor versions markdown-links repository-targets-smoke template-repo-check lint-shell lint-ui-assets rust ## Run the standard fast local validation set.
+check: doctor versions markdown-links repository-targets-smoke dev-session-smoke template-repo-check lint-shell lint-ui-assets rust ## Run the standard fast local validation set.
 
 .PHONY: doctor
 doctor: ## Run fast local readiness checks for tools, config, and optional live services.
@@ -135,6 +137,15 @@ developer-handoff: ## Generate a review.md + agent prompt package for RUN_ID=<uu
 dev-task-brief: ## Create a structured brief from TASK="..." and TASK_RECIPE=fix-bug.
 	@test -n "$(TASK)" || { echo "TASK is required"; exit 2; }
 	./scripts/create-dev-task-brief.sh --task "$(TASK)" --recipe "$(TASK_RECIPE)" $(if $(REPOSITORY),--repository "$(REPOSITORY)") $(if $(REPOSITORY_DEFAULT_BRANCH),--default-branch "$(REPOSITORY_DEFAULT_BRANCH)") $(if $(PACK),--pack "$(PACK)") $(TASK_BRIEF_ARGS)
+
+.PHONY: dev-session
+dev-session: ## Create brief + Codex/Cursor/OpenHands prompts for TASK="...".
+	@test -n "$(TASK)" || { echo "TASK is required"; exit 2; }
+	./scripts/create-dev-session.sh --task "$(TASK)" --recipe "$(TASK_RECIPE)" $(if $(REPOSITORY),--repository "$(REPOSITORY)") $(if $(REPOSITORY_DEFAULT_BRANCH),--default-branch "$(REPOSITORY_DEFAULT_BRANCH)") $(if $(PACK),--pack "$(PACK)") $(if $(DEV_SESSION_OUTPUT_DIR),--output-dir "$(DEV_SESSION_OUTPUT_DIR)") $(DEV_SESSION_ARGS)
+
+.PHONY: dev-session-smoke
+dev-session-smoke: ## Validate developer session package generation.
+	./scripts/dev-session-smoke.sh
 
 .PHONY: ui-smoke
 ui-smoke: ## Run browser-level operator UI smoke against seeded MVP run data.

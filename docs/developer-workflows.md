@@ -13,7 +13,29 @@ keeps the work repeatable, reviewable, and tied to evidence.
 
 ## Create A Brief From A Daily Task
 
-Use a task recipe when you want to avoid hand-writing YAML:
+Use a developer session when you want a practical starting point for Codex, Cursor, OpenHands, or
+another coding agent:
+
+```bash
+make dev-session \
+  TASK_RECIPE=fix-bug \
+  TASK="Fix the flaky login retry test" \
+  REPOSITORY=OWNER/REPO
+```
+
+The command writes a portable package under `.continuum/dev-sessions/`:
+
+- `brief.json` is the structured Catalyst Continuum brief.
+- `codex-prompt.md` is a prompt shaped for Codex.
+- `cursor-prompt.md` is a prompt shaped for Cursor.
+- `openhands-prompt.md` is a prompt shaped for OpenHands.
+- `manifest.json` records the recipe, repository, prompt files, and validation commands.
+- `README.md` explains the session order for the human developer.
+
+This is the first reason to use Catalyst before a full orchestrator run: every agent starts from the
+same task, validation contract, and evidence discipline instead of a different chat summary.
+
+If you only need the brief file, use a task recipe directly:
 
 ```bash
 make dev-task-brief \
@@ -94,8 +116,10 @@ For a real repository, start with:
 
 ```bash
 make repository-targets-bootstrap REPOSITORY=OWNER/REPO REPOSITORY_TARGET_ID=local-dev
+make dev-session TASK_RECIPE=fix-bug TASK="Describe the concrete task" REPOSITORY=OWNER/REPO
 make dev-task-brief TASK_RECIPE=fix-bug TASK="Describe the concrete task" REPOSITORY=OWNER/REPO
 ```
 
-Then submit the generated brief, execute the run through the UI or CLI, and generate the developer
-handoff before opening or accepting a pull request.
+Use the generated agent prompt when you want immediate Codex, Cursor, or OpenHands help. Submit the
+generated brief when you want durable orchestration evidence, execute the run through the UI or CLI,
+and generate the developer handoff before opening or accepting a pull request.

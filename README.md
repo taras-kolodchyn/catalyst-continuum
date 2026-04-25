@@ -28,8 +28,13 @@ next actions without needing to configure a real GitHub repository first.
 For real work, start from a daily developer task instead of a blank product brief:
 
 ```bash
+make dev-session TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO
 make dev-task-brief TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO
 ```
+
+`dev-session` is the faster solo-developer entrypoint: it writes the structured brief plus ready
+Codex, Cursor, and OpenHands prompts into `.continuum/dev-sessions/` before you decide whether to
+submit the brief into the orchestrator.
 
 ## Current MVP
 
@@ -83,6 +88,7 @@ make markdown-links
 make lint-ui-assets
 make solo-demo
 make solo-demo-check
+make dev-session TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO
 make dev-task-brief TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO
 make developer-handoff RUN_ID=<RUN_ID>
 make ui

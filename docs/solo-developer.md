@@ -63,6 +63,20 @@ agent lanes, and exact checklist in one repeatable package.
 For real daily work, use a task recipe instead of hand-writing a full brief:
 
 ```bash
+make dev-session \
+  TASK_RECIPE=fix-bug \
+  TASK="Fix the flaky login retry test" \
+  REPOSITORY=OWNER/REPO
+```
+
+That creates a `.continuum/dev-sessions/` package with `brief.json`, `codex-prompt.md`,
+`cursor-prompt.md`, `openhands-prompt.md`, a runbook, and detected validation commands. Use it when
+you want immediate value from an existing coding agent before deciding whether to submit the brief
+into the orchestrator.
+
+If you only want the structured brief:
+
+```bash
 make dev-task-brief \
   TASK_RECIPE=fix-bug \
   TASK="Fix the flaky login retry test" \
