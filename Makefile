@@ -22,6 +22,12 @@ GITHUB_ISSUE_BATCH_OUTPUT_DIR ?=
 GITHUB_ISSUE_JSON ?=
 GITHUB_ISSUE_OUTPUT_ROOT ?=
 GITHUB_ISSUE_PR_STRATEGY ?= per-issue
+GITHUB_ISSUE_SYNC_APPLY ?=
+GITHUB_ISSUE_SYNC_ARGS ?=
+GITHUB_ISSUE_SYNC_OUTPUT_DIR ?=
+GITHUB_ISSUE_SYNC_PR_URL ?=
+GITHUB_ISSUE_SYNC_RUN_SUMMARY ?=
+GITHUB_ISSUE_SYNC_STATUS ?= ready-for-review
 LITELLM_SMOKE_ARGS ?=
 OPENHANDS_AGENT_TASK_SMOKE_ARGS ?=
 OPENHANDS_AGENT_TASK_REAL_SMOKE_ARGS ?=
@@ -54,7 +60,7 @@ help: ## Show available Make targets.
 	@awk 'BEGIN {FS = ":.*##"; printf "Catalyst Continuum targets:\n\n"} /^[a-zA-Z0-9_.-]+:.*##/ {printf "  %-38s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 .PHONY: check
-check: doctor versions markdown-links repository-targets-smoke dev-artifacts-smoke dev-session-smoke github-issue-session-smoke template-repo-check lint-shell lint-ui-assets rust ## Run the standard fast local validation set.
+check: doctor versions markdown-links repository-targets-smoke dev-artifacts-smoke dev-session-smoke github-issue-session-smoke github-issue-sync-smoke template-repo-check lint-shell lint-ui-assets rust ## Run the standard fast local validation set.
 
 .PHONY: doctor
 doctor: ## Run fast local readiness checks for tools, config, and optional live services.
@@ -171,6 +177,10 @@ github-issue-session: ## Create Codex/Cursor/OpenHands packages from GITHUB_ISSU
 github-issue-next: ## Rank a GitHub issue batch and create only the next recommended session.
 	./scripts/create-github-issue-session.sh --next-only --pr-strategy "$(GITHUB_ISSUE_PR_STRATEGY)" $(if $(GITHUB_ISSUE),--issue "$(GITHUB_ISSUE)",$(if $(GITHUB_ISSUE_JSON),--issue-json "$(GITHUB_ISSUE_JSON)",--list)) $(if $(REPOSITORY),--repository "$(REPOSITORY)") $(if $(REPOSITORY_DEFAULT_BRANCH),--default-branch "$(REPOSITORY_DEFAULT_BRANCH)") $(if $(REPO_PATH),--repo-path "$(REPO_PATH)") $(if $(PACK),--pack "$(PACK)") $(if $(GITHUB_ISSUE_OUTPUT_ROOT),--output-root "$(GITHUB_ISSUE_OUTPUT_ROOT)") $(if $(GITHUB_ISSUE_BATCH_OUTPUT_DIR),--batch-output-dir "$(GITHUB_ISSUE_BATCH_OUTPUT_DIR)") $(GITHUB_ISSUE_ARGS)
 
+.PHONY: github-issue-sync
+github-issue-sync: ## Comment, label, and optionally close GitHub issues from the latest or selected run summary.
+	./scripts/sync-github-issue-status.sh --status "$(GITHUB_ISSUE_SYNC_STATUS)" $(if $(GITHUB_ISSUE_SYNC_RUN_SUMMARY),--run-summary "$(GITHUB_ISSUE_SYNC_RUN_SUMMARY)") $(if $(CONTINUUM_ROOT),--continuum-root "$(CONTINUUM_ROOT)") $(if $(GITHUB_ISSUE_SYNC_OUTPUT_DIR),--output-dir "$(GITHUB_ISSUE_SYNC_OUTPUT_DIR)") $(if $(GITHUB_ISSUE_SYNC_PR_URL),--pr-url "$(GITHUB_ISSUE_SYNC_PR_URL)") $(if $(GITHUB_ISSUE_SYNC_APPLY),--apply) $(GITHUB_ISSUE_SYNC_ARGS)
+
 .PHONY: dev-session-smoke
 dev-session-smoke: ## Validate developer session package generation.
 	./scripts/dev-session-smoke.sh
@@ -178,6 +188,10 @@ dev-session-smoke: ## Validate developer session package generation.
 .PHONY: github-issue-session-smoke
 github-issue-session-smoke: ## Validate GitHub issue session package generation without live GitHub.
 	./scripts/github-issue-session-smoke.sh
+
+.PHONY: github-issue-sync-smoke
+github-issue-sync-smoke: ## Validate dry-run GitHub issue status sync plans without live GitHub mutation.
+	./scripts/github-issue-sync-smoke.sh
 
 .PHONY: dev-run
 dev-run: ## Run TASK="..." through brief, worker execution, quality, handoff, and local PR export.

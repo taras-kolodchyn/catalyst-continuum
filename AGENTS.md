@@ -192,6 +192,8 @@ repository-standard checks:
 - `./scripts/github-issue-session-smoke.sh` for GitHub issue broker/session changes that affect
   issue import, batch ranking, recipe inference, untrusted-context prompts, or `dev-latest`
   visibility
+- `./scripts/github-issue-sync-smoke.sh` for GitHub issue evidence sync changes, especially comment,
+  label, branch, PR URL, batch, and completed-state dry-run plans
 - `./scripts/dev-run-smoke.sh` for solo-developer local orchestration changes that affect
   `dev-run`, disposable database handling, Docker worker execution, quality/handoff generation, or
   local PR export
@@ -286,6 +288,9 @@ instead of claiming the local workflow executed successfully.
   session for a separate PR; `batch` packages the imported issue set as one session intended for one
   branch and one PR. When this contract changes, update smoke coverage and operator/developer docs
   together.
+- Preserve GitHub issue sync safety. `ready-for-review` may comment, attach branch/commit/PR
+  evidence, and label issues; completed-state closure must stay explicit through the issue sync
+  status/close contract and must be covered by dry-run smoke before live GitHub mutation.
 - When validating mixed local-worker and external-agent flows, use `--respect-agent-assignments`
   or the matching MCP `respect_agent_assignments` argument so generic Docker execution does not
   consume tasks owned by Codex, OpenHands, or another assigned external agent.

@@ -49,6 +49,7 @@ make dev-run-latest-session
 make dev-latest
 make dev-next
 make dev-review
+make github-issue-sync GITHUB_ISSUE_SYNC_PR_URL=https://github.com/OWNER/REPO/pull/123 GITHUB_ISSUE_SYNC_APPLY=1
 make run-guide RUN_ID=<RUN_ID>
 ```
 
@@ -85,6 +86,12 @@ shared input.
 
 When you just created a session and want the shortest path, `dev-run-latest-session` finds the
 newest `.continuum/dev-sessions/*/brief.json` and runs that exact brief.
+
+After a GitHub issue-derived run has produced review evidence, use `github-issue-sync` to write the
+result back to the source issue or issue batch. By default it is a dry run that writes a
+`github-issue-sync-plan.json` and `comment.md`; set `GITHUB_ISSUE_SYNC_APPLY=1` to comment through
+`gh`, ensure Catalyst labels exist, attach branch/commit/PR details in the comment, and apply labels.
+Use `GITHUB_ISSUE_SYNC_STATUS=done` when the issue should be closed as completed.
 
 `dev-latest` indexes the most recent `.continuum/dev-briefs/`, `.continuum/dev-sessions/`, and
 `.continuum/dev-runs/` outputs so you can quickly find the latest prompt, review package, local PR
@@ -164,6 +171,7 @@ make dev-run-latest-session
 make dev-next
 make dev-next-command
 make dev-review
+make github-issue-sync GITHUB_ISSUE_SYNC_PR_URL=https://github.com/OWNER/REPO/pull/123 GITHUB_ISSUE_SYNC_APPLY=1
 make dev-run-smoke
 make run-guide RUN_ID=<RUN_ID>
 make developer-handoff RUN_ID=<RUN_ID>
@@ -185,6 +193,7 @@ Important direct scripts:
 ./scripts/ci-smoke.sh
 ./scripts/solo-demo.sh
 ./scripts/create-github-issue-session.sh --issue 123 --repository OWNER/REPO --repo-path /path/to/local/checkout
+./scripts/sync-github-issue-status.sh --run-summary .continuum/dev-runs/<run>/run-summary.json --pr-url https://github.com/OWNER/REPO/pull/123
 ./scripts/run-dev-task.sh --task "Fix the flaky login retry test" --repository OWNER/REPO
 ./scripts/run-dev-task.sh --brief-file .continuum/dev-sessions/<session>/brief.json
 ./scripts/run-dev-task.sh --latest-session

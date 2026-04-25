@@ -141,6 +141,49 @@ This is the first practical broker value above raw Codex/Cursor/OpenHands: Catal
 GitHub issue into one task packet, chooses a recipe from labels when `--recipe auto` is used, and
 keeps the path into quality gates, local PR export, and review evidence consistent.
 
+## Sync Run Evidence Back To GitHub Issues
+
+After a GitHub issue-derived run has produced review evidence, sync the result back to the source
+issue:
+
+```bash
+make github-issue-sync \
+  GITHUB_ISSUE_SYNC_RUN_SUMMARY=.continuum/dev-runs/<run>/run-summary.json \
+  GITHUB_ISSUE_SYNC_PR_URL=https://github.com/OWNER/REPO/pull/123
+```
+
+The default is a dry run. It writes:
+
+- `github-issue-sync-plan.json` with the exact issue numbers, labels, state transition, and `gh`
+  commands that would run.
+- `comment.md` with the GitHub issue comment body.
+
+Apply the update only after you review the plan:
+
+```bash
+make github-issue-sync \
+  GITHUB_ISSUE_SYNC_RUN_SUMMARY=.continuum/dev-runs/<run>/run-summary.json \
+  GITHUB_ISSUE_SYNC_PR_URL=https://github.com/OWNER/REPO/pull/123 \
+  GITHUB_ISSUE_SYNC_APPLY=1
+```
+
+In `ready-for-review`, Catalyst comments on the issue, applies labels such as
+`continuum:ready-for-review`, records the branch/commit/PR URL, and leaves the issue open for normal
+review.
+
+When the work is accepted and the issue should move to done, run:
+
+```bash
+make github-issue-sync \
+  GITHUB_ISSUE_SYNC_STATUS=done \
+  GITHUB_ISSUE_SYNC_PR_URL=https://github.com/OWNER/REPO/pull/123 \
+  GITHUB_ISSUE_SYNC_APPLY=1
+```
+
+`done` adds `continuum:done`, comments with the final evidence, and closes the source issue(s) as
+completed. For a batch session, the same comment, labels, branch, and PR URL are applied to every
+issue in the batch so each issue carries the same audit trail.
+
 ## Create A Brief From A Daily Task
 
 Use a developer session when you want a practical starting point for Codex, Cursor, OpenHands, or

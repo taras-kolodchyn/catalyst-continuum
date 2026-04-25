@@ -53,6 +53,9 @@ jobs:
       - name: Validate GitHub issue session smoke
         run: ./scripts/github-issue-session-smoke.sh
 
+      - name: Validate GitHub issue sync smoke
+        run: ./scripts/github-issue-sync-smoke.sh
+
       - name: Validate template-repo scaffolds
         run: ./scripts/check-template-repo.sh
 

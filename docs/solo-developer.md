@@ -108,6 +108,17 @@ make github-issue-session \
 This creates one `.continuum/dev-sessions/` package with `issue-batch.md`,
 `issue-batch-context.json`, and agent prompts that preserve the one-branch, one-PR intent.
 
+After the run produces a local PR candidate or draft PR, sync the evidence back to the source issue:
+
+```bash
+make github-issue-sync \
+  GITHUB_ISSUE_SYNC_PR_URL=https://github.com/OWNER/REPO/pull/123
+```
+
+This first writes a dry-run plan. When the comment, labels, branch, commit, and PR URL look right,
+add `GITHUB_ISSUE_SYNC_APPLY=1`. Use `GITHUB_ISSUE_SYNC_STATUS=done` only when the issue should be
+closed as completed.
+
 If the task is not yet tracked as an issue, create a session directly:
 
 ```bash
