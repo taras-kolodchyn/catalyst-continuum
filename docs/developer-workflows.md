@@ -157,6 +157,7 @@ After a few sessions or runs, use `dev-latest` instead of hunting through `.cont
 ```bash
 make dev-latest
 make dev-next
+make dev-review
 ```
 
 It prints the latest briefs, sessions, and runs with the paths that matter most:
@@ -174,6 +175,10 @@ shell integration, use JSON or command-only output:
 make dev-latest DEV_LATEST_ARGS="--json --limit 1"
 make dev-next-command
 ```
+
+After a local run, use `dev-review` when you want the review surface without the full artifact
+index. It prints the latest run summary, `review.md`, reusable agent review prompt, local PR export
+repository, branch, commit, manifest, combined patch, and safe local inspection commands.
 
 ## Mix Local Workers And External Agents
 

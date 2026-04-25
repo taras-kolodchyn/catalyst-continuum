@@ -97,6 +97,7 @@ JSON_OUTPUT="$TMP_DIR/dev-artifacts.json"
 NEXT_OUTPUT="$TMP_DIR/dev-next.txt"
 NEXT_COMMAND_OUTPUT="$TMP_DIR/dev-next-command.txt"
 BRIEF_NEXT_COMMAND_OUTPUT="$TMP_DIR/dev-brief-next-command.txt"
+REVIEW_OUTPUT="$TMP_DIR/dev-review.txt"
 
 ./scripts/show-dev-artifacts.sh --root "$CONTINUUM_ROOT" --limit 1 >"$TEXT_OUTPUT"
 ./scripts/show-dev-artifacts.sh --root "$CONTINUUM_ROOT" --limit 1 --json >"$JSON_OUTPUT"
@@ -104,11 +105,12 @@ BRIEF_NEXT_COMMAND_OUTPUT="$TMP_DIR/dev-brief-next-command.txt"
 ./scripts/show-dev-artifacts.sh --root "$CONTINUUM_ROOT" --limit 1 --next-command >"$NEXT_COMMAND_OUTPUT"
 ./scripts/show-dev-artifacts.sh --root "$CONTINUUM_ROOT" --kind briefs --limit 1 --next-command \
   >"$BRIEF_NEXT_COMMAND_OUTPUT"
+./scripts/show-dev-artifacts.sh --root "$CONTINUUM_ROOT" --limit 3 --review >"$REVIEW_OUTPUT"
 
 grep -F "Catalyst Continuum developer artifacts" "$TEXT_OUTPUT" >/dev/null
 grep -F "Recommended next action" "$TEXT_OUTPUT" >/dev/null
 grep -F "Review the latest local PR candidate" "$TEXT_OUTPUT" >/dev/null
-grep -F "make developer-handoff RUN_ID=00000000-0000-0000-0000-000000000001" "$TEXT_OUTPUT" >/dev/null
+grep -F "make dev-review" "$TEXT_OUTPUT" >/dev/null
 grep -F "Latest runs" "$TEXT_OUTPUT" >/dev/null
 grep -F "source brief:" "$TEXT_OUTPUT" >/dev/null
 grep -F "review prompt:" "$TEXT_OUTPUT" >/dev/null
@@ -129,7 +131,7 @@ if grep -F "Latest runs" "$NEXT_OUTPUT" >/dev/null; then
   exit 1
 fi
 
-if [ "$(cat "$NEXT_COMMAND_OUTPUT")" != "make developer-handoff RUN_ID=00000000-0000-0000-0000-000000000001" ]; then
+if [ "$(cat "$NEXT_COMMAND_OUTPUT")" != "make dev-review" ]; then
   echo "dev artifacts smoke failed: unexpected --next-command output" >&2
   cat "$NEXT_COMMAND_OUTPUT" >&2
   exit 1
@@ -148,7 +150,7 @@ assert payload["schema_version"] == "v0.1", payload
 assert payload["empty"] is False, payload
 assert payload["recommended_next_action"]["artifact_kind"] == "run", payload
 assert payload["recommended_next_action"]["primary_path"].endswith("/dev-runs/run-a/review.md"), payload
-assert payload["recommended_next_action"]["command"].startswith("make developer-handoff RUN_ID="), payload
+assert payload["recommended_next_action"]["command"] == "make dev-review", payload
 assert payload["artifacts"]["runs"][0]["run_status"] == "succeeded", payload
 assert payload["artifacts"]["runs"][0]["brief_source_path"].endswith("/dev-sessions/session-a/brief.json"), payload
 assert payload["artifacts"]["runs"][0]["pr_export"]["branch_name"] == "continuum/demo", payload
@@ -161,6 +163,19 @@ EMPTY_OUTPUT="$TMP_DIR/dev-artifacts-empty.txt"
 grep -F "No developer artifacts found yet." "$EMPTY_OUTPUT" >/dev/null
 grep -F "Create a developer session" "$EMPTY_OUTPUT" >/dev/null
 grep -F "make dev-session TASK=..." "$EMPTY_OUTPUT" >/dev/null
+
+grep -F "Catalyst Continuum developer review" "$REVIEW_OUTPUT" >/dev/null
+grep -F "Latest run" "$REVIEW_OUTPUT" >/dev/null
+grep -F "run_id: 00000000-0000-0000-0000-000000000001" "$REVIEW_OUTPUT" >/dev/null
+grep -F "review: $CONTINUUM_ROOT/dev-runs/run-a/review.md" "$REVIEW_OUTPUT" >/dev/null
+grep -F "review prompt: $CONTINUUM_ROOT/dev-runs/run-a/agent-review-prompt.md" "$REVIEW_OUTPUT" >/dev/null
+grep -F "Local PR export" "$REVIEW_OUTPUT" >/dev/null
+grep -F "repo: $CONTINUUM_ROOT/dev-runs/run-a/pr-export" "$REVIEW_OUTPUT" >/dev/null
+grep -F "patch: $CONTINUUM_ROOT/dev-runs/run-a/pr-export/combined.patch" "$REVIEW_OUTPUT" >/dev/null
+grep -F "Suggested review commands" "$REVIEW_OUTPUT" >/dev/null
+grep -F "git -C " "$REVIEW_OUTPUT" >/dev/null
+grep -F "show --patch --stat HEAD" "$REVIEW_OUTPUT" >/dev/null
+grep -F "sed -n '1,240p'" "$REVIEW_OUTPUT" >/dev/null
 
 INVALID_KIND_OUTPUT="$TMP_DIR/dev-artifacts-invalid-kind.txt"
 if ./scripts/show-dev-artifacts.sh --root "$CONTINUUM_ROOT" --kind nope >"$INVALID_KIND_OUTPUT" 2>&1; then

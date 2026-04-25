@@ -22,6 +22,7 @@ Options:
   --json            Emit machine-readable JSON.
   --next            Emit only the recommended next action.
   --next-command    Emit only the recommended shell command.
+  --review          Emit the latest run review package and local PR inspection commands.
   -h, --help        Show this help.
 EOF
 }
@@ -50,6 +51,12 @@ while [ "$#" -gt 0 ]; do
       ;;
     --next-command)
       FORMAT="next-command"
+      shift
+      ;;
+    --review)
+      FORMAT="review"
+      KIND="runs"
+      LIMIT=1
       shift
       ;;
     -h|--help)
@@ -274,7 +281,7 @@ def recommended_next_action() -> dict[str, Any]:
         return {
             "label": "Review the latest local PR candidate",
             "description": "Inspect review.md, the exported branch, and the combined patch before opening a real PR.",
-            "command": f"make developer-handoff RUN_ID={shell_quote(newest.get('run_id') or '<RUN_ID>')}",
+            "command": "make dev-review",
             "artifact_kind": "run",
             "artifact_path": newest["path"],
             "primary_path": newest.get("review_markdown_path") or newest.get("summary_path"),
@@ -316,12 +323,73 @@ def print_action(action: dict[str, Any]) -> None:
         print(f"path: {action['primary_path']}")
 
 
+def print_latest_review() -> None:
+    runs = artifacts["runs"]
+    print("Catalyst Continuum developer review")
+    print(f"root: {root}")
+
+    if not runs:
+        print("")
+        print("No local dev run found yet.")
+        print("command: make dev-run TASK=\"...\"")
+        return
+
+    run = runs[0]
+    pr_export = run["pr_export"]
+    print("")
+    print("Latest run")
+    print(f"run: {run['path']}")
+    print(f"run_id: {run.get('run_id') or 'unknown'}")
+    print(f"status: {run.get('run_status') or 'unknown'}")
+    print(f"quality: {run.get('quality_passed') or 'unknown'}")
+    if run.get("summary_path"):
+        print(f"summary: {run['summary_path']}")
+    if run.get("brief_source_path"):
+        print(f"source brief: {run['brief_source_path']}")
+    if run.get("review_markdown_path"):
+        print(f"review: {run['review_markdown_path']}")
+    if run.get("agent_prompt_path"):
+        print(f"review prompt: {run['agent_prompt_path']}")
+
+    print("")
+    print("Local PR export")
+    if pr_export.get("created"):
+        print(f"repo: {pr_export.get('repository_path') or 'unknown'}")
+        print(f"branch: {pr_export.get('branch_name') or 'unknown'}")
+        print(f"commit: {pr_export.get('commit_sha') or 'unknown'}")
+        print(f"manifest: {pr_export.get('manifest_path') or 'unknown'}")
+        print(f"patch: {pr_export.get('combined_patch_path') or 'unknown'}")
+    else:
+        print("not created")
+
+    print("")
+    print("Suggested review commands")
+    if run.get("review_markdown_path"):
+        print(f"sed -n '1,220p' {shell_quote(run['review_markdown_path'])}")
+    if run.get("agent_prompt_path"):
+        print(f"sed -n '1,220p' {shell_quote(run['agent_prompt_path'])}")
+    if pr_export.get("repository_path"):
+        print(f"git -C {shell_quote(pr_export['repository_path'])} status --short")
+        print(f"git -C {shell_quote(pr_export['repository_path'])} show --stat --oneline HEAD")
+        print(f"git -C {shell_quote(pr_export['repository_path'])} show --patch --stat HEAD")
+    if pr_export.get("combined_patch_path"):
+        print(f"sed -n '1,240p' {shell_quote(pr_export['combined_patch_path'])}")
+
+    print("")
+    print("Next")
+    print("Open a real GitHub PR only after the review package, patch, and validation evidence make sense.")
+
+
 if output_format == "next-command":
     print(action.get("command") or "")
     sys.exit(0)
 
 if output_format == "next":
     print_action(action)
+    sys.exit(0)
+
+if output_format == "review":
+    print_latest_review()
     sys.exit(0)
 
 print("Catalyst Continuum developer artifacts")

@@ -186,6 +186,10 @@ dev-next: ## Show only the recommended next solo-developer action.
 dev-next-command: ## Print only the recommended next solo-developer command.
 	./scripts/show-dev-artifacts.sh --next-command $(DEV_LATEST_ARGS)
 
+.PHONY: dev-review
+dev-review: ## Show the latest local run review package and PR export inspection commands.
+	./scripts/show-dev-artifacts.sh --review $(DEV_LATEST_ARGS)
+
 .PHONY: dev-artifacts-smoke
 dev-artifacts-smoke: ## Validate developer artifact discovery output.
 	./scripts/dev-artifacts-smoke.sh

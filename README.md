@@ -35,6 +35,7 @@ make dev-run-brief BRIEF_FILE=.continuum/dev-sessions/<session>/brief.json
 make dev-run-latest-session
 make dev-latest
 make dev-next
+make dev-review
 ```
 
 `dev-session` is the faster solo-developer entrypoint: it writes the structured brief plus ready
@@ -60,6 +61,10 @@ export, and recommended next action.
 
 `dev-next` prints only that recommended next action. `dev-next-command` prints only the command when
 you want to wire the flow into shell automation.
+
+`dev-review` is the shortest review-stage command after a local run. It prints the latest
+`review.md`, reusable agent review prompt, local PR export paths, and suggested `git`/`sed` commands
+for inspecting the exported candidate before opening a real PR.
 
 ## Current MVP
 
@@ -120,6 +125,7 @@ make dev-run-brief BRIEF_FILE=.continuum/dev-sessions/<session>/brief.json
 make dev-run-latest-session
 make dev-next
 make dev-next-command
+make dev-review
 make dev-run-smoke
 make developer-handoff RUN_ID=<RUN_ID>
 make ui
