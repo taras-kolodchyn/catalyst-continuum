@@ -7,6 +7,11 @@ COMPOSE := docker compose --env-file deploy/compose/.env.example -f deploy/compo
 DATABASE_URL ?=
 DEV_SESSION_ARGS ?=
 DEV_SESSION_OUTPUT_DIR ?=
+DEV_RUN_ARGS ?=
+DEV_RUN_KEEP_DATABASE ?=
+DEV_RUN_MAX_TASK_CYCLES ?=
+DEV_RUN_NO_PR_EXPORT ?=
+DEV_RUN_OUTPUT_DIR ?=
 DOCTOR_ARGS ?=
 LITELLM_SMOKE_ARGS ?=
 OPENHANDS_AGENT_TASK_SMOKE_ARGS ?=
@@ -146,6 +151,15 @@ dev-session: ## Create brief + Codex/Cursor/OpenHands prompts for TASK="...".
 .PHONY: dev-session-smoke
 dev-session-smoke: ## Validate developer session package generation.
 	./scripts/dev-session-smoke.sh
+
+.PHONY: dev-run
+dev-run: ## Run TASK="..." through brief, worker execution, quality, handoff, and local PR export.
+	@test -n "$(TASK)" || { echo "TASK is required"; exit 2; }
+	./scripts/run-dev-task.sh --task "$(TASK)" --recipe "$(TASK_RECIPE)" $(if $(REPOSITORY),--repository "$(REPOSITORY)") $(if $(REPOSITORY_DEFAULT_BRANCH),--default-branch "$(REPOSITORY_DEFAULT_BRANCH)") $(if $(PACK),--pack "$(PACK)") $(if $(DATABASE_URL),--database-url "$(DATABASE_URL)") $(if $(ARTIFACT_ROOT),--artifact-root "$(ARTIFACT_ROOT)") $(if $(DEV_RUN_OUTPUT_DIR),--output-dir "$(DEV_RUN_OUTPUT_DIR)") $(if $(DEV_RUN_MAX_TASK_CYCLES),--max-task-cycles "$(DEV_RUN_MAX_TASK_CYCLES)") $(if $(REPOSITORY_TARGET_ID),--repository-target-id "$(REPOSITORY_TARGET_ID)") $(if $(REPOSITORY_TARGETS_FILE),--repository-targets-file "$(REPOSITORY_TARGETS_FILE)") $(if $(DEV_RUN_KEEP_DATABASE),--keep-database) $(if $(DEV_RUN_NO_PR_EXPORT),--no-pr-export) $(DEV_RUN_ARGS)
+
+.PHONY: dev-run-smoke
+dev-run-smoke: ## Validate the solo-developer local orchestration run entrypoint.
+	./scripts/dev-run-smoke.sh
 
 .PHONY: ui-smoke
 ui-smoke: ## Run browser-level operator UI smoke against seeded MVP run data.

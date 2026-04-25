@@ -182,6 +182,9 @@ repository-standard checks:
 - `./scripts/dev-session-smoke.sh` for solo-developer session package changes that affect
   `dev-session`, task recipes, generated brief files, Codex/Cursor/OpenHands prompts, or detected
   validation commands
+- `./scripts/dev-run-smoke.sh` for solo-developer local orchestration changes that affect
+  `dev-run`, disposable database handling, Docker worker execution, quality/handoff generation, or
+  local PR export
 - `./scripts/check-template-repo.sh` for `template-repo/` scaffold alignment whenever
   private-instance env/config expectations change
 - `./scripts/lint-shell.sh` for shell scripts and workflow helper changes

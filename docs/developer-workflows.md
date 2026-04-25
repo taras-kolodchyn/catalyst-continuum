@@ -80,6 +80,50 @@ When local Postgres is available, submit directly:
 This still uses the same brief validation, planning, pack selection, policy checks, and artifact
 lineage as a hand-written brief.
 
+## Run A Local Orchestration
+
+When you want the control plane to do useful work immediately, use `dev-run`:
+
+```bash
+make dev-run \
+  TASK_RECIPE=fix-bug \
+  TASK="Fix the flaky login retry test" \
+  REPOSITORY=OWNER/REPO
+```
+
+This runs the current v0.1 flow end to end:
+
+- Create and validate `brief.json`.
+- Submit the brief into Postgres-backed run state.
+- Evaluate the run policy.
+- Execute runnable tasks through the Docker runtime provider.
+- Evaluate quality gates.
+- Export a local PR candidate artifact without pushing to GitHub.
+- Generate the `developer_handoff` review package with the local export evidence included when the
+  export gate passes.
+
+The command writes everything under `.continuum/dev-runs/` by default, including
+`run-summary.json`. If `CATALYST_DATABASE_URL` is not set, it starts a disposable Postgres container
+and removes it when the command exits.
+
+Keep the disposable database only when you want to inspect the completed run in the operator UI:
+
+```bash
+make dev-run \
+  TASK_RECIPE=fix-bug \
+  TASK="Fix the flaky login retry test" \
+  REPOSITORY=OWNER/REPO \
+  DEV_RUN_KEEP_DATABASE=1
+```
+
+The command prints the exact `make ui` command for that kept database. Clean it up later with:
+
+```bash
+make cleanup
+```
+
+Use `DEV_RUN_NO_PR_EXPORT=1` when you only want the run evidence and handoff package.
+
 ## Generate A Developer Handoff
 
 After a run has produced execution and quality evidence, create a durable handoff package:
@@ -118,8 +162,9 @@ For a real repository, start with:
 make repository-targets-bootstrap REPOSITORY=OWNER/REPO REPOSITORY_TARGET_ID=local-dev
 make dev-session TASK_RECIPE=fix-bug TASK="Describe the concrete task" REPOSITORY=OWNER/REPO
 make dev-task-brief TASK_RECIPE=fix-bug TASK="Describe the concrete task" REPOSITORY=OWNER/REPO
+make dev-run TASK_RECIPE=fix-bug TASK="Describe the concrete task" REPOSITORY=OWNER/REPO
 ```
 
-Use the generated agent prompt when you want immediate Codex, Cursor, or OpenHands help. Submit the
-generated brief when you want durable orchestration evidence, execute the run through the UI or CLI,
-and generate the developer handoff before opening or accepting a pull request.
+Use the generated agent prompt when you want immediate Codex, Cursor, or OpenHands help. Use
+`dev-run` when you want durable orchestration evidence, local Docker execution, quality gates, a
+developer handoff, and a local PR export in one command before opening or accepting a pull request.

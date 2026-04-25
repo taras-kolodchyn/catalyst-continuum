@@ -83,6 +83,19 @@ make dev-task-brief \
   REPOSITORY=OWNER/REPO
 ```
 
+When you want Catalyst to run the full local control-plane loop, use:
+
+```bash
+make dev-run \
+  TASK_RECIPE=fix-bug \
+  TASK="Fix the flaky login retry test" \
+  REPOSITORY=OWNER/REPO
+```
+
+That command creates the brief, submits it, executes Docker-backed tasks, evaluates policy and
+quality, exports a local PR candidate, and generates the handoff package without pushing anything to
+GitHub.
+
 After the run has execution and quality evidence, persist a durable review package:
 
 ```bash
@@ -138,6 +151,19 @@ CATALYST_REPOSITORY_TARGETS_FILE="$PWD/config/repository-targets.local.yaml" mak
 ```
 
 Repository-target enforcement is the boundary between a local demo and a real draft-PR workflow.
+
+For UI inspection of a real local run, keep the disposable run database:
+
+```bash
+make dev-run \
+  TASK_RECIPE=fix-bug \
+  TASK="Fix the flaky login retry test" \
+  REPOSITORY=OWNER/REPO \
+  DEV_RUN_KEEP_DATABASE=1
+```
+
+The command prints the exact `make ui` command for the kept database. Run `make cleanup` when you are
+done.
 
 ## Current Limit
 

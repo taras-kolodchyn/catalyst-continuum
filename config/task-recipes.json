@@ -28,7 +28,7 @@
         "The generated handoff explains changed files, validation, and residual risks."
       ],
       "default_pack": "cli-tool",
-      "allowed_task_kinds": ["plan", "code", "test"]
+      "allowed_task_kinds": ["plan", "scaffold", "code", "test"]
     },
     "add-feature": {
       "title_prefix": "Add feature",
@@ -58,7 +58,7 @@
         "Documentation reflects new commands, configuration, or user-facing behavior."
       ],
       "default_pack": "cli-tool",
-      "allowed_task_kinds": ["plan", "code", "test"]
+      "allowed_task_kinds": ["plan", "scaffold", "code", "test"]
     },
     "add-tests": {
       "title_prefix": "Add tests",
@@ -86,7 +86,7 @@
         "The handoff identifies remaining untested risks."
       ],
       "default_pack": "cli-tool",
-      "allowed_task_kinds": ["plan", "test"]
+      "allowed_task_kinds": ["plan", "scaffold", "code", "test"]
     },
     "security-hardening": {
       "title_prefix": "Harden security",
@@ -115,7 +115,7 @@
         "Residual risk is documented in the developer handoff."
       ],
       "default_pack": "cli-tool",
-      "allowed_task_kinds": ["plan", "code", "test"]
+      "allowed_task_kinds": ["plan", "scaffold", "code", "test"]
     },
     "docs-update": {
       "title_prefix": "Update docs",
@@ -143,7 +143,7 @@
         "Examples match implemented behavior."
       ],
       "default_pack": "cli-tool",
-      "allowed_task_kinds": ["plan", "code", "test"]
+      "allowed_task_kinds": ["plan", "scaffold", "code", "test"]
     }
   }
 }

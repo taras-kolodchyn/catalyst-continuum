@@ -30,11 +30,16 @@ For real work, start from a daily developer task instead of a blank product brie
 ```bash
 make dev-session TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO
 make dev-task-brief TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO
+make dev-run TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO
 ```
 
 `dev-session` is the faster solo-developer entrypoint: it writes the structured brief plus ready
 Codex, Cursor, and OpenHands prompts into `.continuum/dev-sessions/` before you decide whether to
 submit the brief into the orchestrator.
+
+`dev-run` is the first real control-plane entrypoint for daily work. It creates the brief, submits
+it, executes the Docker-backed run, evaluates policy and quality, exports a local PR candidate, and
+generates the developer handoff without pushing to GitHub.
 
 ## Current MVP
 
@@ -90,6 +95,8 @@ make solo-demo
 make solo-demo-check
 make dev-session TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO
 make dev-task-brief TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO
+make dev-run TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO
+make dev-run-smoke
 make developer-handoff RUN_ID=<RUN_ID>
 make ui
 make ui-smoke
@@ -108,6 +115,7 @@ Important direct scripts:
 ./scripts/ci-compose.sh
 ./scripts/ci-smoke.sh
 ./scripts/solo-demo.sh
+./scripts/run-dev-task.sh --task "Fix the flaky login retry test" --repository OWNER/REPO
 ./scripts/operator-ui-smoke.sh
 ./scripts/openhands-run-agent-task-smoke.sh
 ./scripts/mcp-reference-smoke.sh
