@@ -31,6 +31,7 @@ For real work, start from a daily developer task instead of a blank product brie
 make dev-session TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
 make dev-task-brief TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
 make dev-run TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
+make dev-latest
 ```
 
 `dev-session` is the faster solo-developer entrypoint: it writes the structured brief plus ready
@@ -42,6 +43,10 @@ HEAD SHA, dirty-file count, and detected validation commands.
 it, executes the Docker-backed run, evaluates policy and quality, exports a local PR candidate, and
 generates the developer handoff without pushing to GitHub. Its `run-summary.json` points to the
 local PR export repository, branch, commit, manifest, and combined patch for review.
+
+`dev-latest` indexes the most recent `.continuum/dev-briefs/`, `.continuum/dev-sessions/`, and
+`.continuum/dev-runs/` outputs so you can quickly find the latest prompt, review package, local PR
+export, and next action.
 
 ## Current MVP
 

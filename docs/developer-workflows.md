@@ -43,7 +43,8 @@ If you only need the brief file, use a task recipe directly:
 make dev-task-brief \
   TASK_RECIPE=fix-bug \
   TASK="Fix the flaky login retry test" \
-  REPOSITORY=OWNER/REPO
+  REPOSITORY=OWNER/REPO \
+  REPO_PATH=/path/to/local/checkout
 ```
 
 The command writes a validated brief under `.continuum/dev-briefs/`. The output is JSON, which is
@@ -129,6 +130,27 @@ make cleanup
 
 Use `DEV_RUN_NO_PR_EXPORT=1` when you only want the run evidence and handoff package.
 
+## Find The Latest Output
+
+After a few sessions or runs, use `dev-latest` instead of hunting through `.continuum/` manually:
+
+```bash
+make dev-latest
+```
+
+It prints the latest briefs, sessions, and runs with the paths that matter most:
+
+- The Codex/Cursor/OpenHands prompt paths for a session.
+- The review markdown and agent review prompt for a run.
+- The local PR export repository, branch, commit, manifest, and combined patch when export exists.
+- A short next-action hint for each artifact type.
+
+For automation or shell integration, use JSON output:
+
+```bash
+make dev-latest DEV_LATEST_ARGS="--json --limit 1"
+```
+
 ## Mix Local Workers And External Agents
 
 When a run is meant to delegate work to Codex, OpenHands, or another external executor, do not let a
@@ -185,6 +207,7 @@ make repository-targets-bootstrap REPOSITORY=OWNER/REPO REPOSITORY_TARGET_ID=loc
 make dev-session TASK_RECIPE=fix-bug TASK="Describe the concrete task" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
 make dev-task-brief TASK_RECIPE=fix-bug TASK="Describe the concrete task" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
 make dev-run TASK_RECIPE=fix-bug TASK="Describe the concrete task" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
+make dev-latest
 ```
 
 Use the generated agent prompt when you want immediate Codex, Cursor, or OpenHands help. Use

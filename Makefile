@@ -12,6 +12,7 @@ DEV_RUN_KEEP_DATABASE ?=
 DEV_RUN_MAX_TASK_CYCLES ?=
 DEV_RUN_NO_PR_EXPORT ?=
 DEV_RUN_OUTPUT_DIR ?=
+DEV_LATEST_ARGS ?=
 DOCTOR_ARGS ?=
 LITELLM_SMOKE_ARGS ?=
 OPENHANDS_AGENT_TASK_SMOKE_ARGS ?=
@@ -45,7 +46,7 @@ help: ## Show available Make targets.
 	@awk 'BEGIN {FS = ":.*##"; printf "Catalyst Continuum targets:\n\n"} /^[a-zA-Z0-9_.-]+:.*##/ {printf "  %-38s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 .PHONY: check
-check: doctor versions markdown-links repository-targets-smoke dev-session-smoke template-repo-check lint-shell lint-ui-assets rust ## Run the standard fast local validation set.
+check: doctor versions markdown-links repository-targets-smoke dev-artifacts-smoke dev-session-smoke template-repo-check lint-shell lint-ui-assets rust ## Run the standard fast local validation set.
 
 .PHONY: doctor
 doctor: ## Run fast local readiness checks for tools, config, and optional live services.
@@ -161,6 +162,14 @@ dev-run: ## Run TASK="..." through brief, worker execution, quality, handoff, an
 .PHONY: dev-run-smoke
 dev-run-smoke: ## Validate the solo-developer local orchestration run entrypoint.
 	./scripts/dev-run-smoke.sh
+
+.PHONY: dev-latest
+dev-latest: ## Show the latest solo-developer briefs, sessions, runs, and next actions.
+	./scripts/show-dev-artifacts.sh $(DEV_LATEST_ARGS)
+
+.PHONY: dev-artifacts-smoke
+dev-artifacts-smoke: ## Validate developer artifact discovery output.
+	./scripts/dev-artifacts-smoke.sh
 
 .PHONY: ui-smoke
 ui-smoke: ## Run browser-level operator UI smoke against seeded MVP run data.

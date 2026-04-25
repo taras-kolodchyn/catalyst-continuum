@@ -99,6 +99,15 @@ quality, exports a local PR candidate, and generates the handoff package without
 GitHub. The printed `pr_export_repository_path`, `pr_export_branch_name`, and
 `pr_export_manifest_path` tell you exactly where the local reviewable export was written.
 
+To find the most recent output later, run:
+
+```bash
+make dev-latest
+```
+
+This shows the latest brief, agent prompt package, run summary, review markdown, local PR export,
+and the next safe action without manually browsing `.continuum/`.
+
 After the run has execution and quality evidence, persist a durable review package:
 
 ```bash
