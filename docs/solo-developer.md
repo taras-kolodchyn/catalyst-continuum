@@ -121,6 +121,22 @@ This chooses the next issue for `per-issue`, runs the local control-plane flow, 
 candidate, and creates a dry-run GitHub issue update plan. Set `GITHUB_ISSUE_PR_STRATEGY=batch` when
 the imported issues should stay in one branch and one PR.
 
+When you are ready for live GitHub handoff, keep repository-target enforcement on and add the draft
+PR step:
+
+```bash
+make github-issue-run \
+  REPOSITORY=OWNER/REPO \
+  REPO_PATH=/path/to/local/checkout \
+  REPOSITORY_TARGET_ID=primary \
+  GITHUB_ISSUE=123 \
+  GITHUB_ISSUE_CREATE_DRAFT_PR=1
+```
+
+The flow opens or reuses the draft PR through the orchestrator, then passes that PR URL into the
+issue update plan. Issue comments and labels still stay dry-run unless you also set
+`GITHUB_ISSUE_SYNC_APPLY=1`.
+
 After the run produces a local PR candidate or draft PR, sync the evidence back to the source issue:
 
 ```bash

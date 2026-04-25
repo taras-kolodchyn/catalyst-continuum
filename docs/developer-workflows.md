@@ -175,6 +175,23 @@ comment.
 By default, issue sync is still a dry run. Add `GITHUB_ISSUE_SYNC_APPLY=1` only after reviewing the
 generated `github-issue-sync-plan.json` and `comment.md`.
 
+To continue the same flow all the way to a GitHub draft PR, enable the explicit publication step:
+
+```bash
+make github-issue-run \
+  REPOSITORY=OWNER/REPO \
+  REPO_PATH=/path/to/local/checkout \
+  REPOSITORY_TARGET_ID=primary \
+  GITHUB_ISSUE=123 \
+  GITHUB_ISSUE_CREATE_DRAFT_PR=1
+```
+
+This does not bypass repository policy. The wrapper calls the same orchestrator `create-draft-pr`
+command used by the CLI, HTTP, MCP, and UI surfaces, then copies the created PR URL into the issue
+sync plan. If the run used a disposable database, the workflow keeps it only long enough for draft
+PR publication to read the stored run, quality, and PR candidate state, then cleans it up unless you
+explicitly requested `--keep-database`.
+
 ## Sync Run Evidence Back To GitHub Issues
 
 After a GitHub issue-derived run has produced review evidence, sync the result back to the source

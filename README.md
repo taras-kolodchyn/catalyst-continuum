@@ -77,6 +77,12 @@ candidate, and writes a GitHub issue sync dry-run plan. With the default `per-is
 runs only the top-ranked issue from the imported batch. With `GITHUB_ISSUE_PR_STRATEGY=batch`, it
 runs one aggregate batch session intended for one branch and one PR.
 
+When repository-target policy is configured and the local run is ready to publish, add
+`GITHUB_ISSUE_CREATE_DRAFT_PR=1`. The workflow then reuses the orchestrator `create-draft-pr`
+command, opens or reuses the GitHub draft PR, and automatically attaches that PR URL to the issue
+sync evidence. If no external `DATABASE_URL` is supplied, the workflow keeps the disposable
+Postgres container long enough for draft PR publication, then cleans up that auto-kept container.
+
 `dev-session` is the faster solo-developer entrypoint: it writes the structured brief plus ready
 Codex, Cursor, and OpenHands prompts into `.continuum/dev-sessions/` before you decide whether to
 submit the brief into the orchestrator. The package also records the selected checkout path, branch,
@@ -171,6 +177,7 @@ make github-issue-next REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout G
 make github-issue-session GITHUB_ISSUE=123 REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
 make github-issue-session REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE_PR_STRATEGY=batch GITHUB_ISSUE_ARGS="--list --label bug --limit 5"
 make github-issue-run REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE_ARGS="--label bug --limit 5"
+make github-issue-run REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout REPOSITORY_TARGET_ID=primary GITHUB_ISSUE=123 GITHUB_ISSUE_CREATE_DRAFT_PR=1
 make dev-session TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO
 make dev-task-brief TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO
 make dev-run TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO
@@ -202,6 +209,8 @@ Important direct scripts:
 ./scripts/solo-demo.sh
 ./scripts/create-github-issue-session.sh --issue 123 --repository OWNER/REPO --repo-path /path/to/local/checkout
 ./scripts/run-github-issue-workflow.sh --issue 123 --repository OWNER/REPO --repo-path /path/to/local/checkout
+./scripts/run-github-issue-workflow.sh --issue 123 --repository OWNER/REPO --repo-path /path/to/local/checkout --repository-target-id primary --create-draft-pr
+./scripts/create-draft-pr-from-run-summary.sh --run-summary .continuum/dev-runs/<run>/run-summary.json --repository-target-id primary
 ./scripts/sync-github-issue-status.sh --run-summary .continuum/dev-runs/<run>/run-summary.json --pr-url https://github.com/OWNER/REPO/pull/123
 ./scripts/run-dev-task.sh --task "Fix the flaky login retry test" --repository OWNER/REPO
 ./scripts/run-dev-task.sh --brief-file .continuum/dev-sessions/<session>/brief.json

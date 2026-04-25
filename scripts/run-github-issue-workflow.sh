@@ -7,6 +7,7 @@ cd "$ROOT_DIR"
 CREATE_GITHUB_ISSUE_SESSION_CMD="${CREATE_GITHUB_ISSUE_SESSION_CMD:-$ROOT_DIR/scripts/create-github-issue-session.sh}"
 RUN_DEV_TASK_CMD="${RUN_DEV_TASK_CMD:-$ROOT_DIR/scripts/run-dev-task.sh}"
 SYNC_GITHUB_ISSUE_STATUS_CMD="${SYNC_GITHUB_ISSUE_STATUS_CMD:-$ROOT_DIR/scripts/sync-github-issue-status.sh}"
+CREATE_DRAFT_PR_FROM_RUN_SUMMARY_CMD="${CREATE_DRAFT_PR_FROM_RUN_SUMMARY_CMD:-$ROOT_DIR/scripts/create-draft-pr-from-run-summary.sh}"
 
 REPOSITORY=""
 REPO_PATH="$PWD"
@@ -25,6 +26,9 @@ SYNC_STATUS="ready-for-review"
 PR_URL=""
 APPLY_ISSUE_SYNC=0
 SKIP_ISSUE_SYNC=0
+CREATE_DRAFT_PR=0
+DRAFT_PR_REMOTE_URL=""
+AUTO_KEEP_DATABASE_FOR_DRAFT_PR=0
 NO_VALIDATE=0
 KEEP_DATABASE=0
 NO_PR_EXPORT=0
@@ -45,6 +49,7 @@ VALIDATION_COMMANDS=()
 SESSION_EXTRA_ARGS=()
 RUN_EXTRA_ARGS=()
 SYNC_EXTRA_ARGS=()
+DRAFT_PR_EXTRA_ARGS=()
 
 usage() {
   cat <<'EOF'
@@ -91,6 +96,11 @@ Run options:
   --no-pr-export                Do not create local PR export artifact.
   --skip-quality                Skip quality evaluation and local PR export.
   --keep-database               Keep the disposable Postgres container for UI inspection.
+
+Draft PR options:
+  --create-draft-pr             Publish the PR export and open/reuse a GitHub draft PR.
+  --draft-pr-remote-url URL     Remote URL override for draft PR publication.
+  --draft-pr-arg ARG            Extra argument passed to create-draft-pr-from-run-summary.sh.
 
 Issue sync options:
   --issue-sync-status VALUE     ready-for-review or done (default: ready-for-review).
@@ -225,6 +235,18 @@ while [ "$#" -gt 0 ]; do
       KEEP_DATABASE=1
       shift
       ;;
+    --create-draft-pr)
+      CREATE_DRAFT_PR=1
+      shift
+      ;;
+    --draft-pr-remote-url)
+      DRAFT_PR_REMOTE_URL="${2:?missing value for --draft-pr-remote-url}"
+      shift 2
+      ;;
+    --draft-pr-arg)
+      DRAFT_PR_EXTRA_ARGS+=("${2:?missing value for --draft-pr-arg}")
+      shift 2
+      ;;
     --issue-sync-status)
       SYNC_STATUS="${2:?missing value for --issue-sync-status}"
       shift 2
@@ -305,6 +327,20 @@ if [ "$SKIP_ISSUE_SYNC" -eq 1 ] && [ "$APPLY_ISSUE_SYNC" -eq 1 ]; then
   echo "--apply-issue-sync cannot be used with --skip-issue-sync" >&2
   exit 2
 fi
+if [ "$CREATE_DRAFT_PR" -eq 1 ] && [ "$NO_PR_EXPORT" -eq 1 ]; then
+  echo "--create-draft-pr requires PR export; remove --no-pr-export" >&2
+  exit 2
+fi
+if [ "$CREATE_DRAFT_PR" -eq 1 ] && [ "$SKIP_QUALITY" -eq 1 ]; then
+  echo "--create-draft-pr requires quality evaluation; remove --skip-quality" >&2
+  exit 2
+fi
+if [ "$CREATE_DRAFT_PR" -eq 1 ] && [ -z "$DATABASE_URL" ]; then
+  if [ "$KEEP_DATABASE" -eq 0 ]; then
+    AUTO_KEEP_DATABASE_FOR_DRAFT_PR=1
+  fi
+  KEEP_DATABASE=1
+fi
 
 if [ ! -d "$REPO_PATH" ]; then
   echo "--repo-path does not exist or is not a directory: $REPO_PATH" >&2
@@ -381,6 +417,7 @@ mkdir -p "$WORKFLOW_OUTPUT_DIR"
 SESSION_OUTPUT="$WORKFLOW_OUTPUT_DIR/create-session.out"
 RUN_OUTPUT="$WORKFLOW_OUTPUT_DIR/run-dev-task.out"
 SYNC_OUTPUT="$WORKFLOW_OUTPUT_DIR/issue-sync.out"
+DRAFT_PR_OUTPUT="$WORKFLOW_OUTPUT_DIR/draft-pr.out"
 WORKFLOW_SUMMARY="$WORKFLOW_OUTPUT_DIR/workflow-summary.json"
 SESSION_DIR=""
 BRIEF_FILE=""
@@ -389,6 +426,10 @@ SYNC_PLAN=""
 SYNC_COMMENT=""
 RUN_EXIT=0
 SYNC_EXIT=0
+DRAFT_PR_EXIT=0
+DRAFT_PR_URL=""
+DRAFT_PR_NUMBER=""
+DRAFT_PR_AUTO_DATABASE_CLEANED=0
 
 extract_output_field() {
   local file="$1"
@@ -417,6 +458,13 @@ write_workflow_summary() {
   SYNC_PLAN="$SYNC_PLAN" \
   SYNC_COMMENT="$SYNC_COMMENT" \
   SYNC_EXIT="$SYNC_EXIT" \
+  CREATE_DRAFT_PR="$CREATE_DRAFT_PR" \
+  DRAFT_PR_OUTPUT="$DRAFT_PR_OUTPUT" \
+  DRAFT_PR_EXIT="$DRAFT_PR_EXIT" \
+  DRAFT_PR_URL="$DRAFT_PR_URL" \
+  DRAFT_PR_NUMBER="$DRAFT_PR_NUMBER" \
+  AUTO_KEEP_DATABASE_FOR_DRAFT_PR="$AUTO_KEEP_DATABASE_FOR_DRAFT_PR" \
+  DRAFT_PR_AUTO_DATABASE_CLEANED="$DRAFT_PR_AUTO_DATABASE_CLEANED" \
   SKIP_ISSUE_SYNC="$SKIP_ISSUE_SYNC" \
   APPLY_ISSUE_SYNC="$APPLY_ISSUE_SYNC" \
   SYNC_STATUS="$SYNC_STATUS" \
@@ -451,6 +499,15 @@ payload = {
         "summary_file": optional_path(os.environ["RUN_SUMMARY"]),
         "exit_code": int(os.environ["RUN_EXIT"]),
     },
+    "draft_pr": {
+        "requested": os.environ["CREATE_DRAFT_PR"] == "1",
+        "output": os.environ["DRAFT_PR_OUTPUT"],
+        "exit_code": int(os.environ["DRAFT_PR_EXIT"]),
+        "pr_url": optional_path(os.environ["DRAFT_PR_URL"]),
+        "pr_number": optional_path(os.environ["DRAFT_PR_NUMBER"]),
+        "auto_kept_database": os.environ["AUTO_KEEP_DATABASE_FOR_DRAFT_PR"] == "1",
+        "auto_database_cleaned": os.environ["DRAFT_PR_AUTO_DATABASE_CLEANED"] == "1",
+    },
     "issue_sync": {
         "skipped": os.environ["SKIP_ISSUE_SYNC"] == "1",
         "applied": os.environ["APPLY_ISSUE_SYNC"] == "1",
@@ -467,6 +524,34 @@ pathlib.Path(os.environ["WORKFLOW_SUMMARY"]).write_text(
     encoding="utf-8",
 )
 PY
+}
+
+cleanup_auto_kept_database() {
+  if [ "$AUTO_KEEP_DATABASE_FOR_DRAFT_PR" -ne 1 ] || [ "$DRAFT_PR_AUTO_DATABASE_CLEANED" -eq 1 ]; then
+    return 0
+  fi
+  if [ -z "$RUN_SUMMARY" ] || [ ! -f "$RUN_SUMMARY" ]; then
+    return 0
+  fi
+  local container_name
+  container_name="$(python3 - "$RUN_SUMMARY" <<'PY'
+from __future__ import annotations
+
+import json
+import pathlib
+import sys
+
+summary = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+print((summary.get("database") or {}).get("container_name") or "")
+PY
+)"
+  if [ -z "$container_name" ]; then
+    return 0
+  fi
+  if command -v docker >/dev/null 2>&1; then
+    docker rm -f "$container_name" >/dev/null 2>&1 || true
+    DRAFT_PR_AUTO_DATABASE_CLEANED=1
+  fi
 }
 
 session_args=(--pr-strategy "$PR_STRATEGY")
@@ -575,6 +660,7 @@ RUN_EXIT=$?
 set -e
 if [ "$RUN_EXIT" -ne 0 ]; then
   RUN_SUMMARY="$(extract_output_field "$RUN_OUTPUT" "summary_file")"
+  cleanup_auto_kept_database
   write_workflow_summary
   echo "developer run failed; inspect $RUN_OUTPUT" >&2
   exit "$RUN_EXIT"
@@ -584,6 +670,50 @@ if [ -z "$RUN_SUMMARY" ] || [ ! -f "$RUN_SUMMARY" ]; then
   echo "could not resolve run summary from $RUN_OUTPUT" >&2
   write_workflow_summary
   exit 1
+fi
+
+if [ "$CREATE_DRAFT_PR" -eq 1 ]; then
+  draft_pr_args=(--run-summary "$RUN_SUMMARY")
+  if [ -n "$DATABASE_URL" ]; then
+    draft_pr_args+=(--database-url "$DATABASE_URL")
+  fi
+  if [ -n "$ARTIFACT_ROOT" ]; then
+    draft_pr_args+=(--artifact-root "$ARTIFACT_ROOT")
+  fi
+  if [ -n "$DRAFT_PR_REMOTE_URL" ]; then
+    draft_pr_args+=(--remote-url "$DRAFT_PR_REMOTE_URL")
+  fi
+  if [ -n "$BRANCH_NAME" ]; then
+    draft_pr_args+=(--branch-name "$BRANCH_NAME")
+  fi
+  if [ -n "$REPOSITORY_TARGET_ID" ]; then
+    draft_pr_args+=(--repository-target-id "$REPOSITORY_TARGET_ID")
+  fi
+  if [ -n "$REPOSITORY_TARGETS_FILE" ]; then
+    draft_pr_args+=(--repository-targets-file "$REPOSITORY_TARGETS_FILE")
+  fi
+  draft_pr_args+=("${DRAFT_PR_EXTRA_ARGS[@]}")
+
+  printf '[github-issue-run] opening GitHub draft PR\n'
+  set +e
+  "$CREATE_DRAFT_PR_FROM_RUN_SUMMARY_CMD" "${draft_pr_args[@]}" >"$DRAFT_PR_OUTPUT"
+  DRAFT_PR_EXIT=$?
+  set -e
+  if [ "$DRAFT_PR_EXIT" -ne 0 ]; then
+    DRAFT_PR_URL="$(extract_output_field "$DRAFT_PR_OUTPUT" "pr_url")"
+    DRAFT_PR_NUMBER="$(extract_output_field "$DRAFT_PR_OUTPUT" "pr_number")"
+    cleanup_auto_kept_database
+    write_workflow_summary
+    echo "draft PR creation failed; inspect $DRAFT_PR_OUTPUT" >&2
+    exit "$DRAFT_PR_EXIT"
+  fi
+  DRAFT_PR_URL="$(extract_output_field "$DRAFT_PR_OUTPUT" "pr_url")"
+  DRAFT_PR_NUMBER="$(extract_output_field "$DRAFT_PR_OUTPUT" "pr_number")"
+  if [ -n "$DRAFT_PR_URL" ] && [ -z "$PR_URL" ]; then
+    PR_URL="$DRAFT_PR_URL"
+  elif [ -n "$DRAFT_PR_URL" ] && [ "$PR_URL" != "$DRAFT_PR_URL" ]; then
+    printf 'explicit --pr-url differs from created draft PR URL; preserving explicit issue-sync URL: %s\n' "$PR_URL" >&2
+  fi
 fi
 
 if [ "$SKIP_ISSUE_SYNC" -eq 0 ]; then
@@ -609,6 +739,7 @@ if [ "$SKIP_ISSUE_SYNC" -eq 0 ]; then
   if [ "$SYNC_EXIT" -ne 0 ]; then
     SYNC_PLAN="$(extract_output_field "$SYNC_OUTPUT" "github_issue_sync_plan")"
     SYNC_COMMENT="$(extract_output_field "$SYNC_OUTPUT" "github_issue_sync_comment")"
+    cleanup_auto_kept_database
     write_workflow_summary
     echo "GitHub issue sync failed; inspect $SYNC_OUTPUT" >&2
     exit "$SYNC_EXIT"
@@ -617,6 +748,7 @@ if [ "$SKIP_ISSUE_SYNC" -eq 0 ]; then
   SYNC_COMMENT="$(extract_output_field "$SYNC_OUTPUT" "github_issue_sync_comment")"
 fi
 
+cleanup_auto_kept_database
 write_workflow_summary
 
 printf '\nGitHub issue workflow complete.\n'
@@ -628,6 +760,15 @@ printf 'session_dir: %s\n' "$SESSION_DIR"
 printf 'brief_file: %s\n' "$BRIEF_FILE"
 printf 'run_output: %s\n' "$RUN_OUTPUT"
 printf 'run_summary: %s\n' "$RUN_SUMMARY"
+if [ "$CREATE_DRAFT_PR" -eq 1 ]; then
+  printf 'draft_pr_output: %s\n' "$DRAFT_PR_OUTPUT"
+  if [ -n "$DRAFT_PR_URL" ]; then
+    printf 'draft_pr_url: %s\n' "$DRAFT_PR_URL"
+  fi
+  if [ -n "$DRAFT_PR_NUMBER" ]; then
+    printf 'draft_pr_number: %s\n' "$DRAFT_PR_NUMBER"
+  fi
+fi
 if [ "$SKIP_ISSUE_SYNC" -eq 0 ]; then
   printf 'issue_sync_output: %s\n' "$SYNC_OUTPUT"
   printf 'issue_sync_plan: %s\n' "$SYNC_PLAN"
