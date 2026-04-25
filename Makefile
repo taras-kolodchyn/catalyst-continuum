@@ -142,6 +142,11 @@ developer-handoff: ## Generate a review.md + agent prompt package for RUN_ID=<uu
 	@test -n "$(RUN_ID)" || { echo "RUN_ID is required"; exit 2; }
 	cargo run --quiet --package catalyst-continuum-orchestrator -- generate-developer-handoff --run-id "$(RUN_ID)" --pretty $(if $(DATABASE_URL),--database-url "$(DATABASE_URL)") $(if $(ARTIFACT_ROOT),--artifact-root "$(ARTIFACT_ROOT)")
 
+.PHONY: run-guide
+run-guide: ## Show the orchestrator-owned next safe action for RUN_ID=<uuid>.
+	@test -n "$(RUN_ID)" || { echo "RUN_ID is required"; exit 2; }
+	cargo run --quiet --package catalyst-continuum-orchestrator -- describe-run-guide --run-id "$(RUN_ID)" $(if $(DATABASE_URL),--database-url "$(DATABASE_URL)")
+
 .PHONY: dev-task-brief
 dev-task-brief: ## Create a structured brief from TASK="..." and TASK_RECIPE=fix-bug.
 	@test -n "$(TASK)" || { echo "TASK is required"; exit 2; }

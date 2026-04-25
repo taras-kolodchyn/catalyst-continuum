@@ -289,6 +289,7 @@ expected_allowlist = ",".join(
         "validate_brief",
         "submit_brief",
         "describe_run",
+        "describe_run_guide",
     ]
 )
 
@@ -320,7 +321,7 @@ if mcp_only.get("tool_filter_mode") != "mcp-only":
     raise SystemExit("mcp-only smoke failed: expected tool_filter_mode=mcp-only")
 
 expected_filter_regex = (
-    "^catalyst\\-continuum_(list_packs|validate_brief|submit_brief|describe_run)$"
+    "^catalyst\\-continuum_(list_packs|validate_brief|submit_brief|describe_run|describe_run_guide)$"
 )
 if mcp_only.get("filter_tools_regex") != expected_filter_regex:
     raise SystemExit("mcp-only smoke failed: unexpected filter_tools_regex")

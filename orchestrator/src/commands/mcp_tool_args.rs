@@ -121,6 +121,12 @@ pub(super) struct DescribeRunToolArgs {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub(super) struct DescribeRunGuideToolArgs {
+    pub(super) run_id: uuid::Uuid,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct ListRunEventsToolArgs {
     pub(super) run_id: uuid::Uuid,
     #[serde(default = "default_run_event_limit")]
@@ -293,6 +299,12 @@ pub(super) struct PublishPrExportToolArgs {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct OpenGithubPrToolArgs {
+    pub(super) run_id: uuid::Uuid,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct GenerateDeveloperHandoffToolArgs {
     pub(super) run_id: uuid::Uuid,
 }
 

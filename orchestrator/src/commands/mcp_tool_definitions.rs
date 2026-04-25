@@ -297,6 +297,11 @@ fn tool_definitions() -> Vec<Value> {
             json_schema_object(&[required_string_property("run_id", "Run UUID.")]),
         ),
         read_only_tool_definition(
+            "describe_run_guide",
+            "Explain the current run stage and the next safe control-plane action.",
+            json_schema_object(&[required_string_property("run_id", "Run UUID.")]),
+        ),
+        read_only_tool_definition(
             "list_run_events",
             "List durable run and task events for one orchestrator run.",
             json_schema_object(&[
@@ -421,6 +426,11 @@ fn tool_definitions() -> Vec<Value> {
         tool_definition(
             "evaluate_run_quality",
             "Evaluate the automated quality gate for a run and persist a quality report artifact.",
+            json_schema_object(&[required_string_property("run_id", "Run UUID.")]),
+        ),
+        tool_definition(
+            "generate_developer_handoff",
+            "Generate a readable developer handoff package with review notes, evidence, and reusable agent prompt.",
             json_schema_object(&[required_string_property("run_id", "Run UUID.")]),
         ),
         tool_definition(
@@ -627,6 +637,7 @@ mod tests {
             "describe_instance_config",
             "describe_ai_gateway_status",
             "describe_run",
+            "describe_run_guide",
         ] {
             let tool = definitions
                 .iter()

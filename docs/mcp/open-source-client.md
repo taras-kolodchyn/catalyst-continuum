@@ -107,6 +107,7 @@ Stateful tools require `CATALYST_DATABASE_URL` or `--database-url` when launchin
 - `submit_repository_signal`
 - `list_runs`
 - `describe_run`
+- `describe_run_guide`
 - `list_run_events`
 - `claim_next_agent_task`
 - `prepare_agent_task_workspace`
@@ -116,6 +117,7 @@ Stateful tools require `CATALYST_DATABASE_URL` or `--database-url` when launchin
 - `run_worker_once`
 - `evaluate_run_policy`
 - `evaluate_run_quality`
+- `generate_developer_handoff`
 - `export_pr_candidate`
 - `publish_pr_export`
 - `open_github_pr`
@@ -227,6 +229,7 @@ The stateful companion script verifies:
 - `submit_brief`
 - `list_runs`
 - `describe_run`
+- `describe_run_guide`
 - `list_run_events`
 - `claim_next_agent_task`
 - `prepare_agent_task_workspace`
@@ -235,6 +238,7 @@ The stateful companion script verifies:
 - repeated `run_worker_once` cycles until the run reaches a terminal state
 - `evaluate_run_policy`
 - `evaluate_run_quality`
+- `generate_developer_handoff`
 - `describe_artifact` for persisted run artifacts
 
 For stateless sessions, `describe_instance_config` is the first introspection tool an agent should
@@ -267,7 +271,8 @@ already advanced past the signal’s recorded head/request lineage. `run_next_re
 is the first brief-wired automation composition on top of those lower-level primitives: it validates
 the inline brief, advances at most one pending webhook action, and then materializes the freshest
 matching repository signal into a run when possible so a client-side control loop does not need to
-orchestrate the sequence itself. `list_run_events` is the shared audit trail for run and task
+orchestrate the sequence itself. `describe_run_guide` is the shared read-only decision surface for
+the next safe run action, and `list_run_events` is the shared audit trail for run and task
 transitions, so a client can inspect status changes, task starts/completions, external-agent
 workspace-preparation events, heartbeat lease refreshes, and policy/quality checkpoints without
 inferring them from artifact freshness alone. `claim_next_agent_task`,
@@ -284,9 +289,10 @@ for persisted manifests and artifact metadata, including the run-level `agent_di
 artifact, each persisted `task_workspace_input` artifact, and each persisted `agent_task_report`,
 `describe_latest_artifact` is the quickest way to resolve the newest `agent_dispatch_plan`,
 `policy_report`, `quality_report`, or publication artifact for a run, `evaluate_run_policy` is the
-policy visibility checkpoint, and `evaluate_run_quality` is the remote-promotion quality checkpoint.
-Agent clients can call all of them explicitly for inspection, while `publish_pr_export` and
-`open_github_pr` still enforce the quality gate automatically.
+policy visibility checkpoint, `evaluate_run_quality` is the remote-promotion quality checkpoint, and
+`generate_developer_handoff` packages the current run evidence into review notes plus a reusable
+agent prompt. Agent clients can call all of them explicitly for inspection, while `publish_pr_export`
+and `open_github_pr` still enforce the quality gate automatically.
 
 ## Notes
 

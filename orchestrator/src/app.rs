@@ -6,13 +6,13 @@ use crate::{
         describe_github_webhook_action_report, describe_github_webhook_action_request,
         describe_github_webhook_receipt, describe_instance_config, describe_latest_artifact,
         describe_pack, describe_repository_signal, describe_repository_signal_payload,
-        describe_run, evaluate_run_policy, evaluate_run_quality, export_pr_candidate,
-        generate_developer_handoff, heartbeat_agent_task, list_github_webhook_action_requests,
-        list_github_webhooks, list_packs, list_repository_signals, list_run_events, list_runs,
-        mcp_server, open_github_pr, prepare_agent_task_workspace, publish_pr_export,
-        run_next_github_webhook_action, run_next_repository_automation, run_next_task, serve,
-        submit_brief, submit_next_repository_signal, submit_repository_signal, validate_brief,
-        worker,
+        describe_run, describe_run_guide, evaluate_run_policy, evaluate_run_quality,
+        export_pr_candidate, generate_developer_handoff, heartbeat_agent_task,
+        list_github_webhook_action_requests, list_github_webhooks, list_packs,
+        list_repository_signals, list_run_events, list_runs, mcp_server, open_github_pr,
+        prepare_agent_task_workspace, publish_pr_export, run_next_github_webhook_action,
+        run_next_repository_automation, run_next_task, serve, submit_brief,
+        submit_next_repository_signal, submit_repository_signal, validate_brief, worker,
     },
     telemetry,
 };
@@ -53,6 +53,7 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
             describe_repository_signal_payload::execute(args)
         }
         Command::DescribeRun(args) => describe_run::execute(args),
+        Command::DescribeRunGuide(args) => describe_run_guide::execute(args),
         Command::ListPacks(args) => list_packs::execute(args),
         Command::ListGithubWebhooks(args) => list_github_webhooks::execute(args),
         Command::ListGithubWebhookActionRequests(args) => {

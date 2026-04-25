@@ -31,6 +31,15 @@ Catalyst Continuum focuses on these gaps:
 The product is not trying to replace the coding agent. It is the local control plane around the
 agent.
 
+For interactive work, keep the agent in its native mode. If Codex gives the best local UI for the
+task, use Codex directly; if OpenHands is better for a longer autonomous run, use OpenHands. The
+orchestrator should give both of them the same task packet, repository context, allowed tools,
+quality expectations, and review evidence instead of forcing either agent through a weaker wrapper.
+
+The next high-value solo-developer workflow is GitHub issue brokering: Catalyst Continuum should
+watch or import issues, choose a bounded batch, produce one work package at a time, and let the
+developer's preferred agent complete each package step by step until a draft PR is ready for review.
+
 ## Try The Demo Flow
 
 Run:
@@ -122,6 +131,7 @@ To find the most recent output later, run:
 make dev-latest
 make dev-next
 make dev-review
+make run-guide RUN_ID=<RUN_ID>
 ```
 
 This shows the latest brief, agent prompt package, run summary, review markdown, local PR export,
@@ -132,6 +142,9 @@ script needs the recommended command.
 
 Use `make dev-review` after `make dev-run` when you want the latest review package, agent review
 prompt, local PR export paths, and suggested local diff commands in one focused view.
+
+Use `make run-guide RUN_ID=<RUN_ID>` when you already know the run and want the orchestrator-owned
+stage, blocker, and next safe action. This is the same guidance exposed to HTTP and MCP clients.
 
 After the run has execution and quality evidence, persist a durable review package:
 

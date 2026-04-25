@@ -11,6 +11,29 @@ Catalyst Continuum should be useful before a team adopts it. The solo-developer 
 The product value is not that Catalyst writes code instead of a coding agent. The value is that it
 keeps the work repeatable, reviewable, and tied to evidence.
 
+Catalyst Continuum should not make developers give up the native Codex, Cursor, or OpenHands
+experience. Those tools already provide strong interactive coding UX, host-access modes, and
+sandbox modes. The orchestrator adds value when it acts as the repository task broker: pick or
+receive work from GitHub, package the context, expose the next safe action, preserve evidence, and
+enforce quality and publication gates after the agent does the coding.
+
+## Use Native Agent UX
+
+Use the coding agent directly when you are inside an interactive coding loop:
+
+- Let Codex, Cursor, or OpenHands own the editing experience.
+- Choose host-full-access or sandboxed execution in the agent that already implements it well.
+- Use Catalyst outputs as the task packet, prompt, policy reference, artifact index, and review
+  checklist.
+
+Use the orchestrator when the question is bigger than one chat session:
+
+- Which GitHub issue or repository signal should be worked next?
+- What context and validation contract should every agent receive?
+- What did the agent change, and which artifact proves it?
+- Did policy, quality, and repository-target gates pass before PR publication?
+- What should a reviewer inspect before trusting the generated change?
+
 ## Create A Brief From A Daily Task
 
 Use a developer session when you want a practical starting point for Codex, Cursor, OpenHands, or
@@ -179,6 +202,24 @@ make dev-next-command
 After a local run, use `dev-review` when you want the review surface without the full artifact
 index. It prints the latest run summary, `review.md`, reusable agent review prompt, local PR export
 repository, branch, commit, manifest, combined patch, and safe local inspection commands.
+
+## Ask The Orchestrator What Is Safe Next
+
+When a run exists but the next control-plane action is not obvious, use the run guide instead of
+manually reconstructing state from task rows and artifacts:
+
+```bash
+make run-guide RUN_ID=<RUN_ID>
+```
+
+The same shared guide is exposed on every orchestrator surface:
+
+- CLI: `describe-run-guide`.
+- HTTP: `GET /runs/{run_id}/guide`.
+- MCP: `describe_run_guide`.
+
+The guide is read-only. It returns the current lifecycle stage, progress summary, blocker detail,
+recommended next action, suggested CLI command, and matching MCP tool call when one exists.
 
 ## Mix Local Workers And External Agents
 

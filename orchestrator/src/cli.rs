@@ -34,6 +34,7 @@ pub enum Command {
     DescribeRepositorySignal(DescribeRepositorySignalArgs),
     DescribeRepositorySignalPayload(DescribeRepositorySignalPayloadArgs),
     DescribeRun(DescribeRunArgs),
+    DescribeRunGuide(DescribeRunGuideArgs),
     ListPacks(ListPacksArgs),
     ListGithubWebhooks(ListGithubWebhooksArgs),
     ListGithubWebhookActionRequests(ListGithubWebhookActionRequestsArgs),
@@ -79,6 +80,7 @@ impl Command {
             Self::DescribeRepositorySignal(_) => "describe-repository-signal",
             Self::DescribeRepositorySignalPayload(_) => "describe-repository-signal-payload",
             Self::DescribeRun(_) => "describe-run",
+            Self::DescribeRunGuide(_) => "describe-run-guide",
             Self::ListPacks(_) => "list-packs",
             Self::ListGithubWebhooks(_) => "list-github-webhooks",
             Self::ListGithubWebhookActionRequests(_) => "list-github-webhook-action-requests",
@@ -586,6 +588,18 @@ pub struct RunNextRepositoryAutomationArgs {
 
 #[derive(Debug, Args)]
 pub struct DescribeRunArgs {
+    #[arg(long, env = "CATALYST_DATABASE_URL")]
+    pub database_url: String,
+
+    #[arg(long)]
+    pub run_id: Uuid,
+
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct DescribeRunGuideArgs {
     #[arg(long, env = "CATALYST_DATABASE_URL")]
     pub database_url: String,
 

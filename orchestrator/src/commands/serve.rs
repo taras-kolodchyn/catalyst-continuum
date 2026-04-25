@@ -10,8 +10,8 @@ use crate::{
         create_draft_pr, describe_ai_gateway_status, describe_artifact,
         describe_github_default_branch_state, describe_github_webhook_action_report,
         describe_github_webhook_receipt, describe_latest_artifact,
-        describe_repository_signal_payload, evaluate_run_policy, evaluate_run_quality,
-        export_pr_candidate, generate_developer_handoff, publish_pr_export,
+        describe_repository_signal_payload, describe_run_guide, evaluate_run_policy,
+        evaluate_run_quality, export_pr_candidate, generate_developer_handoff, publish_pr_export,
         run_next_github_webhook_action, run_next_repository_automation, run_next_task,
         submit_brief::submit_validated_brief, submit_next_repository_signal,
         submit_repository_signal::BriefSubmissionContext, worker,
@@ -143,6 +143,7 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                         "/artifacts/{artifact_id}",
                         "/runs",
                         "/runs/{run_id}",
+                        "/runs/{run_id}/guide",
                         "/runs/{run_id}/events",
                         "/runs/{run_id}/artifacts/latest/{artifact_type}",
                         "POST /runs/{run_id}/tasks/next",
@@ -767,6 +768,43 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                     },
                 ),
             },
+            ("GET", _) if run_guide_path_parts(path).is_some() => {
+                match parse_run_guide_path(path) {
+                    Ok(run_id) => match store.fetch_run_summary(run_id) {
+                        Ok(Some(_)) => {
+                            match describe_run_guide::describe_run_guide(&mut store, run_id) {
+                                Ok(guide) => json_response(StatusCode(200), &guide),
+                                Err(error) => json_response(
+                                    StatusCode(500),
+                                    &ErrorResponse {
+                                        error: format!(
+                                            "failed to build guide for run {run_id}: {error}"
+                                        ),
+                                    },
+                                ),
+                            }
+                        }
+                        Ok(None) => json_response(
+                            StatusCode(404),
+                            &ErrorResponse {
+                                error: format!("run not found: {run_id}"),
+                            },
+                        ),
+                        Err(error) => json_response(
+                            StatusCode(500),
+                            &ErrorResponse {
+                                error: format!("failed to load run {run_id}: {error}"),
+                            },
+                        ),
+                    },
+                    Err(error) => json_response(
+                        StatusCode(400),
+                        &ErrorResponse {
+                            error: error.to_string(),
+                        },
+                    ),
+                }
+            }
             ("GET", _) if run_events_path_parts(path).is_some() => {
                 match parse_run_events_path(path) {
                     Ok(run_id) => match parse_list_run_events_request(query) {
@@ -1476,6 +1514,22 @@ fn parse_run_action_path(path: &str, suffix: &str) -> anyhow::Result<Uuid> {
     parse_run_id(run_id)
 }
 
+fn run_guide_path_parts(path: &str) -> Option<&str> {
+    let run_id = path.strip_prefix("/runs/")?.strip_suffix("/guide")?;
+    if run_id.is_empty() || run_id.contains('/') {
+        return None;
+    }
+
+    Some(run_id)
+}
+
+fn parse_run_guide_path(path: &str) -> anyhow::Result<Uuid> {
+    let run_id = run_guide_path_parts(path)
+        .ok_or_else(|| anyhow::anyhow!("invalid run guide path: {path}"))?;
+
+    parse_run_id(run_id)
+}
+
 fn run_events_path_parts(path: &str) -> Option<&str> {
     let run_id = path.strip_prefix("/runs/")?.strip_suffix("/events")?;
     if run_id.is_empty() || run_id.contains('/') {
@@ -1932,6 +1986,7 @@ fn route_label(method: &str, path: &str) -> &'static str {
             "/artifacts/{artifact_id}"
         }
         ("GET", "/runs") => "/runs",
+        ("GET", _) if run_guide_path_parts(path).is_some() => "/runs/{run_id}/guide",
         ("GET", _) if run_events_path_parts(path).is_some() => "/runs/{run_id}/events",
         ("GET", _) if latest_artifact_path_parts(path).is_some() => {
             "/runs/{run_id}/artifacts/latest/{artifact_type}"
@@ -2136,9 +2191,9 @@ mod tests {
         github_webhook_receipt_path_delivery_id, latest_artifact_path_parts,
         parse_list_github_webhook_action_requests_request, parse_list_github_webhooks_request,
         parse_list_repository_signals_request, parse_list_run_events_request,
-        parse_list_runs_request, parse_run_next_repository_automation_request,
-        parse_submit_next_repository_signal_request, readiness_payload,
-        repository_signal_payload_path_signal_id, route_label,
+        parse_list_runs_request, parse_run_guide_path,
+        parse_run_next_repository_automation_request, parse_submit_next_repository_signal_request,
+        readiness_payload, repository_signal_payload_path_signal_id, route_label,
     };
     use crate::storage::postgres::DatabaseReadiness;
     use anyhow::anyhow;
@@ -2240,6 +2295,10 @@ mod tests {
             "/runs/{run_id}/developer-handoff"
         );
         assert_eq!(
+            route_label("GET", "/runs/11111111-1111-1111-1111-111111111111/guide"),
+            "/runs/{run_id}/guide"
+        );
+        assert_eq!(
             route_label("GET", "/github/webhooks/delivery-1"),
             "/github/webhooks/{delivery_id}"
         );
@@ -2319,6 +2378,14 @@ mod tests {
             route_label("GET", "/runs/11111111-1111-1111-1111-111111111111/events"),
             "/runs/{run_id}/events"
         );
+    }
+
+    #[test]
+    fn parses_run_guide_route() {
+        let run_id = parse_run_guide_path("/runs/11111111-1111-1111-1111-111111111111/guide")
+            .expect("run guide route should parse");
+
+        assert_eq!(run_id.to_string(), "11111111-1111-1111-1111-111111111111");
     }
 
     #[test]

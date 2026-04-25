@@ -29,6 +29,11 @@ The orchestrator will use a layered interface model:
 3. HTTP remains a narrow control-plane API for system-to-system integrations.
 4. MCP becomes the primary agent-facing interface for Codex, Cursor, and other MCP-capable clients.
 
+The orchestrator does not become the mandatory runtime shell for those agents. Codex, Cursor,
+OpenHands, and similar tools keep their own interactive UI, host-access mode, and sandbox mode. The
+orchestrator provides the task queue, context package, policy surface, quality gates, and audit
+evidence those clients can consume.
+
 ## HTTP Scope
 
 HTTP is retained for workflows where a plain request/response interface is the right fit:
@@ -52,6 +57,8 @@ MCP is the preferred interface for agent-driven orchestration:
 - execute worker/control actions
 - publish PR exports and open GitHub PRs
 - enforce capability-scoped access to orchestrator actions
+- receive repository work packages such as GitHub issue-derived runs without duplicating the coding
+  agent's native editing experience
 
 The MCP server must call the same Rust command/application functions used by the CLI and HTTP
 layers. MCP is an adapter, not a separate implementation path.
@@ -67,6 +74,7 @@ The first MCP slice should expose a minimal, high-value tool set:
 - `submit_brief`
 - `list_runs`
 - `describe_run`
+- `describe_run_guide`
 - `claim_next_agent_task`
 - `complete_agent_task`
 - `run_next_task`

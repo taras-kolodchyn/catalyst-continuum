@@ -165,11 +165,13 @@ expected_tools = {
     "submit_next_repository_signal",
     "list_runs",
     "describe_run",
+    "describe_run_guide",
     "list_run_events",
     "run_next_task",
     "run_worker_once",
     "evaluate_run_policy",
     "evaluate_run_quality",
+    "generate_developer_handoff",
     "export_pr_candidate",
     "publish_pr_export",
     "open_github_pr",
@@ -179,7 +181,7 @@ if missing_tools:
     raise SystemExit(
         f"mcp smoke failed: missing tools {sorted(missing_tools)}"
     )
-for tool_name in ("list_packs", "validate_brief", "describe_run"):
+for tool_name in ("list_packs", "validate_brief", "describe_run", "describe_run_guide"):
     if (
         tools_by_name[tool_name]
         .get("annotations", {})

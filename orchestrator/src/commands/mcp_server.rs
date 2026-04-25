@@ -14,15 +14,15 @@ use super::{
         DescribeGithubWebhookReceiptToolArgs, DescribeGithubWebhookToolArgs,
         DescribeLatestArtifactToolArgs, DescribePackToolArgs,
         DescribeRepositorySignalPayloadToolArgs, DescribeRepositorySignalToolArgs,
-        DescribeRunToolArgs, EmptyToolArgs, EvaluateRunPolicyToolArgs, EvaluateRunQualityToolArgs,
-        ExportPrCandidateToolArgs, HeartbeatAgentTaskToolArgs, InitializeParams,
-        ListGithubWebhookActionRequestsToolArgs, ListGithubWebhooksToolArgs,
-        ListRepositorySignalsToolArgs, ListRunEventsToolArgs, ListRunsToolArgs,
-        OpenGithubPrToolArgs, PaginationParams, PrepareAgentTaskWorkspaceToolArgs,
-        PublishPrExportToolArgs, RunNextGithubWebhookActionToolArgs,
-        RunNextRepositoryAutomationToolArgs, RunScopedToolArgs, SubmitBriefToolArgs,
-        SubmitNextRepositorySignalToolArgs, SubmitRepositorySignalToolArgs, ValidateBriefToolArgs,
-        normalize_arguments, parse_params, parse_tool_arguments,
+        DescribeRunGuideToolArgs, DescribeRunToolArgs, EmptyToolArgs, EvaluateRunPolicyToolArgs,
+        EvaluateRunQualityToolArgs, ExportPrCandidateToolArgs, GenerateDeveloperHandoffToolArgs,
+        HeartbeatAgentTaskToolArgs, InitializeParams, ListGithubWebhookActionRequestsToolArgs,
+        ListGithubWebhooksToolArgs, ListRepositorySignalsToolArgs, ListRunEventsToolArgs,
+        ListRunsToolArgs, OpenGithubPrToolArgs, PaginationParams,
+        PrepareAgentTaskWorkspaceToolArgs, PublishPrExportToolArgs,
+        RunNextGithubWebhookActionToolArgs, RunNextRepositoryAutomationToolArgs, RunScopedToolArgs,
+        SubmitBriefToolArgs, SubmitNextRepositorySignalToolArgs, SubmitRepositorySignalToolArgs,
+        ValidateBriefToolArgs, normalize_arguments, parse_params, parse_tool_arguments,
     },
     mcp_tool_definitions::{filtered_tool_definitions, validate_tool_allowlist},
     mcp_tool_results::{
@@ -38,10 +38,11 @@ use crate::{
         complete_agent_task::{self, AgentTaskCompletionRequest},
         describe_ai_gateway_status, describe_artifact, describe_github_default_branch_state,
         describe_github_webhook_action_report, describe_github_webhook_receipt,
-        describe_latest_artifact, describe_repository_signal_payload, evaluate_run_policy,
-        evaluate_run_quality, export_pr_candidate, heartbeat_agent_task, open_github_pr,
-        prepare_agent_task_workspace, publish_pr_export, run_next_github_webhook_action,
-        run_next_repository_automation, run_next_task, submit_next_repository_signal,
+        describe_latest_artifact, describe_repository_signal_payload, describe_run_guide,
+        evaluate_run_policy, evaluate_run_quality, export_pr_candidate, generate_developer_handoff,
+        heartbeat_agent_task, open_github_pr, prepare_agent_task_workspace, publish_pr_export,
+        run_next_github_webhook_action, run_next_repository_automation, run_next_task,
+        submit_next_repository_signal,
         submit_repository_signal::BriefSubmissionContext,
         worker,
     },
@@ -373,6 +374,7 @@ impl StdioMcpServer {
             }
             "list_runs" => self.call_list_runs(arguments),
             "describe_run" => self.call_describe_run(arguments),
+            "describe_run_guide" => self.call_describe_run_guide(arguments),
             "list_run_events" => self.call_list_run_events(arguments),
             "claim_next_agent_task" => self.call_claim_next_agent_task(arguments),
             "prepare_agent_task_workspace" => self.call_prepare_agent_task_workspace(arguments),
@@ -383,6 +385,7 @@ impl StdioMcpServer {
             "run_worker_once" => self.call_run_worker_once(arguments),
             "evaluate_run_policy" => self.call_evaluate_run_policy(arguments),
             "evaluate_run_quality" => self.call_evaluate_run_quality(arguments),
+            "generate_developer_handoff" => self.call_generate_developer_handoff(arguments),
             "export_pr_candidate" => self.call_export_pr_candidate(arguments),
             "publish_pr_export" => self.call_publish_pr_export(arguments),
             "open_github_pr" => self.call_open_github_pr(arguments),
@@ -869,6 +872,21 @@ impl StdioMcpServer {
         })
     }
 
+    fn call_describe_run_guide(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: DescribeRunGuideToolArgs = parse_tool_arguments(arguments)?;
+            let mut store = self.open_store()?;
+            let guide = describe_run_guide::describe_run_guide(&mut store, args.run_id)?;
+            let structured =
+                serde_json::to_value(&guide).context("failed to serialize run guide")?;
+            Ok(tool_success_with_text(
+                "guide",
+                structured,
+                guide.render_text()?,
+            ))
+        })
+    }
+
     fn call_list_run_events(&self, arguments: Value) -> Value {
         call_tool(|| {
             let args: ListRunEventsToolArgs = parse_tool_arguments(arguments)?;
@@ -1076,6 +1094,25 @@ impl StdioMcpServer {
         })
     }
 
+    fn call_generate_developer_handoff(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: GenerateDeveloperHandoffToolArgs = parse_tool_arguments(arguments)?;
+            let mut store = self.open_store()?;
+            let report = generate_developer_handoff::generate_developer_handoff(
+                &mut store,
+                args.run_id,
+                &self.config.artifact_root,
+            )?;
+            let structured =
+                serde_json::to_value(&report).context("failed to serialize developer handoff")?;
+            Ok(tool_success_with_text(
+                "handoff",
+                structured,
+                report.render_text()?,
+            ))
+        })
+    }
+
     fn call_export_pr_candidate(&self, arguments: Value) -> Value {
         call_tool(|| {
             let args: ExportPrCandidateToolArgs = parse_tool_arguments(arguments)?;
@@ -1213,7 +1250,7 @@ mod tests {
 
         assert_eq!(
             output[1]["result"]["tools"].as_array().map(Vec::len),
-            Some(36)
+            Some(38)
         );
         assert_eq!(output[1]["result"]["tools"][0]["name"], "list_packs");
         assert!(
@@ -1229,6 +1266,13 @@ mod tests {
                 .is_some_and(|tools| tools
                     .iter()
                     .any(|tool| tool["name"] == "describe_instance_config"))
+        );
+        assert!(
+            output[1]["result"]["tools"]
+                .as_array()
+                .is_some_and(|tools| tools
+                    .iter()
+                    .any(|tool| tool["name"] == "describe_run_guide"))
         );
         assert!(
             output[1]["result"]["tools"]
@@ -1449,6 +1493,7 @@ mod tests {
                 "list_packs".to_string(),
                 "validate_brief".to_string(),
                 "describe_run".to_string(),
+                "describe_run_guide".to_string(),
             ],
         })
         .expect("server should initialize");
@@ -1468,7 +1513,12 @@ mod tests {
 
         assert_eq!(
             tool_names,
-            vec!["list_packs", "validate_brief", "describe_run"]
+            vec![
+                "list_packs",
+                "validate_brief",
+                "describe_run",
+                "describe_run_guide"
+            ]
         );
     }
 
@@ -1506,6 +1556,10 @@ mod tests {
             .iter()
             .find(|tool| tool["name"] == "describe_run")
             .expect("describe_run tool should exist");
+        let describe_run_guide = tools
+            .iter()
+            .find(|tool| tool["name"] == "describe_run_guide")
+            .expect("describe_run_guide tool should exist");
         let submit_brief = tools
             .iter()
             .find(|tool| tool["name"] == "submit_brief")
@@ -1518,6 +1572,10 @@ mod tests {
         );
         assert_eq!(
             describe_run["annotations"]["readOnlyHint"],
+            Value::Bool(true)
+        );
+        assert_eq!(
+            describe_run_guide["annotations"]["readOnlyHint"],
             Value::Bool(true)
         );
         assert!(submit_brief.get("annotations").is_none());

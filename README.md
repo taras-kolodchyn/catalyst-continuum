@@ -8,12 +8,22 @@ The project is intentionally not another opaque “AI developer.” The orchestr
 runtime control, artifact lineage, observability, and promotion safety. Coding agents such as
 OpenHands or Codex do the implementation work through explicit contracts.
 
+The intended developer model is bring-your-own-agent. Keep using Codex, OpenHands, Cursor, or
+another agent in its native UI and preferred host-access or sandbox mode; Catalyst Continuum should
+make the work queue, context, policy, quality gates, and review evidence consistent across those
+tools.
+
 ## First User: Individual Developers
 
 The first adoption target is a solo developer working on one repository. Before expanding into team
 governance, Catalyst Continuum must make a single developer faster and safer by showing exactly what
 the agents did, which artifacts were produced, which quality gates passed, and what should be
 reviewed before trusting a generated change.
+
+The strongest day-to-day use case is not forcing a developer to run a coding agent underneath the
+orchestrator. It is letting Catalyst Continuum watch GitHub, turn issues or repository signals into
+clear work packages, hand those packages to the developer's preferred agent, then track the result
+through evidence and PR gates.
 
 Run the seeded first-run demo:
 
@@ -36,6 +46,7 @@ make dev-run-latest-session
 make dev-latest
 make dev-next
 make dev-review
+make run-guide RUN_ID=<RUN_ID>
 ```
 
 `dev-session` is the faster solo-developer entrypoint: it writes the structured brief plus ready
@@ -65,6 +76,10 @@ you want to wire the flow into shell automation.
 `dev-review` is the shortest review-stage command after a local run. It prints the latest
 `review.md`, reusable agent review prompt, local PR export paths, and suggested `git`/`sed` commands
 for inspecting the exported candidate before opening a real PR.
+
+`run-guide` asks the orchestrator, not a shell script, for the selected run's current stage,
+blocker, and next safe action. Use it when you have a `RUN_ID` and want the same guidance that HTTP
+and MCP clients receive.
 
 ## Current MVP
 
@@ -127,6 +142,7 @@ make dev-next
 make dev-next-command
 make dev-review
 make dev-run-smoke
+make run-guide RUN_ID=<RUN_ID>
 make developer-handoff RUN_ID=<RUN_ID>
 make ui
 make ui-smoke
@@ -338,6 +354,11 @@ with `Generate developer handoff` or from the CLI with `make developer-handoff R
 It writes a readable review package, a reusable agent prompt, and a structured evidence manifest so
 the next Codex, Cursor, or OpenHands session starts from run evidence instead of manual context.
 
+Before choosing the next control manually, ask the orchestrator for the run guide:
+`make run-guide RUN_ID=<RUN_ID>`. The same guide is exposed over HTTP at
+`GET /runs/{run_id}/guide` and MCP as `describe_run_guide`, so agents can ask the control plane
+which step is safe instead of inferring the workflow from raw artifacts.
+
 The current shipped packs use:
 
 - `codex` for planning.
@@ -346,6 +367,7 @@ The current shipped packs use:
 External agents can use shared CLI/MCP commands to:
 
 - claim the next runnable task assigned to them;
+- inspect the orchestrator-owned run guide before mutating state;
 - prepare a task workspace;
 - refresh a heartbeat lease during long work;
 - complete the task with a structured report;

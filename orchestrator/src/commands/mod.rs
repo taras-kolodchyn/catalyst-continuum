@@ -14,6 +14,7 @@ pub mod describe_pack;
 pub mod describe_repository_signal;
 pub mod describe_repository_signal_payload;
 pub mod describe_run;
+pub mod describe_run_guide;
 pub mod evaluate_run_policy;
 pub mod evaluate_run_quality;
 pub mod export_pr_candidate;

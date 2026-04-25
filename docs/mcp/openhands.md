@@ -67,8 +67,9 @@ during native tool calls, so zero-argument tools such as `list_packs` stay calla
 live validation prompt. OpenHands also exposes those orchestrator tools with the MCP server name
 prefixed into the tool name, for example `catalyst-continuum_list_packs`. Treat those as MCP tool
 calls, not as terminal commands. The orchestrator also advertises inspection and validation tools
-such as `list_packs`, `validate_brief`, and `describe_run` with `annotations.readOnlyHint=true`, so
-OpenHands does not require `security_risk` on those safe calls. Mutating tools such as
+such as `list_packs`, `validate_brief`, `describe_run`, and `describe_run_guide` with
+`annotations.readOnlyHint=true`, so OpenHands does not require `security_risk` on those safe calls.
+Mutating tools such as
 `submit_brief`, `run_next_task`, `claim_next_agent_task`, and `complete_agent_task` should still
 include the usual OpenHands wrapper metadata like `security_risk` and `summary` when the model emits
 them.
@@ -126,6 +127,7 @@ first end-to-end flow. The default allowlist covers:
 - `validate_brief`
 - `submit_brief`
 - `describe_run`
+- `describe_run_guide`
 
 The pinned launcher also keeps external MCP exposure explicit:
 
@@ -403,6 +405,7 @@ Stateful tools need `CATALYST_DATABASE_URL`:
 - `submit_brief`
 - `list_runs`
 - `describe_run`
+- `describe_run_guide`
 - `list_run_events`
 - `claim_next_agent_task`
 - `prepare_agent_task_workspace`
@@ -506,13 +509,15 @@ worker execution and remote publication: it validates the MCP server, submits on
 inspects the created run. That first-run path should reuse the `run_id` returned by `submit_brief`
 directly instead of asking OpenHands to rediscover the same run through `list_runs`. For weaker
 local coding models, keep the bootstrap task explicit about the exact prefixed MCP tool names plus
-the required JSON argument shapes for `validate_brief`, `submit_brief`, and `describe_run`. If one
+the required JSON argument shapes for `validate_brief`, `submit_brief`, `describe_run`, and
+`describe_run_guide`. If one
 of those MCP calls fails, correct or retry the MCP call itself instead of falling back to shell
 commands that try to imitate the MCP action. That bootstrap prompt should also treat `describe_run`
 as a hard completion gate: the bootstrap path is not complete until the model has actually called
-`describe_run` and reported the run status, task counts, assigned agents, and persisted artifacts
-from that inspection result. That starter task now also makes the `brief_content` contract explicit
-by embedding the exact YAML brief inline. OpenHands should reuse that literal YAML text for
+`describe_run` and then `describe_run_guide`, and reported the run status, task counts, assigned
+agents, persisted artifacts, and recommended next safe action from those inspection results. That
+starter task now also makes the `brief_content` contract explicit by embedding the exact YAML brief
+inline. OpenHands should reuse that literal YAML text for
 `validate_brief` and `submit_brief`, instead of paraphrasing the brief or passing the path string as
 the content. The deeper stateful exercise remains
 [examples/openhands/first-task.md](../../examples/openhands/first-task.md) once the shorter

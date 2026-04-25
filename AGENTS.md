@@ -38,6 +38,10 @@ When the change touches agent integrations or MCP behavior, also review:
   surfaces over the same business logic.
 - Prefer MCP for agent-facing workflows. Do not add new HTTP endpoints for agent use when the right
   solution is to extend the MCP tool surface.
+- Do not turn the orchestrator into a mandatory wrapper around native coding-agent UX. Preserve
+  Codex, OpenHands, Cursor, and similar tools as first-class clients with their own host-access,
+  sandbox, and UI modes; use the orchestrator to provide task queues, context packages, policy,
+  gates, and audit evidence.
 - Keep the current MVP boundary intact. Docker is the active runtime provider; Proxmox and
   Kubernetes stay behind the provider abstraction unless the task explicitly implements them.
 - Preserve the control-plane split: LiteLLM handles model routing and spend controls, while the

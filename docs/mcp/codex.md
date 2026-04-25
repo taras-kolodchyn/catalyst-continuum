@@ -124,6 +124,7 @@ That means Codex can inspect:
 
 - `describe_instance_config` for the raw instance allowlist and AI gateway contract
 - `validate_brief` for the resolved run-level `external_mcp_contract`
+- `describe_run_guide` for the current run stage and next safe control-plane action
 - `claim_next_agent_task` for the same run-level `external_mcp_contract` echoed directly in the
   external-agent handoff
 - `describe_latest_artifact --artifact-type agent_dispatch_plan` when it wants the whole persisted

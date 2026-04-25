@@ -780,6 +780,7 @@ try:
         "run_next_repository_automation",
         "list_runs",
         "describe_run",
+        "describe_run_guide",
         "list_run_events",
         "claim_next_agent_task",
         "prepare_agent_task_workspace",
@@ -789,6 +790,7 @@ try:
         "run_worker_once",
         "evaluate_run_policy",
         "evaluate_run_quality",
+        "generate_developer_handoff",
         "export_pr_candidate",
         "publish_pr_export",
         "open_github_pr",
@@ -799,7 +801,7 @@ try:
             "stateful MCP smoke failed: missing tools "
             f"{sorted(missing_tools)}"
         )
-    for tool_name in ("list_packs", "validate_brief", "describe_run"):
+    for tool_name in ("list_packs", "validate_brief", "describe_run", "describe_run_guide"):
         if (
             tools_by_name[tool_name]
             .get("annotations", {})
@@ -1472,6 +1474,17 @@ policy:
             "stateful MCP smoke failed: describe_run returned wrong run_id "
             f"{run_detail['run_id']}"
         )
+    run_guide = call_tool("describe_run_guide", {"run_id": run_id}, "guide")
+    if run_guide["run_id"] != run_id:
+        fail(
+            "stateful MCP smoke failed: describe_run_guide returned wrong run_id "
+            f"{run_guide['run_id']}"
+        )
+    if run_guide["next_action"]["id"] != "run_next_task":
+        fail(
+            "stateful MCP smoke failed: initial guide should recommend run_next_task, got "
+            f"{run_guide['next_action']}"
+        )
     dispatch_plan = call_tool(
         "describe_latest_artifact",
         {"run_id": run_id, "artifact_type": "agent_dispatch_plan"},
@@ -1823,6 +1836,19 @@ policy:
     if policy_artifact["manifest"]["passed"] is not True:
         fail("stateful MCP smoke failed: persisted policy report is not passed=true")
 
+    log_phase("generate developer handoff through MCP")
+    handoff = call_tool("generate_developer_handoff", {"run_id": run_id}, "handoff")
+    handoff_artifact = handoff.get("artifact") or {}
+    if handoff_artifact.get("artifact_type") != "developer_handoff":
+        fail(
+            "stateful MCP smoke failed: expected developer_handoff artifact, got "
+            f"{handoff_artifact.get('artifact_type')}"
+        )
+    if not handoff.get("review_markdown_path") or not handoff.get("agent_prompt_path"):
+        fail(
+            "stateful MCP smoke failed: developer handoff should expose review and prompt paths"
+        )
+
     log_phase("inspect run events through MCP")
     run_events = call_tool(
         "list_run_events",
@@ -1838,6 +1864,7 @@ policy:
         "task_heartbeat",
         "task_succeeded",
         "run_policy_evaluated",
+        "developer_handoff_generated",
     }
     missing_event_types = required_event_types - event_types
     if missing_event_types:
