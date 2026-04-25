@@ -126,6 +126,11 @@ MCP clients should pass `repository_target_id` to `export_pr_candidate` and `pub
 the orchestrator resolves the approved branch prefix and remote URL from the shared instance
 allowlist instead of duplicating remote strings in each tool call.
 
+`run_next_task` and `run_worker_once` accept `respect_agent_assignments`. Leave it false for the
+legacy all-local Docker execution path. Set it true when external executors are active so those
+generic worker tools skip tasks with `assigned_agent` and leave them for the explicit
+claim/prepare/heartbeat/complete handoff tools.
+
 ## Generic Client Config
 
 Many open-source agents use slightly different configuration formats, but the transport contract is

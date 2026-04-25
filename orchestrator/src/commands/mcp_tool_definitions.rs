@@ -394,12 +394,24 @@ fn tool_definitions() -> Vec<Value> {
         tool_definition(
             "run_next_task",
             "Execute the next runnable task for a run, or globally when run_id is omitted.",
-            json_schema_object(&[optional_string_property("run_id", "Optional run UUID.")]),
+            json_schema_object(&[
+                optional_string_property("run_id", "Optional run UUID."),
+                optional_boolean_property(
+                    "respect_agent_assignments",
+                    "When true, skip tasks assigned to external agents instead of executing them locally.",
+                ),
+            ]),
         ),
         tool_definition(
             "run_worker_once",
             "Execute at most one worker cycle for a run, or globally when run_id is omitted.",
-            json_schema_object(&[optional_string_property("run_id", "Optional run UUID.")]),
+            json_schema_object(&[
+                optional_string_property("run_id", "Optional run UUID."),
+                optional_boolean_property(
+                    "respect_agent_assignments",
+                    "When true, skip tasks assigned to external agents instead of executing them locally.",
+                ),
+            ]),
         ),
         tool_definition(
             "evaluate_run_policy",

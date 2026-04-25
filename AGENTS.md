@@ -272,6 +272,9 @@ instead of claiming the local workflow executed successfully.
 - Prefer `repository_target_id` over duplicated manual remotes in promotion-facing CLI, HTTP, MCP,
   and UI flows. Manual `remote_url` inputs should remain explicit overrides and must still be
   validated against the configured target allowlist when enforcement is active.
+- When validating mixed local-worker and external-agent flows, use `--respect-agent-assignments`
+  or the matching MCP `respect_agent_assignments` argument so generic Docker execution does not
+  consume tasks owned by Codex, OpenHands, or another assigned external agent.
 - Do not introduce long-lived secrets, persistent host access, or looser sandbox assumptions into
   task execution paths.
 - Do not regress observability. Changes to orchestration, runtime execution, webhook intake, or

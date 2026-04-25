@@ -30,6 +30,7 @@ pub fn execute(args: WorkerArgs) -> anyhow::Result<()> {
         &args.artifact_root,
         args.once,
         args.idle_sleep_ms,
+        args.respect_agent_assignments,
     )?;
 
     if args.pretty {
@@ -84,13 +85,19 @@ pub(crate) fn run_worker(
     artifact_root: &Path,
     once: bool,
     idle_sleep_ms: u64,
+    respect_agent_assignments: bool,
 ) -> anyhow::Result<WorkerReport> {
     let mut executed_reports = Vec::new();
     let mut idle_cycles = 0_u64;
     let worker_status = loop {
         let cycle_started_at = std::time::Instant::now();
-        let outcome =
-            run_next_task::execute_next_task(store, runtime_registry, run_id, artifact_root)?;
+        let outcome = run_next_task::execute_next_task(
+            store,
+            runtime_registry,
+            run_id,
+            artifact_root,
+            respect_agent_assignments,
+        )?;
 
         match outcome {
             NextTaskExecution::Executed(report) => {

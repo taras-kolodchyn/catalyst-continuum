@@ -124,6 +124,23 @@ make cleanup
 
 Use `DEV_RUN_NO_PR_EXPORT=1` when you only want the run evidence and handoff package.
 
+## Mix Local Workers And External Agents
+
+When a run is meant to delegate work to Codex, OpenHands, or another external executor, do not let a
+generic local worker consume that agent-owned queue. Use the assignment-respecting mode:
+
+```bash
+cargo run --manifest-path orchestrator/Cargo.toml -- run-next-task \
+  --database-url "$CATALYST_DATABASE_URL" \
+  --run-id <RUN_ID> \
+  --respect-agent-assignments
+```
+
+The same guard is available on `worker` and the MCP `run_next_task` / `run_worker_once` tools as
+`respect_agent_assignments`. In that mode, the local Docker executor only runs unassigned tasks and
+leaves `assigned_agent` tasks for `claim_next_agent_task`, `prepare_agent_task_workspace`,
+`heartbeat_agent_task`, and `complete_agent_task`.
+
 ## Generate A Developer Handoff
 
 After a run has produced execution and quality evidence, create a durable handoff package:

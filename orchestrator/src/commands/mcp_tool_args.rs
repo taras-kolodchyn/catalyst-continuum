@@ -212,6 +212,8 @@ pub(super) struct DescribeGithubDefaultBranchStateToolArgs {
 #[serde(deny_unknown_fields)]
 pub(super) struct RunScopedToolArgs {
     pub(super) run_id: Option<uuid::Uuid>,
+    #[serde(default)]
+    pub(super) respect_agent_assignments: bool,
 }
 
 #[derive(Debug, Deserialize)]

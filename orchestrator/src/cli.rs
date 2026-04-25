@@ -692,6 +692,12 @@ pub struct RunNextTaskArgs {
     #[arg(long)]
     pub run_id: Option<Uuid>,
 
+    #[arg(
+        long,
+        help = "Skip tasks assigned to an external agent instead of executing them locally."
+    )]
+    pub respect_agent_assignments: bool,
+
     #[arg(long)]
     pub pretty: bool,
 }
@@ -744,6 +750,12 @@ pub struct WorkerArgs {
 
     #[arg(long)]
     pub once: bool,
+
+    #[arg(
+        long,
+        help = "Skip tasks assigned to an external agent instead of executing them locally."
+    )]
+    pub respect_agent_assignments: bool,
 
     #[arg(long)]
     pub pretty: bool,

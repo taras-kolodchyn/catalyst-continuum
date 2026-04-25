@@ -1003,6 +1003,7 @@ impl StdioMcpServer {
                 &self.runtime_registry,
                 args.run_id,
                 &self.config.artifact_root,
+                args.respect_agent_assignments,
             )?;
             let structured = serde_json::to_value(&execution)
                 .context("failed to serialize next task execution")?;
@@ -1025,6 +1026,7 @@ impl StdioMcpServer {
                 &self.config.artifact_root,
                 true,
                 0,
+                args.respect_agent_assignments,
             )?;
             let structured =
                 serde_json::to_value(&report).context("failed to serialize worker report")?;

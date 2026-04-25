@@ -986,6 +986,7 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                             &runtime_registry,
                             Some(run_id),
                             &args.artifact_root,
+                            false,
                         ) {
                             Ok(outcome) => json_response(StatusCode(200), &outcome),
                             Err(error) => json_response(
@@ -1028,6 +1029,7 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                             &args.artifact_root,
                             true,
                             0,
+                            false,
                         ) {
                             Ok(report) => json_response(StatusCode(200), &report),
                             Err(error) => json_response(

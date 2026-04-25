@@ -320,6 +320,21 @@ impl PostgresRunStore {
         &mut self,
         run_id: Option<Uuid>,
     ) -> Result<Option<TaskSummary>> {
+        self.fetch_next_runnable_task_with_assignment_scope(run_id, true)
+    }
+
+    pub fn fetch_next_unassigned_runnable_task(
+        &mut self,
+        run_id: Option<Uuid>,
+    ) -> Result<Option<TaskSummary>> {
+        self.fetch_next_runnable_task_with_assignment_scope(run_id, false)
+    }
+
+    fn fetch_next_runnable_task_with_assignment_scope(
+        &mut self,
+        run_id: Option<Uuid>,
+        include_assigned_agent_tasks: bool,
+    ) -> Result<Option<TaskSummary>> {
         let rows = self
             .client
             .query(
@@ -343,6 +358,9 @@ impl PostgresRunStore {
 
         for task in tasks {
             if task.status != "queued" {
+                continue;
+            }
+            if !include_assigned_agent_tasks && task.assigned_agent.is_some() {
                 continue;
             }
 

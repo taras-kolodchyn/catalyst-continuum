@@ -40,6 +40,7 @@ pub fn execute(args: RunNextTaskArgs) -> anyhow::Result<()> {
         &runtime_registry,
         args.run_id,
         &args.artifact_root,
+        args.respect_agent_assignments,
     )?;
 
     if args.pretty {
@@ -173,10 +174,15 @@ pub fn execute_next_task(
     runtime_registry: &RuntimeRegistry,
     run_id: Option<uuid::Uuid>,
     artifact_root: &Path,
+    respect_agent_assignments: bool,
 ) -> anyhow::Result<NextTaskExecution> {
-    reclaim_stale_running_tasks(store, run_id)?;
+    reclaim_stale_running_tasks(store, run_id, !respect_agent_assignments)?;
     let started_at = Instant::now();
-    let selected_task = match store.fetch_next_runnable_task(run_id)? {
+    let selected_task = match if respect_agent_assignments {
+        store.fetch_next_unassigned_runnable_task(run_id)?
+    } else {
+        store.fetch_next_runnable_task(run_id)?
+    } {
         Some(task) => task,
         None => {
             let run_status = run_id
@@ -305,6 +311,7 @@ pub fn execute_next_task(
 fn reclaim_stale_running_tasks(
     store: &mut PostgresRunStore,
     run_id: Option<uuid::Uuid>,
+    include_assigned_agent_tasks: bool,
 ) -> anyhow::Result<Vec<TaskSummary>> {
     let reclaimable_tasks = store.list_reclaimable_running_tasks(
         run_id,
@@ -320,6 +327,10 @@ fn reclaim_stale_running_tasks(
     let mut refreshed_run_ids = Vec::new();
 
     for task in reclaimable_tasks {
+        if !include_assigned_agent_tasks && task.assigned_agent.is_some() {
+            continue;
+        }
+
         let run_context = if let Some(run_context) = run_context_by_id.get(&task.run_id) {
             run_context.clone()
         } else {

@@ -369,10 +369,12 @@ run_executor_scenario() {
   local scenario_state_root="$scenario_root/state"
   local submission_output_file="$scenario_root/submission.txt"
   local dispatch_json_file="$scenario_root/dispatch-plan.json"
+  local respect_assignments_output_file="$scenario_root/respect-agent-assignments.txt"
   local plan_output_file="$scenario_root/plan.txt"
   local completion_json_file="$scenario_root/completion.json"
   local run_id=""
   local submission_output=""
+  local respect_assignments_output=""
   local plan_output=""
   local fake_report_path=""
 
@@ -444,6 +446,20 @@ else:
             f"allowed agents are {expected_allowed_agents!r}"
         )
 PY
+
+  log_phase "verify local executor respects agent assignments for scenario ${scenario_name}"
+  respect_assignments_output="$(run_with_transient_postgres_retry \
+    "respect agent assignments for scenario ${scenario_name}" \
+    "$BIN" run-next-task \
+      --database-url "$DATABASE_URL" \
+      --artifact-root "$scenario_artifact_root" \
+      --runtime-providers-file "$ROOT_DIR/config/runtime-providers.yaml" \
+      --mcp-servers-file "$mcp_servers_file" \
+      --ai-gateway-file "$ROOT_DIR/config/ai-gateway.yaml" \
+      --run-id "$run_id" \
+      --respect-agent-assignments)"
+  printf '%s\n' "$respect_assignments_output" >"$respect_assignments_output_file"
+  printf '%s\n' "$respect_assignments_output" | grep -q '^runnable_task_found: no$'
 
   log_phase "execute initial planning task for scenario ${scenario_name}"
   plan_output="$(run_with_transient_postgres_retry \

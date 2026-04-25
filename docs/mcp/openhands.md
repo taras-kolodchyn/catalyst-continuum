@@ -416,6 +416,12 @@ Stateful tools need `CATALYST_DATABASE_URL`:
 - `publish_pr_export`
 - `open_github_pr`
 
+When OpenHands is part of the active execution loop, call `run_next_task` or `run_worker_once` with
+`respect_agent_assignments: true` for any generic local-worker cycle. That prevents Docker-backed
+worker tools from consuming tasks assigned to OpenHands or Codex; OpenHands-owned work should move
+through `claim_next_agent_task`, `prepare_agent_task_workspace`, `heartbeat_agent_task`, and
+`complete_agent_task`.
+
 `describe_instance_config` is the first inspection tool for OpenHands when it needs to understand
 whether the current instance is still Docker-only, whether future Proxmox or Kubernetes placeholders
 are enabled but unimplemented, which external MCP servers are enabled and allowed for OpenHands or
