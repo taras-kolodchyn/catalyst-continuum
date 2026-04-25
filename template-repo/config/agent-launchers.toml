@@ -9,6 +9,7 @@ mcp_tool_allowlist = [
   "validate_brief",
   "submit_brief",
   "describe_run",
+  "describe_run_guide",
 ]
 
 [agents.openhands.profiles.host-full-access]

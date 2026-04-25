@@ -20,17 +20,17 @@ Important constraints:
   reformat it into an indented block.
 - For mutating MCP tools such as `submit_brief`, include OpenHands wrapper fields like
   `security_risk` and `summary` in the MCP tool-call arguments. Read-only tools such as
-  `list_packs`, `validate_brief`, and `describe_run` can stay minimal.
+  `list_packs`, `validate_brief`, `describe_run`, and `describe_run_guide` can stay minimal.
 - Reuse the `run_id` returned by `submit_brief` for the follow-up run inspection. Do not call
   `list_runs` just to rediscover the run unless `submit_brief` fails to return a `run_id`.
 - If an MCP tool call fails, retry or correct that MCP tool call. Do not switch to the terminal to
   wrap, install, or emulate the same MCP action.
-- This task is incomplete until `describe_run` succeeds. Do not call the OpenHands finish action
-  before step 5. Finishing after only `list_packs`, `validate_brief`, or `submit_brief` is a failed
-  run, not a completed one.
+- This task is incomplete until `describe_run` and `describe_run_guide` succeed. Do not call the
+  OpenHands finish action before step 6. Finishing after only `list_packs`, `validate_brief`, or
+  `submit_brief` is a failed run, not a completed one.
 - Your final message must cite the `describe_run` result by naming the run `status`, the task
-  counts, the assigned agents, and the persisted artifacts. If those details are missing, keep
-  working.
+  counts, the assigned agents, and the persisted artifacts. It must also cite the
+  `describe_run_guide` next action. If those details are missing, keep working.
 - Stop after the run inspection summary. Do not run workers, claim agent tasks, prepare workspaces,
   or use publication tooling.
 
@@ -94,6 +94,15 @@ Work in this order:
      "run_id": "<the run_id returned by submit_brief>"
    }
    ```
-6. Stop and tell me whether the OpenHands MCP bootstrap path is working.
-   A successful final answer must explicitly reference the `describe_run` output, not just the
-   `submit_brief` output.
+6. Call `describe_run_guide` for that `run_id` and summarize the recommended next safe action.
+   Exact MCP tool call shape:
+   Tool: `catalyst-continuum_describe_run_guide`
+   Arguments:
+   ```json
+   {
+     "run_id": "<the run_id returned by submit_brief>"
+   }
+   ```
+7. Stop and tell me whether the OpenHands MCP bootstrap path is working.
+   A successful final answer must explicitly reference the `describe_run` and `describe_run_guide`
+   outputs, not just the `submit_brief` output.
