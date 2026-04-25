@@ -11,6 +11,8 @@ source "$ROOT_DIR/scripts/lib/readiness.sh"
 
 TASK=""
 BRIEF_INPUT=""
+USE_LATEST_SESSION=0
+CONTINUUM_ROOT="$ROOT_DIR/.continuum"
 RECIPE="fix-bug"
 TITLE=""
 REPOSITORY=""
@@ -39,7 +41,7 @@ STARTED_POSTGRES=0
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/run-dev-task.sh (--task TEXT | --brief-file PATH) [options]
+Usage: ./scripts/run-dev-task.sh (--task TEXT | --brief-file PATH | --latest-session) [options]
 
 Run a daily developer task through the local Catalyst Continuum control-plane flow:
 
@@ -50,6 +52,8 @@ The command does not push to GitHub or open a pull request.
 Options:
   --task TEXT                    Developer task or bug/feature description. Required unless --brief-file is set.
   --brief-file PATH              Existing structured brief, for example from dev-session/brief.json.
+  --latest-session               Run the newest .continuum/dev-sessions/*/brief.json.
+  --continuum-root PATH          Continuum state root for --latest-session (default: .continuum).
   --recipe NAME                  Recipe from config/task-recipes.json (default: fix-bug).
   --title TEXT                   Override generated brief title.
   --repository OWNER/REPO        Repository target. Defaults to git origin from --repo-path.
@@ -80,6 +84,14 @@ while [ "$#" -gt 0 ]; do
       ;;
     --brief-file)
       BRIEF_INPUT="${2:?missing value for --brief-file}"
+      shift 2
+      ;;
+    --latest-session)
+      USE_LATEST_SESSION=1
+      shift
+      ;;
+    --continuum-root)
+      CONTINUUM_ROOT="${2:?missing value for --continuum-root}"
       shift 2
       ;;
     --recipe)
@@ -167,8 +179,19 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-if [ -z "$TASK" ] && [ -z "$BRIEF_INPUT" ]; then
-  echo "--task or --brief-file is required" >&2
+source_count=0
+if [ -n "$TASK" ]; then
+  source_count=$((source_count + 1))
+fi
+if [ -n "$BRIEF_INPUT" ]; then
+  source_count=$((source_count + 1))
+fi
+if [ "$USE_LATEST_SESSION" -eq 1 ]; then
+  source_count=$((source_count + 1))
+fi
+
+if [ "$source_count" -ne 1 ]; then
+  echo "choose exactly one task source: --task, --brief-file, or --latest-session" >&2
   usage >&2
   exit 2
 fi
@@ -214,6 +237,50 @@ if not path.is_absolute():
 print(path.resolve())
 PY
 }
+
+resolve_latest_session_brief() {
+  python3 - "$CONTINUUM_ROOT" <<'PY'
+from __future__ import annotations
+
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+sessions_root = root / "dev-sessions"
+candidates: dict[pathlib.Path, float] = {}
+
+for manifest_path in sessions_root.glob("*/manifest.json"):
+    brief_path = manifest_path.parent / "brief.json"
+    if not brief_path.is_file():
+        continue
+    try:
+        candidates[brief_path] = manifest_path.stat().st_mtime
+    except OSError:
+        continue
+
+for brief_path in sessions_root.glob("*/brief.json"):
+    if brief_path in candidates:
+        continue
+    try:
+        candidates[brief_path] = brief_path.stat().st_mtime
+    except OSError:
+        continue
+
+if not candidates:
+    raise SystemExit(2)
+
+latest = max(candidates.items(), key=lambda item: (item[1], str(item[0])))[0]
+print(latest.resolve())
+PY
+}
+
+CONTINUUM_ROOT="$(absolute_path "$CONTINUUM_ROOT")"
+if [ "$USE_LATEST_SESSION" -eq 1 ]; then
+  if ! BRIEF_INPUT="$(resolve_latest_session_brief)"; then
+    printf 'no developer session brief found under %s\n' "$CONTINUUM_ROOT/dev-sessions" >&2
+    exit 2
+  fi
+fi
 
 OUTPUT_DIR="$(absolute_path "$OUTPUT_DIR")"
 if [ -n "$BRIEF_INPUT" ]; then

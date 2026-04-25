@@ -108,6 +108,14 @@ make dev-run-brief BRIEF_FILE=.continuum/dev-sessions/<session>/brief.json
 That path keeps the generated agent prompts and the full control-plane run attached to the same
 `brief.json`.
 
+If you just created the session and want the shortest command, run:
+
+```bash
+make dev-run-latest-session
+```
+
+That resolves the newest session brief and submits it through the same run path.
+
 To find the most recent output later, run:
 
 ```bash

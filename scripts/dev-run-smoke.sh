@@ -9,15 +9,10 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 
 OUTPUT_DIR="$TMP_DIR/dev-run"
 OUTPUT_FILE="$TMP_DIR/dev-run.out"
-BRIEF_RUN_OUTPUT_DIR="$TMP_DIR/dev-run-from-brief"
-BRIEF_RUN_OUTPUT_FILE="$TMP_DIR/dev-run-from-brief.out"
-EXPECTED_BRIEF_SOURCE_PATH="$(python3 - "$OUTPUT_DIR/brief.json" <<'PY'
-import pathlib
-import sys
-
-print(pathlib.Path(sys.argv[1]).resolve())
-PY
-)"
+CONTINUUM_ROOT="$TMP_DIR/.continuum"
+LATEST_SESSION_BRIEF="$CONTINUUM_ROOT/dev-sessions/session-newer/brief.json"
+LATEST_SESSION_RUN_OUTPUT_DIR="$TMP_DIR/dev-run-from-latest-session"
+LATEST_SESSION_RUN_OUTPUT_FILE="$TMP_DIR/dev-run-from-latest-session.out"
 
 ./scripts/run-dev-task.sh \
   --task "Add a focused CLI validation path for solo developer onboarding" \
@@ -85,25 +80,68 @@ assert "Review this Catalyst Continuum run" in prompt, prompt
 assert "pr_export" in prompt, prompt
 PY
 
+python3 - "$OUTPUT_DIR/brief.json" "$CONTINUUM_ROOT" <<'PY'
+import json
+import os
+import pathlib
+import shutil
+import sys
+
+source_brief = pathlib.Path(sys.argv[1])
+root = pathlib.Path(sys.argv[2])
+sessions = [
+    ("session-older", 1_700_000_000),
+    ("session-newer", 1_800_000_000),
+]
+
+for name, timestamp in sessions:
+    session_dir = root / "dev-sessions" / name
+    session_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(source_brief, session_dir / "brief.json")
+    (session_dir / "manifest.json").write_text(
+        json.dumps(
+            {
+                "session_id": name,
+                "task": "Add a focused CLI validation path for solo developer onboarding",
+                "recipe": "fix-bug",
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    os.utime(session_dir / "brief.json", (timestamp, timestamp))
+    os.utime(session_dir / "manifest.json", (timestamp, timestamp))
+PY
+
+EXPECTED_BRIEF_SOURCE_PATH="$(python3 - "$LATEST_SESSION_BRIEF" <<'PY'
+import pathlib
+import sys
+
+print(pathlib.Path(sys.argv[1]).resolve())
+PY
+)"
+
 CATALYST_SKIP_WORKSPACE_BUILD=1 ./scripts/run-dev-task.sh \
-  --brief-file "$OUTPUT_DIR/brief.json" \
-  --output-dir "$BRIEF_RUN_OUTPUT_DIR" \
+  --latest-session \
+  --continuum-root "$CONTINUUM_ROOT" \
+  --output-dir "$LATEST_SESSION_RUN_OUTPUT_DIR" \
   --max-task-cycles 12 \
-  --skip-quality >"$BRIEF_RUN_OUTPUT_FILE"
+  --skip-quality >"$LATEST_SESSION_RUN_OUTPUT_FILE"
 
-grep -F "Developer run complete." "$BRIEF_RUN_OUTPUT_FILE" >/dev/null
-grep -F "run_status: succeeded" "$BRIEF_RUN_OUTPUT_FILE" >/dev/null
-grep -F "quality_passed: skipped" "$BRIEF_RUN_OUTPUT_FILE" >/dev/null
-grep -F "brief_source_path: $EXPECTED_BRIEF_SOURCE_PATH" "$BRIEF_RUN_OUTPUT_FILE" >/dev/null
+grep -F "Developer run complete." "$LATEST_SESSION_RUN_OUTPUT_FILE" >/dev/null
+grep -F "run_status: succeeded" "$LATEST_SESSION_RUN_OUTPUT_FILE" >/dev/null
+grep -F "quality_passed: skipped" "$LATEST_SESSION_RUN_OUTPUT_FILE" >/dev/null
+grep -F "brief_source_path: $EXPECTED_BRIEF_SOURCE_PATH" "$LATEST_SESSION_RUN_OUTPUT_FILE" >/dev/null
 
-python3 - "$EXPECTED_BRIEF_SOURCE_PATH" "$BRIEF_RUN_OUTPUT_DIR" <<'PY'
+python3 - "$EXPECTED_BRIEF_SOURCE_PATH" "$LATEST_SESSION_RUN_OUTPUT_DIR" <<'PY'
 import json
 import pathlib
 import sys
 
 expected_brief_source_path = sys.argv[1]
-brief_run_dir = pathlib.Path(sys.argv[2])
-summary = json.loads((brief_run_dir / "run-summary.json").read_text(encoding="utf-8"))
+latest_session_run_dir = pathlib.Path(sys.argv[2])
+summary = json.loads((latest_session_run_dir / "run-summary.json").read_text(encoding="utf-8"))
 
 assert summary["schema_version"] == "v0.1", summary
 assert summary["run_id"], summary

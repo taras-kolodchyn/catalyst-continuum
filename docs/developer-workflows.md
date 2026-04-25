@@ -123,6 +123,15 @@ This copies the existing brief into the new run directory, validates it, submits
 original path as `brief_source_path` in `run-summary.json`. Use this path when you want Codex,
 Cursor, OpenHands, and the orchestrator run to stay anchored to one shared input.
 
+If the session was just created and you do not want to copy a path, run the newest session directly:
+
+```bash
+make dev-run-latest-session
+```
+
+This resolves the newest `.continuum/dev-sessions/*/brief.json` by session manifest timestamp and
+then uses the same `brief_source_path` tracking as `dev-run-brief`.
+
 Keep the disposable database only when you want to inspect the completed run in the operator UI:
 
 ```bash
@@ -219,6 +228,7 @@ make dev-session TASK_RECIPE=fix-bug TASK="Describe the concrete task" REPOSITOR
 make dev-task-brief TASK_RECIPE=fix-bug TASK="Describe the concrete task" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
 make dev-run TASK_RECIPE=fix-bug TASK="Describe the concrete task" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
 make dev-run-brief BRIEF_FILE=.continuum/dev-sessions/<session>/brief.json
+make dev-run-latest-session
 make dev-latest
 ```
 

@@ -104,7 +104,7 @@ grep -F "source brief:" "$TEXT_OUTPUT" >/dev/null
 grep -F "local pr branch: continuum/demo" "$TEXT_OUTPUT" >/dev/null
 grep -F "Latest sessions" "$TEXT_OUTPUT" >/dev/null
 grep -F "codex prompt:" "$TEXT_OUTPUT" >/dev/null
-grep -F "make dev-run-brief BRIEF_FILE=<session>/brief.json" "$TEXT_OUTPUT" >/dev/null
+grep -F "make dev-run-latest-session" "$TEXT_OUTPUT" >/dev/null
 grep -F "Latest briefs" "$TEXT_OUTPUT" >/dev/null
 
 python3 - "$JSON_OUTPUT" <<'PY'

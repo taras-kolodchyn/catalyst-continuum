@@ -32,6 +32,7 @@ make dev-session TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOS
 make dev-task-brief TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
 make dev-run TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
 make dev-run-brief BRIEF_FILE=.continuum/dev-sessions/<session>/brief.json
+make dev-run-latest-session
 make dev-latest
 ```
 
@@ -48,6 +49,9 @@ local PR export repository, branch, commit, manifest, and combined patch for rev
 If you already created a session, `dev-run-brief` submits that exact `brief.json` instead of asking
 you to retype the task. That keeps the agent prompts, run evidence, and local PR export tied to one
 shared input.
+
+When you just created a session and want the shortest path, `dev-run-latest-session` finds the
+newest `.continuum/dev-sessions/*/brief.json` and runs that exact brief.
 
 `dev-latest` indexes the most recent `.continuum/dev-briefs/`, `.continuum/dev-sessions/`, and
 `.continuum/dev-runs/` outputs so you can quickly find the latest prompt, review package, local PR
@@ -109,6 +113,7 @@ make dev-session TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO
 make dev-task-brief TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO
 make dev-run TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO
 make dev-run-brief BRIEF_FILE=.continuum/dev-sessions/<session>/brief.json
+make dev-run-latest-session
 make dev-run-smoke
 make developer-handoff RUN_ID=<RUN_ID>
 make ui
@@ -130,6 +135,7 @@ Important direct scripts:
 ./scripts/solo-demo.sh
 ./scripts/run-dev-task.sh --task "Fix the flaky login retry test" --repository OWNER/REPO
 ./scripts/run-dev-task.sh --brief-file .continuum/dev-sessions/<session>/brief.json
+./scripts/run-dev-task.sh --latest-session
 ./scripts/operator-ui-smoke.sh
 ./scripts/openhands-run-agent-task-smoke.sh
 ./scripts/mcp-reference-smoke.sh

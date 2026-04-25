@@ -5,6 +5,7 @@ ACT_JOB ?= rust
 ARTIFACT_ROOT ?=
 BRIEF_FILE ?=
 COMPOSE := docker compose --env-file deploy/compose/.env.example -f deploy/compose/compose.yaml
+CONTINUUM_ROOT ?=
 DATABASE_URL ?=
 DEV_SESSION_ARGS ?=
 DEV_SESSION_OUTPUT_DIR ?=
@@ -164,6 +165,10 @@ dev-run: ## Run TASK="..." through brief, worker execution, quality, handoff, an
 dev-run-brief: ## Run an existing BRIEF_FILE=... through quality, handoff, and local PR export.
 	@test -n "$(BRIEF_FILE)" || { echo "BRIEF_FILE is required"; exit 2; }
 	./scripts/run-dev-task.sh --brief-file "$(BRIEF_FILE)" $(if $(DATABASE_URL),--database-url "$(DATABASE_URL)") $(if $(ARTIFACT_ROOT),--artifact-root "$(ARTIFACT_ROOT)") $(if $(DEV_RUN_OUTPUT_DIR),--output-dir "$(DEV_RUN_OUTPUT_DIR)") $(if $(DEV_RUN_MAX_TASK_CYCLES),--max-task-cycles "$(DEV_RUN_MAX_TASK_CYCLES)") $(if $(REPOSITORY_TARGET_ID),--repository-target-id "$(REPOSITORY_TARGET_ID)") $(if $(REPOSITORY_TARGETS_FILE),--repository-targets-file "$(REPOSITORY_TARGETS_FILE)") $(if $(DEV_RUN_KEEP_DATABASE),--keep-database) $(if $(DEV_RUN_NO_PR_EXPORT),--no-pr-export) $(DEV_RUN_ARGS)
+
+.PHONY: dev-run-latest-session
+dev-run-latest-session: ## Run the newest .continuum/dev-sessions/*/brief.json through the local flow.
+	./scripts/run-dev-task.sh --latest-session $(if $(CONTINUUM_ROOT),--continuum-root "$(CONTINUUM_ROOT)") $(if $(DATABASE_URL),--database-url "$(DATABASE_URL)") $(if $(ARTIFACT_ROOT),--artifact-root "$(ARTIFACT_ROOT)") $(if $(DEV_RUN_OUTPUT_DIR),--output-dir "$(DEV_RUN_OUTPUT_DIR)") $(if $(DEV_RUN_MAX_TASK_CYCLES),--max-task-cycles "$(DEV_RUN_MAX_TASK_CYCLES)") $(if $(REPOSITORY_TARGET_ID),--repository-target-id "$(REPOSITORY_TARGET_ID)") $(if $(REPOSITORY_TARGETS_FILE),--repository-targets-file "$(REPOSITORY_TARGETS_FILE)") $(if $(DEV_RUN_KEEP_DATABASE),--keep-database) $(if $(DEV_RUN_NO_PR_EXPORT),--no-pr-export) $(DEV_RUN_ARGS)
 
 .PHONY: dev-run-smoke
 dev-run-smoke: ## Validate the solo-developer local orchestration run entrypoint.

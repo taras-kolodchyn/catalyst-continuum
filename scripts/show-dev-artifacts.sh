@@ -257,8 +257,8 @@ def print_section(title: str, items: list[dict[str, Any]]) -> None:
             print(f"   branch: {item.get('current_branch') or 'unknown'}")
             print(f"   codex prompt: {item.get('codex_prompt_path')}")
             print(
-                "   next: hand the prompt to Codex/Cursor/OpenHands or run the exact brief with "
-                "`make dev-run-brief BRIEF_FILE=<session>/brief.json`."
+                "   next: hand the prompt to Codex/Cursor/OpenHands or run the newest session with "
+                "`make dev-run-latest-session`."
             )
         elif item["kind"] == "run":
             pr_export = item["pr_export"]
