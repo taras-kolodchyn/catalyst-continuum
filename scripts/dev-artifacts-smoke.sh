@@ -72,6 +72,7 @@ run_dir = root / "dev-runs" / "run-a"
             "run_id": "00000000-0000-0000-0000-000000000001",
             "run_status": "succeeded",
             "quality_passed": "true",
+            "brief_source_path": str(session_dir / "brief.json"),
             "review_markdown_path": str(run_dir / "review.md"),
             "agent_prompt_path": str(run_dir / "agent-review-prompt.md"),
             "pr_export_created": True,
@@ -99,9 +100,11 @@ JSON_OUTPUT="$TMP_DIR/dev-artifacts.json"
 
 grep -F "Catalyst Continuum developer artifacts" "$TEXT_OUTPUT" >/dev/null
 grep -F "Latest runs" "$TEXT_OUTPUT" >/dev/null
+grep -F "source brief:" "$TEXT_OUTPUT" >/dev/null
 grep -F "local pr branch: continuum/demo" "$TEXT_OUTPUT" >/dev/null
 grep -F "Latest sessions" "$TEXT_OUTPUT" >/dev/null
 grep -F "codex prompt:" "$TEXT_OUTPUT" >/dev/null
+grep -F "make dev-run-brief BRIEF_FILE=<session>/brief.json" "$TEXT_OUTPUT" >/dev/null
 grep -F "Latest briefs" "$TEXT_OUTPUT" >/dev/null
 
 python3 - "$JSON_OUTPUT" <<'PY'
@@ -113,6 +116,7 @@ payload = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
 assert payload["schema_version"] == "v0.1", payload
 assert payload["empty"] is False, payload
 assert payload["artifacts"]["runs"][0]["run_status"] == "succeeded", payload
+assert payload["artifacts"]["runs"][0]["brief_source_path"].endswith("/dev-sessions/session-a/brief.json"), payload
 assert payload["artifacts"]["runs"][0]["pr_export"]["branch_name"] == "continuum/demo", payload
 assert payload["artifacts"]["sessions"][0]["current_branch"] == "main", payload
 assert payload["artifacts"]["briefs"][0]["recipe"] == "fix-bug", payload

@@ -10,6 +10,7 @@ source "$ROOT_DIR/versions.env"
 source "$ROOT_DIR/scripts/lib/readiness.sh"
 
 TASK=""
+BRIEF_INPUT=""
 RECIPE="fix-bug"
 TITLE=""
 REPOSITORY=""
@@ -38,7 +39,7 @@ STARTED_POSTGRES=0
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/run-dev-task.sh --task TEXT [options]
+Usage: ./scripts/run-dev-task.sh (--task TEXT | --brief-file PATH) [options]
 
 Run a daily developer task through the local Catalyst Continuum control-plane flow:
 
@@ -47,7 +48,8 @@ Run a daily developer task through the local Catalyst Continuum control-plane fl
 The command does not push to GitHub or open a pull request.
 
 Options:
-  --task TEXT                    Developer task or bug/feature description. Required.
+  --task TEXT                    Developer task or bug/feature description. Required unless --brief-file is set.
+  --brief-file PATH              Existing structured brief, for example from dev-session/brief.json.
   --recipe NAME                  Recipe from config/task-recipes.json (default: fix-bug).
   --title TEXT                   Override generated brief title.
   --repository OWNER/REPO        Repository target. Defaults to git origin from --repo-path.
@@ -74,6 +76,10 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --task)
       TASK="${2:?missing value for --task}"
+      shift 2
+      ;;
+    --brief-file)
+      BRIEF_INPUT="${2:?missing value for --brief-file}"
       shift 2
       ;;
     --recipe)
@@ -161,8 +167,8 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-if [ -z "$TASK" ]; then
-  echo "--task is required" >&2
+if [ -z "$TASK" ] && [ -z "$BRIEF_INPUT" ]; then
+  echo "--task or --brief-file is required" >&2
   usage >&2
   exit 2
 fi
@@ -210,6 +216,13 @@ PY
 }
 
 OUTPUT_DIR="$(absolute_path "$OUTPUT_DIR")"
+if [ -n "$BRIEF_INPUT" ]; then
+  BRIEF_INPUT="$(absolute_path "$BRIEF_INPUT")"
+  if [ ! -f "$BRIEF_INPUT" ]; then
+    printf 'brief file not found: %s\n' "$BRIEF_INPUT" >&2
+    exit 2
+  fi
+fi
 if [ -z "$ARTIFACT_ROOT" ]; then
   ARTIFACT_ROOT="$OUTPUT_DIR/artifacts"
 else
@@ -233,6 +246,7 @@ PR_EXPORT_COMMIT_SHA=""
 PR_EXPORT_MANIFEST_PATH=""
 PR_EXPORT_REPOSITORY_PATH=""
 PR_EXPORT_COMBINED_PATCH_PATH=""
+BRIEF_SOURCE_PATH=""
 
 resolve_cargo_target_root() {
   if [ -n "${CARGO_TARGET_DIR:-}" ]; then
@@ -364,6 +378,7 @@ write_summary() {
   OUTPUT_DIR="$OUTPUT_DIR" \
   ARTIFACT_ROOT="$ARTIFACT_ROOT" \
   BRIEF_FILE="$BRIEF_FILE" \
+  BRIEF_SOURCE_PATH="$BRIEF_SOURCE_PATH" \
   SUBMISSION_OUTPUT="$SUBMISSION_OUTPUT" \
   POLICY_OUTPUT="$POLICY_OUTPUT" \
   QUALITY_OUTPUT="$QUALITY_OUTPUT" \
@@ -394,6 +409,7 @@ summary = {
     "output_dir": os.environ["OUTPUT_DIR"],
     "artifact_root": os.environ["ARTIFACT_ROOT"],
     "brief_path": os.environ["BRIEF_FILE"],
+    "brief_source_path": os.environ["BRIEF_SOURCE_PATH"] or None,
     "submission_output": os.environ["SUBMISSION_OUTPUT"],
     "policy_output": os.environ["POLICY_OUTPUT"],
     "quality_output": os.environ["QUALITY_OUTPUT"],
@@ -426,31 +442,41 @@ if [ ! -x "$BIN" ]; then
   exit 1
 fi
 
-brief_args=(
-  --task "$TASK"
-  --recipe "$RECIPE"
-  --repo-path "$REPO_PATH"
-  --visibility "$VISIBILITY"
-  --requested-by "$REQUESTED_BY"
-  --output "$BRIEF_FILE"
-  --no-validate
-)
+if [ -n "$BRIEF_INPUT" ]; then
+  BRIEF_SOURCE_PATH="$BRIEF_INPUT"
+  log_phase "copying structured task brief"
+  if [ "$BRIEF_INPUT" != "$BRIEF_FILE" ]; then
+    cp "$BRIEF_INPUT" "$BRIEF_FILE"
+  fi
+  printf 'brief_source_path: %s\n' "$BRIEF_INPUT" >"$CREATE_BRIEF_OUTPUT"
+  printf 'brief_path: %s\n' "$BRIEF_FILE" >>"$CREATE_BRIEF_OUTPUT"
+else
+  brief_args=(
+    --task "$TASK"
+    --recipe "$RECIPE"
+    --repo-path "$REPO_PATH"
+    --visibility "$VISIBILITY"
+    --requested-by "$REQUESTED_BY"
+    --output "$BRIEF_FILE"
+    --no-validate
+  )
 
-if [ -n "$TITLE" ]; then
-  brief_args+=(--title "$TITLE")
-fi
-if [ -n "$REPOSITORY" ]; then
-  brief_args+=(--repository "$REPOSITORY")
-fi
-if [ -n "$PACK" ]; then
-  brief_args+=(--pack "$PACK")
-fi
-if [ -n "$DEFAULT_BRANCH" ]; then
-  brief_args+=(--default-branch "$DEFAULT_BRANCH")
-fi
+  if [ -n "$TITLE" ]; then
+    brief_args+=(--title "$TITLE")
+  fi
+  if [ -n "$REPOSITORY" ]; then
+    brief_args+=(--repository "$REPOSITORY")
+  fi
+  if [ -n "$PACK" ]; then
+    brief_args+=(--pack "$PACK")
+  fi
+  if [ -n "$DEFAULT_BRANCH" ]; then
+    brief_args+=(--default-branch "$DEFAULT_BRANCH")
+  fi
 
-log_phase "creating structured task brief"
-./scripts/create-dev-task-brief.sh "${brief_args[@]}" >"$CREATE_BRIEF_OUTPUT"
+  log_phase "creating structured task brief"
+  ./scripts/create-dev-task-brief.sh "${brief_args[@]}" >"$CREATE_BRIEF_OUTPUT"
+fi
 run_orchestrator validate-brief --file "$BRIEF_FILE" >"$BRIEF_VALIDATION_OUTPUT"
 
 log_phase "submitting brief to orchestrator"
@@ -572,6 +598,9 @@ printf 'quality_passed: %s\n' "$QUALITY_PASSED"
 printf 'output_dir: %s\n' "$OUTPUT_DIR"
 printf 'artifact_root: %s\n' "$ARTIFACT_ROOT"
 printf 'summary_file: %s\n' "$SUMMARY_FILE"
+if [ -n "$BRIEF_SOURCE_PATH" ]; then
+  printf 'brief_source_path: %s\n' "$BRIEF_SOURCE_PATH"
+fi
 if [ -n "$REVIEW_MARKDOWN_PATH" ]; then
   printf 'review_markdown_path: %s\n' "$REVIEW_MARKDOWN_PATH"
 fi

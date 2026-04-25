@@ -99,6 +99,15 @@ quality, exports a local PR candidate, and generates the handoff package without
 GitHub. The printed `pr_export_repository_path`, `pr_export_branch_name`, and
 `pr_export_manifest_path` tell you exactly where the local reviewable export was written.
 
+If you already created the session package and want the orchestrator to use that exact input, run:
+
+```bash
+make dev-run-brief BRIEF_FILE=.continuum/dev-sessions/<session>/brief.json
+```
+
+That path keeps the generated agent prompts and the full control-plane run attached to the same
+`brief.json`.
+
 To find the most recent output later, run:
 
 ```bash

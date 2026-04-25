@@ -192,6 +192,7 @@ def run_items() -> list[dict[str, Any]]:
                 "run_id": summary.get("run_id"),
                 "run_status": summary.get("run_status"),
                 "quality_passed": summary.get("quality_passed"),
+                "brief_source_path": summary.get("brief_source_path"),
                 "review_markdown_path": summary.get("review_markdown_path"),
                 "agent_prompt_path": summary.get("agent_prompt_path"),
                 "pr_export": {
@@ -255,12 +256,17 @@ def print_section(title: str, items: list[dict[str, Any]]) -> None:
             print(f"   checkout: {item.get('repo_path') or 'unknown'}")
             print(f"   branch: {item.get('current_branch') or 'unknown'}")
             print(f"   codex prompt: {item.get('codex_prompt_path')}")
-            print("   next: hand the prompt to Codex/Cursor/OpenHands or run the brief with `make dev-run`.")
+            print(
+                "   next: hand the prompt to Codex/Cursor/OpenHands or run the exact brief with "
+                "`make dev-run-brief BRIEF_FILE=<session>/brief.json`."
+            )
         elif item["kind"] == "run":
             pr_export = item["pr_export"]
             print(f"   run_id: {item.get('run_id') or 'unknown'}")
             print(f"   status: {item.get('run_status') or 'unknown'}")
             print(f"   quality: {item.get('quality_passed') or 'unknown'}")
+            if item.get("brief_source_path"):
+                print(f"   source brief: {item['brief_source_path']}")
             if item.get("review_markdown_path"):
                 print(f"   review: {item['review_markdown_path']}")
             if pr_export.get("created"):

@@ -31,6 +31,7 @@ For real work, start from a daily developer task instead of a blank product brie
 make dev-session TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
 make dev-task-brief TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
 make dev-run TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
+make dev-run-brief BRIEF_FILE=.continuum/dev-sessions/<session>/brief.json
 make dev-latest
 ```
 
@@ -43,6 +44,10 @@ HEAD SHA, dirty-file count, and detected validation commands.
 it, executes the Docker-backed run, evaluates policy and quality, exports a local PR candidate, and
 generates the developer handoff without pushing to GitHub. Its `run-summary.json` points to the
 local PR export repository, branch, commit, manifest, and combined patch for review.
+
+If you already created a session, `dev-run-brief` submits that exact `brief.json` instead of asking
+you to retype the task. That keeps the agent prompts, run evidence, and local PR export tied to one
+shared input.
 
 `dev-latest` indexes the most recent `.continuum/dev-briefs/`, `.continuum/dev-sessions/`, and
 `.continuum/dev-runs/` outputs so you can quickly find the latest prompt, review package, local PR
@@ -103,6 +108,7 @@ make solo-demo-check
 make dev-session TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO
 make dev-task-brief TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO
 make dev-run TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO
+make dev-run-brief BRIEF_FILE=.continuum/dev-sessions/<session>/brief.json
 make dev-run-smoke
 make developer-handoff RUN_ID=<RUN_ID>
 make ui
@@ -123,6 +129,7 @@ Important direct scripts:
 ./scripts/ci-smoke.sh
 ./scripts/solo-demo.sh
 ./scripts/run-dev-task.sh --task "Fix the flaky login retry test" --repository OWNER/REPO
+./scripts/run-dev-task.sh --brief-file .continuum/dev-sessions/<session>/brief.json
 ./scripts/operator-ui-smoke.sh
 ./scripts/openhands-run-agent-task-smoke.sh
 ./scripts/mcp-reference-smoke.sh

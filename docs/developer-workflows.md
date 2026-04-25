@@ -112,6 +112,17 @@ path, generated repository path, and combined patch path when export succeeds. I
 `CATALYST_DATABASE_URL` is not set, it starts a disposable Postgres container and removes it when
 the command exits.
 
+If you already created a developer session, run the exact same brief instead of retyping the task:
+
+```bash
+make dev-run-brief \
+  BRIEF_FILE=.continuum/dev-sessions/<session>/brief.json
+```
+
+This copies the existing brief into the new run directory, validates it, submits it, and records the
+original path as `brief_source_path` in `run-summary.json`. Use this path when you want Codex,
+Cursor, OpenHands, and the orchestrator run to stay anchored to one shared input.
+
 Keep the disposable database only when you want to inspect the completed run in the operator UI:
 
 ```bash
@@ -207,6 +218,7 @@ make repository-targets-bootstrap REPOSITORY=OWNER/REPO REPOSITORY_TARGET_ID=loc
 make dev-session TASK_RECIPE=fix-bug TASK="Describe the concrete task" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
 make dev-task-brief TASK_RECIPE=fix-bug TASK="Describe the concrete task" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
 make dev-run TASK_RECIPE=fix-bug TASK="Describe the concrete task" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
+make dev-run-brief BRIEF_FILE=.continuum/dev-sessions/<session>/brief.json
 make dev-latest
 ```
 

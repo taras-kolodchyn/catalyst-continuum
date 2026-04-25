@@ -9,6 +9,15 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 
 OUTPUT_DIR="$TMP_DIR/dev-run"
 OUTPUT_FILE="$TMP_DIR/dev-run.out"
+BRIEF_RUN_OUTPUT_DIR="$TMP_DIR/dev-run-from-brief"
+BRIEF_RUN_OUTPUT_FILE="$TMP_DIR/dev-run-from-brief.out"
+EXPECTED_BRIEF_SOURCE_PATH="$(python3 - "$OUTPUT_DIR/brief.json" <<'PY'
+import pathlib
+import sys
+
+print(pathlib.Path(sys.argv[1]).resolve())
+PY
+)"
 
 ./scripts/run-dev-task.sh \
   --task "Add a focused CLI validation path for solo developer onboarding" \
@@ -43,6 +52,7 @@ assert summary["pr_export"]["commit_sha"], summary
 assert summary["pr_export"]["manifest_path"], summary
 assert summary["pr_export"]["repository_path"], summary
 assert summary["pr_export"]["combined_patch_path"], summary
+assert summary["brief_source_path"] is None, summary
 assert summary["database"]["was_disposable"] is True, summary
 assert summary["database"]["kept"] is False, summary
 assert summary["database"]["url"] is None, summary
@@ -73,6 +83,40 @@ prompt = agent_prompt_path.read_text(encoding="utf-8")
 assert "Developer Review Handoff" in review, review
 assert "Review this Catalyst Continuum run" in prompt, prompt
 assert "pr_export" in prompt, prompt
+PY
+
+CATALYST_SKIP_WORKSPACE_BUILD=1 ./scripts/run-dev-task.sh \
+  --brief-file "$OUTPUT_DIR/brief.json" \
+  --output-dir "$BRIEF_RUN_OUTPUT_DIR" \
+  --max-task-cycles 12 \
+  --skip-quality >"$BRIEF_RUN_OUTPUT_FILE"
+
+grep -F "Developer run complete." "$BRIEF_RUN_OUTPUT_FILE" >/dev/null
+grep -F "run_status: succeeded" "$BRIEF_RUN_OUTPUT_FILE" >/dev/null
+grep -F "quality_passed: skipped" "$BRIEF_RUN_OUTPUT_FILE" >/dev/null
+grep -F "brief_source_path: $EXPECTED_BRIEF_SOURCE_PATH" "$BRIEF_RUN_OUTPUT_FILE" >/dev/null
+
+python3 - "$EXPECTED_BRIEF_SOURCE_PATH" "$BRIEF_RUN_OUTPUT_DIR" <<'PY'
+import json
+import pathlib
+import sys
+
+expected_brief_source_path = sys.argv[1]
+brief_run_dir = pathlib.Path(sys.argv[2])
+summary = json.loads((brief_run_dir / "run-summary.json").read_text(encoding="utf-8"))
+
+assert summary["schema_version"] == "v0.1", summary
+assert summary["run_id"], summary
+assert summary["run_status"] == "succeeded", summary
+assert summary["quality_passed"] == "skipped", summary
+assert summary["pr_export_created"] is False, summary
+assert summary["pr_export"]["created"] is False, summary
+assert summary["brief_source_path"] == expected_brief_source_path, summary
+assert pathlib.Path(summary["brief_path"]).exists(), summary
+assert pathlib.Path(summary["developer_handoff_output"]).exists(), summary
+assert summary["database"]["was_disposable"] is True, summary
+assert summary["database"]["kept"] is False, summary
+assert summary["database"]["url"] is None, summary
 PY
 
 echo "dev_run_smoke=ok"
