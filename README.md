@@ -41,6 +41,7 @@ For real work, start from a daily developer task instead of a blank product brie
 make github-issue-next REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE_ARGS="--label bug --limit 5"
 make github-issue-session GITHUB_ISSUE=123 REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
 make github-issue-session REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE_PR_STRATEGY=batch GITHUB_ISSUE_ARGS="--list --label bug --limit 5"
+make github-issue-run REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE_ARGS="--label bug --limit 5"
 make dev-session TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
 make dev-task-brief TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
 make dev-run TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
@@ -69,6 +70,12 @@ session per issue so each task can become its own PR. Set `GITHUB_ISSUE_PR_STRAT
 imported issue set should stay in one branch and one PR; Catalyst then creates one aggregate
 batch-session with `issue-batch.md`, `issue-batch-context.json`, and a batch plan under
 `.continuum/github-issue-batches/`.
+
+`github-issue-run` is the shortest issue-to-evidence path. It imports one issue source, creates the
+right developer session, runs the local control-plane flow for that session, exports the local PR
+candidate, and writes a GitHub issue sync dry-run plan. With the default `per-issue` strategy it
+runs only the top-ranked issue from the imported batch. With `GITHUB_ISSUE_PR_STRATEGY=batch`, it
+runs one aggregate batch session intended for one branch and one PR.
 
 `dev-session` is the faster solo-developer entrypoint: it writes the structured brief plus ready
 Codex, Cursor, and OpenHands prompts into `.continuum/dev-sessions/` before you decide whether to
@@ -163,6 +170,7 @@ make solo-demo-check
 make github-issue-next REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE_ARGS="--label bug --limit 5"
 make github-issue-session GITHUB_ISSUE=123 REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
 make github-issue-session REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE_PR_STRATEGY=batch GITHUB_ISSUE_ARGS="--list --label bug --limit 5"
+make github-issue-run REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE_ARGS="--label bug --limit 5"
 make dev-session TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO
 make dev-task-brief TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO
 make dev-run TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO
@@ -193,6 +201,7 @@ Important direct scripts:
 ./scripts/ci-smoke.sh
 ./scripts/solo-demo.sh
 ./scripts/create-github-issue-session.sh --issue 123 --repository OWNER/REPO --repo-path /path/to/local/checkout
+./scripts/run-github-issue-workflow.sh --issue 123 --repository OWNER/REPO --repo-path /path/to/local/checkout
 ./scripts/sync-github-issue-status.sh --run-summary .continuum/dev-runs/<run>/run-summary.json --pr-url https://github.com/OWNER/REPO/pull/123
 ./scripts/run-dev-task.sh --task "Fix the flaky login retry test" --repository OWNER/REPO
 ./scripts/run-dev-task.sh --brief-file .continuum/dev-sessions/<session>/brief.json

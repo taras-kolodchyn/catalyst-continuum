@@ -1,0 +1,636 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
+
+CREATE_GITHUB_ISSUE_SESSION_CMD="${CREATE_GITHUB_ISSUE_SESSION_CMD:-$ROOT_DIR/scripts/create-github-issue-session.sh}"
+RUN_DEV_TASK_CMD="${RUN_DEV_TASK_CMD:-$ROOT_DIR/scripts/run-dev-task.sh}"
+SYNC_GITHUB_ISSUE_STATUS_CMD="${SYNC_GITHUB_ISSUE_STATUS_CMD:-$ROOT_DIR/scripts/sync-github-issue-status.sh}"
+
+REPOSITORY=""
+REPO_PATH="$PWD"
+DEFAULT_BRANCH=""
+VISIBILITY="private"
+REQUESTED_BY="${USER:-developer}@local"
+RECIPE="auto"
+PACK=""
+PR_STRATEGY="per-issue"
+WORKFLOW_OUTPUT_DIR=""
+SESSION_OUTPUT_ROOT=""
+BATCH_OUTPUT_DIR=""
+RUN_OUTPUT_DIR=""
+SYNC_OUTPUT_DIR=""
+SYNC_STATUS="ready-for-review"
+PR_URL=""
+APPLY_ISSUE_SYNC=0
+SKIP_ISSUE_SYNC=0
+NO_VALIDATE=0
+KEEP_DATABASE=0
+NO_PR_EXPORT=0
+SKIP_QUALITY=0
+MAX_TASK_CYCLES=""
+BRANCH_NAME=""
+REPOSITORY_TARGET_ID=""
+REPOSITORY_TARGETS_FILE=""
+DATABASE_URL=""
+ARTIFACT_ROOT=""
+LIST_ISSUES=0
+STATE="open"
+LIMIT=""
+ISSUE_NUMBERS=()
+ISSUE_JSON_FILES=()
+LABELS=()
+VALIDATION_COMMANDS=()
+SESSION_EXTRA_ARGS=()
+RUN_EXTRA_ARGS=()
+SYNC_EXTRA_ARGS=()
+
+usage() {
+  cat <<'EOF'
+Usage: ./scripts/run-github-issue-workflow.sh [options]
+
+Run one GitHub issue-derived work package through the local Catalyst developer flow:
+
+  GitHub issue(s) -> developer session -> local run -> local PR export -> GitHub issue sync plan
+
+For --pr-strategy per-issue, the workflow ranks the imported issue set and runs only the top issue.
+For --pr-strategy batch, the workflow creates one aggregate session and one run for the issue batch.
+
+Issue input:
+  --repository OWNER/REPO       GitHub repository. Required unless detectable from --repo-path.
+  --issue NUMBER                Import one issue through gh issue view. Can be repeated.
+  --issue-json PATH             Import an offline issue JSON fixture. Can be repeated.
+  --list                        Import issues from gh issue list using --state/--label/--limit.
+  --state STATE                 Issue state for --list (default: open).
+  --label LABEL                 Label filter for --list. Can be repeated.
+  --limit N                     Maximum issues for --list.
+
+Workflow options:
+  --pr-strategy MODE            per-issue or batch (default: per-issue).
+  --workflow-output-dir PATH    Directory for workflow-summary.json and command output logs.
+  --session-output-root PATH    Session output root passed to create-github-issue-session.sh.
+  --batch-output-dir PATH       Batch plan output directory.
+  --repo-path PATH              Local repository checkout (default: cwd).
+  --default-branch NAME         Repository default branch.
+  --visibility VALUE            Repository visibility: private or public (default: private).
+  --requested-by VALUE          Brief requested_by value (default: $USER@local).
+  --recipe NAME                 Recipe override, or auto to infer from labels (default: auto).
+  --pack PACK                   Override recipe default pack.
+  --validation-command CMD      Validation command to include in generated prompts. Can be repeated.
+  --no-validate                 Do not validate brief while creating the developer session.
+
+Run options:
+  --run-output-dir PATH         Output directory passed to run-dev-task.sh.
+  --database-url URL            Existing Postgres database URL.
+  --artifact-root PATH          Artifact root passed to run-dev-task.sh.
+  --max-task-cycles N           Maximum run-next-task cycles.
+  --branch-name NAME            Local PR export branch name.
+  --repository-target-id ID     Repository-target id for branch-name policy resolution.
+  --repository-targets-file PATH Repository-target allowlist file.
+  --no-pr-export                Do not create local PR export artifact.
+  --skip-quality                Skip quality evaluation and local PR export.
+  --keep-database               Keep the disposable Postgres container for UI inspection.
+
+Issue sync options:
+  --issue-sync-status VALUE     ready-for-review or done (default: ready-for-review).
+  --pr-url URL                  Pull request URL to attach to the issue sync comment.
+  --sync-output-dir PATH        Output directory for github-issue-sync-plan.json and comment.md.
+  --apply-issue-sync            Apply GitHub issue comments/labels through gh.
+  --skip-issue-sync             Skip GitHub issue sync plan generation.
+
+Advanced passthrough:
+  --session-arg ARG             Extra argument passed to create-github-issue-session.sh.
+  --run-arg ARG                 Extra argument passed to run-dev-task.sh.
+  --sync-arg ARG                Extra argument passed to sync-github-issue-status.sh.
+  -h, --help                    Show this help.
+EOF
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --repository)
+      REPOSITORY="${2:?missing value for --repository}"
+      shift 2
+      ;;
+    --issue)
+      ISSUE_NUMBERS+=("${2:?missing value for --issue}")
+      shift 2
+      ;;
+    --issue-json)
+      ISSUE_JSON_FILES+=("${2:?missing value for --issue-json}")
+      shift 2
+      ;;
+    --list)
+      LIST_ISSUES=1
+      shift
+      ;;
+    --state)
+      STATE="${2:?missing value for --state}"
+      shift 2
+      ;;
+    --label)
+      LABELS+=("${2:?missing value for --label}")
+      shift 2
+      ;;
+    --limit)
+      LIMIT="${2:?missing value for --limit}"
+      shift 2
+      ;;
+    --pr-strategy)
+      PR_STRATEGY="${2:?missing value for --pr-strategy}"
+      shift 2
+      ;;
+    --workflow-output-dir)
+      WORKFLOW_OUTPUT_DIR="${2:?missing value for --workflow-output-dir}"
+      shift 2
+      ;;
+    --session-output-root)
+      SESSION_OUTPUT_ROOT="${2:?missing value for --session-output-root}"
+      shift 2
+      ;;
+    --batch-output-dir)
+      BATCH_OUTPUT_DIR="${2:?missing value for --batch-output-dir}"
+      shift 2
+      ;;
+    --repo-path)
+      REPO_PATH="${2:?missing value for --repo-path}"
+      shift 2
+      ;;
+    --default-branch)
+      DEFAULT_BRANCH="${2:?missing value for --default-branch}"
+      shift 2
+      ;;
+    --visibility)
+      VISIBILITY="${2:?missing value for --visibility}"
+      shift 2
+      ;;
+    --requested-by)
+      REQUESTED_BY="${2:?missing value for --requested-by}"
+      shift 2
+      ;;
+    --recipe)
+      RECIPE="${2:?missing value for --recipe}"
+      shift 2
+      ;;
+    --pack)
+      PACK="${2:?missing value for --pack}"
+      shift 2
+      ;;
+    --validation-command)
+      VALIDATION_COMMANDS+=("${2:?missing value for --validation-command}")
+      shift 2
+      ;;
+    --no-validate)
+      NO_VALIDATE=1
+      shift
+      ;;
+    --run-output-dir)
+      RUN_OUTPUT_DIR="${2:?missing value for --run-output-dir}"
+      shift 2
+      ;;
+    --database-url)
+      DATABASE_URL="${2:?missing value for --database-url}"
+      shift 2
+      ;;
+    --artifact-root)
+      ARTIFACT_ROOT="${2:?missing value for --artifact-root}"
+      shift 2
+      ;;
+    --max-task-cycles)
+      MAX_TASK_CYCLES="${2:?missing value for --max-task-cycles}"
+      shift 2
+      ;;
+    --branch-name)
+      BRANCH_NAME="${2:?missing value for --branch-name}"
+      shift 2
+      ;;
+    --repository-target-id)
+      REPOSITORY_TARGET_ID="${2:?missing value for --repository-target-id}"
+      shift 2
+      ;;
+    --repository-targets-file)
+      REPOSITORY_TARGETS_FILE="${2:?missing value for --repository-targets-file}"
+      shift 2
+      ;;
+    --no-pr-export)
+      NO_PR_EXPORT=1
+      shift
+      ;;
+    --skip-quality)
+      SKIP_QUALITY=1
+      shift
+      ;;
+    --keep-database)
+      KEEP_DATABASE=1
+      shift
+      ;;
+    --issue-sync-status)
+      SYNC_STATUS="${2:?missing value for --issue-sync-status}"
+      shift 2
+      ;;
+    --pr-url)
+      PR_URL="${2:?missing value for --pr-url}"
+      shift 2
+      ;;
+    --sync-output-dir)
+      SYNC_OUTPUT_DIR="${2:?missing value for --sync-output-dir}"
+      shift 2
+      ;;
+    --apply-issue-sync)
+      APPLY_ISSUE_SYNC=1
+      shift
+      ;;
+    --skip-issue-sync)
+      SKIP_ISSUE_SYNC=1
+      shift
+      ;;
+    --session-arg)
+      SESSION_EXTRA_ARGS+=("${2:?missing value for --session-arg}")
+      shift 2
+      ;;
+    --run-arg)
+      RUN_EXTRA_ARGS+=("${2:?missing value for --run-arg}")
+      shift 2
+      ;;
+    --sync-arg)
+      SYNC_EXTRA_ARGS+=("${2:?missing value for --sync-arg}")
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      printf 'unknown argument: %s\n' "$1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+case "$PR_STRATEGY" in
+  per-issue|batch) ;;
+  *)
+    echo "--pr-strategy must be per-issue or batch, got: $PR_STRATEGY" >&2
+    exit 2
+    ;;
+esac
+
+case "$SYNC_STATUS" in
+  ready-for-review|done) ;;
+  *)
+    echo "--issue-sync-status must be ready-for-review or done, got: $SYNC_STATUS" >&2
+    exit 2
+    ;;
+esac
+
+source_count=0
+if [ "${#ISSUE_NUMBERS[@]}" -gt 0 ]; then
+  source_count=$((source_count + 1))
+fi
+if [ "${#ISSUE_JSON_FILES[@]}" -gt 0 ]; then
+  source_count=$((source_count + 1))
+fi
+if [ "$LIST_ISSUES" -eq 1 ]; then
+  source_count=$((source_count + 1))
+fi
+if [ "$source_count" -ne 1 ]; then
+  echo "choose exactly one issue source: --issue, --issue-json, or --list" >&2
+  usage >&2
+  exit 2
+fi
+
+if [ "$SKIP_ISSUE_SYNC" -eq 1 ] && [ "$APPLY_ISSUE_SYNC" -eq 1 ]; then
+  echo "--apply-issue-sync cannot be used with --skip-issue-sync" >&2
+  exit 2
+fi
+
+if [ ! -d "$REPO_PATH" ]; then
+  echo "--repo-path does not exist or is not a directory: $REPO_PATH" >&2
+  exit 2
+fi
+
+absolute_path() {
+  python3 - "$1" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1]).expanduser()
+if not path.is_absolute():
+    path = Path.cwd() / path
+print(path.resolve())
+PY
+}
+
+detect_repository() {
+  local remote_url
+  if ! remote_url="$(git -C "$REPO_PATH" remote get-url origin 2>/dev/null)"; then
+    return 1
+  fi
+
+  case "$remote_url" in
+    git@github.com:*.git)
+      remote_url="${remote_url#git@github.com:}"
+      remote_url="${remote_url%.git}"
+      ;;
+    https://github.com/*.git)
+      remote_url="${remote_url#https://github.com/}"
+      remote_url="${remote_url%.git}"
+      ;;
+    https://github.com/*)
+      remote_url="${remote_url#https://github.com/}"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+
+  case "$remote_url" in
+    */*)
+      printf '%s\n' "$remote_url"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+if [ -z "$REPOSITORY" ]; then
+  REPOSITORY="$(detect_repository || true)"
+fi
+if [ -z "$REPOSITORY" ]; then
+  echo "--repository is required when it cannot be detected from --repo-path" >&2
+  exit 2
+fi
+case "$REPOSITORY" in
+  */*) ;;
+  *)
+    echo "--repository must use OWNER/REPO format, got: $REPOSITORY" >&2
+    exit 2
+    ;;
+esac
+
+safe_repo="${REPOSITORY//[^a-zA-Z0-9._-]/-}"
+if [ -z "$WORKFLOW_OUTPUT_DIR" ]; then
+  WORKFLOW_OUTPUT_DIR="$ROOT_DIR/.continuum/github-issue-workflows/$(date +%Y%m%d%H%M%S)-${safe_repo}-${PR_STRATEGY}"
+fi
+WORKFLOW_OUTPUT_DIR="$(absolute_path "$WORKFLOW_OUTPUT_DIR")"
+mkdir -p "$WORKFLOW_OUTPUT_DIR"
+
+SESSION_OUTPUT="$WORKFLOW_OUTPUT_DIR/create-session.out"
+RUN_OUTPUT="$WORKFLOW_OUTPUT_DIR/run-dev-task.out"
+SYNC_OUTPUT="$WORKFLOW_OUTPUT_DIR/issue-sync.out"
+WORKFLOW_SUMMARY="$WORKFLOW_OUTPUT_DIR/workflow-summary.json"
+SESSION_DIR=""
+BRIEF_FILE=""
+RUN_SUMMARY=""
+SYNC_PLAN=""
+SYNC_COMMENT=""
+RUN_EXIT=0
+SYNC_EXIT=0
+
+extract_output_field() {
+  local file="$1"
+  local field="$2"
+  awk -v field="$field" '
+    index($0, field ": ") == 1 {
+      sub("^[^:]+: ", "")
+      print
+      exit
+    }
+  ' "$file"
+}
+
+write_workflow_summary() {
+  WORKFLOW_OUTPUT_DIR="$WORKFLOW_OUTPUT_DIR" \
+  WORKFLOW_SUMMARY="$WORKFLOW_SUMMARY" \
+  REPOSITORY="$REPOSITORY" \
+  PR_STRATEGY="$PR_STRATEGY" \
+  SESSION_OUTPUT="$SESSION_OUTPUT" \
+  SESSION_DIR="$SESSION_DIR" \
+  BRIEF_FILE="$BRIEF_FILE" \
+  RUN_OUTPUT="$RUN_OUTPUT" \
+  RUN_SUMMARY="$RUN_SUMMARY" \
+  RUN_EXIT="$RUN_EXIT" \
+  SYNC_OUTPUT="$SYNC_OUTPUT" \
+  SYNC_PLAN="$SYNC_PLAN" \
+  SYNC_COMMENT="$SYNC_COMMENT" \
+  SYNC_EXIT="$SYNC_EXIT" \
+  SKIP_ISSUE_SYNC="$SKIP_ISSUE_SYNC" \
+  APPLY_ISSUE_SYNC="$APPLY_ISSUE_SYNC" \
+  SYNC_STATUS="$SYNC_STATUS" \
+  PR_URL="$PR_URL" \
+  python3 - <<'PY'
+from __future__ import annotations
+
+import datetime
+import json
+import os
+import pathlib
+
+
+def optional_path(value: str) -> str | None:
+    return value or None
+
+
+payload = {
+    "schema_version": "v0.1",
+    "source": "github_issue_workflow",
+    "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    "repository_full_name": os.environ["REPOSITORY"],
+    "pr_strategy": os.environ["PR_STRATEGY"],
+    "workflow_output_dir": os.environ["WORKFLOW_OUTPUT_DIR"],
+    "session": {
+        "output": os.environ["SESSION_OUTPUT"],
+        "dir": optional_path(os.environ["SESSION_DIR"]),
+        "brief_file": optional_path(os.environ["BRIEF_FILE"]),
+    },
+    "run": {
+        "output": os.environ["RUN_OUTPUT"],
+        "summary_file": optional_path(os.environ["RUN_SUMMARY"]),
+        "exit_code": int(os.environ["RUN_EXIT"]),
+    },
+    "issue_sync": {
+        "skipped": os.environ["SKIP_ISSUE_SYNC"] == "1",
+        "applied": os.environ["APPLY_ISSUE_SYNC"] == "1",
+        "status": os.environ["SYNC_STATUS"],
+        "pr_url": optional_path(os.environ["PR_URL"]),
+        "output": os.environ["SYNC_OUTPUT"],
+        "plan": optional_path(os.environ["SYNC_PLAN"]),
+        "comment": optional_path(os.environ["SYNC_COMMENT"]),
+        "exit_code": int(os.environ["SYNC_EXIT"]),
+    },
+}
+pathlib.Path(os.environ["WORKFLOW_SUMMARY"]).write_text(
+    json.dumps(payload, indent=2) + "\n",
+    encoding="utf-8",
+)
+PY
+}
+
+session_args=(--pr-strategy "$PR_STRATEGY")
+if [ "$PR_STRATEGY" = "per-issue" ]; then
+  session_args+=(--next-only)
+fi
+for issue_number in "${ISSUE_NUMBERS[@]}"; do
+  session_args+=(--issue "$issue_number")
+done
+for issue_json_file in "${ISSUE_JSON_FILES[@]}"; do
+  session_args+=(--issue-json "$issue_json_file")
+done
+if [ "$LIST_ISSUES" -eq 1 ]; then
+  session_args+=(--list --state "$STATE")
+  if [ -n "$LIMIT" ]; then
+    session_args+=(--limit "$LIMIT")
+  fi
+  for label in "${LABELS[@]}"; do
+    session_args+=(--label "$label")
+  done
+fi
+session_args+=(--repository "$REPOSITORY" --repo-path "$REPO_PATH" --visibility "$VISIBILITY" --requested-by "$REQUESTED_BY")
+if [ -n "$DEFAULT_BRANCH" ]; then
+  session_args+=(--default-branch "$DEFAULT_BRANCH")
+fi
+if [ -n "$RECIPE" ]; then
+  session_args+=(--recipe "$RECIPE")
+fi
+if [ -n "$PACK" ]; then
+  session_args+=(--pack "$PACK")
+fi
+if [ -n "$SESSION_OUTPUT_ROOT" ]; then
+  session_args+=(--output-root "$SESSION_OUTPUT_ROOT")
+fi
+if [ -n "$BATCH_OUTPUT_DIR" ]; then
+  session_args+=(--batch-output-dir "$BATCH_OUTPUT_DIR")
+fi
+for validation_command in "${VALIDATION_COMMANDS[@]}"; do
+  session_args+=(--validation-command "$validation_command")
+done
+if [ "$NO_VALIDATE" -eq 1 ]; then
+  session_args+=(--no-validate)
+fi
+session_args+=("${SESSION_EXTRA_ARGS[@]}")
+
+printf '[github-issue-run] creating developer session\n'
+"$CREATE_GITHUB_ISSUE_SESSION_CMD" "${session_args[@]}" >"$SESSION_OUTPUT"
+
+SESSION_DIR="$(extract_output_field "$SESSION_OUTPUT" "batch_session_dir")"
+if [ -z "$SESSION_DIR" ]; then
+  SESSION_DIR="$(extract_output_field "$SESSION_OUTPUT" "recommended_next_session_dir")"
+fi
+if [ -z "$SESSION_DIR" ]; then
+  SESSION_DIR="$(extract_output_field "$SESSION_OUTPUT" "issue_session_dir")"
+fi
+if [ -z "$SESSION_DIR" ]; then
+  echo "could not resolve session directory from $SESSION_OUTPUT" >&2
+  write_workflow_summary
+  exit 1
+fi
+
+BRIEF_FILE="$SESSION_DIR/brief.json"
+if [ ! -f "$BRIEF_FILE" ]; then
+  echo "session brief not found: $BRIEF_FILE" >&2
+  write_workflow_summary
+  exit 1
+fi
+
+run_args=(--brief-file "$BRIEF_FILE")
+if [ -n "$DATABASE_URL" ]; then
+  run_args+=(--database-url "$DATABASE_URL")
+fi
+if [ -n "$ARTIFACT_ROOT" ]; then
+  run_args+=(--artifact-root "$ARTIFACT_ROOT")
+fi
+if [ -n "$RUN_OUTPUT_DIR" ]; then
+  run_args+=(--output-dir "$RUN_OUTPUT_DIR")
+fi
+if [ -n "$MAX_TASK_CYCLES" ]; then
+  run_args+=(--max-task-cycles "$MAX_TASK_CYCLES")
+fi
+if [ -n "$BRANCH_NAME" ]; then
+  run_args+=(--branch-name "$BRANCH_NAME")
+fi
+if [ -n "$REPOSITORY_TARGET_ID" ]; then
+  run_args+=(--repository-target-id "$REPOSITORY_TARGET_ID")
+fi
+if [ -n "$REPOSITORY_TARGETS_FILE" ]; then
+  run_args+=(--repository-targets-file "$REPOSITORY_TARGETS_FILE")
+fi
+if [ "$NO_PR_EXPORT" -eq 1 ]; then
+  run_args+=(--no-pr-export)
+fi
+if [ "$SKIP_QUALITY" -eq 1 ]; then
+  run_args+=(--skip-quality)
+fi
+if [ "$KEEP_DATABASE" -eq 1 ]; then
+  run_args+=(--keep-database)
+fi
+run_args+=("${RUN_EXTRA_ARGS[@]}")
+
+printf '[github-issue-run] running local Catalyst flow\n'
+set +e
+"$RUN_DEV_TASK_CMD" "${run_args[@]}" >"$RUN_OUTPUT"
+RUN_EXIT=$?
+set -e
+if [ "$RUN_EXIT" -ne 0 ]; then
+  RUN_SUMMARY="$(extract_output_field "$RUN_OUTPUT" "summary_file")"
+  write_workflow_summary
+  echo "developer run failed; inspect $RUN_OUTPUT" >&2
+  exit "$RUN_EXIT"
+fi
+RUN_SUMMARY="$(extract_output_field "$RUN_OUTPUT" "summary_file")"
+if [ -z "$RUN_SUMMARY" ] || [ ! -f "$RUN_SUMMARY" ]; then
+  echo "could not resolve run summary from $RUN_OUTPUT" >&2
+  write_workflow_summary
+  exit 1
+fi
+
+if [ "$SKIP_ISSUE_SYNC" -eq 0 ]; then
+  sync_args=(--run-summary "$RUN_SUMMARY" --status "$SYNC_STATUS")
+  if [ -n "$PR_URL" ]; then
+    sync_args+=(--pr-url "$PR_URL")
+  fi
+  if [ -n "$SYNC_OUTPUT_DIR" ]; then
+    sync_args+=(--output-dir "$SYNC_OUTPUT_DIR")
+  else
+    sync_args+=(--output-dir "$WORKFLOW_OUTPUT_DIR/issue-sync")
+  fi
+  if [ "$APPLY_ISSUE_SYNC" -eq 1 ]; then
+    sync_args+=(--apply)
+  fi
+  sync_args+=("${SYNC_EXTRA_ARGS[@]}")
+
+  printf '[github-issue-run] preparing GitHub issue sync evidence\n'
+  set +e
+  "$SYNC_GITHUB_ISSUE_STATUS_CMD" "${sync_args[@]}" >"$SYNC_OUTPUT"
+  SYNC_EXIT=$?
+  set -e
+  if [ "$SYNC_EXIT" -ne 0 ]; then
+    SYNC_PLAN="$(extract_output_field "$SYNC_OUTPUT" "github_issue_sync_plan")"
+    SYNC_COMMENT="$(extract_output_field "$SYNC_OUTPUT" "github_issue_sync_comment")"
+    write_workflow_summary
+    echo "GitHub issue sync failed; inspect $SYNC_OUTPUT" >&2
+    exit "$SYNC_EXIT"
+  fi
+  SYNC_PLAN="$(extract_output_field "$SYNC_OUTPUT" "github_issue_sync_plan")"
+  SYNC_COMMENT="$(extract_output_field "$SYNC_OUTPUT" "github_issue_sync_comment")"
+fi
+
+write_workflow_summary
+
+printf '\nGitHub issue workflow complete.\n'
+printf 'repository: %s\n' "$REPOSITORY"
+printf 'pr_strategy: %s\n' "$PR_STRATEGY"
+printf 'workflow_output_dir: %s\n' "$WORKFLOW_OUTPUT_DIR"
+printf 'workflow_summary: %s\n' "$WORKFLOW_SUMMARY"
+printf 'session_dir: %s\n' "$SESSION_DIR"
+printf 'brief_file: %s\n' "$BRIEF_FILE"
+printf 'run_output: %s\n' "$RUN_OUTPUT"
+printf 'run_summary: %s\n' "$RUN_SUMMARY"
+if [ "$SKIP_ISSUE_SYNC" -eq 0 ]; then
+  printf 'issue_sync_output: %s\n' "$SYNC_OUTPUT"
+  printf 'issue_sync_plan: %s\n' "$SYNC_PLAN"
+  printf 'issue_sync_comment: %s\n' "$SYNC_COMMENT"
+  printf 'issue_sync_applied: %s\n' "$([ "$APPLY_ISSUE_SYNC" -eq 1 ] && printf true || printf false)"
+fi

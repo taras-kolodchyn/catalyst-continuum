@@ -28,6 +28,8 @@ GITHUB_ISSUE_SYNC_OUTPUT_DIR ?=
 GITHUB_ISSUE_SYNC_PR_URL ?=
 GITHUB_ISSUE_SYNC_RUN_SUMMARY ?=
 GITHUB_ISSUE_SYNC_STATUS ?= ready-for-review
+GITHUB_ISSUE_WORKFLOW_ARGS ?=
+GITHUB_ISSUE_WORKFLOW_OUTPUT_DIR ?=
 LITELLM_SMOKE_ARGS ?=
 OPENHANDS_AGENT_TASK_SMOKE_ARGS ?=
 OPENHANDS_AGENT_TASK_REAL_SMOKE_ARGS ?=
@@ -52,6 +54,7 @@ TASK_BRIEF_ARGS ?=
 TASK_RECIPE ?= fix-bug
 SMOKE_SCENARIO ?= all
 UI_PORT ?= 8080
+REPOSITORY_TARGETS_FILE_RUN_ARG = $(if $(wildcard $(REPOSITORY_TARGETS_FILE)),--repository-targets-file "$(REPOSITORY_TARGETS_FILE)")
 
 .DEFAULT_GOAL := help
 
@@ -60,7 +63,7 @@ help: ## Show available Make targets.
 	@awk 'BEGIN {FS = ":.*##"; printf "Catalyst Continuum targets:\n\n"} /^[a-zA-Z0-9_.-]+:.*##/ {printf "  %-38s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 .PHONY: check
-check: doctor versions markdown-links repository-targets-smoke dev-artifacts-smoke dev-session-smoke github-issue-session-smoke github-issue-sync-smoke template-repo-check lint-shell lint-ui-assets rust ## Run the standard fast local validation set.
+check: doctor versions markdown-links repository-targets-smoke dev-artifacts-smoke dev-session-smoke github-issue-session-smoke github-issue-sync-smoke github-issue-workflow-smoke template-repo-check lint-shell lint-ui-assets rust ## Run the standard fast local validation set.
 
 .PHONY: doctor
 doctor: ## Run fast local readiness checks for tools, config, and optional live services.
@@ -181,6 +184,10 @@ github-issue-next: ## Rank a GitHub issue batch and create only the next recomme
 github-issue-sync: ## Comment, label, and optionally close GitHub issues from the latest or selected run summary.
 	./scripts/sync-github-issue-status.sh --status "$(GITHUB_ISSUE_SYNC_STATUS)" $(if $(GITHUB_ISSUE_SYNC_RUN_SUMMARY),--run-summary "$(GITHUB_ISSUE_SYNC_RUN_SUMMARY)") $(if $(CONTINUUM_ROOT),--continuum-root "$(CONTINUUM_ROOT)") $(if $(GITHUB_ISSUE_SYNC_OUTPUT_DIR),--output-dir "$(GITHUB_ISSUE_SYNC_OUTPUT_DIR)") $(if $(GITHUB_ISSUE_SYNC_PR_URL),--pr-url "$(GITHUB_ISSUE_SYNC_PR_URL)") $(if $(GITHUB_ISSUE_SYNC_APPLY),--apply) $(GITHUB_ISSUE_SYNC_ARGS)
 
+.PHONY: github-issue-run
+github-issue-run: ## Take one GitHub issue work package through session, local run, PR export, and issue sync plan.
+	./scripts/run-github-issue-workflow.sh --pr-strategy "$(GITHUB_ISSUE_PR_STRATEGY)" $(if $(GITHUB_ISSUE),--issue "$(GITHUB_ISSUE)",$(if $(GITHUB_ISSUE_JSON),--issue-json "$(GITHUB_ISSUE_JSON)",--list)) $(if $(REPOSITORY),--repository "$(REPOSITORY)") $(if $(REPOSITORY_DEFAULT_BRANCH),--default-branch "$(REPOSITORY_DEFAULT_BRANCH)") $(if $(REPO_PATH),--repo-path "$(REPO_PATH)") $(if $(PACK),--pack "$(PACK)") $(if $(GITHUB_ISSUE_OUTPUT_ROOT),--session-output-root "$(GITHUB_ISSUE_OUTPUT_ROOT)") $(if $(GITHUB_ISSUE_BATCH_OUTPUT_DIR),--batch-output-dir "$(GITHUB_ISSUE_BATCH_OUTPUT_DIR)") $(if $(GITHUB_ISSUE_WORKFLOW_OUTPUT_DIR),--workflow-output-dir "$(GITHUB_ISSUE_WORKFLOW_OUTPUT_DIR)") $(if $(DEV_RUN_OUTPUT_DIR),--run-output-dir "$(DEV_RUN_OUTPUT_DIR)") $(if $(DEV_RUN_MAX_TASK_CYCLES),--max-task-cycles "$(DEV_RUN_MAX_TASK_CYCLES)") $(if $(DATABASE_URL),--database-url "$(DATABASE_URL)") $(if $(ARTIFACT_ROOT),--artifact-root "$(ARTIFACT_ROOT)") $(if $(REPOSITORY_TARGET_ID),--repository-target-id "$(REPOSITORY_TARGET_ID)") $(REPOSITORY_TARGETS_FILE_RUN_ARG) $(if $(DEV_RUN_KEEP_DATABASE),--keep-database) $(if $(DEV_RUN_NO_PR_EXPORT),--no-pr-export) --issue-sync-status "$(GITHUB_ISSUE_SYNC_STATUS)" $(if $(GITHUB_ISSUE_SYNC_PR_URL),--pr-url "$(GITHUB_ISSUE_SYNC_PR_URL)") $(if $(GITHUB_ISSUE_SYNC_OUTPUT_DIR),--sync-output-dir "$(GITHUB_ISSUE_SYNC_OUTPUT_DIR)") $(if $(GITHUB_ISSUE_SYNC_APPLY),--apply-issue-sync) $(GITHUB_ISSUE_ARGS) $(DEV_RUN_ARGS) $(GITHUB_ISSUE_WORKFLOW_ARGS)
+
 .PHONY: dev-session-smoke
 dev-session-smoke: ## Validate developer session package generation.
 	./scripts/dev-session-smoke.sh
@@ -193,19 +200,23 @@ github-issue-session-smoke: ## Validate GitHub issue session package generation 
 github-issue-sync-smoke: ## Validate dry-run GitHub issue status sync plans without live GitHub mutation.
 	./scripts/github-issue-sync-smoke.sh
 
+.PHONY: github-issue-workflow-smoke
+github-issue-workflow-smoke: ## Validate the GitHub issue run wrapper without live GitHub mutation.
+	./scripts/github-issue-workflow-smoke.sh
+
 .PHONY: dev-run
 dev-run: ## Run TASK="..." through brief, worker execution, quality, handoff, and local PR export.
 	@test -n "$(TASK)" || { echo "TASK is required"; exit 2; }
-	./scripts/run-dev-task.sh --task "$(TASK)" --recipe "$(TASK_RECIPE)" $(if $(REPOSITORY),--repository "$(REPOSITORY)") $(if $(REPOSITORY_DEFAULT_BRANCH),--default-branch "$(REPOSITORY_DEFAULT_BRANCH)") $(if $(REPO_PATH),--repo-path "$(REPO_PATH)") $(if $(PACK),--pack "$(PACK)") $(if $(DATABASE_URL),--database-url "$(DATABASE_URL)") $(if $(ARTIFACT_ROOT),--artifact-root "$(ARTIFACT_ROOT)") $(if $(DEV_RUN_OUTPUT_DIR),--output-dir "$(DEV_RUN_OUTPUT_DIR)") $(if $(DEV_RUN_MAX_TASK_CYCLES),--max-task-cycles "$(DEV_RUN_MAX_TASK_CYCLES)") $(if $(REPOSITORY_TARGET_ID),--repository-target-id "$(REPOSITORY_TARGET_ID)") $(if $(REPOSITORY_TARGETS_FILE),--repository-targets-file "$(REPOSITORY_TARGETS_FILE)") $(if $(DEV_RUN_KEEP_DATABASE),--keep-database) $(if $(DEV_RUN_NO_PR_EXPORT),--no-pr-export) $(DEV_RUN_ARGS)
+	./scripts/run-dev-task.sh --task "$(TASK)" --recipe "$(TASK_RECIPE)" $(if $(REPOSITORY),--repository "$(REPOSITORY)") $(if $(REPOSITORY_DEFAULT_BRANCH),--default-branch "$(REPOSITORY_DEFAULT_BRANCH)") $(if $(REPO_PATH),--repo-path "$(REPO_PATH)") $(if $(PACK),--pack "$(PACK)") $(if $(DATABASE_URL),--database-url "$(DATABASE_URL)") $(if $(ARTIFACT_ROOT),--artifact-root "$(ARTIFACT_ROOT)") $(if $(DEV_RUN_OUTPUT_DIR),--output-dir "$(DEV_RUN_OUTPUT_DIR)") $(if $(DEV_RUN_MAX_TASK_CYCLES),--max-task-cycles "$(DEV_RUN_MAX_TASK_CYCLES)") $(if $(REPOSITORY_TARGET_ID),--repository-target-id "$(REPOSITORY_TARGET_ID)") $(REPOSITORY_TARGETS_FILE_RUN_ARG) $(if $(DEV_RUN_KEEP_DATABASE),--keep-database) $(if $(DEV_RUN_NO_PR_EXPORT),--no-pr-export) $(DEV_RUN_ARGS)
 
 .PHONY: dev-run-brief
 dev-run-brief: ## Run an existing BRIEF_FILE=... through quality, handoff, and local PR export.
 	@test -n "$(BRIEF_FILE)" || { echo "BRIEF_FILE is required"; exit 2; }
-	./scripts/run-dev-task.sh --brief-file "$(BRIEF_FILE)" $(if $(DATABASE_URL),--database-url "$(DATABASE_URL)") $(if $(ARTIFACT_ROOT),--artifact-root "$(ARTIFACT_ROOT)") $(if $(DEV_RUN_OUTPUT_DIR),--output-dir "$(DEV_RUN_OUTPUT_DIR)") $(if $(DEV_RUN_MAX_TASK_CYCLES),--max-task-cycles "$(DEV_RUN_MAX_TASK_CYCLES)") $(if $(REPOSITORY_TARGET_ID),--repository-target-id "$(REPOSITORY_TARGET_ID)") $(if $(REPOSITORY_TARGETS_FILE),--repository-targets-file "$(REPOSITORY_TARGETS_FILE)") $(if $(DEV_RUN_KEEP_DATABASE),--keep-database) $(if $(DEV_RUN_NO_PR_EXPORT),--no-pr-export) $(DEV_RUN_ARGS)
+	./scripts/run-dev-task.sh --brief-file "$(BRIEF_FILE)" $(if $(DATABASE_URL),--database-url "$(DATABASE_URL)") $(if $(ARTIFACT_ROOT),--artifact-root "$(ARTIFACT_ROOT)") $(if $(DEV_RUN_OUTPUT_DIR),--output-dir "$(DEV_RUN_OUTPUT_DIR)") $(if $(DEV_RUN_MAX_TASK_CYCLES),--max-task-cycles "$(DEV_RUN_MAX_TASK_CYCLES)") $(if $(REPOSITORY_TARGET_ID),--repository-target-id "$(REPOSITORY_TARGET_ID)") $(REPOSITORY_TARGETS_FILE_RUN_ARG) $(if $(DEV_RUN_KEEP_DATABASE),--keep-database) $(if $(DEV_RUN_NO_PR_EXPORT),--no-pr-export) $(DEV_RUN_ARGS)
 
 .PHONY: dev-run-latest-session
 dev-run-latest-session: ## Run the newest .continuum/dev-sessions/*/brief.json through the local flow.
-	./scripts/run-dev-task.sh --latest-session $(if $(CONTINUUM_ROOT),--continuum-root "$(CONTINUUM_ROOT)") $(if $(DATABASE_URL),--database-url "$(DATABASE_URL)") $(if $(ARTIFACT_ROOT),--artifact-root "$(ARTIFACT_ROOT)") $(if $(DEV_RUN_OUTPUT_DIR),--output-dir "$(DEV_RUN_OUTPUT_DIR)") $(if $(DEV_RUN_MAX_TASK_CYCLES),--max-task-cycles "$(DEV_RUN_MAX_TASK_CYCLES)") $(if $(REPOSITORY_TARGET_ID),--repository-target-id "$(REPOSITORY_TARGET_ID)") $(if $(REPOSITORY_TARGETS_FILE),--repository-targets-file "$(REPOSITORY_TARGETS_FILE)") $(if $(DEV_RUN_KEEP_DATABASE),--keep-database) $(if $(DEV_RUN_NO_PR_EXPORT),--no-pr-export) $(DEV_RUN_ARGS)
+	./scripts/run-dev-task.sh --latest-session $(if $(CONTINUUM_ROOT),--continuum-root "$(CONTINUUM_ROOT)") $(if $(DATABASE_URL),--database-url "$(DATABASE_URL)") $(if $(ARTIFACT_ROOT),--artifact-root "$(ARTIFACT_ROOT)") $(if $(DEV_RUN_OUTPUT_DIR),--output-dir "$(DEV_RUN_OUTPUT_DIR)") $(if $(DEV_RUN_MAX_TASK_CYCLES),--max-task-cycles "$(DEV_RUN_MAX_TASK_CYCLES)") $(if $(REPOSITORY_TARGET_ID),--repository-target-id "$(REPOSITORY_TARGET_ID)") $(REPOSITORY_TARGETS_FILE_RUN_ARG) $(if $(DEV_RUN_KEEP_DATABASE),--keep-database) $(if $(DEV_RUN_NO_PR_EXPORT),--no-pr-export) $(DEV_RUN_ARGS)
 
 .PHONY: dev-run-smoke
 dev-run-smoke: ## Validate the solo-developer local orchestration run entrypoint.

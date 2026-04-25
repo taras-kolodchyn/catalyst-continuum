@@ -141,6 +141,40 @@ This is the first practical broker value above raw Codex/Cursor/OpenHands: Catal
 GitHub issue into one task packet, chooses a recipe from labels when `--recipe auto` is used, and
 keeps the path into quality gates, local PR export, and review evidence consistent.
 
+## Run One GitHub Issue Work Package
+
+Use `github-issue-run` when you want one command to take a bounded GitHub issue source through the
+local control-plane path and prepare the issue update plan:
+
+```bash
+make github-issue-run \
+  REPOSITORY=OWNER/REPO \
+  REPO_PATH=/path/to/local/checkout \
+  GITHUB_ISSUE_ARGS="--label bug --limit 5"
+```
+
+With the default `per-issue` strategy, Catalyst lists or imports the issue set, ranks it, creates a
+session only for the top issue, runs that session, exports a local PR candidate, and writes
+`workflow-summary.json` under `.continuum/github-issue-workflows/`. The summary points to the
+session, `run-summary.json`, PR export evidence, and GitHub issue sync plan.
+
+For a related batch that should stay in one PR:
+
+```bash
+make github-issue-run \
+  REPOSITORY=OWNER/REPO \
+  REPO_PATH=/path/to/local/checkout \
+  GITHUB_ISSUE_PR_STRATEGY=batch \
+  GITHUB_ISSUE_ARGS="--label bug --limit 5"
+```
+
+`batch` creates one aggregate session and one local run for the imported issue set. The issue sync
+plan then targets every issue in the batch with the same branch, commit, PR URL, labels, and audit
+comment.
+
+By default, issue sync is still a dry run. Add `GITHUB_ISSUE_SYNC_APPLY=1` only after reviewing the
+generated `github-issue-sync-plan.json` and `comment.md`.
+
 ## Sync Run Evidence Back To GitHub Issues
 
 After a GitHub issue-derived run has produced review evidence, sync the result back to the source

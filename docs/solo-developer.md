@@ -108,6 +108,19 @@ make github-issue-session \
 This creates one `.continuum/dev-sessions/` package with `issue-batch.md`,
 `issue-batch-context.json`, and agent prompts that preserve the one-branch, one-PR intent.
 
+When you want Catalyst to execute the next work package immediately, use the combined issue run:
+
+```bash
+make github-issue-run \
+  REPOSITORY=OWNER/REPO \
+  REPO_PATH=/path/to/local/checkout \
+  GITHUB_ISSUE_ARGS="--label bug --limit 5"
+```
+
+This chooses the next issue for `per-issue`, runs the local control-plane flow, exports a local PR
+candidate, and creates a dry-run GitHub issue update plan. Set `GITHUB_ISSUE_PR_STRATEGY=batch` when
+the imported issues should stay in one branch and one PR.
+
 After the run produces a local PR candidate or draft PR, sync the evidence back to the source issue:
 
 ```bash
