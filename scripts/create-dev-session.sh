@@ -182,7 +182,9 @@ fi
 ./scripts/create-dev-task-brief.sh "${brief_args[@]}" >"$CREATE_BRIEF_OUTPUT"
 
 if [ "${#VALIDATION_COMMANDS[@]}" -eq 0 ]; then
-  mapfile -t VALIDATION_COMMANDS < <(detect_validation_commands "$REPO_PATH")
+  while IFS= read -r validation_command; do
+    VALIDATION_COMMANDS+=("$validation_command")
+  done < <(detect_validation_commands "$REPO_PATH")
 fi
 
 if [ "${#VALIDATION_COMMANDS[@]}" -eq 0 ]; then
@@ -213,6 +215,7 @@ import datetime
 import json
 import os
 import pathlib
+import subprocess
 import uuid
 
 output_dir = pathlib.Path(os.environ["OUTPUT_DIR"])
@@ -234,8 +237,36 @@ repository_label = "not configured"
 if repository.get("owner") and repository.get("name"):
     repository_label = f"{repository['owner']}/{repository['name']}"
 
+
+def git_output(*args: str) -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo_path), *args],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return None
+    return result.stdout.strip()
+
+
+dirty_files = (git_output("status", "--short") or "").splitlines()
+dirty_file_limit = 20
+repository_context = {
+    "repo_path": str(repo_path),
+    "is_git_repository": git_output("rev-parse", "--is-inside-work-tree") == "true",
+    "current_branch": git_output("rev-parse", "--abbrev-ref", "HEAD"),
+    "head_sha": git_output("rev-parse", "HEAD"),
+    "origin_url": git_output("remote", "get-url", "origin"),
+    "dirty_file_count": len(dirty_files),
+    "dirty_files": dirty_files[:dirty_file_limit],
+    "dirty_files_truncated": len(dirty_files) > dirty_file_limit,
+}
+
 session_id = str(uuid.uuid4())
-created_at = datetime.datetime.now(datetime.UTC).isoformat()
+created_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
 prompt_files = {
     "codex": "codex-prompt.md",
     "cursor": "cursor-prompt.md",
@@ -251,6 +282,7 @@ manifest = {
     "recipe": recipe,
     "repository": repository,
     "repo_path": str(repo_path),
+    "repository_context": repository_context,
     "brief_path": "brief.json",
     "agent_prompts": prompt_files,
     "validation_commands": commands,
@@ -270,6 +302,19 @@ agents_line = (
     if agents_path
     else "- Project agent guidance: not found; inspect repository conventions manually."
 )
+dirty_summary = (
+    f"{repository_context['dirty_file_count']} changed file(s)"
+    if repository_context["is_git_repository"]
+    else "not a git repository"
+)
+repository_context_block = f"""Repository context:
+
+- Path: `{repository_context['repo_path']}`
+- Repository: `{repository_label}`
+- Current branch: `{repository_context['current_branch'] or 'unknown'}`
+- Head SHA: `{repository_context['head_sha'] or 'unknown'}`
+- Dirty state: {dirty_summary}
+"""
 
 common_prompt = f"""# Catalyst Continuum Developer Session
 
@@ -277,6 +322,8 @@ Task: {task}
 Recipe: {recipe}
 Repository: {repository_label}
 Session ID: {session_id}
+
+{repository_context_block}
 
 Use Catalyst Continuum as the control layer around the coding agent. Do not treat this as a free-form chat.
 Start from `brief.json`, preserve evidence, run validation, and leave review notes that can become a
@@ -338,6 +385,14 @@ Cursor, OpenHands, or another coding agent start from the same structured contex
 ## Task
 
 {task}
+
+## Repository Context
+
+- Path: `{repository_context['repo_path']}`
+- Repository: `{repository_label}`
+- Current branch: `{repository_context['current_branch'] or 'unknown'}`
+- Head SHA: `{repository_context['head_sha'] or 'unknown'}`
+- Dirty state: {dirty_summary}
 
 ## Use The Session
 

@@ -260,7 +260,7 @@ brief = {
     "metadata": {
         "task_recipe": recipe_name,
         "generated_by": "scripts/create-dev-task-brief.sh",
-        "generated_at": datetime.datetime.now(datetime.UTC).isoformat(),
+        "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
     },
 }
 

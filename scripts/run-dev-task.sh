@@ -228,6 +228,11 @@ HANDOFF_OUTPUT="$OUTPUT_DIR/developer-handoff.out"
 PR_EXPORT_OUTPUT="$OUTPUT_DIR/pr-export.out"
 RUN_DETAIL_OUTPUT="$OUTPUT_DIR/run-detail.json"
 SUMMARY_FILE="$OUTPUT_DIR/run-summary.json"
+PR_EXPORT_BRANCH_NAME=""
+PR_EXPORT_COMMIT_SHA=""
+PR_EXPORT_MANIFEST_PATH=""
+PR_EXPORT_REPOSITORY_PATH=""
+PR_EXPORT_COMBINED_PATCH_PATH=""
 
 resolve_cargo_target_root() {
   if [ -n "${CARGO_TARGET_DIR:-}" ]; then
@@ -346,6 +351,11 @@ write_summary() {
   REVIEW_MARKDOWN_PATH="${REVIEW_MARKDOWN_PATH:-}" \
   AGENT_PROMPT_PATH="${AGENT_PROMPT_PATH:-}" \
   PR_EXPORT_CREATED="${PR_EXPORT_CREATED:-false}" \
+  PR_EXPORT_BRANCH_NAME="${PR_EXPORT_BRANCH_NAME:-}" \
+  PR_EXPORT_COMMIT_SHA="${PR_EXPORT_COMMIT_SHA:-}" \
+  PR_EXPORT_MANIFEST_PATH="${PR_EXPORT_MANIFEST_PATH:-}" \
+  PR_EXPORT_REPOSITORY_PATH="${PR_EXPORT_REPOSITORY_PATH:-}" \
+  PR_EXPORT_COMBINED_PATCH_PATH="${PR_EXPORT_COMBINED_PATCH_PATH:-}" \
   POSTGRES_CONTAINER_NAME="$POSTGRES_CONTAINER_NAME" \
   DATABASE_WAS_DISPOSABLE="$STARTED_POSTGRES" \
   DATABASE_KEPT="$KEEP_DATABASE" \
@@ -373,6 +383,14 @@ summary = {
     "review_markdown_path": os.environ["REVIEW_MARKDOWN_PATH"] or None,
     "agent_prompt_path": os.environ["AGENT_PROMPT_PATH"] or None,
     "pr_export_created": os.environ["PR_EXPORT_CREATED"] == "true",
+    "pr_export": {
+        "created": os.environ["PR_EXPORT_CREATED"] == "true",
+        "branch_name": os.environ["PR_EXPORT_BRANCH_NAME"] or None,
+        "commit_sha": os.environ["PR_EXPORT_COMMIT_SHA"] or None,
+        "manifest_path": os.environ["PR_EXPORT_MANIFEST_PATH"] or None,
+        "repository_path": os.environ["PR_EXPORT_REPOSITORY_PATH"] or None,
+        "combined_patch_path": os.environ["PR_EXPORT_COMBINED_PATCH_PATH"] or None,
+    },
     "output_dir": os.environ["OUTPUT_DIR"],
     "artifact_root": os.environ["ARTIFACT_ROOT"],
     "brief_path": os.environ["BRIEF_FILE"],
@@ -510,6 +528,29 @@ if [ "$RUN_PR_EXPORT" -eq 1 ] && [ "$RUN_STATUS" = "succeeded" ] && [ "$QUALITY_
   log_phase "exporting local PR candidate"
   run_orchestrator "${export_args[@]}" >"$PR_EXPORT_OUTPUT"
   PR_EXPORT_CREATED="true"
+  PR_EXPORT_BRANCH_NAME="$(extract_output_field "$PR_EXPORT_OUTPUT" "branch_name")"
+  PR_EXPORT_COMMIT_SHA="$(extract_output_field "$PR_EXPORT_OUTPUT" "commit_sha")"
+  PR_EXPORT_LOCATION="$(extract_output_field "$PR_EXPORT_OUTPUT" "location")"
+  if [ -n "$PR_EXPORT_LOCATION" ]; then
+    PR_EXPORT_MANIFEST_PATH="$PR_EXPORT_LOCATION/manifest.json"
+  fi
+  if [ -f "$PR_EXPORT_MANIFEST_PATH" ]; then
+    pr_export_manifest_fields=()
+    while IFS= read -r pr_export_manifest_field; do
+      pr_export_manifest_fields+=("$pr_export_manifest_field")
+    done < <(python3 - "$PR_EXPORT_MANIFEST_PATH" <<'PY'
+import json
+import pathlib
+import sys
+
+manifest = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+print(manifest.get("repository_path", ""))
+print(manifest.get("combined_patch_path", ""))
+PY
+)
+    PR_EXPORT_REPOSITORY_PATH="${pr_export_manifest_fields[0]:-}"
+    PR_EXPORT_COMBINED_PATCH_PATH="${pr_export_manifest_fields[1]:-}"
+  fi
 else
   : >"$PR_EXPORT_OUTPUT"
 fi
@@ -538,6 +579,12 @@ if [ -n "$AGENT_PROMPT_PATH" ]; then
   printf 'agent_prompt_path: %s\n' "$AGENT_PROMPT_PATH"
 fi
 printf 'pr_export_created: %s\n' "$PR_EXPORT_CREATED"
+if [ "$PR_EXPORT_CREATED" = "true" ]; then
+  printf 'pr_export_branch_name: %s\n' "$PR_EXPORT_BRANCH_NAME"
+  printf 'pr_export_commit_sha: %s\n' "$PR_EXPORT_COMMIT_SHA"
+  printf 'pr_export_repository_path: %s\n' "$PR_EXPORT_REPOSITORY_PATH"
+  printf 'pr_export_manifest_path: %s\n' "$PR_EXPORT_MANIFEST_PATH"
+fi
 
 if [ "$STARTED_POSTGRES" -eq 1 ] && [ "$KEEP_DATABASE" -eq 1 ]; then
   printf '\nInspect this run in the operator UI:\n'

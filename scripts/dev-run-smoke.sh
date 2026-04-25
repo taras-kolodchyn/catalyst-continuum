@@ -21,6 +21,8 @@ grep -F "Developer run complete." "$OUTPUT_FILE" >/dev/null
 grep -F "run_status: succeeded" "$OUTPUT_FILE" >/dev/null
 grep -F "quality_passed: true" "$OUTPUT_FILE" >/dev/null
 grep -F "pr_export_created: true" "$OUTPUT_FILE" >/dev/null
+grep -F "pr_export_repository_path:" "$OUTPUT_FILE" >/dev/null
+grep -F "pr_export_branch_name:" "$OUTPUT_FILE" >/dev/null
 
 python3 - "$OUTPUT_DIR" <<'PY'
 import json
@@ -35,6 +37,12 @@ assert summary["run_id"], summary
 assert summary["run_status"] == "succeeded", summary
 assert summary["quality_passed"] == "true", summary
 assert summary["pr_export_created"] is True, summary
+assert summary["pr_export"]["created"] is True, summary
+assert summary["pr_export"]["branch_name"], summary
+assert summary["pr_export"]["commit_sha"], summary
+assert summary["pr_export"]["manifest_path"], summary
+assert summary["pr_export"]["repository_path"], summary
+assert summary["pr_export"]["combined_patch_path"], summary
 assert summary["database"]["was_disposable"] is True, summary
 assert summary["database"]["kept"] is False, summary
 assert summary["database"]["url"] is None, summary
@@ -51,8 +59,14 @@ for key in (
 
 review_path = pathlib.Path(summary["review_markdown_path"])
 agent_prompt_path = pathlib.Path(summary["agent_prompt_path"])
+pr_export_manifest_path = pathlib.Path(summary["pr_export"]["manifest_path"])
+pr_export_repository_path = pathlib.Path(summary["pr_export"]["repository_path"])
+pr_export_combined_patch_path = pathlib.Path(summary["pr_export"]["combined_patch_path"])
 assert review_path.exists(), summary
 assert agent_prompt_path.exists(), summary
+assert pr_export_manifest_path.exists(), summary
+assert pr_export_repository_path.is_dir(), summary
+assert pr_export_combined_patch_path.exists(), summary
 
 review = review_path.read_text(encoding="utf-8")
 prompt = agent_prompt_path.read_text(encoding="utf-8")

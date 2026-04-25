@@ -7,7 +7,10 @@ cd "$ROOT_DIR"
 # shellcheck disable=SC1091
 source "$ROOT_DIR/versions.env"
 
-mapfile -t shell_scripts < <(find scripts -type f -name '*.sh' | sort)
+shell_scripts=()
+while IFS= read -r shell_script; do
+  shell_scripts+=("$shell_script")
+done < <(find scripts -type f -name '*.sh' | sort)
 
 if [ "${#shell_scripts[@]}" -eq 0 ]; then
   echo "no shell scripts found"

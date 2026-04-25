@@ -16,6 +16,12 @@ printf '[package]\nname = "dev-session-smoke"\nversion = "0.1.0"\nedition = "202
 printf 'fn main() {}\n' >"$TARGET_REPO/src/main.rs"
 printf 'check:\n\t@echo check\n' >"$TARGET_REPO/Makefile"
 printf '# AGENTS\n\nRun validation before delivery.\n' >"$TARGET_REPO/AGENTS.md"
+git -C "$TARGET_REPO" init --initial-branch main >/dev/null
+git -C "$TARGET_REPO" config user.name "Catalyst Continuum Smoke"
+git -C "$TARGET_REPO" config user.email "continuum-smoke@local"
+git -C "$TARGET_REPO" add .
+git -C "$TARGET_REPO" commit -m "Seed dev session smoke repository" >/dev/null
+printf '// pending local edit\n' >>"$TARGET_REPO/src/main.rs"
 
 ./scripts/create-dev-session.sh \
   --task "Add focused validation around repository policy" \
@@ -47,6 +53,10 @@ assert manifest["session_type"] == "developer_session", manifest
 assert manifest["recipe"] == "add-tests", manifest
 assert manifest["repository"]["owner"] == "smartit", manifest
 assert manifest["repository"]["name"] == "dev-session-smoke", manifest
+assert manifest["repository_context"]["is_git_repository"] is True, manifest
+assert manifest["repository_context"]["current_branch"] == "main", manifest
+assert manifest["repository_context"]["head_sha"], manifest
+assert manifest["repository_context"]["dirty_file_count"] == 1, manifest
 assert brief["metadata"]["task_recipe"] == "add-tests", brief
 assert brief["execution_preferences"]["repo_pack"] == "cli-tool", brief
 
@@ -59,6 +69,7 @@ assert "cargo test --workspace --locked" in commands, commands
 for prompt_name in ("codex-prompt.md", "cursor-prompt.md", "openhands-prompt.md"):
     prompt = (session_dir / prompt_name).read_text(encoding="utf-8")
     assert "Catalyst Continuum Developer Session" in prompt, prompt_name
+    assert "Repository context" in prompt, prompt_name
     assert "brief.json" in prompt, prompt_name
     assert "Validation commands to run before delivery" in prompt, prompt_name
 

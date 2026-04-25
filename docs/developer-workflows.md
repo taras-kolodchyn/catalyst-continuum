@@ -20,7 +20,8 @@ another coding agent:
 make dev-session \
   TASK_RECIPE=fix-bug \
   TASK="Fix the flaky login retry test" \
-  REPOSITORY=OWNER/REPO
+  REPOSITORY=OWNER/REPO \
+  REPO_PATH=/path/to/local/checkout
 ```
 
 The command writes a portable package under `.continuum/dev-sessions/`:
@@ -29,7 +30,8 @@ The command writes a portable package under `.continuum/dev-sessions/`:
 - `codex-prompt.md` is a prompt shaped for Codex.
 - `cursor-prompt.md` is a prompt shaped for Cursor.
 - `openhands-prompt.md` is a prompt shaped for OpenHands.
-- `manifest.json` records the recipe, repository, prompt files, and validation commands.
+- `manifest.json` records the recipe, repository, git branch, dirty-file count, prompt files, and
+  validation commands.
 - `README.md` explains the session order for the human developer.
 
 This is the first reason to use Catalyst before a full orchestrator run: every agent starts from the
@@ -88,7 +90,8 @@ When you want the control plane to do useful work immediately, use `dev-run`:
 make dev-run \
   TASK_RECIPE=fix-bug \
   TASK="Fix the flaky login retry test" \
-  REPOSITORY=OWNER/REPO
+  REPOSITORY=OWNER/REPO \
+  REPO_PATH=/path/to/local/checkout
 ```
 
 This runs the current v0.1 flow end to end:
@@ -103,8 +106,10 @@ This runs the current v0.1 flow end to end:
   export gate passes.
 
 The command writes everything under `.continuum/dev-runs/` by default, including
-`run-summary.json`. If `CATALYST_DATABASE_URL` is not set, it starts a disposable Postgres container
-and removes it when the command exits.
+`run-summary.json`. The summary includes the local `pr_export` branch name, commit SHA, manifest
+path, generated repository path, and combined patch path when export succeeds. If
+`CATALYST_DATABASE_URL` is not set, it starts a disposable Postgres container and removes it when
+the command exits.
 
 Keep the disposable database only when you want to inspect the completed run in the operator UI:
 
@@ -177,9 +182,9 @@ For a real repository, start with:
 
 ```bash
 make repository-targets-bootstrap REPOSITORY=OWNER/REPO REPOSITORY_TARGET_ID=local-dev
-make dev-session TASK_RECIPE=fix-bug TASK="Describe the concrete task" REPOSITORY=OWNER/REPO
-make dev-task-brief TASK_RECIPE=fix-bug TASK="Describe the concrete task" REPOSITORY=OWNER/REPO
-make dev-run TASK_RECIPE=fix-bug TASK="Describe the concrete task" REPOSITORY=OWNER/REPO
+make dev-session TASK_RECIPE=fix-bug TASK="Describe the concrete task" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
+make dev-task-brief TASK_RECIPE=fix-bug TASK="Describe the concrete task" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
+make dev-run TASK_RECIPE=fix-bug TASK="Describe the concrete task" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
 ```
 
 Use the generated agent prompt when you want immediate Codex, Cursor, or OpenHands help. Use

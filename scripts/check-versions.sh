@@ -120,15 +120,50 @@ declared_attest_action_ref="$(sed -nE 's/^ATTEST_ACTION_REF=(.+)$/\1/p' versions
 actrc_runner_image="$(sed -nE 's/^-P ubuntu-latest=(.+)$/\1/p' .actrc)"
 actrc_container_architecture="$(sed -nE 's/^--container-architecture (.+)$/\1/p' .actrc)"
 
-mapfile -t workflow_rust_toolchains < <(sed -nE 's/^ +toolchain: (.+)$/\1/p' .github/workflows/ci.yml)
-mapfile -t workflow_checkout_refs < <(sed -nE 's/^ +uses: actions\/checkout@([0-9a-f]{40}).*$/\1/p' .github/workflows/ci.yml)
-mapfile -t workflow_rust_toolchain_action_refs < <(sed -nE 's/^ +uses: dtolnay\/rust-toolchain@([0-9a-f]{40}).*$/\1/p' .github/workflows/ci.yml)
-mapfile -t workflow_rust_cache_refs < <(sed -nE 's/^ +uses: Swatinem\/rust-cache@([0-9a-f]{40}).*$/\1/p' .github/workflows/ci.yml)
-mapfile -t workflow_upload_artifact_refs < <(sed -nE 's/^ +uses: actions\/upload-artifact@([0-9a-f]{40}).*$/\1/p' .github/workflows/ci.yml)
-mapfile -t workflow_attest_action_refs < <(sed -nE 's/^ +uses: actions\/attest@([0-9a-f]{40}).*$/\1/p' .github/workflows/ci.yml)
-mapfile -t pack_busybox_images < <(sed -nE 's/^ +image: (busybox:[^ ]+)$/\1/p' packs/container-service/pack.yaml)
-mapfile -t storage_busybox_images < <(sed -nE 's/.*(busybox:[^"]+)".*/\1/p' orchestrator/src/storage/postgres.rs)
-mapfile -t planning_busybox_images < <(sed -nE 's/.*(busybox:[^"]+)".*/\1/p' orchestrator/src/planning/tasks.rs)
+workflow_rust_toolchains=()
+while IFS= read -r workflow_rust_toolchain; do
+  workflow_rust_toolchains+=("$workflow_rust_toolchain")
+done < <(sed -nE 's/^ +toolchain: (.+)$/\1/p' .github/workflows/ci.yml)
+
+workflow_checkout_refs=()
+while IFS= read -r workflow_checkout_ref; do
+  workflow_checkout_refs+=("$workflow_checkout_ref")
+done < <(sed -nE 's/^ +uses: actions\/checkout@([0-9a-f]{40}).*$/\1/p' .github/workflows/ci.yml)
+
+workflow_rust_toolchain_action_refs=()
+while IFS= read -r workflow_rust_toolchain_action_ref; do
+  workflow_rust_toolchain_action_refs+=("$workflow_rust_toolchain_action_ref")
+done < <(sed -nE 's/^ +uses: dtolnay\/rust-toolchain@([0-9a-f]{40}).*$/\1/p' .github/workflows/ci.yml)
+
+workflow_rust_cache_refs=()
+while IFS= read -r workflow_rust_cache_ref; do
+  workflow_rust_cache_refs+=("$workflow_rust_cache_ref")
+done < <(sed -nE 's/^ +uses: Swatinem\/rust-cache@([0-9a-f]{40}).*$/\1/p' .github/workflows/ci.yml)
+
+workflow_upload_artifact_refs=()
+while IFS= read -r workflow_upload_artifact_ref; do
+  workflow_upload_artifact_refs+=("$workflow_upload_artifact_ref")
+done < <(sed -nE 's/^ +uses: actions\/upload-artifact@([0-9a-f]{40}).*$/\1/p' .github/workflows/ci.yml)
+
+workflow_attest_action_refs=()
+while IFS= read -r workflow_attest_action_ref; do
+  workflow_attest_action_refs+=("$workflow_attest_action_ref")
+done < <(sed -nE 's/^ +uses: actions\/attest@([0-9a-f]{40}).*$/\1/p' .github/workflows/ci.yml)
+
+pack_busybox_images=()
+while IFS= read -r pack_busybox_image; do
+  pack_busybox_images+=("$pack_busybox_image")
+done < <(sed -nE 's/^ +image: (busybox:[^ ]+)$/\1/p' packs/container-service/pack.yaml)
+
+storage_busybox_images=()
+while IFS= read -r storage_busybox_image; do
+  storage_busybox_images+=("$storage_busybox_image")
+done < <(sed -nE 's/.*(busybox:[^"]+)".*/\1/p' orchestrator/src/storage/postgres.rs)
+
+planning_busybox_images=()
+while IFS= read -r planning_busybox_image; do
+  planning_busybox_images+=("$planning_busybox_image")
+done < <(sed -nE 's/.*(busybox:[^"]+)".*/\1/p' orchestrator/src/planning/tasks.rs)
 
 check_value "versions.env RUST_IMAGE_TAG" "$RUST_VERSION" "$RUST_IMAGE_TAG"
 check_value "versions.env RUST_IMAGE_DIGEST" "$RUST_IMAGE_DIGEST" "$declared_rust_image_digest"

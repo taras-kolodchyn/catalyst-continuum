@@ -66,13 +66,14 @@ For real daily work, use a task recipe instead of hand-writing a full brief:
 make dev-session \
   TASK_RECIPE=fix-bug \
   TASK="Fix the flaky login retry test" \
-  REPOSITORY=OWNER/REPO
+  REPOSITORY=OWNER/REPO \
+  REPO_PATH=/path/to/local/checkout
 ```
 
 That creates a `.continuum/dev-sessions/` package with `brief.json`, `codex-prompt.md`,
-`cursor-prompt.md`, `openhands-prompt.md`, a runbook, and detected validation commands. Use it when
-you want immediate value from an existing coding agent before deciding whether to submit the brief
-into the orchestrator.
+`cursor-prompt.md`, `openhands-prompt.md`, a runbook, detected validation commands, and git context
+for the selected checkout. Use it when you want immediate value from an existing coding agent before
+deciding whether to submit the brief into the orchestrator.
 
 If you only want the structured brief:
 
@@ -89,12 +90,14 @@ When you want Catalyst to run the full local control-plane loop, use:
 make dev-run \
   TASK_RECIPE=fix-bug \
   TASK="Fix the flaky login retry test" \
-  REPOSITORY=OWNER/REPO
+  REPOSITORY=OWNER/REPO \
+  REPO_PATH=/path/to/local/checkout
 ```
 
 That command creates the brief, submits it, executes Docker-backed tasks, evaluates policy and
 quality, exports a local PR candidate, and generates the handoff package without pushing anything to
-GitHub.
+GitHub. The printed `pr_export_repository_path`, `pr_export_branch_name`, and
+`pr_export_manifest_path` tell you exactly where the local reviewable export was written.
 
 After the run has execution and quality evidence, persist a durable review package:
 
@@ -159,6 +162,7 @@ make dev-run \
   TASK_RECIPE=fix-bug \
   TASK="Fix the flaky login retry test" \
   REPOSITORY=OWNER/REPO \
+  REPO_PATH=/path/to/local/checkout \
   DEV_RUN_KEEP_DATABASE=1
 ```
 

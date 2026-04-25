@@ -28,18 +28,20 @@ next actions without needing to configure a real GitHub repository first.
 For real work, start from a daily developer task instead of a blank product brief:
 
 ```bash
-make dev-session TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO
-make dev-task-brief TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO
-make dev-run TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO
+make dev-session TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
+make dev-task-brief TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
+make dev-run TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
 ```
 
 `dev-session` is the faster solo-developer entrypoint: it writes the structured brief plus ready
 Codex, Cursor, and OpenHands prompts into `.continuum/dev-sessions/` before you decide whether to
-submit the brief into the orchestrator.
+submit the brief into the orchestrator. The package also records the selected checkout path, branch,
+HEAD SHA, dirty-file count, and detected validation commands.
 
 `dev-run` is the first real control-plane entrypoint for daily work. It creates the brief, submits
 it, executes the Docker-backed run, evaluates policy and quality, exports a local PR candidate, and
-generates the developer handoff without pushing to GitHub.
+generates the developer handoff without pushing to GitHub. Its `run-summary.json` points to the
+local PR export repository, branch, commit, manifest, and combined patch for review.
 
 ## Current MVP
 
