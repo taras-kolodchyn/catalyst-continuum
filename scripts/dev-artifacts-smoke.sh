@@ -7,7 +7,7 @@ cd "$ROOT_DIR"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
-CONTINUUM_ROOT="$TMP_DIR/.continuum"
+CONTINUUM_ROOT="$TMP_DIR/continuum root/.continuum"
 mkdir -p \
   "$CONTINUUM_ROOT/dev-briefs" \
   "$CONTINUUM_ROOT/dev-sessions/session-a" \
@@ -94,9 +94,16 @@ PY
 
 TEXT_OUTPUT="$TMP_DIR/dev-artifacts.txt"
 JSON_OUTPUT="$TMP_DIR/dev-artifacts.json"
+NEXT_OUTPUT="$TMP_DIR/dev-next.txt"
+NEXT_COMMAND_OUTPUT="$TMP_DIR/dev-next-command.txt"
+BRIEF_NEXT_COMMAND_OUTPUT="$TMP_DIR/dev-brief-next-command.txt"
 
 ./scripts/show-dev-artifacts.sh --root "$CONTINUUM_ROOT" --limit 1 >"$TEXT_OUTPUT"
 ./scripts/show-dev-artifacts.sh --root "$CONTINUUM_ROOT" --limit 1 --json >"$JSON_OUTPUT"
+./scripts/show-dev-artifacts.sh --root "$CONTINUUM_ROOT" --limit 1 --next >"$NEXT_OUTPUT"
+./scripts/show-dev-artifacts.sh --root "$CONTINUUM_ROOT" --limit 1 --next-command >"$NEXT_COMMAND_OUTPUT"
+./scripts/show-dev-artifacts.sh --root "$CONTINUUM_ROOT" --kind briefs --limit 1 --next-command \
+  >"$BRIEF_NEXT_COMMAND_OUTPUT"
 
 grep -F "Catalyst Continuum developer artifacts" "$TEXT_OUTPUT" >/dev/null
 grep -F "Recommended next action" "$TEXT_OUTPUT" >/dev/null
@@ -104,11 +111,32 @@ grep -F "Review the latest local PR candidate" "$TEXT_OUTPUT" >/dev/null
 grep -F "make developer-handoff RUN_ID=00000000-0000-0000-0000-000000000001" "$TEXT_OUTPUT" >/dev/null
 grep -F "Latest runs" "$TEXT_OUTPUT" >/dev/null
 grep -F "source brief:" "$TEXT_OUTPUT" >/dev/null
+grep -F "review prompt:" "$TEXT_OUTPUT" >/dev/null
 grep -F "local pr branch: continuum/demo" "$TEXT_OUTPUT" >/dev/null
+grep -F "local pr manifest:" "$TEXT_OUTPUT" >/dev/null
+grep -F "local pr patch:" "$TEXT_OUTPUT" >/dev/null
 grep -F "Latest sessions" "$TEXT_OUTPUT" >/dev/null
 grep -F "codex prompt:" "$TEXT_OUTPUT" >/dev/null
+grep -F "cursor prompt:" "$TEXT_OUTPUT" >/dev/null
+grep -F "openhands prompt:" "$TEXT_OUTPUT" >/dev/null
 grep -F "make dev-run-latest-session" "$TEXT_OUTPUT" >/dev/null
 grep -F "Latest briefs" "$TEXT_OUTPUT" >/dev/null
+
+grep -F "Recommended next action" "$NEXT_OUTPUT" >/dev/null
+grep -F "Review the latest local PR candidate" "$NEXT_OUTPUT" >/dev/null
+if grep -F "Latest runs" "$NEXT_OUTPUT" >/dev/null; then
+  echo "dev artifacts smoke failed: --next should not print artifact sections" >&2
+  exit 1
+fi
+
+if [ "$(cat "$NEXT_COMMAND_OUTPUT")" != "make developer-handoff RUN_ID=00000000-0000-0000-0000-000000000001" ]; then
+  echo "dev artifacts smoke failed: unexpected --next-command output" >&2
+  cat "$NEXT_COMMAND_OUTPUT" >&2
+  exit 1
+fi
+grep -F "make dev-run-brief BRIEF_FILE='" "$BRIEF_NEXT_COMMAND_OUTPUT" >/dev/null
+grep -F "/continuum root/.continuum/dev-briefs/20260425120000-fix-bug.json'" \
+  "$BRIEF_NEXT_COMMAND_OUTPUT" >/dev/null
 
 python3 - "$JSON_OUTPUT" <<'PY'
 import json
@@ -132,7 +160,7 @@ EMPTY_OUTPUT="$TMP_DIR/dev-artifacts-empty.txt"
 ./scripts/show-dev-artifacts.sh --root "$TMP_DIR/empty-continuum" >"$EMPTY_OUTPUT"
 grep -F "No developer artifacts found yet." "$EMPTY_OUTPUT" >/dev/null
 grep -F "Create a developer session" "$EMPTY_OUTPUT" >/dev/null
-grep -F "make dev-session TASK=\"...\"" "$EMPTY_OUTPUT" >/dev/null
+grep -F "make dev-session TASK=..." "$EMPTY_OUTPUT" >/dev/null
 
 INVALID_KIND_OUTPUT="$TMP_DIR/dev-artifacts-invalid-kind.txt"
 if ./scripts/show-dev-artifacts.sh --root "$CONTINUUM_ROOT" --kind nope >"$INVALID_KIND_OUTPUT" 2>&1; then

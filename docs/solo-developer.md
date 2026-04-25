@@ -120,10 +120,14 @@ To find the most recent output later, run:
 
 ```bash
 make dev-latest
+make dev-next
 ```
 
 This shows the latest brief, agent prompt package, run summary, review markdown, local PR export,
 and the recommended next safe action without manually browsing `.continuum/`.
+
+Use `make dev-next` when you only want the next action, or `make dev-next-command` when another
+script needs the recommended command.
 
 After the run has execution and quality evidence, persist a durable review package:
 

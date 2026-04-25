@@ -34,6 +34,7 @@ make dev-run TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITOR
 make dev-run-brief BRIEF_FILE=.continuum/dev-sessions/<session>/brief.json
 make dev-run-latest-session
 make dev-latest
+make dev-next
 ```
 
 `dev-session` is the faster solo-developer entrypoint: it writes the structured brief plus ready
@@ -56,6 +57,9 @@ newest `.continuum/dev-sessions/*/brief.json` and runs that exact brief.
 `dev-latest` indexes the most recent `.continuum/dev-briefs/`, `.continuum/dev-sessions/`, and
 `.continuum/dev-runs/` outputs so you can quickly find the latest prompt, review package, local PR
 export, and recommended next action.
+
+`dev-next` prints only that recommended next action. `dev-next-command` prints only the command when
+you want to wire the flow into shell automation.
 
 ## Current MVP
 
@@ -114,6 +118,8 @@ make dev-task-brief TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO
 make dev-run TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO
 make dev-run-brief BRIEF_FILE=.continuum/dev-sessions/<session>/brief.json
 make dev-run-latest-session
+make dev-next
+make dev-next-command
 make dev-run-smoke
 make developer-handoff RUN_ID=<RUN_ID>
 make ui

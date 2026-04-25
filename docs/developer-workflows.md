@@ -156,6 +156,7 @@ After a few sessions or runs, use `dev-latest` instead of hunting through `.cont
 
 ```bash
 make dev-latest
+make dev-next
 ```
 
 It prints the latest briefs, sessions, and runs with the paths that matter most:
@@ -166,10 +167,12 @@ It prints the latest briefs, sessions, and runs with the paths that matter most:
 - The local PR export repository, branch, commit, manifest, and combined patch when export exists.
 - A short next-action hint for each artifact type.
 
-For automation or shell integration, use JSON output:
+For focused output, use `dev-next` when you only need the recommended action. For automation or
+shell integration, use JSON or command-only output:
 
 ```bash
 make dev-latest DEV_LATEST_ARGS="--json --limit 1"
+make dev-next-command
 ```
 
 ## Mix Local Workers And External Agents

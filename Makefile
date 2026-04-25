@@ -178,6 +178,14 @@ dev-run-smoke: ## Validate the solo-developer local orchestration run entrypoint
 dev-latest: ## Show the latest solo-developer briefs, sessions, runs, and next actions.
 	./scripts/show-dev-artifacts.sh $(DEV_LATEST_ARGS)
 
+.PHONY: dev-next
+dev-next: ## Show only the recommended next solo-developer action.
+	./scripts/show-dev-artifacts.sh --next $(DEV_LATEST_ARGS)
+
+.PHONY: dev-next-command
+dev-next-command: ## Print only the recommended next solo-developer command.
+	./scripts/show-dev-artifacts.sh --next-command $(DEV_LATEST_ARGS)
+
 .PHONY: dev-artifacts-smoke
 dev-artifacts-smoke: ## Validate developer artifact discovery output.
 	./scripts/dev-artifacts-smoke.sh

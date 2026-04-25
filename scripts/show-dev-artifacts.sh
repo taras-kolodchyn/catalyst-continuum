@@ -20,6 +20,8 @@ Options:
   --kind KIND       all, briefs, sessions, or runs (default: all).
   --limit N         Number of artifacts per kind (default: 3).
   --json            Emit machine-readable JSON.
+  --next            Emit only the recommended next action.
+  --next-command    Emit only the recommended shell command.
   -h, --help        Show this help.
 EOF
 }
@@ -40,6 +42,14 @@ while [ "$#" -gt 0 ]; do
       ;;
     --json)
       FORMAT="json"
+      shift
+      ;;
+    --next)
+      FORMAT="next"
+      shift
+      ;;
+    --next-command)
+      FORMAT="next-command"
       shift
       ;;
     -h|--help)
@@ -83,6 +93,7 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import shlex
 import sys
 from typing import Any
 
@@ -121,6 +132,10 @@ def mtime(path: pathlib.Path) -> float:
 
 def trim(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(items, key=lambda item: item["mtime"], reverse=True)[:limit]
+
+
+def shell_quote(value: str) -> str:
+    return shlex.quote(value)
 
 
 def brief_items() -> list[dict[str, Any]]:
@@ -228,7 +243,7 @@ def recommended_next_action() -> dict[str, Any]:
         return {
             "label": "Create a developer session",
             "description": "Start from a focused task and generate the brief plus agent prompts.",
-            "command": 'make dev-session TASK="..."',
+            "command": f"make dev-session TASK={shell_quote('...')}",
             "artifact_kind": None,
             "artifact_path": None,
             "primary_path": None,
@@ -248,7 +263,7 @@ def recommended_next_action() -> dict[str, Any]:
         return {
             "label": "Run this brief through the control plane",
             "description": "Submit the selected brief without retyping the task.",
-            "command": f'make dev-run-brief BRIEF_FILE="{newest["path"]}"',
+            "command": f"make dev-run-brief BRIEF_FILE={shell_quote(newest['path'])}",
             "artifact_kind": "brief",
             "artifact_path": newest["path"],
             "primary_path": newest["path"],
@@ -259,7 +274,7 @@ def recommended_next_action() -> dict[str, Any]:
         return {
             "label": "Review the latest local PR candidate",
             "description": "Inspect review.md, the exported branch, and the combined patch before opening a real PR.",
-            "command": f'make developer-handoff RUN_ID={newest.get("run_id") or "<RUN_ID>"}',
+            "command": f"make developer-handoff RUN_ID={shell_quote(newest.get('run_id') or '<RUN_ID>')}",
             "artifact_kind": "run",
             "artifact_path": newest["path"],
             "primary_path": newest.get("review_markdown_path") or newest.get("summary_path"),
@@ -268,7 +283,7 @@ def recommended_next_action() -> dict[str, Any]:
     return {
         "label": "Inspect the latest run before continuing",
         "description": "The latest run does not have a local PR export yet; inspect the summary and rerun if needed.",
-        "command": f'make dev-latest DEV_LATEST_ARGS="--kind runs --limit 1"',
+        "command": f"make dev-latest DEV_LATEST_ARGS={shell_quote('--kind runs --limit 1')}",
         "artifact_kind": "run",
         "artifact_path": newest["path"],
         "primary_path": newest.get("summary_path"),
@@ -289,17 +304,31 @@ if output_format == "json":
     print(json.dumps(payload, indent=2))
     sys.exit(0)
 
+action = payload["recommended_next_action"]
+
+
+def print_action(action: dict[str, Any]) -> None:
+    print("Recommended next action")
+    print(f"{action['label']}: {action['description']}")
+    if action.get("command"):
+        print(f"command: {action['command']}")
+    if action.get("primary_path"):
+        print(f"path: {action['primary_path']}")
+
+
+if output_format == "next-command":
+    print(action.get("command") or "")
+    sys.exit(0)
+
+if output_format == "next":
+    print_action(action)
+    sys.exit(0)
+
 print("Catalyst Continuum developer artifacts")
 print(f"root: {root}")
 
-action = payload["recommended_next_action"]
 print("")
-print("Recommended next action")
-print(f"{action['label']}: {action['description']}")
-if action.get("command"):
-    print(f"command: {action['command']}")
-if action.get("primary_path"):
-    print(f"path: {action['primary_path']}")
+print_action(action)
 
 if payload["empty"]:
     print("")
@@ -326,6 +355,8 @@ def print_section(title: str, items: list[dict[str, Any]]) -> None:
             print(f"   checkout: {item.get('repo_path') or 'unknown'}")
             print(f"   branch: {item.get('current_branch') or 'unknown'}")
             print(f"   codex prompt: {item.get('codex_prompt_path')}")
+            print(f"   cursor prompt: {item.get('cursor_prompt_path')}")
+            print(f"   openhands prompt: {item.get('openhands_prompt_path')}")
             print(
                 "   next: hand the prompt to Codex/Cursor/OpenHands or run the newest session with "
                 "`make dev-run-latest-session`."
@@ -339,10 +370,14 @@ def print_section(title: str, items: list[dict[str, Any]]) -> None:
                 print(f"   source brief: {item['brief_source_path']}")
             if item.get("review_markdown_path"):
                 print(f"   review: {item['review_markdown_path']}")
+            if item.get("agent_prompt_path"):
+                print(f"   review prompt: {item['agent_prompt_path']}")
             if pr_export.get("created"):
                 print(f"   local pr repo: {pr_export.get('repository_path') or 'unknown'}")
                 print(f"   local pr branch: {pr_export.get('branch_name') or 'unknown'}")
                 print(f"   local pr commit: {pr_export.get('commit_sha') or 'unknown'}")
+                print(f"   local pr manifest: {pr_export.get('manifest_path') or 'unknown'}")
+                print(f"   local pr patch: {pr_export.get('combined_patch_path') or 'unknown'}")
             print("   next: inspect review.md and the local PR export before opening a real PR.")
 
 
