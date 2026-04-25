@@ -109,9 +109,9 @@ result back to the source issue or issue batch. By default it is a dry run that 
 `github-issue-sync-plan.json` and `comment.md`; set `GITHUB_ISSUE_SYNC_APPLY=1` to comment through
 `gh`, ensure Catalyst labels exist, attach branch/commit/PR details in the comment, and apply labels.
 Use `GITHUB_ISSUE_SYNC_STATUS=done` when the issue should be closed as completed. If
-`github-issue-run` fails before producing review-ready evidence and issue sync is not skipped, the
-workflow records a `failed` issue sync plan so the source issue still gets actionable failure
-context instead of disappearing into local logs.
+`github-issue-run` fails before producing review-ready evidence, or if draft PR publication fails
+after local evidence is produced, the workflow records a `failed` issue sync plan so the source
+issue still gets actionable failure context instead of disappearing into local logs.
 
 `dev-latest` indexes the most recent `.continuum/dev-briefs/`, `.continuum/dev-sessions/`, and
 `.continuum/dev-runs/` outputs so you can quickly find the latest prompt, review package, local PR

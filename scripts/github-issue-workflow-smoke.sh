@@ -245,6 +245,11 @@ cat >"$FAKES_DIR/create-draft-pr-from-run-summary.sh" <<'SH'
 set -euo pipefail
 
 printf 'draft %q\n' "$@" >>"$COMMAND_LOG"
+if [ "${FAKE_DRAFT_FAIL:-0}" = "1" ]; then
+  printf 'run_id: 00000000-0000-0000-0000-000000000007\n'
+  printf 'branch_name: continuum/issue-7\n'
+  exit 41
+fi
 printf 'run_id: 00000000-0000-0000-0000-000000000007\n'
 printf 'branch_name: continuum/issue-7\n'
 printf 'pr_number: 7\n'
@@ -434,6 +439,56 @@ summary = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
 assert summary["issue_claim"]["requested"] is False, summary
 assert summary["run"]["exit_code"] == 23, summary
 assert summary["draft_pr"]["requested"] is False, summary
+assert summary["issue_sync"]["skipped"] is False, summary
+assert summary["issue_sync"]["status"] == "failed", summary
+assert summary["issue_sync"]["exit_code"] == 0, summary
+assert summary["issue_sync"]["plan"].endswith("/github-issue-sync-plan.json"), summary
+PY
+
+FAIL_DRAFT_OUT="$TMP_DIR/fail-draft-workflow"
+: >"$COMMAND_LOG"
+set +e
+COMMAND_LOG="$COMMAND_LOG" \
+CREATE_GITHUB_ISSUE_SESSION_CMD="$FAKES_DIR/create-github-issue-session.sh" \
+RUN_DEV_TASK_CMD="$FAKES_DIR/run-dev-task.sh" \
+SYNC_GITHUB_ISSUE_STATUS_CMD="$FAKES_DIR/sync-github-issue-status.sh" \
+CREATE_DRAFT_PR_FROM_RUN_SUMMARY_CMD="$FAKES_DIR/create-draft-pr-from-run-summary.sh" \
+TMPDIR="$TMP_DIR/fail-draft-tmp" \
+FAKE_DRAFT_FAIL=1 \
+./scripts/run-github-issue-workflow.sh \
+  --issue-json "$ISSUE_FIXTURE" \
+  --repository smartit/github-issue-workflow-smoke \
+  --repo-path "$ROOT_DIR" \
+  --pr-strategy per-issue \
+  --workflow-output-dir "$FAIL_DRAFT_OUT" \
+  --session-output-root "$TMP_DIR/fail-draft-sessions" \
+  --run-output-dir "$TMP_DIR/fail-draft-run" \
+  --create-draft-pr \
+  >"$TMP_DIR/fail-draft.out" 2>"$TMP_DIR/fail-draft.err"
+fail_draft_exit=$?
+set -e
+if [ "$fail_draft_exit" -ne 41 ]; then
+  echo "expected failed draft PR publication to preserve exit 41, got $fail_draft_exit" >&2
+  exit 1
+fi
+grep -F "draft " "$COMMAND_LOG" >/dev/null
+grep -F "sync " "$COMMAND_LOG" >/dev/null
+grep -F -- "--status" "$COMMAND_LOG" >/dev/null
+grep -F -- "failed" "$COMMAND_LOG" >/dev/null
+grep -F -- "--run-summary" "$COMMAND_LOG" >/dev/null
+
+python3 - "$FAIL_DRAFT_OUT/workflow-summary.json" <<'PY'
+from __future__ import annotations
+
+import json
+import pathlib
+import sys
+
+summary = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+assert summary["run"]["exit_code"] == 0, summary
+assert summary["run"]["summary_file"].endswith("/run-summary.json"), summary
+assert summary["draft_pr"]["requested"] is True, summary
+assert summary["draft_pr"]["exit_code"] == 41, summary
 assert summary["issue_sync"]["skipped"] is False, summary
 assert summary["issue_sync"]["status"] == "failed", summary
 assert summary["issue_sync"]["exit_code"] == 0, summary

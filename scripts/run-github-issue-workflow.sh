@@ -591,6 +591,46 @@ PY
   fi
 }
 
+prepare_failure_issue_sync() {
+  local summary_text="$1"
+  local -a sync_args=()
+
+  if [ "$SKIP_ISSUE_SYNC" -ne 0 ]; then
+    return 0
+  fi
+
+  SYNC_STATUS="failed"
+  if [ -n "$RUN_SUMMARY" ] && [ -f "$RUN_SUMMARY" ]; then
+    sync_args+=(--run-summary "$RUN_SUMMARY")
+  else
+    sync_args+=(--session-manifest "$SESSION_DIR/manifest.json")
+  fi
+  sync_args+=(--status "$SYNC_STATUS" --summary "$summary_text")
+  if [ -n "$PR_URL" ]; then
+    sync_args+=(--pr-url "$PR_URL")
+  fi
+  if [ -n "$SYNC_OUTPUT_DIR" ]; then
+    sync_args+=(--output-dir "$SYNC_OUTPUT_DIR")
+  else
+    sync_args+=(--output-dir "$WORKFLOW_OUTPUT_DIR/issue-sync")
+  fi
+  if [ "$APPLY_ISSUE_SYNC" -eq 1 ]; then
+    sync_args+=(--apply)
+  fi
+  sync_args+=("${SYNC_EXTRA_ARGS[@]}")
+
+  printf '[github-issue-run] preparing GitHub issue failure evidence\n'
+  set +e
+  "$SYNC_GITHUB_ISSUE_STATUS_CMD" "${sync_args[@]}" >"$SYNC_OUTPUT"
+  SYNC_EXIT=$?
+  set -e
+  SYNC_PLAN="$(extract_output_field "$SYNC_OUTPUT" "github_issue_sync_plan")"
+  SYNC_COMMENT="$(extract_output_field "$SYNC_OUTPUT" "github_issue_sync_comment")"
+  if [ "$SYNC_EXIT" -ne 0 ]; then
+    printf 'GitHub issue failure sync failed; inspect %s\n' "$SYNC_OUTPUT" >&2
+  fi
+}
+
 session_args=(--pr-strategy "$PR_STRATEGY")
 if [ "$PR_STRATEGY" = "per-issue" ]; then
   session_args+=(--next-only)
@@ -723,39 +763,7 @@ RUN_EXIT=$?
 set -e
 if [ "$RUN_EXIT" -ne 0 ]; then
   RUN_SUMMARY="$(extract_output_field "$RUN_OUTPUT" "summary_file")"
-  if [ "$SKIP_ISSUE_SYNC" -eq 0 ]; then
-    SYNC_STATUS="failed"
-    sync_args=()
-    if [ -n "$RUN_SUMMARY" ] && [ -f "$RUN_SUMMARY" ]; then
-      sync_args+=(--run-summary "$RUN_SUMMARY")
-    else
-      sync_args+=(--session-manifest "$SESSION_DIR/manifest.json")
-    fi
-    sync_args+=(
-      --status "$SYNC_STATUS"
-      --summary "Catalyst Continuum developer run failed with exit code $RUN_EXIT. Inspect local output: $RUN_OUTPUT"
-    )
-    if [ -n "$SYNC_OUTPUT_DIR" ]; then
-      sync_args+=(--output-dir "$SYNC_OUTPUT_DIR")
-    else
-      sync_args+=(--output-dir "$WORKFLOW_OUTPUT_DIR/issue-sync")
-    fi
-    if [ "$APPLY_ISSUE_SYNC" -eq 1 ]; then
-      sync_args+=(--apply)
-    fi
-    sync_args+=("${SYNC_EXTRA_ARGS[@]}")
-
-    printf '[github-issue-run] preparing GitHub issue failure evidence\n'
-    set +e
-    "$SYNC_GITHUB_ISSUE_STATUS_CMD" "${sync_args[@]}" >"$SYNC_OUTPUT"
-    SYNC_EXIT=$?
-    set -e
-    SYNC_PLAN="$(extract_output_field "$SYNC_OUTPUT" "github_issue_sync_plan")"
-    SYNC_COMMENT="$(extract_output_field "$SYNC_OUTPUT" "github_issue_sync_comment")"
-    if [ "$SYNC_EXIT" -ne 0 ]; then
-      printf 'GitHub issue failure sync failed; inspect %s\n' "$SYNC_OUTPUT" >&2
-    fi
-  fi
+  prepare_failure_issue_sync "Catalyst Continuum developer run failed with exit code $RUN_EXIT. Inspect local output: $RUN_OUTPUT"
   cleanup_auto_kept_database
   write_workflow_summary
   echo "developer run failed; inspect $RUN_OUTPUT" >&2
@@ -798,6 +806,10 @@ if [ "$CREATE_DRAFT_PR" -eq 1 ]; then
   if [ "$DRAFT_PR_EXIT" -ne 0 ]; then
     DRAFT_PR_URL="$(extract_output_field "$DRAFT_PR_OUTPUT" "pr_url")"
     DRAFT_PR_NUMBER="$(extract_output_field "$DRAFT_PR_OUTPUT" "pr_number")"
+    if [ -n "$DRAFT_PR_URL" ] && [ -z "$PR_URL" ]; then
+      PR_URL="$DRAFT_PR_URL"
+    fi
+    prepare_failure_issue_sync "Catalyst Continuum produced local run evidence, but GitHub draft PR publication failed with exit code $DRAFT_PR_EXIT. Inspect local output: $DRAFT_PR_OUTPUT"
     cleanup_auto_kept_database
     write_workflow_summary
     echo "draft PR creation failed; inspect $DRAFT_PR_OUTPUT" >&2

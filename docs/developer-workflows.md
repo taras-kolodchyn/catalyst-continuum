@@ -205,7 +205,9 @@ This does not bypass repository policy. The wrapper calls the same orchestrator 
 command used by the CLI, HTTP, MCP, and UI surfaces, then copies the created PR URL into the issue
 sync plan. If the run used a disposable database, the workflow keeps it only long enough for draft
 PR publication to read the stored run, quality, and PR candidate state, then cleans it up unless you
-explicitly requested `--keep-database`.
+explicitly requested `--keep-database`. If draft PR publication fails after the local run produced
+evidence, the workflow prepares a `failed` issue sync plan with the draft PR output path before
+returning the publication failure code.
 
 ## Sync Run Evidence Back To GitHub Issues
 
