@@ -213,6 +213,10 @@ github-issue-review: ## Show the latest GitHub issue workflow report.
 github-issue-next-command: ## Print only the recommended next GitHub issue workflow command.
 	@./scripts/show-github-issue-workflows.sh --next-command $(if $(CONTINUUM_ROOT),--root "$(CONTINUUM_ROOT)") $(if $(GITHUB_ISSUE_WORKFLOW_DIR),--workflow-dir "$(GITHUB_ISSUE_WORKFLOW_DIR)") $(GITHUB_ISSUE_WORKFLOW_LATEST_ARGS)
 
+.PHONY: github-issue-sync-command
+github-issue-sync-command: ## Print only the command that applies the latest GitHub issue sync plan.
+	@./scripts/show-github-issue-workflows.sh --issue-sync-command $(if $(CONTINUUM_ROOT),--root "$(CONTINUUM_ROOT)") $(if $(GITHUB_ISSUE_WORKFLOW_DIR),--workflow-dir "$(GITHUB_ISSUE_WORKFLOW_DIR)") $(GITHUB_ISSUE_WORKFLOW_LATEST_ARGS)
+
 .PHONY: dev-session-smoke
 dev-session-smoke: ## Validate developer session package generation.
 	./scripts/dev-session-smoke.sh

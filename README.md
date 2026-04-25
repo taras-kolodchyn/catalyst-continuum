@@ -45,6 +45,7 @@ make github-issue-plan REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout G
 make github-issue-run REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE_ARGS="--label bug --limit 5"
 make github-issue-review
 make github-issue-next-command
+make github-issue-sync-command
 make dev-session TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
 make dev-task-brief TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
 make dev-run TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
@@ -89,7 +90,8 @@ Use `github-issue-latest` or `github-issue-review` after a workflow run when you
 through `.continuum/github-issue-workflows/` manually. `github-issue-review` prints the latest
 `workflow-report.md` plus the summary and issue-sync inspection commands. `github-issue-next-command`
 prints only the recommended next shell command, which is useful after `github-issue-plan` or inside
-small local automations.
+small local automations. `github-issue-sync-command` prints the reviewed apply command for the
+latest unapplied issue-sync plan; it does not mutate GitHub by itself.
 
 Add `GITHUB_ISSUE_CLAIM=1` when you want the workflow to prepare an `in-progress` issue claim plan
 before execution. Add `GITHUB_ISSUE_CLAIM_APPLY=1` only when you want that claim comment and label
@@ -201,6 +203,7 @@ make github-issue-plan REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout G
 make github-issue-run REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE_ARGS="--label bug --limit 5"
 make github-issue-review
 make github-issue-next-command
+make github-issue-sync-command
 make github-issue-run REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE=123 GITHUB_ISSUE_CLAIM=1
 make github-issue-run REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout REPOSITORY_TARGET_ID=primary GITHUB_ISSUE=123 GITHUB_ISSUE_CREATE_DRAFT_PR=1
 make dev-session TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO

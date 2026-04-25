@@ -169,6 +169,7 @@ To rediscover that report later:
 make github-issue-latest
 make github-issue-review
 make github-issue-next-command
+make github-issue-sync-command
 ```
 
 `github-issue-latest` lists recent workflow output directories and the recommended next action.
@@ -176,6 +177,8 @@ make github-issue-next-command
 `GITHUB_ISSUE_WORKFLOW_DIR=/path/to/workflow-output` when you want a specific run.
 `github-issue-next-command` prints only the recommended command so scripts can continue from the
 latest plan or report without parsing the full human-readable output.
+`github-issue-sync-command` prints only the apply command for the latest unapplied issue-sync plan,
+after you have reviewed the generated plan and comment.
 
 If you want to inspect that choice before running agents, use the plan-only wrapper:
 
@@ -259,7 +262,14 @@ The default is a dry run. It writes:
   commands that would run.
 - `comment.md` with the GitHub issue comment body.
 
-Apply the update only after you review the plan:
+Apply the update only after you review the plan. If the plan came from `github-issue-run`, ask
+Catalyst to print the exact apply command:
+
+```bash
+make github-issue-sync-command
+```
+
+Or run the apply command manually:
 
 ```bash
 make github-issue-sync \

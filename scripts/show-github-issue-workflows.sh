@@ -24,6 +24,7 @@ Options:
   --json                  Emit machine-readable JSON.
   --report                Print the latest or selected workflow-report.md.
   --next-command          Emit only the recommended shell command.
+  --issue-sync-command    Emit only the command that applies the latest issue-sync plan.
   -h, --help              Show this help.
 EOF
 }
@@ -56,6 +57,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --next-command)
       FORMAT="next-command"
+      shift
+      ;;
+    --issue-sync-command)
+      FORMAT="issue-sync-command"
       shift
       ;;
     -h|--help)
@@ -124,6 +129,10 @@ def shell_quote(value: str) -> str:
     return shlex.quote(value)
 
 
+def make_assignment(name: str, value: str) -> str:
+    return f"{name}={shell_quote(value)}"
+
+
 def optional_path(value: Any) -> str | None:
     return str(value) if value else None
 
@@ -187,7 +196,11 @@ def workflow_item(summary_path: pathlib.Path) -> dict[str, Any] | None:
         "draft_pr_exit_code": draft_pr.get("exit_code"),
         "issue_sync_status": issue_sync.get("status"),
         "issue_sync_applied": bool(issue_sync.get("applied")),
+        "issue_sync_skipped": bool(issue_sync.get("skipped")),
+        "issue_sync_exit_code": issue_sync.get("exit_code"),
+        "issue_sync_pr_url": optional_path(issue_sync.get("pr_url")),
         "issue_sync_plan": optional_path(issue_sync.get("plan")),
+        "issue_sync_comment": optional_path(issue_sync.get("comment")),
         "report_path": report_path,
         "plan_path": optional_path(plan.get("json")),
         "plan_report_path": plan_report,
@@ -210,6 +223,77 @@ else:
 items = [item for path in summary_paths if (item := workflow_item(path)) is not None]
 items = sorted(items, key=lambda item: item["mtime"], reverse=True)[:limit]
 selected = items[0] if items else None
+
+
+def issue_sync_apply_action(item: dict[str, Any] | None) -> dict[str, Any]:
+    if item is None:
+        return {
+            "available": False,
+            "reason": "No GitHub issue workflow found yet.",
+            "command": None,
+            "primary_path": None,
+        }
+    if item.get("issue_sync_skipped"):
+        return {
+            "available": False,
+            "reason": "The selected workflow skipped issue sync.",
+            "command": None,
+            "primary_path": item.get("summary_path"),
+        }
+    if item.get("issue_sync_applied"):
+        return {
+            "available": False,
+            "reason": "The selected workflow already applied issue sync.",
+            "command": None,
+            "primary_path": item.get("issue_sync_plan") or item.get("summary_path"),
+        }
+    try:
+        issue_sync_exit_code = int(item.get("issue_sync_exit_code") or 0)
+    except (TypeError, ValueError):
+        issue_sync_exit_code = 1
+    if issue_sync_exit_code != 0:
+        return {
+            "available": False,
+            "reason": "The selected workflow has a failed issue-sync plan.",
+            "command": None,
+            "primary_path": item.get("issue_sync_plan") or item.get("summary_path"),
+        }
+    issue_sync_plan = item.get("issue_sync_plan")
+    if not issue_sync_plan:
+        return {
+            "available": False,
+            "reason": "The selected workflow has no issue-sync plan.",
+            "command": None,
+            "primary_path": item.get("summary_path"),
+        }
+    run_summary = item.get("run_summary")
+    if not run_summary:
+        return {
+            "available": False,
+            "reason": "The selected workflow has no run summary to rehydrate issue sync.",
+            "command": None,
+            "primary_path": issue_sync_plan,
+        }
+    args = [
+        "make",
+        "github-issue-sync",
+        make_assignment("GITHUB_ISSUE_SYNC_RUN_SUMMARY", run_summary),
+        make_assignment("GITHUB_ISSUE_SYNC_STATUS", item.get("issue_sync_status") or "ready-for-review"),
+        make_assignment("GITHUB_ISSUE_SYNC_OUTPUT_DIR", str(pathlib.Path(issue_sync_plan).parent)),
+        "GITHUB_ISSUE_SYNC_APPLY=1",
+    ]
+    pr_url = item.get("issue_sync_pr_url") or item.get("draft_pr_url")
+    if pr_url:
+        args.insert(4, make_assignment("GITHUB_ISSUE_SYNC_PR_URL", pr_url))
+    return {
+        "available": True,
+        "reason": "Review the issue-sync plan and comment before applying this command.",
+        "command": " ".join(args),
+        "primary_path": issue_sync_plan,
+    }
+
+
+sync_apply_action = issue_sync_apply_action(selected)
 
 if selected is None:
     action = {
@@ -255,6 +339,7 @@ payload = {
     "selected_workflow_dir": str(resolve_path(workflow_dir_arg)) if workflow_dir_arg else None,
     "workflows": items,
     "recommended_next_action": action,
+    "issue_sync_apply_action": sync_apply_action,
     "empty": not items,
 }
 
@@ -266,6 +351,17 @@ if output_format == "next-command":
     print(action.get("command") or "")
     sys.exit(0)
 
+if output_format == "issue-sync-command":
+    command = sync_apply_action.get("command")
+    if command:
+        print(command)
+        sys.exit(0)
+    print(
+        sync_apply_action.get("reason") or "No issue-sync apply command is available.",
+        file=sys.stderr,
+    )
+    sys.exit(3)
+
 
 def print_action() -> None:
     print("Recommended next action")
@@ -274,6 +370,12 @@ def print_action() -> None:
         print(f"command: {action['command']}")
     if action.get("primary_path"):
         print(f"path: {action['primary_path']}")
+    if sync_apply_action.get("command"):
+        print("")
+        print("Issue sync apply command")
+        print("Review the generated issue-sync plan and comment before running this command.")
+        print(f"command: {sync_apply_action['command']}")
+        print(f"plan: {sync_apply_action['primary_path']}")
 
 
 def print_workflow(item: dict[str, Any], index: int) -> None:
@@ -329,6 +431,8 @@ def print_report() -> None:
         print(f"sed -n '1,260p' {shell_quote(report_path)}")
     if selected.get("issue_sync_plan"):
         print(f"sed -n '1,220p' {shell_quote(selected['issue_sync_plan'])}")
+    if sync_apply_action.get("command"):
+        print(sync_apply_action["command"])
 
 
 if output_format == "report":

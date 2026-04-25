@@ -448,6 +448,8 @@ PY
 grep -F "Catalyst Continuum GitHub issue workflows" "$TMP_DIR/per-issue-latest.out" >/dev/null
 grep -F "Recommended next action" "$TMP_DIR/per-issue-latest.out" >/dev/null
 grep -F "command: make github-issue-review" "$TMP_DIR/per-issue-latest.out" >/dev/null
+grep -F "Issue sync apply command" "$TMP_DIR/per-issue-latest.out" >/dev/null
+grep -F "command: make github-issue-sync" "$TMP_DIR/per-issue-latest.out" >/dev/null
 grep -F "report:" "$TMP_DIR/per-issue-latest.out" >/dev/null
 grep -F "workflow-report.md" "$TMP_DIR/per-issue-latest.out" >/dev/null
 
@@ -462,10 +464,27 @@ fi
 
 ./scripts/show-github-issue-workflows.sh \
   --workflow-dir "$PER_ISSUE_OUT" \
+  --issue-sync-command \
+  >"$TMP_DIR/per-issue-sync-command.out"
+grep -F "make github-issue-sync" "$TMP_DIR/per-issue-sync-command.out" >/dev/null
+grep -F "GITHUB_ISSUE_SYNC_RUN_SUMMARY=" "$TMP_DIR/per-issue-sync-command.out" >/dev/null
+grep -F "GITHUB_ISSUE_SYNC_PR_URL=https://github.com/smartit/github-issue-workflow-smoke/pull/7" "$TMP_DIR/per-issue-sync-command.out" >/dev/null
+grep -F "GITHUB_ISSUE_SYNC_STATUS=ready-for-review" "$TMP_DIR/per-issue-sync-command.out" >/dev/null
+grep -F "GITHUB_ISSUE_SYNC_OUTPUT_DIR=" "$TMP_DIR/per-issue-sync-command.out" >/dev/null
+grep -F "GITHUB_ISSUE_SYNC_APPLY=1" "$TMP_DIR/per-issue-sync-command.out" >/dev/null
+
+make github-issue-sync-command \
+  GITHUB_ISSUE_WORKFLOW_DIR="$PER_ISSUE_OUT" \
+  >"$TMP_DIR/per-issue-sync-command-make.out"
+cmp "$TMP_DIR/per-issue-sync-command.out" "$TMP_DIR/per-issue-sync-command-make.out"
+
+./scripts/show-github-issue-workflows.sh \
+  --workflow-dir "$PER_ISSUE_OUT" \
   --report \
   >"$TMP_DIR/per-issue-review.out"
 grep -F "Catalyst Continuum GitHub issue workflow review" "$TMP_DIR/per-issue-review.out" >/dev/null
 grep -F "# GitHub Issue Workflow Report" "$TMP_DIR/per-issue-review.out" >/dev/null
+grep -F "make github-issue-sync" "$TMP_DIR/per-issue-review.out" >/dev/null
 grep -F "draft pr: https://github.com/smartit/github-issue-workflow-smoke/pull/7" "$TMP_DIR/per-issue-latest.out" >/dev/null
 
 python3 - "$PER_ISSUE_OUT" "$TMP_DIR/per-issue-workflows.json" <<'PY'
@@ -490,6 +509,8 @@ output = subprocess.check_output(
 output_path.write_text(output, encoding="utf-8")
 payload = json.loads(output)
 assert payload["recommended_next_action"]["command"] == "make github-issue-review", payload
+assert payload["issue_sync_apply_action"]["available"] is True, payload
+assert payload["issue_sync_apply_action"]["command"].startswith("make github-issue-sync "), payload
 assert payload["workflows"][0]["status"] == "succeeded", payload
 assert payload["workflows"][0]["report_path"].endswith("/workflow-report.md"), payload
 PY
