@@ -214,12 +214,74 @@ artifacts = {
     "runs": run_items() if kind in {"all", "runs"} else [],
 }
 
+
+def newest_artifact() -> dict[str, Any] | None:
+    candidates = [item for items in artifacts.values() for item in items]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda item: item["mtime"])
+
+
+def recommended_next_action() -> dict[str, Any]:
+    newest = newest_artifact()
+    if newest is None:
+        return {
+            "label": "Create a developer session",
+            "description": "Start from a focused task and generate the brief plus agent prompts.",
+            "command": 'make dev-session TASK="..."',
+            "artifact_kind": None,
+            "artifact_path": None,
+            "primary_path": None,
+        }
+
+    if newest["kind"] == "session":
+        return {
+            "label": "Run the newest session through the control plane",
+            "description": "Submit the latest session brief, execute the run, and create a local PR candidate.",
+            "command": "make dev-run-latest-session",
+            "artifact_kind": "session",
+            "artifact_path": newest["path"],
+            "primary_path": newest.get("manifest_path"),
+        }
+
+    if newest["kind"] == "brief":
+        return {
+            "label": "Run this brief through the control plane",
+            "description": "Submit the selected brief without retyping the task.",
+            "command": f'make dev-run-brief BRIEF_FILE="{newest["path"]}"',
+            "artifact_kind": "brief",
+            "artifact_path": newest["path"],
+            "primary_path": newest["path"],
+        }
+
+    pr_export = newest["pr_export"]
+    if pr_export.get("created"):
+        return {
+            "label": "Review the latest local PR candidate",
+            "description": "Inspect review.md, the exported branch, and the combined patch before opening a real PR.",
+            "command": f'make developer-handoff RUN_ID={newest.get("run_id") or "<RUN_ID>"}',
+            "artifact_kind": "run",
+            "artifact_path": newest["path"],
+            "primary_path": newest.get("review_markdown_path") or newest.get("summary_path"),
+        }
+
+    return {
+        "label": "Inspect the latest run before continuing",
+        "description": "The latest run does not have a local PR export yet; inspect the summary and rerun if needed.",
+        "command": f'make dev-latest DEV_LATEST_ARGS="--kind runs --limit 1"',
+        "artifact_kind": "run",
+        "artifact_path": newest["path"],
+        "primary_path": newest.get("summary_path"),
+    }
+
+
 payload = {
     "schema_version": "v0.1",
     "root": str(root),
     "limit": limit,
     "kind": kind,
     "artifacts": artifacts,
+    "recommended_next_action": recommended_next_action(),
     "empty": not any(artifacts.values()),
 }
 
@@ -230,10 +292,18 @@ if output_format == "json":
 print("Catalyst Continuum developer artifacts")
 print(f"root: {root}")
 
+action = payload["recommended_next_action"]
+print("")
+print("Recommended next action")
+print(f"{action['label']}: {action['description']}")
+if action.get("command"):
+    print(f"command: {action['command']}")
+if action.get("primary_path"):
+    print(f"path: {action['primary_path']}")
+
 if payload["empty"]:
     print("")
     print("No developer artifacts found yet.")
-    print("next: run `make dev-session TASK=\"...\"` or `make dev-run TASK=\"...\"`.")
     sys.exit(0)
 
 

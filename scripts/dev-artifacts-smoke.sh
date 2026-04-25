@@ -99,6 +99,9 @@ JSON_OUTPUT="$TMP_DIR/dev-artifacts.json"
 ./scripts/show-dev-artifacts.sh --root "$CONTINUUM_ROOT" --limit 1 --json >"$JSON_OUTPUT"
 
 grep -F "Catalyst Continuum developer artifacts" "$TEXT_OUTPUT" >/dev/null
+grep -F "Recommended next action" "$TEXT_OUTPUT" >/dev/null
+grep -F "Review the latest local PR candidate" "$TEXT_OUTPUT" >/dev/null
+grep -F "make developer-handoff RUN_ID=00000000-0000-0000-0000-000000000001" "$TEXT_OUTPUT" >/dev/null
 grep -F "Latest runs" "$TEXT_OUTPUT" >/dev/null
 grep -F "source brief:" "$TEXT_OUTPUT" >/dev/null
 grep -F "local pr branch: continuum/demo" "$TEXT_OUTPUT" >/dev/null
@@ -115,6 +118,9 @@ import sys
 payload = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
 assert payload["schema_version"] == "v0.1", payload
 assert payload["empty"] is False, payload
+assert payload["recommended_next_action"]["artifact_kind"] == "run", payload
+assert payload["recommended_next_action"]["primary_path"].endswith("/dev-runs/run-a/review.md"), payload
+assert payload["recommended_next_action"]["command"].startswith("make developer-handoff RUN_ID="), payload
 assert payload["artifacts"]["runs"][0]["run_status"] == "succeeded", payload
 assert payload["artifacts"]["runs"][0]["brief_source_path"].endswith("/dev-sessions/session-a/brief.json"), payload
 assert payload["artifacts"]["runs"][0]["pr_export"]["branch_name"] == "continuum/demo", payload
@@ -125,6 +131,8 @@ PY
 EMPTY_OUTPUT="$TMP_DIR/dev-artifacts-empty.txt"
 ./scripts/show-dev-artifacts.sh --root "$TMP_DIR/empty-continuum" >"$EMPTY_OUTPUT"
 grep -F "No developer artifacts found yet." "$EMPTY_OUTPUT" >/dev/null
+grep -F "Create a developer session" "$EMPTY_OUTPUT" >/dev/null
+grep -F "make dev-session TASK=\"...\"" "$EMPTY_OUTPUT" >/dev/null
 
 INVALID_KIND_OUTPUT="$TMP_DIR/dev-artifacts-invalid-kind.txt"
 if ./scripts/show-dev-artifacts.sh --root "$CONTINUUM_ROOT" --kind nope >"$INVALID_KIND_OUTPUT" 2>&1; then

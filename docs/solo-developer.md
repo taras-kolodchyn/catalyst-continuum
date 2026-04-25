@@ -123,7 +123,7 @@ make dev-latest
 ```
 
 This shows the latest brief, agent prompt package, run summary, review markdown, local PR export,
-and the next safe action without manually browsing `.continuum/`.
+and the recommended next safe action without manually browsing `.continuum/`.
 
 After the run has execution and quality evidence, persist a durable review package:
 

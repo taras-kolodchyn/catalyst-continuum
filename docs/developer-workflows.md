@@ -160,6 +160,7 @@ make dev-latest
 
 It prints the latest briefs, sessions, and runs with the paths that matter most:
 
+- A recommended next action based on the newest artifact.
 - The Codex/Cursor/OpenHands prompt paths for a session.
 - The review markdown and agent review prompt for a run.
 - The local PR export repository, branch, commit, manifest, and combined patch when export exists.

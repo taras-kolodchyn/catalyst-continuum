@@ -55,7 +55,7 @@ newest `.continuum/dev-sessions/*/brief.json` and runs that exact brief.
 
 `dev-latest` indexes the most recent `.continuum/dev-briefs/`, `.continuum/dev-sessions/`, and
 `.continuum/dev-runs/` outputs so you can quickly find the latest prompt, review package, local PR
-export, and next action.
+export, and recommended next action.
 
 ## Current MVP
 
