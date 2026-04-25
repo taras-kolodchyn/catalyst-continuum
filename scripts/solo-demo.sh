@@ -282,20 +282,26 @@ if [ ! -x "$BIN" ]; then
 fi
 
 log_phase "starting disposable Postgres on 127.0.0.1:${POSTGRES_PORT}"
-docker rm -f "$POSTGRES_CONTAINER_NAME" >/dev/null 2>&1 || true
-docker run -d \
-  --name "$POSTGRES_CONTAINER_NAME" \
-  --label io.catalyst-continuum.local-helper=true \
-  --label io.catalyst-continuum.helper=solo-demo \
-  -e POSTGRES_DB="$POSTGRES_DB" \
-  -e POSTGRES_USER="$POSTGRES_USER" \
-  -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
-  -p "127.0.0.1:${POSTGRES_PORT}:5432" \
-  --health-cmd "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB} -p 5432" \
-  --health-interval 2s \
-  --health-timeout 5s \
-  --health-retries 30 \
-  "$POSTGRES_IMAGE" >/dev/null
+start_postgres_container() {
+  docker rm -f "$POSTGRES_CONTAINER_NAME" >/dev/null 2>&1 || true
+  docker run -d \
+    --name "$POSTGRES_CONTAINER_NAME" \
+    --label io.catalyst-continuum.local-helper=true \
+    --label io.catalyst-continuum.helper=solo-demo \
+    -e POSTGRES_DB="$POSTGRES_DB" \
+    -e POSTGRES_USER="$POSTGRES_USER" \
+    -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
+    -p "127.0.0.1:${POSTGRES_PORT}:5432" \
+    --health-cmd "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB} -p 5432" \
+    --health-interval 2s \
+    --health-timeout 5s \
+    --health-retries 30 \
+    "$POSTGRES_IMAGE"
+}
+
+run_with_transient_docker_retry \
+  "solo demo postgres container startup" \
+  start_postgres_container >/dev/null
 STARTED_POSTGRES=1
 
 if ! wait_for_docker_container_status "solo demo Postgres" "$POSTGRES_CONTAINER_NAME" 45 healthy; then

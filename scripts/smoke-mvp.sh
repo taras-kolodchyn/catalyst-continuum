@@ -141,7 +141,6 @@ resolve_postgres_host_port() {
 }
 
 if [ -z "${CATALYST_DATABASE_URL:-}" ]; then
-  docker rm -f "$POSTGRES_CONTAINER_NAME" >/dev/null 2>&1 || true
   POSTGRES_DOCKER_ARGS=()
   POSTGRES_HEALTH_PORT="5432"
   POSTGRES_SERVER_PORT="5432"
@@ -155,19 +154,27 @@ if [ -z "${CATALYST_DATABASE_URL:-}" ]; then
   else
     POSTGRES_DOCKER_ARGS+=(-p "$(postgres_publish_binding)")
   fi
-  docker run -d \
-    --name "$POSTGRES_CONTAINER_NAME" \
-    --label "${LOCAL_HELPER_LABEL_KEY}=${LOCAL_HELPER_LABEL_VALUE}" \
-    --label "${LOCAL_HELPER_NAME_LABEL_KEY}=${LOCAL_HELPER_NAME_LABEL_VALUE}" \
-    -e POSTGRES_DB="$POSTGRES_DB" \
-    -e POSTGRES_USER="$POSTGRES_USER" \
-    -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
-    "${POSTGRES_DOCKER_ARGS[@]}" \
-    --health-cmd "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB} -p ${POSTGRES_HEALTH_PORT}" \
-    --health-interval 2s \
-    --health-timeout 5s \
-    --health-retries 30 \
-    "$POSTGRES_IMAGE" "${POSTGRES_SERVER_ARGS[@]}" >/dev/null
+
+  start_postgres_container() {
+    docker rm -f "$POSTGRES_CONTAINER_NAME" >/dev/null 2>&1 || true
+    docker run -d \
+      --name "$POSTGRES_CONTAINER_NAME" \
+      --label "${LOCAL_HELPER_LABEL_KEY}=${LOCAL_HELPER_LABEL_VALUE}" \
+      --label "${LOCAL_HELPER_NAME_LABEL_KEY}=${LOCAL_HELPER_NAME_LABEL_VALUE}" \
+      -e POSTGRES_DB="$POSTGRES_DB" \
+      -e POSTGRES_USER="$POSTGRES_USER" \
+      -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
+      "${POSTGRES_DOCKER_ARGS[@]}" \
+      --health-cmd "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB} -p ${POSTGRES_HEALTH_PORT}" \
+      --health-interval 2s \
+      --health-timeout 5s \
+      --health-retries 30 \
+      "$POSTGRES_IMAGE" "${POSTGRES_SERVER_ARGS[@]}"
+  }
+
+  run_with_transient_docker_retry \
+    "smoke postgres container startup" \
+    start_postgres_container >/dev/null
   STARTED_POSTGRES=1
 
   if ! wait_for_docker_container_status \

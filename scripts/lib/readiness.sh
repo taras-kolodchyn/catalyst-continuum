@@ -86,3 +86,57 @@ wait_for_http_capture() {
     "$name did not become ready at $url after ${attempts}s (last probe: ${WAIT_LAST_HTTP_RESULT})" >&2
   return 1
 }
+
+is_transient_docker_run_error() {
+  local output="$1"
+  printf '%s' "$output" | grep -Eiq \
+    'Client\.Timeout|request canceled|TLS handshake timeout|i/o timeout|context deadline exceeded|connection reset by peer|unexpected EOF|temporary failure|network is unreachable|no such host|connection timed out'
+}
+
+run_with_transient_docker_retry() {
+  local label="$1"
+  shift
+
+  local attempt=1
+  local max_attempts="${CATALYST_DOCKER_TRANSIENT_MAX_ATTEMPTS:-3}"
+  local stdout_file=""
+  local stderr_file=""
+  local combined_output=""
+
+  stdout_file="$(mktemp)"
+  stderr_file="$(mktemp)"
+
+  while [ "$attempt" -le "$max_attempts" ]; do
+    if "$@" >"$stdout_file" 2>"$stderr_file"; then
+      cat "$stdout_file"
+      rm -f "$stdout_file" "$stderr_file"
+      return 0
+    fi
+
+    combined_output="$(
+      {
+        cat "$stdout_file"
+        cat "$stderr_file"
+      } 2>/dev/null
+    )"
+
+    if [ "$attempt" -lt "$max_attempts" ] && is_transient_docker_run_error "$combined_output"; then
+      printf \
+        '[docker-retry] retrying %s after transient docker failure (attempt %s/%s)\n' \
+        "$label" \
+        "$((attempt + 1))" \
+        "$max_attempts" >&2
+      attempt=$((attempt + 1))
+      sleep "$attempt"
+      continue
+    fi
+
+    cat "$stdout_file"
+    cat "$stderr_file" >&2
+    rm -f "$stdout_file" "$stderr_file"
+    return 1
+  done
+
+  rm -f "$stdout_file" "$stderr_file"
+  return 1
+}
