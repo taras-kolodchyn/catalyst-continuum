@@ -12,14 +12,17 @@ ISSUE_SESSION="$CONTINUUM_ROOT/dev-sessions/issue-session"
 BATCH_SESSION="$CONTINUUM_ROOT/dev-sessions/batch-session"
 ISSUE_RUN="$CONTINUUM_ROOT/dev-runs/issue-run"
 BATCH_RUN="$CONTINUUM_ROOT/dev-runs/batch-run"
+FAILED_RUN="$CONTINUUM_ROOT/dev-runs/failed-run"
 ISSUE_SYNC_OUT="$TMP_DIR/issue-sync"
 BATCH_SYNC_OUT="$TMP_DIR/batch-sync"
 CLAIM_SYNC_OUT="$TMP_DIR/claim-sync"
+FAILED_SYNC_OUT="$TMP_DIR/failed-sync"
 ISSUE_OUTPUT="$TMP_DIR/issue-sync.out"
 BATCH_OUTPUT="$TMP_DIR/batch-sync.out"
 CLAIM_OUTPUT="$TMP_DIR/claim-sync.out"
+FAILED_OUTPUT="$TMP_DIR/failed-sync.out"
 
-mkdir -p "$ISSUE_SESSION" "$BATCH_SESSION" "$ISSUE_RUN/pr-export" "$BATCH_RUN/pr-export"
+mkdir -p "$ISSUE_SESSION" "$BATCH_SESSION" "$ISSUE_RUN/pr-export" "$BATCH_RUN/pr-export" "$FAILED_RUN"
 
 cat >"$ISSUE_SESSION/brief.json" <<'JSON'
 {
@@ -118,6 +121,19 @@ cat >"$BATCH_RUN/run-summary.json" <<JSON
 }
 JSON
 
+cat >"$FAILED_RUN/run-summary.json" <<JSON
+{
+  "schema_version": "v0.1",
+  "run_id": "00000000-0000-0000-0000-000000000099",
+  "run_status": "failed",
+  "quality_passed": false,
+  "brief_source_path": "$ISSUE_SESSION/brief.json",
+  "review_markdown_path": "$FAILED_RUN/review.md",
+  "agent_prompt_path": "$FAILED_RUN/agent-review-prompt.md",
+  "pr_export_created": false
+}
+JSON
+
 ./scripts/sync-github-issue-status.sh \
   --session-manifest "$ISSUE_SESSION/manifest.json" \
   --output-dir "$CLAIM_SYNC_OUT" \
@@ -146,6 +162,39 @@ assert plan["run_summary_path"] is None, plan
 assert "continuum:in-progress" in plan["labels"], plan
 assert "continuum:has-pr-candidate" not in plan["labels"], plan
 assert "Catalyst Continuum accepted this issue work package" in comment, comment
+assert "GitHub state: `left open`" in comment, comment
+PY
+
+./scripts/sync-github-issue-status.sh \
+  --run-summary "$FAILED_RUN/run-summary.json" \
+  --output-dir "$FAILED_SYNC_OUT" \
+  --status "failed" \
+  >"$FAILED_OUTPUT"
+
+grep -F "github_issue_sync_status: failed" "$FAILED_OUTPUT" >/dev/null
+grep -F "github_issue_sync_close_issues: false" "$FAILED_OUTPUT" >/dev/null
+grep -F "github_issue_sync_issue: smartit/github-issue-sync-smoke#42" "$FAILED_OUTPUT" >/dev/null
+
+python3 - "$FAILED_SYNC_OUT" <<'PY'
+from __future__ import annotations
+
+import json
+import pathlib
+import sys
+
+sync_out = pathlib.Path(sys.argv[1])
+plan = json.loads((sync_out / "github-issue-sync-plan.json").read_text(encoding="utf-8"))
+comment = (sync_out / "comment.md").read_text(encoding="utf-8")
+
+assert plan["apply"] is False, plan
+assert plan["status"] == "failed", plan
+assert plan["close_issues"] is False, plan
+assert plan["evidence"]["run_status"] == "failed", plan
+assert plan["evidence"]["quality_passed"] is False, plan
+assert "continuum:failed" in plan["labels"], plan
+assert "continuum:has-pr-candidate" not in plan["labels"], plan
+assert any("gh label create continuum:failed" in command for command in plan["planned_commands"]), plan
+assert "failed before it produced review-ready evidence" in comment, comment
 assert "GitHub state: `left open`" in comment, comment
 PY
 

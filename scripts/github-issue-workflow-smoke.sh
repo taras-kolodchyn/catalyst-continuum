@@ -395,6 +395,51 @@ assert summary["issue_sync"]["applied"] is True, summary
 assert summary["run"]["exit_code"] == 0, summary
 PY
 
+FAIL_SYNC_OUT="$TMP_DIR/fail-sync-workflow"
+: >"$COMMAND_LOG"
+set +e
+COMMAND_LOG="$COMMAND_LOG" \
+CREATE_GITHUB_ISSUE_SESSION_CMD="$FAKES_DIR/create-github-issue-session.sh" \
+RUN_DEV_TASK_CMD="$FAKES_DIR/run-dev-task.sh" \
+SYNC_GITHUB_ISSUE_STATUS_CMD="$FAKES_DIR/sync-github-issue-status.sh" \
+TMPDIR="$TMP_DIR/fail-sync-tmp" \
+FAKE_RUN_FAIL=1 \
+./scripts/run-github-issue-workflow.sh \
+  --issue-json "$ISSUE_FIXTURE" \
+  --repository smartit/github-issue-workflow-smoke \
+  --repo-path "$ROOT_DIR" \
+  --pr-strategy per-issue \
+  --workflow-output-dir "$FAIL_SYNC_OUT" \
+  --session-output-root "$TMP_DIR/fail-sync-sessions" \
+  --run-output-dir "$TMP_DIR/fail-sync-run" \
+  >"$TMP_DIR/fail-sync.out" 2>"$TMP_DIR/fail-sync.err"
+fail_sync_exit=$?
+set -e
+if [ "$fail_sync_exit" -ne 23 ]; then
+  echo "expected failed developer run with sync to preserve exit 23, got $fail_sync_exit" >&2
+  exit 1
+fi
+grep -F -- "--status" "$COMMAND_LOG" >/dev/null
+grep -F -- "failed" "$COMMAND_LOG" >/dev/null
+grep -F -- "--session-manifest" "$COMMAND_LOG" >/dev/null
+
+python3 - "$FAIL_SYNC_OUT/workflow-summary.json" <<'PY'
+from __future__ import annotations
+
+import json
+import pathlib
+import sys
+
+summary = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+assert summary["issue_claim"]["requested"] is False, summary
+assert summary["run"]["exit_code"] == 23, summary
+assert summary["draft_pr"]["requested"] is False, summary
+assert summary["issue_sync"]["skipped"] is False, summary
+assert summary["issue_sync"]["status"] == "failed", summary
+assert summary["issue_sync"]["exit_code"] == 0, summary
+assert summary["issue_sync"]["plan"].endswith("/github-issue-sync-plan.json"), summary
+PY
+
 FAIL_OUT="$TMP_DIR/fail-workflow"
 set +e
 COMMAND_LOG="$COMMAND_LOG" \

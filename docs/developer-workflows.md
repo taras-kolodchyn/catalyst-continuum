@@ -234,10 +234,11 @@ make github-issue-sync \
 ```
 
 In `in-progress`, Catalyst comments that the issue work package has been accepted for local
-execution, applies `continuum:in-progress`, and leaves the issue open. In `ready-for-review`,
-Catalyst comments on the issue, applies labels such as
-`continuum:ready-for-review`, records the branch/commit/PR URL, and leaves the issue open for normal
-review.
+execution, applies `continuum:in-progress`, and leaves the issue open. In `failed`, Catalyst records
+the failed run attempt, applies `continuum:failed`, and leaves the issue open with local failure
+evidence for the developer to inspect. In `ready-for-review`, Catalyst comments on the issue,
+applies labels such as `continuum:ready-for-review`, records the branch/commit/PR URL, and leaves
+the issue open for normal review.
 
 When the work is accepted and the issue should move to done, run:
 

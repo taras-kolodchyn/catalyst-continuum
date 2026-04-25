@@ -108,7 +108,7 @@ Draft PR options:
 Issue sync options:
   --claim-issues                Prepare an in-progress GitHub issue claim plan before running.
   --apply-issue-claim           Apply the in-progress issue claim through gh before running.
-  --issue-sync-status VALUE     ready-for-review or done (default: ready-for-review).
+  --issue-sync-status VALUE     ready-for-review, failed, or done (default: ready-for-review).
   --pr-url URL                  Pull request URL to attach to the issue sync comment.
   --sync-output-dir PATH        Output directory for github-issue-sync-plan.json and comment.md.
   --apply-issue-sync            Apply GitHub issue comments/labels through gh.
@@ -319,9 +319,9 @@ case "$PR_STRATEGY" in
 esac
 
 case "$SYNC_STATUS" in
-  ready-for-review|done) ;;
+  failed|ready-for-review|done) ;;
   *)
-    echo "--issue-sync-status must be ready-for-review or done, got: $SYNC_STATUS" >&2
+    echo "--issue-sync-status must be ready-for-review, failed, or done, got: $SYNC_STATUS" >&2
     exit 2
     ;;
 esac
@@ -723,6 +723,39 @@ RUN_EXIT=$?
 set -e
 if [ "$RUN_EXIT" -ne 0 ]; then
   RUN_SUMMARY="$(extract_output_field "$RUN_OUTPUT" "summary_file")"
+  if [ "$SKIP_ISSUE_SYNC" -eq 0 ]; then
+    SYNC_STATUS="failed"
+    sync_args=()
+    if [ -n "$RUN_SUMMARY" ] && [ -f "$RUN_SUMMARY" ]; then
+      sync_args+=(--run-summary "$RUN_SUMMARY")
+    else
+      sync_args+=(--session-manifest "$SESSION_DIR/manifest.json")
+    fi
+    sync_args+=(
+      --status "$SYNC_STATUS"
+      --summary "Catalyst Continuum developer run failed with exit code $RUN_EXIT. Inspect local output: $RUN_OUTPUT"
+    )
+    if [ -n "$SYNC_OUTPUT_DIR" ]; then
+      sync_args+=(--output-dir "$SYNC_OUTPUT_DIR")
+    else
+      sync_args+=(--output-dir "$WORKFLOW_OUTPUT_DIR/issue-sync")
+    fi
+    if [ "$APPLY_ISSUE_SYNC" -eq 1 ]; then
+      sync_args+=(--apply)
+    fi
+    sync_args+=("${SYNC_EXTRA_ARGS[@]}")
+
+    printf '[github-issue-run] preparing GitHub issue failure evidence\n'
+    set +e
+    "$SYNC_GITHUB_ISSUE_STATUS_CMD" "${sync_args[@]}" >"$SYNC_OUTPUT"
+    SYNC_EXIT=$?
+    set -e
+    SYNC_PLAN="$(extract_output_field "$SYNC_OUTPUT" "github_issue_sync_plan")"
+    SYNC_COMMENT="$(extract_output_field "$SYNC_OUTPUT" "github_issue_sync_comment")"
+    if [ "$SYNC_EXIT" -ne 0 ]; then
+      printf 'GitHub issue failure sync failed; inspect %s\n' "$SYNC_OUTPUT" >&2
+    fi
+  fi
   cleanup_auto_kept_database
   write_workflow_summary
   echo "developer run failed; inspect $RUN_OUTPUT" >&2

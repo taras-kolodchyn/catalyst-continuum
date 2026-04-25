@@ -162,6 +162,11 @@ This first writes a dry-run plan. When the comment, labels, branch, commit, and 
 add `GITHUB_ISSUE_SYNC_APPLY=1`. Use `GITHUB_ISSUE_SYNC_STATUS=done` only when the issue should be
 closed as completed.
 
+If `make github-issue-run` fails before review-ready evidence is produced, Catalyst now prepares a
+`failed` issue sync plan by default unless `--skip-issue-sync` is set. That gives a solo developer a
+clear source-issue breadcrumb with the failed run output path, instead of requiring them to hunt
+through local terminal history.
+
 If the task is not yet tracked as an issue, create a session directly:
 
 ```bash
