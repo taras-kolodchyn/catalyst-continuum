@@ -36,6 +36,8 @@ GITHUB_ISSUE_SYNC_RUN_SUMMARY ?=
 GITHUB_ISSUE_SYNC_STATUS ?= ready-for-review
 GITHUB_ISSUE_WORKFLOW_PLAN_ONLY ?=
 GITHUB_ISSUE_WORKFLOW_ARGS ?=
+GITHUB_ISSUE_WORKFLOW_DIR ?=
+GITHUB_ISSUE_WORKFLOW_LATEST_ARGS ?=
 GITHUB_ISSUE_WORKFLOW_OUTPUT_DIR ?=
 LITELLM_SMOKE_ARGS ?=
 OPENHANDS_AGENT_TASK_SMOKE_ARGS ?=
@@ -198,6 +200,14 @@ github-issue-run: ## Take one GitHub issue work package through session, local r
 .PHONY: github-issue-plan
 github-issue-plan: ## Preview selected GitHub issue work package and planned workflow without running it.
 	$(MAKE) github-issue-run GITHUB_ISSUE_WORKFLOW_PLAN_ONLY=1
+
+.PHONY: github-issue-latest
+github-issue-latest: ## Show the latest GitHub issue workflow runs and recommended next action.
+	./scripts/show-github-issue-workflows.sh $(if $(CONTINUUM_ROOT),--root "$(CONTINUUM_ROOT)") $(if $(GITHUB_ISSUE_WORKFLOW_DIR),--workflow-dir "$(GITHUB_ISSUE_WORKFLOW_DIR)") $(GITHUB_ISSUE_WORKFLOW_LATEST_ARGS)
+
+.PHONY: github-issue-review
+github-issue-review: ## Show the latest GitHub issue workflow report.
+	./scripts/show-github-issue-workflows.sh --report $(if $(CONTINUUM_ROOT),--root "$(CONTINUUM_ROOT)") $(if $(GITHUB_ISSUE_WORKFLOW_DIR),--workflow-dir "$(GITHUB_ISSUE_WORKFLOW_DIR)") $(GITHUB_ISSUE_WORKFLOW_LATEST_ARGS)
 
 .PHONY: dev-session-smoke
 dev-session-smoke: ## Validate developer session package generation.

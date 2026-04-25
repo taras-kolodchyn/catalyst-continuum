@@ -43,6 +43,7 @@ make github-issue-session GITHUB_ISSUE=123 REPOSITORY=OWNER/REPO REPO_PATH=/path
 make github-issue-session REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE_PR_STRATEGY=batch GITHUB_ISSUE_ARGS="--list --label bug --limit 5"
 make github-issue-plan REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE_ARGS="--label bug --limit 5"
 make github-issue-run REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE_ARGS="--label bug --limit 5"
+make github-issue-review
 make dev-session TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
 make dev-task-brief TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
 make dev-run TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
@@ -82,6 +83,10 @@ aggregate batch session intended for one branch and one PR.
 Use `github-issue-plan` first when you want a safe preview. It creates the selected developer
 session plus `workflow-plan.json` and `workflow-plan.md`, then stops before running agents, opening
 draft PRs, or mutating GitHub issues.
+
+Use `github-issue-latest` or `github-issue-review` after a workflow run when you do not want to hunt
+through `.continuum/github-issue-workflows/` manually. `github-issue-review` prints the latest
+`workflow-report.md` plus the summary and issue-sync inspection commands.
 
 Add `GITHUB_ISSUE_CLAIM=1` when you want the workflow to prepare an `in-progress` issue claim plan
 before execution. Add `GITHUB_ISSUE_CLAIM_APPLY=1` only when you want that claim comment and label
@@ -191,6 +196,7 @@ make github-issue-session GITHUB_ISSUE=123 REPOSITORY=OWNER/REPO REPO_PATH=/path
 make github-issue-session REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE_PR_STRATEGY=batch GITHUB_ISSUE_ARGS="--list --label bug --limit 5"
 make github-issue-plan REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE_ARGS="--label bug --limit 5"
 make github-issue-run REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE_ARGS="--label bug --limit 5"
+make github-issue-review
 make github-issue-run REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE=123 GITHUB_ISSUE_CLAIM=1
 make github-issue-run REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout REPOSITORY_TARGET_ID=primary GITHUB_ISSUE=123 GITHUB_ISSUE_CREATE_DRAFT_PR=1
 make dev-session TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO

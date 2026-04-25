@@ -125,6 +125,16 @@ After the workflow finishes, open `workflow-report.md` from the printed workflow
 first. It is the readable handoff: outcome, selected session, run evidence, PR export branch and
 commit, draft PR URL when available, issue-sync status, and the next review action.
 
+If you need to find it later, run:
+
+```bash
+make github-issue-review
+```
+
+Use `make github-issue-latest` when you want the recent workflow list instead of printing the report
+body. For a specific workflow output directory, pass
+`GITHUB_ISSUE_WORKFLOW_DIR=/path/to/workflow-output`.
+
 If you want to preview the selected issue and GitHub mutation posture before starting agents, run:
 
 ```bash

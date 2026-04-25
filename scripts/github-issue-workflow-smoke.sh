@@ -432,6 +432,49 @@ assert "- PR export branch: `continuum/issue-7`" in report, report
 assert "https://github.com/smartit/github-issue-workflow-smoke/pull/7" in report, report
 PY
 
+./scripts/show-github-issue-workflows.sh \
+  --workflow-dir "$PER_ISSUE_OUT" \
+  >"$TMP_DIR/per-issue-latest.out"
+grep -F "Catalyst Continuum GitHub issue workflows" "$TMP_DIR/per-issue-latest.out" >/dev/null
+grep -F "Recommended next action" "$TMP_DIR/per-issue-latest.out" >/dev/null
+grep -F "command: make github-issue-review" "$TMP_DIR/per-issue-latest.out" >/dev/null
+grep -F "report:" "$TMP_DIR/per-issue-latest.out" >/dev/null
+grep -F "workflow-report.md" "$TMP_DIR/per-issue-latest.out" >/dev/null
+
+./scripts/show-github-issue-workflows.sh \
+  --workflow-dir "$PER_ISSUE_OUT" \
+  --report \
+  >"$TMP_DIR/per-issue-review.out"
+grep -F "Catalyst Continuum GitHub issue workflow review" "$TMP_DIR/per-issue-review.out" >/dev/null
+grep -F "# GitHub Issue Workflow Report" "$TMP_DIR/per-issue-review.out" >/dev/null
+grep -F "draft pr: https://github.com/smartit/github-issue-workflow-smoke/pull/7" "$TMP_DIR/per-issue-latest.out" >/dev/null
+
+python3 - "$PER_ISSUE_OUT" "$TMP_DIR/per-issue-workflows.json" <<'PY'
+from __future__ import annotations
+
+import json
+import pathlib
+import subprocess
+import sys
+
+workflow_dir = pathlib.Path(sys.argv[1])
+output_path = pathlib.Path(sys.argv[2])
+output = subprocess.check_output(
+    [
+        "./scripts/show-github-issue-workflows.sh",
+        "--workflow-dir",
+        str(workflow_dir),
+        "--json",
+    ],
+    text=True,
+)
+output_path.write_text(output, encoding="utf-8")
+payload = json.loads(output)
+assert payload["recommended_next_action"]["command"] == "make github-issue-review", payload
+assert payload["workflows"][0]["status"] == "succeeded", payload
+assert payload["workflows"][0]["report_path"].endswith("/workflow-report.md"), payload
+PY
+
 : >"$COMMAND_LOG"
 COMMAND_LOG="$COMMAND_LOG" \
 CREATE_GITHUB_ISSUE_SESSION_CMD="$FAKES_DIR/create-github-issue-session.sh" \

@@ -163,6 +163,17 @@ It summarizes the workflow outcome, session, run evidence, PR export branch/comm
 when present, issue-sync plan, and the next human review step. Use it as the first artifact to read
 after a run succeeds or fails.
 
+To rediscover that report later:
+
+```bash
+make github-issue-latest
+make github-issue-review
+```
+
+`github-issue-latest` lists recent workflow output directories and the recommended next action.
+`github-issue-review` prints the latest or selected `workflow-report.md`; pass
+`GITHUB_ISSUE_WORKFLOW_DIR=/path/to/workflow-output` when you want a specific run.
+
 If you want to inspect that choice before running agents, use the plan-only wrapper:
 
 ```bash
