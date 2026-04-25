@@ -41,6 +41,7 @@ For real work, start from a daily developer task instead of a blank product brie
 make github-issue-next REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE_ARGS="--label bug --limit 5"
 make github-issue-session GITHUB_ISSUE=123 REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
 make github-issue-session REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE_PR_STRATEGY=batch GITHUB_ISSUE_ARGS="--list --label bug --limit 5"
+make github-issue-plan REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE_ARGS="--label bug --limit 5"
 make github-issue-run REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE_ARGS="--label bug --limit 5"
 make dev-session TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
 make dev-task-brief TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
@@ -76,6 +77,10 @@ right developer session, runs the local control-plane flow for that session, exp
 candidate, and writes a GitHub issue sync dry-run plan. With the default `per-issue` strategy it
 runs only the top-ranked issue from the imported batch. With `GITHUB_ISSUE_PR_STRATEGY=batch`, it
 runs one aggregate batch session intended for one branch and one PR.
+
+Use `github-issue-plan` first when you want a safe preview. It creates the selected developer
+session plus `workflow-plan.json` and `workflow-plan.md`, then stops before running agents, opening
+draft PRs, or mutating GitHub issues.
 
 Add `GITHUB_ISSUE_CLAIM=1` when you want the workflow to prepare an `in-progress` issue claim plan
 before execution. Add `GITHUB_ISSUE_CLAIM_APPLY=1` only when you want that claim comment and label
@@ -183,6 +188,7 @@ make solo-demo-check
 make github-issue-next REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE_ARGS="--label bug --limit 5"
 make github-issue-session GITHUB_ISSUE=123 REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
 make github-issue-session REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE_PR_STRATEGY=batch GITHUB_ISSUE_ARGS="--list --label bug --limit 5"
+make github-issue-plan REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE_ARGS="--label bug --limit 5"
 make github-issue-run REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE_ARGS="--label bug --limit 5"
 make github-issue-run REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE=123 GITHUB_ISSUE_CLAIM=1
 make github-issue-run REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout REPOSITORY_TARGET_ID=primary GITHUB_ISSUE=123 GITHUB_ISSUE_CREATE_DRAFT_PR=1

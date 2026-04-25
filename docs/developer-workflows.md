@@ -158,6 +158,20 @@ session only for the top issue, runs that session, exports a local PR candidate,
 `workflow-summary.json` under `.continuum/github-issue-workflows/`. The summary points to the
 session, `run-summary.json`, PR export evidence, and GitHub issue sync plan.
 
+If you want to inspect that choice before running agents, use the plan-only wrapper:
+
+```bash
+make github-issue-plan \
+  REPOSITORY=OWNER/REPO \
+  REPO_PATH=/path/to/local/checkout \
+  GITHUB_ISSUE_ARGS="--label bug --limit 5"
+```
+
+This creates the selected developer session and writes `workflow-plan.json` plus
+`workflow-plan.md`. The plan shows the selected issue(s), PR strategy, claim/apply posture, draft PR
+intent, issue-sync status, repository-target settings, and the next command to run the real
+workflow without `--plan-only`.
+
 For a related batch that should stay in one PR:
 
 ```bash

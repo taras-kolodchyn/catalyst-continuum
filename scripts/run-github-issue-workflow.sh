@@ -9,6 +9,7 @@ RUN_DEV_TASK_CMD="${RUN_DEV_TASK_CMD:-$ROOT_DIR/scripts/run-dev-task.sh}"
 SYNC_GITHUB_ISSUE_STATUS_CMD="${SYNC_GITHUB_ISSUE_STATUS_CMD:-$ROOT_DIR/scripts/sync-github-issue-status.sh}"
 CREATE_DRAFT_PR_FROM_RUN_SUMMARY_CMD="${CREATE_DRAFT_PR_FROM_RUN_SUMMARY_CMD:-$ROOT_DIR/scripts/create-draft-pr-from-run-summary.sh}"
 
+ORIGINAL_ARGS=("$@")
 REPOSITORY=""
 REPO_PATH="$PWD"
 DEFAULT_BRANCH=""
@@ -31,6 +32,7 @@ APPLY_ISSUE_CLAIM=0
 CREATE_DRAFT_PR=0
 DRAFT_PR_REMOTE_URL=""
 AUTO_KEEP_DATABASE_FOR_DRAFT_PR=0
+PLAN_ONLY=0
 NO_VALIDATE=0
 KEEP_DATABASE=0
 NO_PR_EXPORT=0
@@ -76,6 +78,8 @@ Issue input:
 
 Workflow options:
   --pr-strategy MODE            per-issue or batch (default: per-issue).
+  --plan-only                   Create the selected session and workflow plan, then stop before run,
+                                draft PR publication, and GitHub issue mutation.
   --workflow-output-dir PATH    Directory for workflow-summary.json and command output logs.
   --session-output-root PATH    Session output root passed to create-github-issue-session.sh.
   --batch-output-dir PATH       Batch plan output directory.
@@ -156,6 +160,10 @@ while [ "$#" -gt 0 ]; do
     --pr-strategy)
       PR_STRATEGY="${2:?missing value for --pr-strategy}"
       shift 2
+      ;;
+    --plan-only)
+      PLAN_ONLY=1
+      shift
       ;;
     --workflow-output-dir)
       WORKFLOW_OUTPUT_DIR="${2:?missing value for --workflow-output-dir}"
@@ -439,9 +447,12 @@ RUN_OUTPUT="$WORKFLOW_OUTPUT_DIR/run-dev-task.out"
 SYNC_OUTPUT="$WORKFLOW_OUTPUT_DIR/issue-sync.out"
 DRAFT_PR_OUTPUT="$WORKFLOW_OUTPUT_DIR/draft-pr.out"
 WORKFLOW_SUMMARY="$WORKFLOW_OUTPUT_DIR/workflow-summary.json"
+WORKFLOW_PLAN="$WORKFLOW_OUTPUT_DIR/workflow-plan.json"
+WORKFLOW_PLAN_MARKDOWN="$WORKFLOW_OUTPUT_DIR/workflow-plan.md"
 SESSION_DIR=""
 BRIEF_FILE=""
 RUN_SUMMARY=""
+NEXT_COMMAND=""
 CLAIM_PLAN=""
 CLAIM_COMMENT=""
 SYNC_PLAN=""
@@ -474,6 +485,10 @@ write_workflow_summary() {
   SESSION_OUTPUT="$SESSION_OUTPUT" \
   SESSION_DIR="$SESSION_DIR" \
   BRIEF_FILE="$BRIEF_FILE" \
+  PLAN_ONLY="$PLAN_ONLY" \
+  WORKFLOW_PLAN="$WORKFLOW_PLAN" \
+  WORKFLOW_PLAN_MARKDOWN="$WORKFLOW_PLAN_MARKDOWN" \
+  NEXT_COMMAND="$NEXT_COMMAND" \
   CLAIM_ISSUES="$CLAIM_ISSUES" \
   APPLY_ISSUE_CLAIM="$APPLY_ISSUE_CLAIM" \
   CLAIM_OUTPUT="$CLAIM_OUTPUT" \
@@ -512,6 +527,7 @@ def optional_path(value: str) -> str | None:
 
 
 payload = {
+    "plan_only": os.environ["PLAN_ONLY"] == "1",
     "schema_version": "v0.1",
     "source": "github_issue_workflow",
     "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
@@ -522,6 +538,12 @@ payload = {
         "output": os.environ["SESSION_OUTPUT"],
         "dir": optional_path(os.environ["SESSION_DIR"]),
         "brief_file": optional_path(os.environ["BRIEF_FILE"]),
+    },
+    "plan": {
+        "plan_only": os.environ["PLAN_ONLY"] == "1",
+        "json": optional_path(os.environ["WORKFLOW_PLAN"]) if os.environ["PLAN_ONLY"] == "1" else None,
+        "markdown": optional_path(os.environ["WORKFLOW_PLAN_MARKDOWN"]) if os.environ["PLAN_ONLY"] == "1" else None,
+        "next_command": optional_path(os.environ["NEXT_COMMAND"]),
     },
     "issue_claim": {
         "requested": os.environ["CLAIM_ISSUES"] == "1",
@@ -631,6 +653,152 @@ prepare_failure_issue_sync() {
   fi
 }
 
+build_next_command() {
+  local command="./scripts/run-github-issue-workflow.sh"
+  local quoted
+  for arg in "${ORIGINAL_ARGS[@]}"; do
+    if [ "$arg" = "--plan-only" ]; then
+      continue
+    fi
+    printf -v quoted '%q' "$arg"
+    command+=" $quoted"
+  done
+  printf '%s\n' "$command"
+}
+
+write_workflow_plan() {
+  NEXT_COMMAND="$(build_next_command)"
+  WORKFLOW_PLAN="$WORKFLOW_PLAN" \
+  WORKFLOW_PLAN_MARKDOWN="$WORKFLOW_PLAN_MARKDOWN" \
+  REPOSITORY="$REPOSITORY" \
+  PR_STRATEGY="$PR_STRATEGY" \
+  WORKFLOW_OUTPUT_DIR="$WORKFLOW_OUTPUT_DIR" \
+  SESSION_DIR="$SESSION_DIR" \
+  BRIEF_FILE="$BRIEF_FILE" \
+  CLAIM_ISSUES="$CLAIM_ISSUES" \
+  APPLY_ISSUE_CLAIM="$APPLY_ISSUE_CLAIM" \
+  CREATE_DRAFT_PR="$CREATE_DRAFT_PR" \
+  SKIP_ISSUE_SYNC="$SKIP_ISSUE_SYNC" \
+  APPLY_ISSUE_SYNC="$APPLY_ISSUE_SYNC" \
+  SYNC_STATUS="$SYNC_STATUS" \
+  REPOSITORY_TARGET_ID="$REPOSITORY_TARGET_ID" \
+  REPOSITORY_TARGETS_FILE="$REPOSITORY_TARGETS_FILE" \
+  BRANCH_NAME="$BRANCH_NAME" \
+  NEXT_COMMAND="$NEXT_COMMAND" \
+  python3 - <<'PY'
+from __future__ import annotations
+
+import datetime
+import json
+import os
+import pathlib
+from typing import Any
+
+
+def load_json(path: pathlib.Path) -> dict[str, Any]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise SystemExit(f"expected JSON object: {path}")
+    return payload
+
+
+def manifest_issues(manifest: dict[str, Any]) -> list[dict[str, Any]]:
+    issue = manifest.get("github_issue")
+    if isinstance(issue, dict):
+        return [{"number": issue.get("number"), "title": issue.get("title")}]
+    batch = manifest.get("github_issue_batch")
+    if isinstance(batch, dict):
+        return [{"number": number, "title": None} for number in batch.get("issue_numbers", [])]
+    return []
+
+
+def yes_no(value: bool) -> str:
+    return "yes" if value else "no"
+
+
+session_dir = pathlib.Path(os.environ["SESSION_DIR"])
+brief_file = pathlib.Path(os.environ["BRIEF_FILE"])
+manifest_path = session_dir / "manifest.json"
+manifest = load_json(manifest_path)
+issues = manifest_issues(manifest)
+claim_requested = os.environ["CLAIM_ISSUES"] == "1"
+claim_apply_requested = os.environ["APPLY_ISSUE_CLAIM"] == "1"
+draft_pr_requested = os.environ["CREATE_DRAFT_PR"] == "1"
+issue_sync_skipped = os.environ["SKIP_ISSUE_SYNC"] == "1"
+issue_sync_apply_requested = os.environ["APPLY_ISSUE_SYNC"] == "1"
+plan = {
+    "schema_version": "v0.1",
+    "source": "github_issue_workflow_plan",
+    "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    "repository_full_name": os.environ["REPOSITORY"],
+    "pr_strategy": os.environ["PR_STRATEGY"],
+    "workflow_output_dir": os.environ["WORKFLOW_OUTPUT_DIR"],
+    "session_dir": str(session_dir),
+    "session_manifest_path": str(manifest_path),
+    "brief_file": str(brief_file),
+    "issues": issues,
+    "planned_steps": {
+        "claim_issues": claim_requested,
+        "apply_issue_claim": claim_apply_requested,
+        "run_local_flow": True,
+        "create_draft_pr": draft_pr_requested,
+        "issue_sync_skipped": issue_sync_skipped,
+        "issue_sync_status": os.environ["SYNC_STATUS"],
+        "apply_issue_sync": issue_sync_apply_requested,
+    },
+    "publication_policy": {
+        "repository_target_id": os.environ["REPOSITORY_TARGET_ID"] or None,
+        "repository_targets_file": os.environ["REPOSITORY_TARGETS_FILE"] or None,
+        "branch_name": os.environ["BRANCH_NAME"] or None,
+    },
+    "next_command": os.environ["NEXT_COMMAND"],
+}
+
+plan_path = pathlib.Path(os.environ["WORKFLOW_PLAN"])
+markdown_path = pathlib.Path(os.environ["WORKFLOW_PLAN_MARKDOWN"])
+plan_path.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
+
+issue_refs = ", ".join(f"#{issue['number']}" for issue in issues) or "not recorded"
+markdown = [
+    "# GitHub Issue Workflow Plan",
+    "",
+    "This is a local dry-run preview. Catalyst created the selected developer session, but did not run the control-plane flow, publish a draft PR, or mutate GitHub issues.",
+    "",
+    "## Selected Work",
+    "",
+    f"- Repository: `{plan['repository_full_name']}`",
+    f"- PR strategy: `{plan['pr_strategy']}`",
+    f"- Issues: `{issue_refs}`",
+    f"- Session: `{session_dir}`",
+    f"- Brief: `{brief_file}`",
+    "",
+    "## Planned Actions",
+    "",
+    f"- Claim issue before execution: `{yes_no(claim_requested)}`",
+    f"- Apply claim to GitHub: `{yes_no(claim_apply_requested)}`",
+    "- Run local Catalyst flow: `yes`",
+    f"- Create GitHub draft PR: `{yes_no(draft_pr_requested)}`",
+    f"- Skip issue sync: `{yes_no(issue_sync_skipped)}`",
+    f"- Issue sync status after success: `{os.environ['SYNC_STATUS']}`",
+    f"- Apply issue sync to GitHub: `{yes_no(issue_sync_apply_requested)}`",
+    "",
+    "## Publication Policy",
+    "",
+    f"- Repository target id: `{os.environ['REPOSITORY_TARGET_ID'] or 'not configured'}`",
+    f"- Repository targets file: `{os.environ['REPOSITORY_TARGETS_FILE'] or 'not configured'}`",
+    f"- Branch override: `{os.environ['BRANCH_NAME'] or 'not configured'}`",
+    "",
+    "## Next Command",
+    "",
+    "```bash",
+    os.environ["NEXT_COMMAND"],
+    "```",
+    "",
+]
+markdown_path.write_text("\n".join(markdown), encoding="utf-8")
+PY
+}
+
 session_args=(--pr-strategy "$PR_STRATEGY")
 if [ "$PR_STRATEGY" = "per-issue" ]; then
   session_args+=(--next-only)
@@ -695,6 +863,22 @@ if [ ! -f "$BRIEF_FILE" ]; then
   echo "session brief not found: $BRIEF_FILE" >&2
   write_workflow_summary
   exit 1
+fi
+
+if [ "$PLAN_ONLY" -eq 1 ]; then
+  write_workflow_plan
+  write_workflow_summary
+  printf '\nGitHub issue workflow plan ready.\n'
+  printf 'repository: %s\n' "$REPOSITORY"
+  printf 'pr_strategy: %s\n' "$PR_STRATEGY"
+  printf 'workflow_output_dir: %s\n' "$WORKFLOW_OUTPUT_DIR"
+  printf 'workflow_summary: %s\n' "$WORKFLOW_SUMMARY"
+  printf 'workflow_plan: %s\n' "$WORKFLOW_PLAN"
+  printf 'workflow_plan_markdown: %s\n' "$WORKFLOW_PLAN_MARKDOWN"
+  printf 'session_dir: %s\n' "$SESSION_DIR"
+  printf 'brief_file: %s\n' "$BRIEF_FILE"
+  printf 'next_command: %s\n' "$NEXT_COMMAND"
+  exit 0
 fi
 
 if [ "$CLAIM_ISSUES" -eq 1 ]; then

@@ -298,6 +298,72 @@ grep -F "cargo " "$COMMAND_LOG" >/dev/null
 grep -F "create-draft-pr" "$COMMAND_LOG" >/dev/null
 : >"$COMMAND_LOG"
 
+PLAN_OUT="$TMP_DIR/plan-workflow"
+COMMAND_LOG="$COMMAND_LOG" \
+CREATE_GITHUB_ISSUE_SESSION_CMD="$FAKES_DIR/create-github-issue-session.sh" \
+RUN_DEV_TASK_CMD="$FAKES_DIR/run-dev-task.sh" \
+SYNC_GITHUB_ISSUE_STATUS_CMD="$FAKES_DIR/sync-github-issue-status.sh" \
+CREATE_DRAFT_PR_FROM_RUN_SUMMARY_CMD="$FAKES_DIR/create-draft-pr-from-run-summary.sh" \
+TMPDIR="$TMP_DIR/plan-tmp" \
+./scripts/run-github-issue-workflow.sh \
+  --plan-only \
+  --issue-json "$ISSUE_FIXTURE" \
+  --repository smartit/github-issue-workflow-smoke \
+  --repo-path "$ROOT_DIR" \
+  --pr-strategy per-issue \
+  --workflow-output-dir "$PLAN_OUT" \
+  --session-output-root "$TMP_DIR/plan-sessions" \
+  --claim-issues \
+  --create-draft-pr \
+  >"$TMP_DIR/plan.out"
+
+grep -F "GitHub issue workflow plan ready." "$TMP_DIR/plan.out" >/dev/null
+grep -F "workflow_plan:" "$TMP_DIR/plan.out" >/dev/null
+grep -F "workflow_plan_markdown:" "$TMP_DIR/plan.out" >/dev/null
+grep -F "next_command:" "$TMP_DIR/plan.out" >/dev/null
+grep -F "create " "$COMMAND_LOG" >/dev/null
+if grep -F "run " "$COMMAND_LOG" >/dev/null; then
+  echo "plan-only workflow must not run the developer flow" >&2
+  exit 1
+fi
+if grep -F "sync " "$COMMAND_LOG" >/dev/null; then
+  echo "plan-only workflow must not prepare issue sync" >&2
+  exit 1
+fi
+if grep -F "draft " "$COMMAND_LOG" >/dev/null; then
+  echo "plan-only workflow must not publish draft PRs" >&2
+  exit 1
+fi
+
+python3 - "$PLAN_OUT/workflow-summary.json" "$PLAN_OUT/workflow-plan.json" "$PLAN_OUT/workflow-plan.md" <<'PY'
+from __future__ import annotations
+
+import json
+import pathlib
+import sys
+
+summary = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+plan = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
+markdown = pathlib.Path(sys.argv[3]).read_text(encoding="utf-8")
+
+assert summary["plan_only"] is True, summary
+assert summary["plan"]["plan_only"] is True, summary
+assert summary["plan"]["json"].endswith("/workflow-plan.json"), summary
+assert summary["plan"]["markdown"].endswith("/workflow-plan.md"), summary
+assert "--plan-only" not in summary["plan"]["next_command"], summary
+assert summary["run"]["summary_file"] is None, summary
+assert plan["source"] == "github_issue_workflow_plan", plan
+assert plan["planned_steps"]["claim_issues"] is True, plan
+assert plan["planned_steps"]["run_local_flow"] is True, plan
+assert plan["planned_steps"]["create_draft_pr"] is True, plan
+assert plan["planned_steps"]["issue_sync_status"] == "ready-for-review", plan
+assert plan["issues"] == [{"number": 7, "title": None}], plan
+assert "## Planned Actions" in markdown, markdown
+assert "```bash" in markdown, markdown
+PY
+
+: >"$COMMAND_LOG"
+
 COMMAND_LOG="$COMMAND_LOG" \
 CREATE_GITHUB_ISSUE_SESSION_CMD="$FAKES_DIR/create-github-issue-session.sh" \
 RUN_DEV_TASK_CMD="$FAKES_DIR/run-dev-task.sh" \

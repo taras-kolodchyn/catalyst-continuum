@@ -121,6 +121,18 @@ This chooses the next issue for `per-issue`, runs the local control-plane flow, 
 candidate, and creates a dry-run GitHub issue update plan. Set `GITHUB_ISSUE_PR_STRATEGY=batch` when
 the imported issues should stay in one branch and one PR.
 
+If you want to preview the selected issue and GitHub mutation posture before starting agents, run:
+
+```bash
+make github-issue-plan \
+  REPOSITORY=OWNER/REPO \
+  REPO_PATH=/path/to/local/checkout \
+  GITHUB_ISSUE_ARGS="--label bug --limit 5"
+```
+
+This writes `workflow-plan.md` with the selected issue, PR strategy, draft PR intent, issue-sync
+status, and the next command to run the real workflow.
+
 If you want the source issue to show that Catalyst accepted it before the local run starts, enable
 the claim plan:
 
