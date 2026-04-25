@@ -1007,6 +1007,185 @@ textarea,
   margin-top: 10px;
 }
 
+.developer-handoff-layout,
+.developer-value-shell,
+.developer-review-shell,
+.developer-evidence-shell,
+.developer-agent-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.developer-handoff-hero,
+.developer-value-shell,
+.developer-review-shell,
+.developer-evidence-shell,
+.developer-agent-shell {
+  border: 1px solid rgba(24, 35, 29, 0.1);
+  border-radius: var(--radius-xl);
+  padding: 18px;
+}
+
+.developer-handoff-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(220px, 0.45fr);
+  gap: 18px;
+  align-items: stretch;
+  background:
+    radial-gradient(circle at 12% 18%, rgba(23, 79, 67, 0.18), transparent 30%),
+    radial-gradient(circle at 86% 14%, rgba(217, 154, 43, 0.18), transparent 26%),
+    linear-gradient(135deg, rgba(255, 251, 244, 0.96), rgba(226, 241, 235, 0.78));
+}
+
+.developer-handoff-hero-success {
+  background:
+    radial-gradient(circle at 12% 18%, rgba(23, 79, 67, 0.2), transparent 30%),
+    linear-gradient(135deg, rgba(226, 241, 235, 0.92), rgba(255, 251, 244, 0.76));
+}
+
+.developer-handoff-hero-warning {
+  background:
+    radial-gradient(circle at 12% 18%, rgba(217, 154, 43, 0.2), transparent 30%),
+    linear-gradient(135deg, rgba(255, 238, 216, 0.92), rgba(255, 251, 244, 0.76));
+}
+
+.developer-handoff-hero-error {
+  background:
+    radial-gradient(circle at 12% 18%, rgba(141, 48, 48, 0.18), transparent 30%),
+    linear-gradient(135deg, rgba(244, 225, 225, 0.92), rgba(255, 251, 244, 0.76));
+}
+
+.developer-handoff-copy h3,
+.developer-value-card h4,
+.developer-review-item h4,
+.developer-evidence-card h4,
+.developer-agent-card h4 {
+  margin: 8px 0 8px;
+  font-family: var(--serif);
+  letter-spacing: -0.02em;
+}
+
+.developer-handoff-copy h3 {
+  font-size: clamp(1.45rem, 2vw, 2.05rem);
+}
+
+.developer-handoff-copy p,
+.developer-value-card p,
+.developer-review-item p,
+.developer-evidence-card p,
+.developer-agent-card p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.developer-handoff-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.developer-handoff-meta span {
+  border: 1px solid rgba(24, 35, 29, 0.1);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.56);
+  color: var(--muted);
+  font-size: 0.78rem;
+  padding: 6px 9px;
+}
+
+.developer-handoff-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 10px;
+}
+
+.developer-value-shell {
+  background:
+    radial-gradient(circle at 88% 10%, rgba(23, 79, 67, 0.12), transparent 24%),
+    linear-gradient(135deg, rgba(255, 251, 244, 0.94), rgba(244, 238, 226, 0.68));
+}
+
+.developer-review-shell {
+  background:
+    radial-gradient(circle at 10% 18%, rgba(217, 154, 43, 0.12), transparent 26%),
+    linear-gradient(135deg, rgba(255, 251, 244, 0.94), rgba(255, 238, 216, 0.66));
+}
+
+.developer-evidence-shell,
+.developer-agent-shell {
+  background:
+    linear-gradient(135deg, rgba(255, 251, 244, 0.94), rgba(226, 241, 235, 0.6));
+}
+
+.developer-value-grid,
+.developer-review-grid,
+.developer-evidence-grid,
+.developer-agent-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(215px, 1fr));
+  gap: 12px;
+}
+
+.developer-value-card,
+.developer-review-item,
+.developer-evidence-card,
+.developer-agent-card {
+  min-width: 0;
+  border: 1px solid rgba(24, 35, 29, 0.1);
+  border-radius: var(--radius-lg);
+  background: rgba(255, 255, 255, 0.66);
+  padding: 14px;
+}
+
+.developer-review-item,
+.developer-evidence-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: inherit;
+  text-decoration: none;
+  transition:
+    transform var(--transition-soft),
+    border-color var(--transition-soft),
+    box-shadow var(--transition-soft);
+}
+
+.developer-review-item:hover,
+.developer-evidence-card:hover {
+  border-color: rgba(23, 79, 67, 0.26);
+  box-shadow: 0 14px 28px rgba(22, 33, 28, 0.08);
+  transform: translateY(-1px);
+}
+
+.developer-value-card-success,
+.developer-review-item-success,
+.developer-evidence-card-success,
+.developer-agent-card-success {
+  background:
+    linear-gradient(135deg, rgba(226, 241, 235, 0.82), rgba(255, 255, 255, 0.66));
+}
+
+.developer-value-card-warning,
+.developer-review-item-warning,
+.developer-evidence-card-warning,
+.developer-agent-card-warning {
+  background:
+    linear-gradient(135deg, rgba(255, 238, 216, 0.82), rgba(255, 255, 255, 0.66));
+}
+
+.developer-value-card-error,
+.developer-review-item-error,
+.developer-evidence-card-error,
+.developer-agent-card-error {
+  background:
+    linear-gradient(135deg, rgba(244, 225, 225, 0.86), rgba(255, 255, 255, 0.66));
+}
+
 .mission-freshness-board {
   display: flex;
   flex-direction: column;
@@ -3147,6 +3326,10 @@ textarea {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .developer-handoff-hero {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .pulse-layout {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -3254,6 +3437,11 @@ textarea {
   .mission-action-strip,
   .mission-freshness-grid,
   .mission-evidence-grid,
+  .developer-handoff-hero,
+  .developer-value-grid,
+  .developer-review-grid,
+  .developer-evidence-grid,
+  .developer-agent-grid,
   .brief-readiness-grid,
   .artifact-evidence-strip,
   .surface-link-grid,

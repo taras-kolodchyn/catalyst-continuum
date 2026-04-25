@@ -267,6 +267,8 @@ async function main() {
 
   await page.click("#runsList [data-run-id]");
   await page.waitForSelector("#runDetailShell");
+  await page.click('[data-mission-tab="developer"]');
+  await page.waitForSelector('[data-developer-handoff-panel="true"]', { timeout: 10000 });
   await page.click('[data-mission-tab="agents"]');
   await page.waitForSelector("#missionAgentsPanel");
   await page.waitForSelector("#agentLaneGrid .agent-lane", { timeout: 10000 });
@@ -402,6 +404,14 @@ async function main() {
       missionContextCardCount: count('[data-mission-context-card="true"]'),
       missionContextIncludesApprovalBoundary:
         document.body.textContent.includes("GitHub remains the human approval boundary"),
+      developerHandoffPanelCount: count('[data-developer-handoff-panel="true"]'),
+      developerValueCardCount: count("[data-developer-value-card]"),
+      developerReviewItemCount: count("[data-developer-review-item]"),
+      developerEvidenceCardCount: count("[data-developer-evidence-card]"),
+      developerAgentCardCount: count("[data-developer-agent-card]"),
+      developerTabIncludesValue:
+        document.body.textContent.includes("What this gives a developer") &&
+        document.body.textContent.includes("One audit trail across tools"),
       missionFreshnessCardCount: count('[data-mission-freshness-card="true"]'),
       missionFreshnessLatest: text('[data-mission-freshness-latest="true"]'),
       missionFreshnessIncludesQuality:
@@ -551,6 +561,24 @@ async function main() {
   }
   if (!summary.missionContextIncludesApprovalBoundary) {
     problems.push("mission context should explain that GitHub remains the approval boundary");
+  }
+  if (summary.developerHandoffPanelCount !== 1) {
+    problems.push(`expected one developer handoff panel, got ${summary.developerHandoffPanelCount}`);
+  }
+  if (summary.developerValueCardCount < 5) {
+    problems.push(`expected developer value cards, got ${summary.developerValueCardCount}`);
+  }
+  if (summary.developerReviewItemCount < 6) {
+    problems.push(`expected developer review checklist items, got ${summary.developerReviewItemCount}`);
+  }
+  if (summary.developerEvidenceCardCount !== 4) {
+    problems.push(`expected four developer evidence cards, got ${summary.developerEvidenceCardCount}`);
+  }
+  if (summary.developerAgentCardCount < 1) {
+    problems.push("developer handoff should summarize at least one agent lane");
+  }
+  if (!summary.developerTabIncludesValue) {
+    problems.push("developer tab should explain concrete developer value");
   }
   if (summary.missionFreshnessCardCount !== 4) {
     problems.push(`expected four mission freshness cards, got ${summary.missionFreshnessCardCount}`);

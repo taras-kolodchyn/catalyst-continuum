@@ -283,12 +283,14 @@ function cacheElements() {
     "eventTimeline",
     "lastRefresh",
     "missionAgentsPanel",
+    "missionDeveloperPanel",
     "missionFlowPanel",
     "missionGrafanaPanel",
     "missionLitellmPanel",
     "missionShell",
     "missionTabAgentsBadge",
     "missionTabBar",
+    "missionTabDeveloperBadge",
     "missionTabFlowBadge",
     "missionTabGrafanaBadge",
     "missionTabHint",
@@ -2886,6 +2888,7 @@ function persistMissionTabPreference() {
 function normalizeMissionTab(value) {
   switch (value) {
     case "agents":
+    case "developer":
     case "grafana":
     case "litellm":
       return value;
@@ -2934,6 +2937,7 @@ function syncMissionTabSelection() {
 
   const panelIds = {
     flow: "missionFlowPanel",
+    developer: "missionDeveloperPanel",
     agents: "missionAgentsPanel",
     grafana: "missionGrafanaPanel",
     litellm: "missionLitellmPanel",
@@ -2970,6 +2974,7 @@ function renderMissionControl() {
 
 function renderMissionTabBadges() {
   renderMissionFlowTabBadge();
+  renderMissionDeveloperTabBadge();
   renderMissionAgentsTabBadge();
   renderMissionGrafanaTabBadge();
   renderMissionLitellmTabBadge();
@@ -2986,6 +2991,20 @@ function renderMissionFlowTabBadge() {
     elements.missionTabFlowBadge,
     statusTone(runStatus),
     displayRunStatus(runStatus)
+  );
+}
+
+function renderMissionDeveloperTabBadge() {
+  if (!state.selectedRunDetail) {
+    setMissionTabBadge(elements.missionTabDeveloperBadge, "neutral", "Open run");
+    return;
+  }
+
+  const guide = buildRunGuide(state.selectedRunDetail, state.selectedRunEvents);
+  setMissionTabBadge(
+    elements.missionTabDeveloperBadge,
+    guide.badgeTone,
+    guide.badgeLabel
   );
 }
 
@@ -3060,6 +3079,9 @@ function renderActiveMissionPanel() {
     case "agents":
       renderMissionAgentsPanel();
       return;
+    case "developer":
+      renderMissionDeveloperPanel();
+      return;
     case "grafana":
       renderMissionGrafanaPanel();
       return;
@@ -3078,6 +3100,11 @@ function renderMissionTabHint() {
       message = state.selectedRunDetail
         ? "Filter by assigned agent to compare live task state, task events, and persisted agent reports for the selected run."
         : "Open a run first, then compare multiple agents side by side from the same selected-run context.";
+      break;
+    case "developer":
+      message = state.selectedRunDetail
+        ? "Developer handoff turns run state into a review checklist: what changed, what passed, where to inspect, and the next safe action."
+        : "Open a run first to see the developer-facing review package produced by the control plane.";
       break;
     case "grafana":
       message =
@@ -3205,6 +3232,546 @@ function renderMissionFlowPanel() {
     `,
     { markUpdated: false }
   );
+}
+
+function renderMissionDeveloperPanel() {
+  if (!state.selectedRunDetail) {
+    setRenderedHtml(
+      elements.missionDeveloperPanel,
+      renderSectionEmptyState(
+        "Developer handoff",
+        "Open a run to see what is reviewable",
+        "This tab turns orchestration state into a developer-facing checklist: what changed, what passed, where to inspect evidence, and what to do next."
+      ),
+      { markUpdated: false }
+    );
+    return;
+  }
+
+  const runDetail = state.selectedRunDetail;
+  const guide = buildRunGuide(runDetail, state.selectedRunEvents);
+  const summary = buildDeveloperHandoffSummary(runDetail, guide);
+  const valueCards = buildDeveloperValueCards(runDetail, guide, summary);
+  const reviewItems = buildDeveloperReviewItems(runDetail);
+  const evidenceCards = buildDeveloperEvidenceCards(runDetail);
+  const agentDigestItems = buildDeveloperAgentDigestItems(runDetail);
+  const readyReviewItems = reviewItems.filter((item) => item.ready).length;
+
+  setRenderedHtml(
+    elements.missionDeveloperPanel,
+    `
+      <div class="developer-handoff-layout" data-developer-handoff-panel="true">
+        ${renderDeveloperHandoffHero(runDetail, summary)}
+        <section class="developer-value-shell">
+          <div class="detail-section-head">
+            <div>
+              <p class="panel-kicker">Developer value</p>
+              <h3>What this gives a developer</h3>
+            </div>
+            <span class="badge badge-${escapeHtml(summary.tone)}">${escapeHtml(summary.badge)}</span>
+          </div>
+          <div class="developer-value-grid">
+            ${valueCards.map(renderDeveloperValueCard).join("")}
+          </div>
+        </section>
+        <section class="developer-review-shell">
+          <div class="detail-section-head">
+            <div>
+              <p class="panel-kicker">Review checklist</p>
+              <h3>Evidence to inspect before trusting the PR</h3>
+            </div>
+            <span class="badge badge-${escapeHtml(
+              readyReviewItems === reviewItems.length ? "success" : "warning"
+            )}">
+              ${escapeHtml(`${readyReviewItems}/${reviewItems.length} ready`)}
+            </span>
+          </div>
+          <div class="developer-review-grid">
+            ${reviewItems.map(renderDeveloperReviewItem).join("")}
+          </div>
+        </section>
+        <section class="developer-evidence-shell">
+          <div class="detail-section-head">
+            <div>
+              <p class="panel-kicker">Evidence shortcuts</p>
+              <h3>Where to look when reviewing agent output</h3>
+            </div>
+            <span class="badge badge-neutral">${escapeHtml(String(evidenceCards.length))} groups</span>
+          </div>
+          <div class="developer-evidence-grid">
+            ${evidenceCards.map(renderDeveloperEvidenceCard).join("")}
+          </div>
+        </section>
+        <section class="developer-agent-shell">
+          <div class="detail-section-head">
+            <div>
+              <p class="panel-kicker">Agent digest</p>
+              <h3>Which agents touched this run</h3>
+            </div>
+            <span class="badge badge-neutral">${escapeHtml(String(agentDigestItems.length))} lane(s)</span>
+          </div>
+          <div class="developer-agent-grid">
+            ${
+              agentDigestItems.length
+                ? agentDigestItems.map(renderDeveloperAgentDigestItem).join("")
+                : renderSectionEmptyState(
+                    "Agent digest",
+                    "No assigned agent work yet",
+                    "Agent lanes appear after tasks are materialized with assigned agents."
+                  )
+            }
+          </div>
+        </section>
+      </div>
+    `,
+    { markUpdated: false }
+  );
+}
+
+function buildDeveloperHandoffSummary(runDetail, guide) {
+  const artifactTypes = runArtifactTypes(runDetail);
+  const eventTypes = new Set((state.selectedRunEvents ?? []).map((event) => event.event_type));
+  const taskCounts = normalizedTaskCounts(runDetail.task_counts);
+  const qualityReady =
+    artifactTypes.has(QUALITY_REPORT_ARTIFACT_TYPE) ||
+    eventTypes.has(RUN_QUALITY_EVALUATED_EVENT_TYPE);
+  const prCandidateReady = artifactTypes.has(PR_CANDIDATE_ARTIFACT_TYPE);
+  const prExportReady =
+    artifactTypes.has(PR_EXPORT_ARTIFACT_TYPE) ||
+    eventTypes.has(PR_CANDIDATE_EXPORTED_EVENT_TYPE);
+  const publicationReady =
+    artifactTypes.has(PR_PUBLICATION_ARTIFACT_TYPE) ||
+    eventTypes.has(PR_EXPORT_PUBLISHED_EVENT_TYPE);
+  const githubPrReady =
+    artifactTypes.has(GITHUB_PULL_REQUEST_ARTIFACT_TYPE) ||
+    eventTypes.has(GITHUB_PR_OPENED_EVENT_TYPE);
+
+  if (runDetail.status === "failed" || taskCounts.failed > 0) {
+    return developerHandoffSummary({
+      actionHref: "#run-tasks",
+      actionLabel: "Inspect failed tasks",
+      badge: "Blocked",
+      detail:
+        "Agent work failed. Start with failed task cards, execution logs, and run events before changing the brief or retrying.",
+      title: "Fix failed agent work before review",
+      tone: "error",
+    });
+  }
+
+  if (githubPrReady) {
+    return developerHandoffSummary({
+      actionHref: "#run-artifacts",
+      actionLabel: "Open review evidence",
+      badge: "Review",
+      detail:
+        "The draft PR handoff is recorded. The developer path is now normal GitHub review, with Continuum artifacts as the audit trail.",
+      title: "Review the draft PR with evidence attached",
+      tone: "success",
+    });
+  }
+
+  if (publicationReady || prExportReady) {
+    return developerHandoffSummary({
+      actionId: guide.nextActionControlId,
+      actionLabel: guide.nextActionControlId
+        ? displayRunActionLabel(guide.nextActionControlId)
+        : "Open handoff artifacts",
+      actionHref: "#run-artifacts",
+      badge: "Handoff",
+      detail:
+        "The review package exists locally or has branch publication evidence. Continue only through the guarded handoff controls.",
+      title: guide.nextActionTitle,
+      tone: guide.badgeTone,
+    });
+  }
+
+  if (qualityReady && prCandidateReady) {
+    return developerHandoffSummary({
+      actionId: guide.nextActionControlId,
+      actionLabel: guide.nextActionControlId
+        ? displayRunActionLabel(guide.nextActionControlId)
+        : "Open artifacts",
+      actionHref: "#run-artifacts",
+      badge: "Promote",
+      detail:
+        "Execution and quality evidence exist. The next developer-value step is turning the candidate into an explicit review handoff.",
+      title: "Prepare the PR handoff",
+      tone: "warning",
+    });
+  }
+
+  if (runDetail.status === "succeeded" && !qualityReady) {
+    return developerHandoffSummary({
+      actionId: "evaluate-quality",
+      actionLabel: "Evaluate quality",
+      badge: "Quality",
+      detail:
+        "Agent execution finished, but review should wait until the quality report proves artifact freshness and promotion prerequisites.",
+      title: "Run quality before code review",
+      tone: "warning",
+    });
+  }
+
+  if (taskCounts.running > 0 || runDetail.status === "executing") {
+    return developerHandoffSummary({
+      actionHref: "#run-events",
+      actionLabel: "Watch run events",
+      badge: "Running",
+      detail:
+        "Agent work is still moving. Use the event feed and agent digest to see what is happening without refreshing the page.",
+      title: "Wait for active agent work to finish",
+      tone: "warning",
+    });
+  }
+
+  if (taskCounts.queued > 0 || runDetail.status === "queued") {
+    return developerHandoffSummary({
+      actionId: guide.nextActionControlId,
+      actionLabel: guide.nextActionControlId
+        ? displayRunActionLabel(guide.nextActionControlId)
+        : "Start execution",
+      badge: "Ready",
+      detail:
+        "Planning, policy, and routing are ready. Execute the next controlled task so the developer gets concrete output to review.",
+      title: "Start controlled agent execution",
+      tone: "warning",
+    });
+  }
+
+  return developerHandoffSummary({
+    actionHref: "#run-guide",
+    actionLabel: "Open run guide",
+    badge: guide.badgeLabel,
+    detail: guide.nextActionDetail,
+    title: guide.nextActionTitle,
+    tone: guide.badgeTone,
+  });
+}
+
+function developerHandoffSummary(summary) {
+  return {
+    actionHref: summary.actionHref ?? "#run-detail",
+    actionId: summary.actionId ?? null,
+    actionLabel: summary.actionLabel ?? "Open run detail",
+    badge: summary.badge ?? "Next",
+    detail: summary.detail,
+    title: summary.title,
+    tone: normalizePulseTone(summary.tone),
+  };
+}
+
+function renderDeveloperHandoffHero(runDetail, summary) {
+  let actionMarkup;
+  if (summary.actionId) {
+    const availability = runActionAvailability(runDetail);
+    const actionState =
+      availability[summary.actionId] ?? disabledRunAction("Action unavailable.");
+    const busy =
+      state.runActionInFlight && state.runActionBusyActionId === summary.actionId;
+    const disabledAttr = state.runActionInFlight || !actionState.enabled ? " disabled" : "";
+    const titleAttr =
+      busy || actionState.enabled ? "" : ` title="${escapeHtml(actionState.reason)}"`;
+    actionMarkup = `
+      <button
+        class="button button-primary"
+        type="button"
+        data-run-action="${escapeHtml(summary.actionId)}"
+        ${disabledAttr}${titleAttr}
+      >
+        ${escapeHtml(busy ? runActionBusyLabel(summary.actionId) : summary.actionLabel)}
+      </button>
+    `;
+  } else {
+    actionMarkup = `
+      <a class="button button-primary button-link" href="${escapeHtml(summary.actionHref)}">
+        ${escapeHtml(summary.actionLabel)}
+      </a>
+    `;
+  }
+
+  return `
+    <section class="developer-handoff-hero developer-handoff-hero-${escapeHtml(summary.tone)}">
+      <div class="developer-handoff-copy">
+        <p class="panel-kicker">Developer handoff</p>
+        <h3>${escapeHtml(summary.title)}</h3>
+        <p>${escapeHtml(summary.detail)}</p>
+        <div class="developer-handoff-meta">
+          <span>${escapeHtml(repositoryLabel(runDetail) || "No repository target")}</span>
+          <span>${escapeHtml(runDetail.target_pack ?? "unassigned pack")}</span>
+          <span>${escapeHtml(shortId(runDetail.run_id))}</span>
+        </div>
+      </div>
+      <div class="developer-handoff-actions">
+        <span class="badge badge-${escapeHtml(summary.tone)}">${escapeHtml(summary.badge)}</span>
+        ${actionMarkup}
+        <a class="button button-ghost button-link" href="#run-artifacts">Artifacts</a>
+        <a class="button button-ghost button-link" href="#run-events">Events</a>
+      </div>
+    </section>
+  `;
+}
+
+function buildDeveloperValueCards(runDetail, guide, summary) {
+  const taskCounts = normalizedTaskCounts(runDetail.task_counts);
+  const artifacts = runArtifacts(runDetail);
+  const artifactTypes = runArtifactTypes(runDetail);
+  const eventCount = Array.isArray(state.selectedRunEvents) ? state.selectedRunEvents.length : 0;
+  const reportCount = agentTaskReportArtifacts(runDetail).length;
+  const logCount = agentExecutionLogArtifacts(runDetail).length;
+  const qualityReady = artifactTypes.has(QUALITY_REPORT_ARTIFACT_TYPE);
+  const prEvidenceCount = [
+    PR_CANDIDATE_ARTIFACT_TYPE,
+    PR_EXPORT_ARTIFACT_TYPE,
+    PR_PUBLICATION_ARTIFACT_TYPE,
+    GITHUB_PULL_REQUEST_ARTIFACT_TYPE,
+  ].filter((artifactType) => artifactTypes.has(artifactType)).length;
+
+  return [
+    {
+      detail: "Task state, agent reports, and runtime logs replace opaque agent-session memory.",
+      kicker: "What changed",
+      title: `${taskCounts.succeeded}/${taskCounts.total} task(s) complete`,
+      tone: taskCounts.failed > 0 ? "error" : taskCounts.succeeded > 0 ? "success" : "warning",
+    },
+    {
+      detail: qualityReady
+        ? "A quality report exists and can be compared against the latest execution evidence."
+        : "Review should wait until the quality gate is evaluated for the latest artifacts.",
+      kicker: "What passed",
+      title: qualityReady ? "Quality evidence exists" : "Quality still needs a gate",
+      tone: qualityReady ? "success" : "warning",
+    },
+    {
+      detail: "The developer can inspect artifacts and events without reconstructing state from logs.",
+      kicker: "Where to inspect",
+      title: `${artifacts.length} artifacts · ${eventCount} events`,
+      tone: artifacts.length && eventCount ? "success" : "neutral",
+    },
+    {
+      detail: `${reportCount} agent report(s), ${logCount} execution log(s), and ${runAgents(runDetail).length} agent lane(s) are tied to this run.`,
+      kicker: "Why not just an agent",
+      title: "One audit trail across tools",
+      tone: reportCount || logCount ? "success" : "neutral",
+    },
+    {
+      detail: summary.detail,
+      kicker: "Next move",
+      title: guide.nextActionTitle,
+      tone: summary.tone,
+    },
+    {
+      detail: prEvidenceCount
+        ? "Promotion evidence is already attached to the run."
+        : "The PR package appears only after execution and quality make the run promotable.",
+      kicker: "Review package",
+      title: `${prEvidenceCount}/4 PR artifacts`,
+      tone: prEvidenceCount === 4 ? "success" : prEvidenceCount > 0 ? "warning" : "neutral",
+    },
+  ];
+}
+
+function renderDeveloperValueCard(item) {
+  const tone = normalizePulseTone(item.tone);
+
+  return `
+    <article class="developer-value-card developer-value-card-${escapeHtml(tone)}" data-developer-value-card="true">
+      <div class="mission-feed-head">
+        <p class="panel-kicker">${escapeHtml(item.kicker)}</p>
+        <span class="badge badge-${escapeHtml(tone)}">${escapeHtml(toneLabel(tone))}</span>
+      </div>
+      <h4>${escapeHtml(item.title)}</h4>
+      <p>${escapeHtml(item.detail)}</p>
+    </article>
+  `;
+}
+
+function buildDeveloperReviewItems(runDetail) {
+  const artifactTypes = runArtifactTypes(runDetail);
+  const reportCount = agentTaskReportArtifacts(runDetail).length;
+  const logCount = agentExecutionLogArtifacts(runDetail).length;
+  const guard = repositoryTargetGuardSummary(runDetail);
+  const handoffItems = buildReviewHandoffItems(runDetail).map((item) => ({
+    detail: item.detail,
+    href: "#run-artifacts",
+    ready: item.ready,
+    status: item.status,
+    title: item.title,
+    tone: item.tone,
+  }));
+
+  return [
+    {
+      detail:
+        "Start by confirming what agents claimed, completed, and emitted before reviewing generated code.",
+      href: "#run-tasks",
+      ready: reportCount > 0 || logCount > 0,
+      status: reportCount > 0 || logCount > 0 ? "Ready" : "Waiting",
+      title: `${reportCount} report(s) · ${logCount} log(s)`,
+      tone: reportCount > 0 || logCount > 0 ? "success" : "neutral",
+    },
+    {
+      detail: guard.detail,
+      href: "#run-controls",
+      ready: guard.tone === "success" || guard.tone === "warning",
+      status: guard.title,
+      title: "Repository guard",
+      tone: guard.tone,
+    },
+    ...handoffItems,
+    {
+      detail: artifactTypes.has(GITHUB_PULL_REQUEST_ARTIFACT_TYPE)
+        ? "The draft PR is recorded; continue with normal GitHub code review."
+        : "Draft PR evidence is not recorded yet, so GitHub review has not fully started.",
+      href: "#run-artifacts",
+      ready: artifactTypes.has(GITHUB_PULL_REQUEST_ARTIFACT_TYPE),
+      status: artifactTypes.has(GITHUB_PULL_REQUEST_ARTIFACT_TYPE) ? "Ready" : "Pending",
+      title: "GitHub review boundary",
+      tone: artifactTypes.has(GITHUB_PULL_REQUEST_ARTIFACT_TYPE) ? "success" : "neutral",
+    },
+  ];
+}
+
+function renderDeveloperReviewItem(item) {
+  const tone = normalizePulseTone(item.tone);
+
+  return `
+    <a
+      class="developer-review-item developer-review-item-${escapeHtml(tone)}"
+      href="${escapeHtml(item.href)}"
+      data-developer-review-item="true"
+    >
+      <div class="mission-feed-head">
+        <h4>${escapeHtml(item.title)}</h4>
+        <span class="badge badge-${escapeHtml(tone)}">${escapeHtml(item.status)}</span>
+      </div>
+      <p>${escapeHtml(item.detail)}</p>
+    </a>
+  `;
+}
+
+function buildDeveloperEvidenceCards(runDetail) {
+  const artifacts = runArtifacts(runDetail);
+  return [
+    developerEvidenceGroup({
+      artifacts,
+      detail: "Backlog, policy, and dispatch explain why this work was allowed and who should execute it.",
+      href: "#run-artifacts",
+      kicker: "Planning",
+      title: "Brief -> backlog -> routing",
+      types: [BACKLOG_ARTIFACT_TYPE, POLICY_REPORT_ARTIFACT_TYPE, DISPATCH_PLAN_ARTIFACT_TYPE],
+    }),
+    developerEvidenceGroup({
+      artifacts,
+      detail: "Prepared workspaces, agent reports, and runtime logs show what happened outside the UI.",
+      href: "#run-tasks",
+      kicker: "Execution",
+      title: "Agent work and logs",
+      types: ["task_workspace_input", "agent_task_report", "log", "workspace_snapshot"],
+    }),
+    developerEvidenceGroup({
+      artifacts,
+      detail: "Quality reports are the gate between generated output and review handoff.",
+      href: "#run-artifacts",
+      kicker: "Quality",
+      title: "Promotion gate",
+      types: [QUALITY_REPORT_ARTIFACT_TYPE],
+    }),
+    developerEvidenceGroup({
+      artifacts,
+      detail: "PR candidate, export, publication, and draft PR artifacts make the GitHub handoff auditable.",
+      href: "#run-artifacts",
+      kicker: "PR handoff",
+      title: "Review package",
+      types: [
+        PR_CANDIDATE_ARTIFACT_TYPE,
+        PR_EXPORT_ARTIFACT_TYPE,
+        PR_PUBLICATION_ARTIFACT_TYPE,
+        GITHUB_PULL_REQUEST_ARTIFACT_TYPE,
+      ],
+    }),
+  ];
+}
+
+function developerEvidenceGroup({ artifacts, detail, href, kicker, title, types }) {
+  const count = artifacts.filter((artifact) => types.includes(artifact.artifact_type)).length;
+  const latest = latestArtifactTimestamp(types, artifacts);
+
+  return {
+    count,
+    detail,
+    href,
+    kicker,
+    latest,
+    title,
+    tone: count ? "success" : "neutral",
+    types,
+  };
+}
+
+function renderDeveloperEvidenceCard(item) {
+  const tone = normalizePulseTone(item.tone);
+
+  return `
+    <a
+      class="developer-evidence-card developer-evidence-card-${escapeHtml(tone)}"
+      href="${escapeHtml(item.href)}"
+      data-developer-evidence-card="true"
+    >
+      <div class="mission-feed-head">
+        <div>
+          <p class="panel-kicker">${escapeHtml(item.kicker)}</p>
+          <h4>${escapeHtml(item.title)}</h4>
+        </div>
+        <span class="badge badge-${escapeHtml(tone)}">${escapeHtml(`${item.count} artifact(s)`)}</span>
+      </div>
+      <p>${escapeHtml(item.detail)}</p>
+      <div class="mission-feed-meta">
+        <span>${escapeHtml(item.latest ? formatTimestamp(item.latest) : "not recorded yet")}</span>
+        <span>${escapeHtml(item.types.join(", "))}</span>
+      </div>
+    </a>
+  `;
+}
+
+function buildDeveloperAgentDigestItems(runDetail) {
+  const tasks = Array.isArray(runDetail?.tasks) ? runDetail.tasks : [];
+  return runAgents(runDetail).map((agent) => {
+    const agentTasks = tasks.filter((task) => agentNameForTask(task) === agent);
+    const counts = normalizedTaskCounts({
+      total: agentTasks.length,
+      queued: agentTasks.filter((task) => task.status === "queued").length,
+      running: agentTasks.filter((task) => task.status === "running").length,
+      succeeded: agentTasks.filter((task) => task.status === "succeeded").length,
+      failed: agentTasks.filter((task) => task.status === "failed").length,
+    });
+    return {
+      agent,
+      counts,
+      tone: counts.failed > 0 ? "error" : counts.succeeded === counts.total ? "success" : "warning",
+    };
+  });
+}
+
+function renderDeveloperAgentDigestItem(item) {
+  const tone = normalizePulseTone(item.tone);
+
+  return `
+    <article class="developer-agent-card developer-agent-card-${escapeHtml(tone)}" data-developer-agent-card="true">
+      <div class="mission-feed-head">
+        <div>
+          <p class="panel-kicker">Agent lane</p>
+          <h4>${escapeHtml(item.agent)}</h4>
+        </div>
+        <span class="badge badge-${escapeHtml(tone)}">${escapeHtml(toneLabel(tone))}</span>
+      </div>
+      <p>${escapeHtml(`${item.counts.succeeded}/${item.counts.total} task(s) succeeded`)}</p>
+      <div class="mission-feed-meta">
+        <span>${escapeHtml(`${item.counts.queued} queued`)}</span>
+        <span>${escapeHtml(`${item.counts.running} running`)}</span>
+        <span>${escapeHtml(`${item.counts.failed} failed`)}</span>
+      </div>
+    </article>
+  `;
 }
 
 function renderMissionContextRibbon(runDetail, guide, publicationGuard) {

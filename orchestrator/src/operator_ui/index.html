@@ -252,6 +252,18 @@
             </button>
             <button
               class="mission-tab"
+              id="missionTabDeveloper"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              aria-controls="missionDeveloperPanel"
+              data-mission-tab="developer"
+            >
+              <span class="mission-tab-label">Developer</span>
+              <span id="missionTabDeveloperBadge" class="badge badge-neutral mission-tab-badge">Open run</span>
+            </button>
+            <button
+              class="mission-tab"
               id="missionTabAgents"
               type="button"
               role="tab"
@@ -299,6 +311,18 @@
           >
             <div class="empty-state compact">
               Waiting for the first selected run to materialize the mission-control flow.
+            </div>
+          </section>
+          <section
+            id="missionDeveloperPanel"
+            class="mission-panel-body hidden"
+            role="tabpanel"
+            aria-labelledby="missionTabDeveloper"
+            data-mission-panel="developer"
+          >
+            <div class="empty-state compact">
+              Open a run to see the developer handoff: what changed, what passed, what to inspect,
+              and what to do next.
             </div>
           </section>
           <section
