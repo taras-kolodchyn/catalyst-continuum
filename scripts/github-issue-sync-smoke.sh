@@ -14,8 +14,10 @@ ISSUE_RUN="$CONTINUUM_ROOT/dev-runs/issue-run"
 BATCH_RUN="$CONTINUUM_ROOT/dev-runs/batch-run"
 ISSUE_SYNC_OUT="$TMP_DIR/issue-sync"
 BATCH_SYNC_OUT="$TMP_DIR/batch-sync"
+CLAIM_SYNC_OUT="$TMP_DIR/claim-sync"
 ISSUE_OUTPUT="$TMP_DIR/issue-sync.out"
 BATCH_OUTPUT="$TMP_DIR/batch-sync.out"
+CLAIM_OUTPUT="$TMP_DIR/claim-sync.out"
 
 mkdir -p "$ISSUE_SESSION" "$BATCH_SESSION" "$ISSUE_RUN/pr-export" "$BATCH_RUN/pr-export"
 
@@ -115,6 +117,37 @@ cat >"$BATCH_RUN/run-summary.json" <<JSON
   }
 }
 JSON
+
+./scripts/sync-github-issue-status.sh \
+  --session-manifest "$ISSUE_SESSION/manifest.json" \
+  --output-dir "$CLAIM_SYNC_OUT" \
+  --status "in-progress" \
+  >"$CLAIM_OUTPUT"
+
+grep -F "github_issue_sync_status: in-progress" "$CLAIM_OUTPUT" >/dev/null
+grep -F "github_issue_sync_close_issues: false" "$CLAIM_OUTPUT" >/dev/null
+grep -F "github_issue_sync_issue: smartit/github-issue-sync-smoke#42" "$CLAIM_OUTPUT" >/dev/null
+
+python3 - "$CLAIM_SYNC_OUT" <<'PY'
+from __future__ import annotations
+
+import json
+import pathlib
+import sys
+
+sync_out = pathlib.Path(sys.argv[1])
+plan = json.loads((sync_out / "github-issue-sync-plan.json").read_text(encoding="utf-8"))
+comment = (sync_out / "comment.md").read_text(encoding="utf-8")
+
+assert plan["apply"] is False, plan
+assert plan["status"] == "in-progress", plan
+assert plan["close_issues"] is False, plan
+assert plan["run_summary_path"] is None, plan
+assert "continuum:in-progress" in plan["labels"], plan
+assert "continuum:has-pr-candidate" not in plan["labels"], plan
+assert "Catalyst Continuum accepted this issue work package" in comment, comment
+assert "GitHub state: `left open`" in comment, comment
+PY
 
 ./scripts/sync-github-issue-status.sh \
   --run-summary "$ISSUE_RUN/run-summary.json" \

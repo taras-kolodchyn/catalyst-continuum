@@ -172,6 +172,21 @@ make github-issue-run \
 plan then targets every issue in the batch with the same branch, commit, PR URL, labels, and audit
 comment.
 
+When you want to mark the issue work package as accepted before the local run starts, enable the
+claim step:
+
+```bash
+make github-issue-run \
+  REPOSITORY=OWNER/REPO \
+  REPO_PATH=/path/to/local/checkout \
+  GITHUB_ISSUE=123 \
+  GITHUB_ISSUE_CLAIM=1
+```
+
+This writes an `in-progress` issue claim plan into the workflow output. Add
+`GITHUB_ISSUE_CLAIM_APPLY=1` only when you want Catalyst to comment and label the source issue(s)
+through `gh` before execution begins.
+
 By default, issue sync is still a dry run. Add `GITHUB_ISSUE_SYNC_APPLY=1` only after reviewing the
 generated `github-issue-sync-plan.json` and `comment.md`.
 
@@ -218,7 +233,9 @@ make github-issue-sync \
   GITHUB_ISSUE_SYNC_APPLY=1
 ```
 
-In `ready-for-review`, Catalyst comments on the issue, applies labels such as
+In `in-progress`, Catalyst comments that the issue work package has been accepted for local
+execution, applies `continuum:in-progress`, and leaves the issue open. In `ready-for-review`,
+Catalyst comments on the issue, applies labels such as
 `continuum:ready-for-review`, records the branch/commit/PR URL, and leaves the issue open for normal
 review.
 

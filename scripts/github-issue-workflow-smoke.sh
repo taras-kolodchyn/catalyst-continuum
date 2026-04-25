@@ -307,10 +307,13 @@ TMPDIR="$TMP_DIR/per-issue-tmp" \
   --workflow-output-dir "$PER_ISSUE_OUT" \
   --session-output-root "$TMP_DIR/per-issue-sessions" \
   --run-output-dir "$TMP_DIR/per-issue-run" \
+  --claim-issues \
+  --apply-issue-claim \
   --create-draft-pr \
   >"$TMP_DIR/per-issue.out"
 
 grep -F "GitHub issue workflow complete." "$TMP_DIR/per-issue.out" >/dev/null
+grep -F "issue_claim_applied: true" "$TMP_DIR/per-issue.out" >/dev/null
 grep -F "issue_sync_applied: false" "$TMP_DIR/per-issue.out" >/dev/null
 grep -F "workflow_summary:" "$TMP_DIR/per-issue.out" >/dev/null
 grep -F "draft_pr_url: https://github.com/smartit/github-issue-workflow-smoke/pull/7" "$TMP_DIR/per-issue.out" >/dev/null
@@ -318,6 +321,8 @@ grep -F -- "--next-only" "$COMMAND_LOG" >/dev/null
 grep -F "draft " "$COMMAND_LOG" >/dev/null
 grep -F -- "--keep-database" "$COMMAND_LOG" >/dev/null
 grep -F -- "--pr-url" "$COMMAND_LOG" >/dev/null
+grep -F -- "--session-manifest" "$COMMAND_LOG" >/dev/null
+grep -F -- "in-progress" "$COMMAND_LOG" >/dev/null
 
 python3 - "$PER_ISSUE_OUT/workflow-summary.json" <<'PY'
 from __future__ import annotations
@@ -329,6 +334,10 @@ import sys
 summary = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
 assert summary["repository_full_name"] == "smartit/github-issue-workflow-smoke", summary
 assert summary["pr_strategy"] == "per-issue", summary
+assert summary["issue_claim"]["requested"] is True, summary
+assert summary["issue_claim"]["applied"] is True, summary
+assert summary["issue_claim"]["exit_code"] == 0, summary
+assert summary["issue_claim"]["plan"].endswith("/github-issue-sync-plan.json"), summary
 assert summary["run"]["exit_code"] == 0, summary
 assert summary["draft_pr"]["requested"] is True, summary
 assert summary["draft_pr"]["exit_code"] == 0, summary
@@ -379,6 +388,7 @@ import sys
 
 summary = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
 assert summary["pr_strategy"] == "batch", summary
+assert summary["issue_claim"]["requested"] is False, summary
 assert summary["draft_pr"]["requested"] is False, summary
 assert summary["issue_sync"]["status"] == "done", summary
 assert summary["issue_sync"]["applied"] is True, summary
@@ -418,6 +428,7 @@ import pathlib
 import sys
 
 summary = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+assert summary["issue_claim"]["requested"] is False, summary
 assert summary["run"]["exit_code"] == 23, summary
 assert summary["draft_pr"]["requested"] is False, summary
 assert summary["issue_sync"]["skipped"] is True, summary

@@ -26,6 +26,8 @@ SYNC_STATUS="ready-for-review"
 PR_URL=""
 APPLY_ISSUE_SYNC=0
 SKIP_ISSUE_SYNC=0
+CLAIM_ISSUES=0
+APPLY_ISSUE_CLAIM=0
 CREATE_DRAFT_PR=0
 DRAFT_PR_REMOTE_URL=""
 AUTO_KEEP_DATABASE_FOR_DRAFT_PR=0
@@ -49,6 +51,7 @@ VALIDATION_COMMANDS=()
 SESSION_EXTRA_ARGS=()
 RUN_EXTRA_ARGS=()
 SYNC_EXTRA_ARGS=()
+CLAIM_EXTRA_ARGS=()
 DRAFT_PR_EXTRA_ARGS=()
 
 usage() {
@@ -103,6 +106,8 @@ Draft PR options:
   --draft-pr-arg ARG            Extra argument passed to create-draft-pr-from-run-summary.sh.
 
 Issue sync options:
+  --claim-issues                Prepare an in-progress GitHub issue claim plan before running.
+  --apply-issue-claim           Apply the in-progress issue claim through gh before running.
   --issue-sync-status VALUE     ready-for-review or done (default: ready-for-review).
   --pr-url URL                  Pull request URL to attach to the issue sync comment.
   --sync-output-dir PATH        Output directory for github-issue-sync-plan.json and comment.md.
@@ -112,6 +117,7 @@ Issue sync options:
 Advanced passthrough:
   --session-arg ARG             Extra argument passed to create-github-issue-session.sh.
   --run-arg ARG                 Extra argument passed to run-dev-task.sh.
+  --claim-arg ARG               Extra argument passed to sync-github-issue-status.sh for claim.
   --sync-arg ARG                Extra argument passed to sync-github-issue-status.sh.
   -h, --help                    Show this help.
 EOF
@@ -251,6 +257,15 @@ while [ "$#" -gt 0 ]; do
       SYNC_STATUS="${2:?missing value for --issue-sync-status}"
       shift 2
       ;;
+    --claim-issues)
+      CLAIM_ISSUES=1
+      shift
+      ;;
+    --apply-issue-claim)
+      CLAIM_ISSUES=1
+      APPLY_ISSUE_CLAIM=1
+      shift
+      ;;
     --pr-url)
       PR_URL="${2:?missing value for --pr-url}"
       shift 2
@@ -273,6 +288,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --run-arg)
       RUN_EXTRA_ARGS+=("${2:?missing value for --run-arg}")
+      shift 2
+      ;;
+    --claim-arg)
+      CLAIM_EXTRA_ARGS+=("${2:?missing value for --claim-arg}")
       shift 2
       ;;
     --sync-arg)
@@ -415,6 +434,7 @@ WORKFLOW_OUTPUT_DIR="$(absolute_path "$WORKFLOW_OUTPUT_DIR")"
 mkdir -p "$WORKFLOW_OUTPUT_DIR"
 
 SESSION_OUTPUT="$WORKFLOW_OUTPUT_DIR/create-session.out"
+CLAIM_OUTPUT="$WORKFLOW_OUTPUT_DIR/issue-claim.out"
 RUN_OUTPUT="$WORKFLOW_OUTPUT_DIR/run-dev-task.out"
 SYNC_OUTPUT="$WORKFLOW_OUTPUT_DIR/issue-sync.out"
 DRAFT_PR_OUTPUT="$WORKFLOW_OUTPUT_DIR/draft-pr.out"
@@ -422,8 +442,11 @@ WORKFLOW_SUMMARY="$WORKFLOW_OUTPUT_DIR/workflow-summary.json"
 SESSION_DIR=""
 BRIEF_FILE=""
 RUN_SUMMARY=""
+CLAIM_PLAN=""
+CLAIM_COMMENT=""
 SYNC_PLAN=""
 SYNC_COMMENT=""
+CLAIM_EXIT=0
 RUN_EXIT=0
 SYNC_EXIT=0
 DRAFT_PR_EXIT=0
@@ -451,6 +474,12 @@ write_workflow_summary() {
   SESSION_OUTPUT="$SESSION_OUTPUT" \
   SESSION_DIR="$SESSION_DIR" \
   BRIEF_FILE="$BRIEF_FILE" \
+  CLAIM_ISSUES="$CLAIM_ISSUES" \
+  APPLY_ISSUE_CLAIM="$APPLY_ISSUE_CLAIM" \
+  CLAIM_OUTPUT="$CLAIM_OUTPUT" \
+  CLAIM_PLAN="$CLAIM_PLAN" \
+  CLAIM_COMMENT="$CLAIM_COMMENT" \
+  CLAIM_EXIT="$CLAIM_EXIT" \
   RUN_OUTPUT="$RUN_OUTPUT" \
   RUN_SUMMARY="$RUN_SUMMARY" \
   RUN_EXIT="$RUN_EXIT" \
@@ -493,6 +522,14 @@ payload = {
         "output": os.environ["SESSION_OUTPUT"],
         "dir": optional_path(os.environ["SESSION_DIR"]),
         "brief_file": optional_path(os.environ["BRIEF_FILE"]),
+    },
+    "issue_claim": {
+        "requested": os.environ["CLAIM_ISSUES"] == "1",
+        "applied": os.environ["APPLY_ISSUE_CLAIM"] == "1",
+        "output": os.environ["CLAIM_OUTPUT"],
+        "plan": optional_path(os.environ["CLAIM_PLAN"]),
+        "comment": optional_path(os.environ["CLAIM_COMMENT"]),
+        "exit_code": int(os.environ["CLAIM_EXIT"]),
     },
     "run": {
         "output": os.environ["RUN_OUTPUT"],
@@ -618,6 +655,32 @@ if [ ! -f "$BRIEF_FILE" ]; then
   echo "session brief not found: $BRIEF_FILE" >&2
   write_workflow_summary
   exit 1
+fi
+
+if [ "$CLAIM_ISSUES" -eq 1 ]; then
+  claim_args=(--session-manifest "$SESSION_DIR/manifest.json" --status in-progress)
+  if [ -n "$SYNC_OUTPUT_DIR" ]; then
+    claim_args+=(--output-dir "$SYNC_OUTPUT_DIR/claim")
+  else
+    claim_args+=(--output-dir "$WORKFLOW_OUTPUT_DIR/issue-claim")
+  fi
+  if [ "$APPLY_ISSUE_CLAIM" -eq 1 ]; then
+    claim_args+=(--apply)
+  fi
+  claim_args+=("${CLAIM_EXTRA_ARGS[@]}")
+
+  printf '[github-issue-run] preparing GitHub issue in-progress claim\n'
+  set +e
+  "$SYNC_GITHUB_ISSUE_STATUS_CMD" "${claim_args[@]}" >"$CLAIM_OUTPUT"
+  CLAIM_EXIT=$?
+  set -e
+  CLAIM_PLAN="$(extract_output_field "$CLAIM_OUTPUT" "github_issue_sync_plan")"
+  CLAIM_COMMENT="$(extract_output_field "$CLAIM_OUTPUT" "github_issue_sync_comment")"
+  if [ "$CLAIM_EXIT" -ne 0 ]; then
+    write_workflow_summary
+    echo "GitHub issue claim failed; inspect $CLAIM_OUTPUT" >&2
+    exit "$CLAIM_EXIT"
+  fi
 fi
 
 run_args=(--brief-file "$BRIEF_FILE")
@@ -758,6 +821,12 @@ printf 'workflow_output_dir: %s\n' "$WORKFLOW_OUTPUT_DIR"
 printf 'workflow_summary: %s\n' "$WORKFLOW_SUMMARY"
 printf 'session_dir: %s\n' "$SESSION_DIR"
 printf 'brief_file: %s\n' "$BRIEF_FILE"
+if [ "$CLAIM_ISSUES" -eq 1 ]; then
+  printf 'issue_claim_output: %s\n' "$CLAIM_OUTPUT"
+  printf 'issue_claim_plan: %s\n' "$CLAIM_PLAN"
+  printf 'issue_claim_comment: %s\n' "$CLAIM_COMMENT"
+  printf 'issue_claim_applied: %s\n' "$([ "$APPLY_ISSUE_CLAIM" -eq 1 ] && printf true || printf false)"
+fi
 printf 'run_output: %s\n' "$RUN_OUTPUT"
 printf 'run_summary: %s\n' "$RUN_SUMMARY"
 if [ "$CREATE_DRAFT_PR" -eq 1 ]; then

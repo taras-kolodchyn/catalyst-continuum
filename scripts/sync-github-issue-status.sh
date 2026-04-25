@@ -38,7 +38,7 @@ Source options:
   --continuum-root PATH    Continuum state root for --latest-run (default: .continuum).
 
 GitHub update options:
-  --status VALUE           ready-for-review or done (default: ready-for-review).
+  --status VALUE           in-progress, ready-for-review, or done (default: ready-for-review).
   --repository OWNER/REPO  Override repository from the session manifest.
   --branch-name NAME       Override branch name recorded in the issue comment.
   --commit-sha SHA         Override commit SHA recorded in the issue comment.
@@ -156,9 +156,9 @@ while [ "$#" -gt 0 ]; do
 done
 
 case "$STATUS" in
-  ready-for-review|done) ;;
+  in-progress|ready-for-review|done) ;;
   *)
-    echo "--status must be ready-for-review or done, got: $STATUS" >&2
+    echo "--status must be in-progress, ready-for-review, or done, got: $STATUS" >&2
     exit 2
     ;;
 esac
@@ -243,6 +243,7 @@ pr_number = os.environ["PR_NUMBER"].strip()
 
 LABEL_CATALOG = {
     "continuum": ("5319E7", "Managed by Catalyst Continuum."),
+    "continuum:in-progress": ("D4C5F9", "Catalyst Continuum accepted this issue for execution."),
     "continuum:ready-for-review": ("0E8A16", "Catalyst Continuum produced review-ready evidence."),
     "continuum:has-pr-candidate": ("1D76DB", "Catalyst Continuum recorded a branch or PR candidate."),
     "continuum:has-draft-pr": ("0969DA", "Catalyst Continuum attached a GitHub pull request."),
@@ -383,7 +384,20 @@ def issue_ref(repository: str, issue: dict[str, Any]) -> str:
 
 
 def status_label() -> str:
-    return "done" if status == "done" else "ready for review"
+    if status == "done":
+        return "done"
+    if status == "in-progress":
+        return "in progress"
+    return "ready for review"
+
+
+def default_summary() -> str:
+    if status == "in-progress":
+        return (
+            "Catalyst Continuum accepted this issue work package for local execution and recorded "
+            "the intended PR strategy before running the control-plane flow."
+        )
+    return "Catalyst Continuum completed a run and recorded review evidence for this issue work package."
 
 
 def evidence_value(value: Any) -> str:
@@ -416,7 +430,7 @@ def render_comment(
             [
                 "### What changed",
                 "",
-                "Catalyst Continuum completed a run and recorded review evidence for this issue work package.",
+                default_summary(),
                 "",
             ]
         )
