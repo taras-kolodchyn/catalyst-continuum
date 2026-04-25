@@ -18,6 +18,7 @@ DEV_LATEST_ARGS ?=
 DOCTOR_ARGS ?=
 GITHUB_ISSUE ?=
 GITHUB_ISSUE_ARGS ?=
+GITHUB_ISSUE_BATCH_OUTPUT_DIR ?=
 GITHUB_ISSUE_JSON ?=
 GITHUB_ISSUE_OUTPUT_ROOT ?=
 LITELLM_SMOKE_ARGS ?=
@@ -164,6 +165,10 @@ dev-session: ## Create brief + Codex/Cursor/OpenHands prompts for TASK="...".
 .PHONY: github-issue-session
 github-issue-session: ## Create Codex/Cursor/OpenHands packages from GITHUB_ISSUE or GITHUB_ISSUE_JSON.
 	./scripts/create-github-issue-session.sh $(if $(GITHUB_ISSUE),--issue "$(GITHUB_ISSUE)") $(if $(GITHUB_ISSUE_JSON),--issue-json "$(GITHUB_ISSUE_JSON)") $(if $(REPOSITORY),--repository "$(REPOSITORY)") $(if $(REPOSITORY_DEFAULT_BRANCH),--default-branch "$(REPOSITORY_DEFAULT_BRANCH)") $(if $(REPO_PATH),--repo-path "$(REPO_PATH)") $(if $(PACK),--pack "$(PACK)") $(if $(GITHUB_ISSUE_OUTPUT_ROOT),--output-root "$(GITHUB_ISSUE_OUTPUT_ROOT)") $(GITHUB_ISSUE_ARGS)
+
+.PHONY: github-issue-next
+github-issue-next: ## Rank a GitHub issue batch and create only the next recommended session.
+	./scripts/create-github-issue-session.sh --next-only $(if $(GITHUB_ISSUE),--issue "$(GITHUB_ISSUE)",$(if $(GITHUB_ISSUE_JSON),--issue-json "$(GITHUB_ISSUE_JSON)",--list)) $(if $(REPOSITORY),--repository "$(REPOSITORY)") $(if $(REPOSITORY_DEFAULT_BRANCH),--default-branch "$(REPOSITORY_DEFAULT_BRANCH)") $(if $(REPO_PATH),--repo-path "$(REPO_PATH)") $(if $(PACK),--pack "$(PACK)") $(if $(GITHUB_ISSUE_OUTPUT_ROOT),--output-root "$(GITHUB_ISSUE_OUTPUT_ROOT)") $(if $(GITHUB_ISSUE_BATCH_OUTPUT_DIR),--batch-output-dir "$(GITHUB_ISSUE_BATCH_OUTPUT_DIR)") $(GITHUB_ISSUE_ARGS)
 
 .PHONY: dev-session-smoke
 dev-session-smoke: ## Validate developer session package generation.

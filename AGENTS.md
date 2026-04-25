@@ -190,7 +190,8 @@ repository-standard checks:
   `dev-session`, task recipes, generated brief files, Codex/Cursor/OpenHands prompts, or detected
   validation commands
 - `./scripts/github-issue-session-smoke.sh` for GitHub issue broker/session changes that affect
-  issue import, recipe inference, untrusted-context prompts, or `dev-latest` visibility
+  issue import, batch ranking, recipe inference, untrusted-context prompts, or `dev-latest`
+  visibility
 - `./scripts/dev-run-smoke.sh` for solo-developer local orchestration changes that affect
   `dev-run`, disposable database handling, Docker worker execution, quality/handoff generation, or
   local PR export

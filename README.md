@@ -38,6 +38,7 @@ next actions without needing to configure a real GitHub repository first.
 For real work, start from a daily developer task instead of a blank product brief:
 
 ```bash
+make github-issue-next REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE_ARGS="--label bug --limit 5"
 make github-issue-session GITHUB_ISSUE=123 REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
 make dev-session TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
 make dev-task-brief TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
@@ -49,6 +50,11 @@ make dev-next
 make dev-review
 make run-guide RUN_ID=<RUN_ID>
 ```
+
+`github-issue-next` is the step-by-step issue broker entrypoint. It imports a bounded issue batch,
+scores the issues with deterministic repository-local heuristics, creates a session only for the
+top-ranked issue, and writes `issue-batch.json` plus `issue-batch.md` under
+`.continuum/github-issue-batches/`.
 
 `github-issue-session` is the first GitHub issue broker slice. It imports one issue, a fixture, or a
 filtered issue list and turns each issue into the same portable developer-session package used by
@@ -140,6 +146,7 @@ make markdown-links
 make lint-ui-assets
 make solo-demo
 make solo-demo-check
+make github-issue-next REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE_ARGS="--label bug --limit 5"
 make github-issue-session GITHUB_ISSUE=123 REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
 make dev-session TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO
 make dev-task-brief TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO

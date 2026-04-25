@@ -73,6 +73,16 @@ For real daily work, start from a GitHub issue or use a task recipe instead of h
 brief:
 
 ```bash
+make github-issue-next \
+  REPOSITORY=OWNER/REPO \
+  REPO_PATH=/path/to/local/checkout \
+  GITHUB_ISSUE_ARGS="--label bug --limit 5"
+```
+
+Use this when you want Catalyst to choose one next issue from a bounded batch and keep the rest as a
+ranked queue in `.continuum/github-issue-batches/`.
+
+```bash
 make github-issue-session \
   GITHUB_ISSUE=123 \
   REPOSITORY=OWNER/REPO \

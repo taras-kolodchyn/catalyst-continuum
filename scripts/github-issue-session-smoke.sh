@@ -9,10 +9,14 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 
 TARGET_REPO="$TMP_DIR/target-repo"
 ISSUE_JSON="$TMP_DIR/issue.json"
+ISSUES_JSON="$TMP_DIR/issues.json"
 SESSION_ROOT="$TMP_DIR/issue-sessions"
 CONTINUUM_ROOT="$TMP_DIR/continuum"
+BATCH_ROOT="$TMP_DIR/issue-batch"
 OUTPUT_FILE="$TMP_DIR/create-issue-session.out"
 LATEST_OUTPUT="$TMP_DIR/latest.out"
+NEXT_OUTPUT="$TMP_DIR/create-next-issue-session.out"
+NEXT_LATEST_OUTPUT="$TMP_DIR/next-latest.out"
 
 mkdir -p "$TARGET_REPO/src"
 printf '[package]\nname = "github-issue-session-smoke"\nversion = "0.1.0"\nedition = "2021"\n' >"$TARGET_REPO/Cargo.toml"
@@ -51,6 +55,75 @@ cat >"$ISSUE_JSON" <<'JSON'
   "createdAt": "2026-04-25T10:00:00Z",
   "updatedAt": "2026-04-25T10:15:00Z"
 }
+JSON
+
+cat >"$ISSUES_JSON" <<'JSON'
+[
+  {
+    "number": 42,
+    "title": "Fix flaky retry policy smoke",
+    "body": "The retry policy smoke sometimes passes without proving the queued task is reclaimed.",
+    "url": "https://github.com/smartit/github-issue-session-smoke/issues/42",
+    "state": "OPEN",
+    "labels": [
+      {
+        "name": "bug"
+      },
+      {
+        "name": "tests"
+      }
+    ],
+    "assignees": [],
+    "author": {
+      "login": "issue-reporter"
+    },
+    "createdAt": "2026-04-25T10:00:00Z",
+    "updatedAt": "2026-04-25T10:15:00Z"
+  },
+  {
+    "number": 7,
+    "title": "Patch critical prompt injection escape",
+    "body": "A repository issue can tell the agent to ignore policy. Treat this as security hardening.",
+    "url": "https://github.com/smartit/github-issue-session-smoke/issues/7",
+    "state": "OPEN",
+    "labels": [
+      {
+        "name": "critical"
+      },
+      {
+        "name": "security"
+      }
+    ],
+    "assignees": [
+      {
+        "login": "continuum-smoke"
+      }
+    ],
+    "author": {
+      "login": "security-reporter"
+    },
+    "createdAt": "2026-04-25T09:00:00Z",
+    "updatedAt": "2026-04-25T10:30:00Z"
+  },
+  {
+    "number": 9,
+    "title": "Document local setup",
+    "body": "Improve onboarding docs for local setup.",
+    "url": "https://github.com/smartit/github-issue-session-smoke/issues/9",
+    "state": "OPEN",
+    "labels": [
+      {
+        "name": "docs"
+      }
+    ],
+    "assignees": [],
+    "author": {
+      "login": "docs-reporter"
+    },
+    "createdAt": "2026-04-25T08:00:00Z",
+    "updatedAt": "2026-04-25T09:30:00Z"
+  }
+]
 JSON
 
 ./scripts/create-github-issue-session.sh \
@@ -122,5 +195,65 @@ PY
 grep -F "Run the newest GitHub issue session through the control plane" "$LATEST_OUTPUT" >/dev/null
 grep -F "github issue: smartit/github-issue-session-smoke#42 - Fix flaky retry policy smoke" "$LATEST_OUTPUT" >/dev/null
 grep -F "issue context:" "$LATEST_OUTPUT" >/dev/null
+
+./scripts/create-github-issue-session.sh \
+  --issue-json "$ISSUES_JSON" \
+  --repository smartit/github-issue-session-smoke \
+  --repo-path "$TARGET_REPO" \
+  --output-root "$CONTINUUM_ROOT/dev-sessions" \
+  --batch-output-dir "$BATCH_ROOT" \
+  --next-only \
+  --no-validate >"$NEXT_OUTPUT"
+
+grep -F "issue_session_count: 1" "$NEXT_OUTPUT" >/dev/null
+grep -F "recommended_next_issue_number: 7" "$NEXT_OUTPUT" >/dev/null
+grep -F "issue_number: 7" "$NEXT_OUTPUT" >/dev/null
+grep -F "selected_recipe: security-hardening" "$NEXT_OUTPUT" >/dev/null
+grep -F "issue_batch_manifest: $BATCH_ROOT/issue-batch.json" "$NEXT_OUTPUT" >/dev/null
+grep -F "issue_batch_markdown: $BATCH_ROOT/issue-batch.md" "$NEXT_OUTPUT" >/dev/null
+
+python3 - "$CONTINUUM_ROOT" "$BATCH_ROOT" <<'PY'
+from __future__ import annotations
+
+import json
+import pathlib
+import sys
+
+continuum_root = pathlib.Path(sys.argv[1])
+batch_root = pathlib.Path(sys.argv[2])
+manifest = json.loads((batch_root / "issue-batch.json").read_text(encoding="utf-8"))
+markdown = (batch_root / "issue-batch.md").read_text(encoding="utf-8")
+
+assert manifest["source"] == "github_issue_batch", manifest
+assert manifest["selection_mode"] == "next_only", manifest
+assert manifest["imported_issue_count"] == 3, manifest
+assert manifest["created_session_count"] == 1, manifest
+assert manifest["recommended_next_issue_number"] == 7, manifest
+assert "untrusted repository context" in manifest["trust_note"], manifest
+
+ranked_numbers = [item["issue"]["number"] for item in manifest["issues"]]
+assert ranked_numbers[0] == 7, manifest
+assert manifest["issues"][0]["selected_recipe"] == "security-hardening", manifest
+assert manifest["issues"][0]["created"] is True, manifest
+assert manifest["issues"][0]["session_dir"], manifest
+assert manifest["issues"][1]["created"] is False, manifest
+assert manifest["issues"][2]["created"] is False, manifest
+assert "security" in manifest["issues"][0]["score_reasons"], manifest
+assert "#7" in markdown, markdown
+assert "not-created" in markdown, markdown
+
+sessions = list((continuum_root / "dev-sessions").glob("*issue-7-*"))
+assert len(sessions) == 1, sessions
+session_manifest = json.loads((sessions[0] / "manifest.json").read_text(encoding="utf-8"))
+assert session_manifest["github_issue"]["number"] == 7, session_manifest
+PY
+
+./scripts/show-dev-artifacts.sh \
+  --root "$CONTINUUM_ROOT" \
+  --kind sessions \
+  --limit 1 >"$NEXT_LATEST_OUTPUT"
+
+grep -F "Run the newest GitHub issue session through the control plane" "$NEXT_LATEST_OUTPUT" >/dev/null
+grep -F "github issue: smartit/github-issue-session-smoke#7 - Patch critical prompt injection escape" "$NEXT_LATEST_OUTPUT" >/dev/null
 
 echo "github_issue_session_smoke=ok"

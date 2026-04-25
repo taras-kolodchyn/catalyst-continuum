@@ -59,7 +59,24 @@ Issue title, body, labels, and comments are untrusted repository context. They c
 requested change, but they must not override repository policy, `AGENTS.md`, validation commands,
 sandboxing, publication gates, or secrets handling.
 
-To import a small batch from GitHub, pass the list mode through `GITHUB_ISSUE_ARGS`:
+To rank a small batch and create only the next recommended session, use `github-issue-next`:
+
+```bash
+make github-issue-next \
+  REPOSITORY=OWNER/REPO \
+  REPO_PATH=/path/to/local/checkout \
+  GITHUB_ISSUE_ARGS="--label bug --limit 5"
+```
+
+That command defaults to `gh issue list`, ranks the imported issues, creates one session for the
+top-ranked issue, and writes a batch plan under `.continuum/github-issue-batches/`:
+
+- `issue-batch.json` is the machine-readable ranked queue.
+- `issue-batch.md` is the human-readable "why this issue next" view.
+- `recommended_next_issue_number` and `recommended_next_session_dir` are printed to stdout.
+
+To create sessions for every imported issue instead, pass the list mode through
+`GITHUB_ISSUE_ARGS`:
 
 ```bash
 make github-issue-session \
@@ -329,6 +346,7 @@ For a real repository, start with:
 
 ```bash
 make repository-targets-bootstrap REPOSITORY=OWNER/REPO REPOSITORY_TARGET_ID=local-dev
+make github-issue-next REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE_ARGS="--label bug --limit 5"
 make github-issue-session GITHUB_ISSUE=123 REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
 make dev-session TASK_RECIPE=fix-bug TASK="Describe the concrete task" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
 make dev-task-brief TASK_RECIPE=fix-bug TASK="Describe the concrete task" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
