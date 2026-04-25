@@ -405,6 +405,10 @@ async function main() {
       missionContextIncludesApprovalBoundary:
         document.body.textContent.includes("GitHub remains the human approval boundary"),
       developerHandoffPanelCount: count('[data-developer-handoff-panel="true"]'),
+      developerReviewPromptPanelCount: count('[data-developer-review-prompt-panel="true"]'),
+      developerReviewPromptIncludesAgent:
+        document.body.textContent.includes("Bring Continuum evidence into Cursor, Codex, or OpenHands") &&
+        document.body.textContent.includes("Review this Catalyst Continuum run before I trust or merge"),
       developerValueCardCount: count("[data-developer-value-card]"),
       developerReviewItemCount: count("[data-developer-review-item]"),
       developerEvidenceCardCount: count("[data-developer-evidence-card]"),
@@ -564,6 +568,12 @@ async function main() {
   }
   if (summary.developerHandoffPanelCount !== 1) {
     problems.push(`expected one developer handoff panel, got ${summary.developerHandoffPanelCount}`);
+  }
+  if (summary.developerReviewPromptPanelCount !== 1) {
+    problems.push(`expected one developer review prompt panel, got ${summary.developerReviewPromptPanelCount}`);
+  }
+  if (!summary.developerReviewPromptIncludesAgent) {
+    problems.push("developer tab should expose a portable Cursor/Codex/OpenHands review prompt");
   }
   if (summary.developerValueCardCount < 5) {
     problems.push(`expected developer value cards, got ${summary.developerValueCardCount}`);

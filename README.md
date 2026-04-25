@@ -22,8 +22,8 @@ make solo-demo
 ```
 
 Open the printed `/ui` URL and start with `Mission Control` -> `Developer`. That path shows the
-review package, agent handoff, artifacts, logs, and next actions without needing to configure a real
-GitHub repository first.
+review package, portable Cursor/Codex/OpenHands review prompt, agent handoff, artifacts, logs, and
+next actions without needing to configure a real GitHub repository first.
 
 ## Current MVP
 
@@ -112,6 +112,8 @@ This starts disposable local state, seeds one complete MVP delivery run through 
 used by CI, starts the UI, and prints the URL. Open the URL and inspect:
 
 - `Mission Control` -> `Developer` for the review handoff.
+- The Developer tab review prompt when you want Cursor, Codex, or OpenHands to perform a second
+  review from the same Continuum evidence package.
 - `Mission Control` -> `Agents` for agent lanes, reports, and logs.
 - `Mission Control` -> `Flow` for the lifecycle from brief to PR handoff.
 

@@ -20,6 +20,8 @@ Catalyst Continuum focuses on these gaps:
 - A visible run ledger that shows what happened, which agent owned each task, and what evidence was
   produced.
 - A developer handoff view that summarizes what to review before trusting the generated change.
+- A portable review prompt that can be pasted into Cursor, Codex, or OpenHands so a second agent can
+  review the run from the same evidence package instead of starting from an empty chat.
 - Quality, policy, and repository-publication gates that sit outside any single coding agent.
 - Repository-target guardrails so draft PR publication goes only to an approved repository, base
   branch, and generated branch prefix.
@@ -48,9 +50,15 @@ Open that URL and follow this order:
 
 1. Open `Mission Control`.
 2. Select the `Developer` tab.
-3. Review the delivery summary, review checklist, quality evidence, artifacts, and agent handoff.
-4. Open `Agents` to inspect agent lanes and task logs.
-5. Open `Flow` to see where the run is in the brief-to-PR lifecycle.
+3. Copy the agent review prompt into Cursor, Codex, or OpenHands when you want a second-pass review
+   grounded in the run evidence.
+4. Review the delivery summary, checklist, quality evidence, artifacts, and agent handoff.
+5. Open `Agents` to inspect agent lanes and task logs.
+6. Open `Flow` to see where the run is in the brief-to-PR lifecycle.
+
+The review prompt is the practical difference from running a coding agent directly: Catalyst
+Continuum gives the reviewer the run ID, task state, artifacts, quality posture, repository guard,
+agent lanes, and exact checklist in one repeatable package.
 
 Stop the demo with `Ctrl-C`. If a session is interrupted, run:
 

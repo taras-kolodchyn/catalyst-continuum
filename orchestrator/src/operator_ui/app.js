@@ -3255,6 +3255,13 @@ function renderMissionDeveloperPanel() {
   const reviewItems = buildDeveloperReviewItems(runDetail);
   const evidenceCards = buildDeveloperEvidenceCards(runDetail);
   const agentDigestItems = buildDeveloperAgentDigestItems(runDetail);
+  const reviewPrompt = buildDeveloperReviewPrompt(
+    runDetail,
+    summary,
+    reviewItems,
+    evidenceCards,
+    agentDigestItems
+  );
   const readyReviewItems = reviewItems.filter((item) => item.ready).length;
 
   setRenderedHtml(
@@ -3262,6 +3269,7 @@ function renderMissionDeveloperPanel() {
     `
       <div class="developer-handoff-layout" data-developer-handoff-panel="true">
         ${renderDeveloperHandoffHero(runDetail, summary)}
+        ${renderDeveloperReviewPromptPanel(reviewPrompt)}
         <section class="developer-value-shell">
           <div class="detail-section-head">
             <div>
@@ -3506,6 +3514,95 @@ function renderDeveloperHandoffHero(runDetail, summary) {
         ${actionMarkup}
         <a class="button button-ghost button-link" href="#run-artifacts">Artifacts</a>
         <a class="button button-ghost button-link" href="#run-events">Events</a>
+      </div>
+    </section>
+  `;
+}
+
+function buildDeveloperReviewPrompt(
+  runDetail,
+  summary,
+  reviewItems,
+  evidenceCards,
+  agentDigestItems
+) {
+  const artifacts = runArtifacts(runDetail);
+  const artifactTypes = [...runArtifactTypes(runDetail)].sort();
+  const taskCounts = normalizedTaskCounts(runDetail.task_counts);
+  const events = Array.isArray(state.selectedRunEvents) ? state.selectedRunEvents : [];
+  const readyReviewCount = reviewItems.filter((item) => item.ready).length;
+  const artifactSummary = artifactTypes.length
+    ? `${artifacts.length} persisted (${artifactTypes.join(", ")})`
+    : "none persisted yet";
+  const agentLines = agentDigestItems.length
+    ? agentDigestItems.map(
+        (item) =>
+          `- ${item.agent}: ${item.counts.succeeded}/${item.counts.total} task(s) succeeded, ${item.counts.failed} failed`
+      )
+    : ["- No assigned agent lanes yet."];
+  const evidenceLines = evidenceCards.map(
+    (item) =>
+      `- ${item.kicker}: ${item.count}/${item.types.length} artifact group(s) recorded (${item.types.join(", ")})`
+  );
+  const reviewLines = reviewItems.map(
+    (item) => `- ${item.status}: ${item.title} - ${item.detail}`
+  );
+
+  return [
+    "Review this Catalyst Continuum run before I trust or merge the generated change.",
+    "",
+    "Context:",
+    `- Run: ${runDetail.title ?? "Untitled run"} (${shortId(runDetail.run_id)})`,
+    `- Repository: ${repositoryLabel(runDetail) || "no repository target"}`,
+    `- Pack: ${runDetail.target_pack ?? "unassigned"}`,
+    `- Status: ${runDetail.status ?? "unknown"}`,
+    `- Tasks: ${taskCounts.succeeded}/${taskCounts.total} succeeded, ${taskCounts.failed} failed, ${taskCounts.running} running, ${taskCounts.queued} queued`,
+    `- Artifacts: ${artifactSummary}`,
+    `- Events: ${events.length}`,
+    `- Continuum recommendation: ${summary.title} - ${summary.detail}`,
+    "",
+    "Your review goals:",
+    "1. Verify the generated change satisfies the brief and acceptance criteria.",
+    "2. Inspect agent reports and runtime logs for skipped work, warnings, retries, or sandbox failures.",
+    "3. Compare the PR candidate/export/publication evidence with the requested deliverable.",
+    "4. Check whether quality evidence is present and fresh enough for review.",
+    "5. Return one recommendation: accept, request changes, or rerun a specific task with a concrete reason.",
+    "",
+    `Continuum review checklist: ${readyReviewCount}/${reviewItems.length} ready`,
+    ...reviewLines,
+    "",
+    "Evidence map:",
+    ...evidenceLines,
+    "",
+    "Agent lanes:",
+    ...agentLines,
+    "",
+    "Do not assume the code is correct just because the run succeeded. Use the Continuum evidence as the source of truth.",
+  ].join("\n");
+}
+
+function renderDeveloperReviewPromptPanel(reviewPrompt) {
+  return `
+    <section class="developer-review-prompt-shell" data-developer-review-prompt-panel="true">
+      <div class="detail-section-head">
+        <div>
+          <p class="panel-kicker">Agent review prompt</p>
+          <h3>Bring Continuum evidence into Cursor, Codex, or OpenHands</h3>
+        </div>
+        <span class="badge badge-success">Portable</span>
+      </div>
+      <div class="developer-review-prompt-card">
+        <p>
+          Paste this into Cursor, Codex, or OpenHands when you want a second agent to review the
+          run. The value is that the reviewer starts from the orchestrator ledger, not from a blank
+          chat transcript.
+        </p>
+        <pre data-developer-review-prompt-text="true">${escapeHtml(reviewPrompt)}</pre>
+        <div class="developer-review-prompt-actions">
+          <a class="button button-ghost button-link" href="#run-tasks">Open tasks</a>
+          <a class="button button-ghost button-link" href="#run-artifacts">Open artifacts</a>
+          <a class="button button-ghost button-link" href="#mission-agents">Open agents</a>
+        </div>
       </div>
     </section>
   `;
