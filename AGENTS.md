@@ -282,6 +282,10 @@ instead of claiming the local workflow executed successfully.
 - Prefer `repository_target_id` over duplicated manual remotes in promotion-facing CLI, HTTP, MCP,
   and UI flows. Manual `remote_url` inputs should remain explicit overrides and must still be
   validated against the configured target allowlist when enforcement is active.
+- Preserve GitHub issue broker PR-strategy semantics. `per-issue` packages each issue as a separate
+  session for a separate PR; `batch` packages the imported issue set as one session intended for one
+  branch and one PR. When this contract changes, update smoke coverage and operator/developer docs
+  together.
 - When validating mixed local-worker and external-agent flows, use `--respect-agent-assignments`
   or the matching MCP `respect_agent_assignments` argument so generic Docker execution does not
   consume tasks owned by Codex, OpenHands, or another assigned external agent.

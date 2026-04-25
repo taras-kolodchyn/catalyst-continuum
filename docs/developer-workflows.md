@@ -85,6 +85,41 @@ make github-issue-session \
   GITHUB_ISSUE_ARGS="--list --label bug --limit 5"
 ```
 
+Choose the PR packaging strategy explicitly when importing a batch:
+
+```bash
+make github-issue-session \
+  REPOSITORY=OWNER/REPO \
+  REPO_PATH=/path/to/local/checkout \
+  GITHUB_ISSUE_PR_STRATEGY=per-issue \
+  GITHUB_ISSUE_ARGS="--list --label bug --limit 5"
+```
+
+`per-issue` is the default. It creates one session per issue, and each session is expected to become
+its own branch and PR.
+
+```bash
+make github-issue-session \
+  REPOSITORY=OWNER/REPO \
+  REPO_PATH=/path/to/local/checkout \
+  GITHUB_ISSUE_PR_STRATEGY=batch \
+  GITHUB_ISSUE_ARGS="--list --label bug --limit 5"
+```
+
+`batch` creates one aggregate session for the imported issue set. Use it when the issues are small,
+related, and should be reviewed as one pull request. The batch session contains:
+
+- `brief.json` for the one control-plane run.
+- `issue-batch.md` for the readable issue set.
+- `issue-batch-context.json` for the structured payloads.
+- Codex, Cursor, and OpenHands prompts that tell the agent to keep the work in one branch and one
+  PR unless validation shows the batch is unsafe to combine.
+
+`github-issue-next` always creates only the top recommended session. If you set
+`GITHUB_ISSUE_PR_STRATEGY=batch` together with `github-issue-next`, the batch plan records the
+requested strategy, but the effective session strategy stays `per-issue` because only one issue is
+handed to the agent.
+
 For CI-safe or offline testing, import a fixture instead of calling GitHub:
 
 ```bash

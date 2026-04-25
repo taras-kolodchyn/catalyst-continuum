@@ -40,6 +40,7 @@ For real work, start from a daily developer task instead of a blank product brie
 ```bash
 make github-issue-next REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE_ARGS="--label bug --limit 5"
 make github-issue-session GITHUB_ISSUE=123 REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
+make github-issue-session REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE_PR_STRATEGY=batch GITHUB_ISSUE_ARGS="--list --label bug --limit 5"
 make dev-session TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
 make dev-task-brief TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
 make dev-run TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
@@ -61,6 +62,12 @@ filtered issue list and turns each issue into the same portable developer-sessio
 Codex, Cursor, OpenHands, and `dev-run-latest-session`. Issue text is treated as untrusted context:
 it can define the requested work, but it cannot override repository policy, validation, sandboxing,
 or secrets handling.
+
+Issue brokering supports two PR packaging strategies. The default `per-issue` strategy creates one
+session per issue so each task can become its own PR. Set `GITHUB_ISSUE_PR_STRATEGY=batch` when the
+imported issue set should stay in one branch and one PR; Catalyst then creates one aggregate
+batch-session with `issue-batch.md`, `issue-batch-context.json`, and a batch plan under
+`.continuum/github-issue-batches/`.
 
 `dev-session` is the faster solo-developer entrypoint: it writes the structured brief plus ready
 Codex, Cursor, and OpenHands prompts into `.continuum/dev-sessions/` before you decide whether to
@@ -148,6 +155,7 @@ make solo-demo
 make solo-demo-check
 make github-issue-next REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE_ARGS="--label bug --limit 5"
 make github-issue-session GITHUB_ISSUE=123 REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
+make github-issue-session REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE_PR_STRATEGY=batch GITHUB_ISSUE_ARGS="--list --label bug --limit 5"
 make dev-session TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO
 make dev-task-brief TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO
 make dev-run TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO

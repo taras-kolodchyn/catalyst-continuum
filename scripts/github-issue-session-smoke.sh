@@ -13,10 +13,15 @@ ISSUES_JSON="$TMP_DIR/issues.json"
 SESSION_ROOT="$TMP_DIR/issue-sessions"
 CONTINUUM_ROOT="$TMP_DIR/continuum"
 BATCH_ROOT="$TMP_DIR/issue-batch"
+BATCH_CONTINUUM_ROOT="$TMP_DIR/batch-continuum"
+BATCH_STRATEGY_ROOT="$BATCH_CONTINUUM_ROOT/dev-sessions"
+BATCH_STRATEGY_PLAN="$TMP_DIR/batch-strategy-plan"
 OUTPUT_FILE="$TMP_DIR/create-issue-session.out"
 LATEST_OUTPUT="$TMP_DIR/latest.out"
 NEXT_OUTPUT="$TMP_DIR/create-next-issue-session.out"
 NEXT_LATEST_OUTPUT="$TMP_DIR/next-latest.out"
+BATCH_STRATEGY_OUTPUT="$TMP_DIR/create-batch-strategy-session.out"
+BATCH_LATEST_OUTPUT="$TMP_DIR/batch-latest.out"
 
 mkdir -p "$TARGET_REPO/src"
 printf '[package]\nname = "github-issue-session-smoke"\nversion = "0.1.0"\nedition = "2021"\n' >"$TARGET_REPO/Cargo.toml"
@@ -155,11 +160,14 @@ issue_context = json.loads((session_dir / "issue-context.json").read_text(encodi
 issue_markdown = (session_dir / "issue.md").read_text(encoding="utf-8")
 
 assert manifest["session_type"] == "github_issue_session", manifest
+assert manifest["pr_strategy"]["mode"] == "per-issue", manifest
 assert manifest["github_issue"]["number"] == 42, manifest
 assert manifest["github_issue"]["repository_full_name"] == "smartit/github-issue-session-smoke", manifest
 assert manifest["github_issue"]["selected_recipe"] == "add-tests", manifest
+assert manifest["github_issue"]["pr_strategy"]["expected_pr_scope"] == "single_issue", manifest
 assert "issue.md" in manifest["github_issue"]["issue_markdown_path"], manifest
 assert issue_context["source"] == "github_issue", issue_context
+assert issue_context["pr_strategy"]["mode"] == "per-issue", issue_context
 assert issue_context["issue"]["number"] == 42, issue_context
 assert "untrusted repository context" in issue_context["trust_note"], issue_context
 assert "Fix flaky retry policy smoke" in issue_markdown, issue_markdown
@@ -178,6 +186,7 @@ for prompt_name in ("codex-prompt.md", "cursor-prompt.md", "openhands-prompt.md"
 readme = (session_dir / "README.md").read_text(encoding="utf-8")
 assert "GitHub Issue" in readme, readme
 assert "native UI or sandbox mode" in readme, readme
+assert "PR strategy: `per-issue`" in readme, readme
 PY
 
 ./scripts/create-github-issue-session.sh \
@@ -255,5 +264,82 @@ PY
 
 grep -F "Run the newest GitHub issue session through the control plane" "$NEXT_LATEST_OUTPUT" >/dev/null
 grep -F "github issue: smartit/github-issue-session-smoke#7 - Patch critical prompt injection escape" "$NEXT_LATEST_OUTPUT" >/dev/null
+
+./scripts/create-github-issue-session.sh \
+  --issue-json "$ISSUES_JSON" \
+  --repository smartit/github-issue-session-smoke \
+  --repo-path "$TARGET_REPO" \
+  --output-root "$BATCH_STRATEGY_ROOT" \
+  --batch-output-dir "$BATCH_STRATEGY_PLAN" \
+  --pr-strategy batch \
+  --no-validate >"$BATCH_STRATEGY_OUTPUT"
+
+grep -F "pr_strategy: batch" "$BATCH_STRATEGY_OUTPUT" >/dev/null
+grep -F "issue_session_count: 1" "$BATCH_STRATEGY_OUTPUT" >/dev/null
+grep -F "batch_issue_count: 3" "$BATCH_STRATEGY_OUTPUT" >/dev/null
+grep -F "issue_numbers: 7,42,9" "$BATCH_STRATEGY_OUTPUT" >/dev/null
+grep -F "issue_batch_manifest: $BATCH_STRATEGY_PLAN/issue-batch.json" "$BATCH_STRATEGY_OUTPUT" >/dev/null
+grep -F "issue_batch_markdown: $BATCH_STRATEGY_PLAN/issue-batch.md" "$BATCH_STRATEGY_OUTPUT" >/dev/null
+
+python3 - "$BATCH_STRATEGY_ROOT" "$BATCH_STRATEGY_PLAN" <<'PY'
+from __future__ import annotations
+
+import json
+import pathlib
+import sys
+
+session_root = pathlib.Path(sys.argv[1])
+batch_plan_root = pathlib.Path(sys.argv[2])
+sessions = list(session_root.glob("batch-7-plus-2-*"))
+assert len(sessions) == 1, sessions
+session_dir = sessions[0]
+
+manifest = json.loads((session_dir / "manifest.json").read_text(encoding="utf-8"))
+brief = json.loads((session_dir / "brief.json").read_text(encoding="utf-8"))
+context = json.loads((session_dir / "issue-batch-context.json").read_text(encoding="utf-8"))
+markdown = (session_dir / "issue-batch.md").read_text(encoding="utf-8")
+plan = json.loads((batch_plan_root / "issue-batch.json").read_text(encoding="utf-8"))
+
+assert manifest["session_type"] == "github_issue_batch_session", manifest
+assert manifest["pr_strategy"]["mode"] == "batch", manifest
+assert manifest["github_issue_batch"]["issue_count"] == 3, manifest
+assert manifest["github_issue_batch"]["issue_numbers"] == [7, 42, 9], manifest
+assert manifest["github_issue_batch"]["selected_recipe"] == "security-hardening", manifest
+assert manifest["github_issue_batch"]["pr_strategy"]["expected_pr_scope"] == "issue_batch", manifest
+assert context["source"] == "github_issue_batch_session", context
+assert context["pr_strategy"]["mode"] == "batch", context
+assert [item["issue"]["number"] for item in context["issues"]] == [7, 42, 9], context
+assert "one pull request" in markdown, markdown
+
+assert brief["title"] == "GitHub issue batch: smartit/github-issue-session-smoke (3 issues)", brief
+assert brief["metadata"]["task_recipe"] == "security-hardening", brief
+
+for prompt_name in ("codex-prompt.md", "cursor-prompt.md", "openhands-prompt.md"):
+    prompt = (session_dir / prompt_name).read_text(encoding="utf-8")
+    assert "GitHub Issue Batch Context" in prompt, prompt_name
+    assert "PR strategy: `batch`" in prompt, prompt_name
+    assert "`#7` Patch critical prompt injection escape" in prompt, prompt_name
+
+readme = (session_dir / "README.md").read_text(encoding="utf-8")
+assert "GitHub Issue Batch" in readme, readme
+assert "PR strategy: `batch`" in readme, readme
+
+assert plan["requested_pr_strategy"] == "batch", plan
+assert plan["pr_strategy"]["mode"] == "batch", plan
+assert plan["created_session_count"] == 1, plan
+assert plan["batch_session_dir"] == str(session_dir), plan
+assert plan["recommended_next_session_dir"] == str(session_dir), plan
+assert all(item["included_in_batch_session"] is True for item in plan["issues"]), plan
+assert all(item["batch_session_dir"] == str(session_dir) for item in plan["issues"]), plan
+PY
+
+./scripts/show-dev-artifacts.sh \
+  --root "$BATCH_CONTINUUM_ROOT" \
+  --kind sessions \
+  --limit 1 >"$BATCH_LATEST_OUTPUT"
+
+grep -F "Run the newest GitHub issue batch through the control plane" "$BATCH_LATEST_OUTPUT" >/dev/null
+grep -F "github issue batch: smartit/github-issue-session-smoke [#7, #42, #9]" "$BATCH_LATEST_OUTPUT" >/dev/null
+grep -F "pr strategy: batch" "$BATCH_LATEST_OUTPUT" >/dev/null
 
 echo "github_issue_session_smoke=ok"

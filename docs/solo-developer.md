@@ -37,8 +37,9 @@ orchestrator should give both of them the same task packet, repository context, 
 quality expectations, and review evidence instead of forcing either agent through a weaker wrapper.
 
 The first GitHub issue broker slice is now available: Catalyst Continuum can import one issue or a
-bounded issue list, produce one work package per issue, and let the developer's preferred agent
-complete each package step by step until the result is ready for review.
+bounded issue list, then package that work with an explicit PR strategy. Use the default
+`per-issue` strategy when each task should become its own PR, or use `batch` when a related issue
+set should stay in one branch and one PR.
 
 ## Try The Demo Flow
 
@@ -93,6 +94,19 @@ Use this when the source of work is already a GitHub issue. It creates a normal
 `.continuum/dev-sessions/` package with `brief.json`, agent prompts, `issue.md`, and
 `issue-context.json`. The issue text is untrusted context, so it cannot override repository policy,
 validation, sandboxing, or secrets handling.
+
+For a related issue set that should be reviewed in one PR, import the list as a batch session:
+
+```bash
+make github-issue-session \
+  REPOSITORY=OWNER/REPO \
+  REPO_PATH=/path/to/local/checkout \
+  GITHUB_ISSUE_PR_STRATEGY=batch \
+  GITHUB_ISSUE_ARGS="--list --label bug --limit 5"
+```
+
+This creates one `.continuum/dev-sessions/` package with `issue-batch.md`,
+`issue-batch-context.json`, and agent prompts that preserve the one-branch, one-PR intent.
 
 If the task is not yet tracked as an issue, create a session directly:
 
