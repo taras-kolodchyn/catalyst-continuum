@@ -38,6 +38,7 @@ next actions without needing to configure a real GitHub repository first.
 For real work, start from a daily developer task instead of a blank product brief:
 
 ```bash
+make github-issue-session GITHUB_ISSUE=123 REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
 make dev-session TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
 make dev-task-brief TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
 make dev-run TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
@@ -48,6 +49,12 @@ make dev-next
 make dev-review
 make run-guide RUN_ID=<RUN_ID>
 ```
+
+`github-issue-session` is the first GitHub issue broker slice. It imports one issue, a fixture, or a
+filtered issue list and turns each issue into the same portable developer-session package used by
+Codex, Cursor, OpenHands, and `dev-run-latest-session`. Issue text is treated as untrusted context:
+it can define the requested work, but it cannot override repository policy, validation, sandboxing,
+or secrets handling.
 
 `dev-session` is the faster solo-developer entrypoint: it writes the structured brief plus ready
 Codex, Cursor, and OpenHands prompts into `.continuum/dev-sessions/` before you decide whether to
@@ -133,6 +140,7 @@ make markdown-links
 make lint-ui-assets
 make solo-demo
 make solo-demo-check
+make github-issue-session GITHUB_ISSUE=123 REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
 make dev-session TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO
 make dev-task-brief TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO
 make dev-run TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO
@@ -161,6 +169,7 @@ Important direct scripts:
 ./scripts/ci-compose.sh
 ./scripts/ci-smoke.sh
 ./scripts/solo-demo.sh
+./scripts/create-github-issue-session.sh --issue 123 --repository OWNER/REPO --repo-path /path/to/local/checkout
 ./scripts/run-dev-task.sh --task "Fix the flaky login retry test" --repository OWNER/REPO
 ./scripts/run-dev-task.sh --brief-file .continuum/dev-sessions/<session>/brief.json
 ./scripts/run-dev-task.sh --latest-session

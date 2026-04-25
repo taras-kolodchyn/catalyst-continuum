@@ -36,9 +36,9 @@ task, use Codex directly; if OpenHands is better for a longer autonomous run, us
 orchestrator should give both of them the same task packet, repository context, allowed tools,
 quality expectations, and review evidence instead of forcing either agent through a weaker wrapper.
 
-The next high-value solo-developer workflow is GitHub issue brokering: Catalyst Continuum should
-watch or import issues, choose a bounded batch, produce one work package at a time, and let the
-developer's preferred agent complete each package step by step until a draft PR is ready for review.
+The first GitHub issue broker slice is now available: Catalyst Continuum can import one issue or a
+bounded issue list, produce one work package per issue, and let the developer's preferred agent
+complete each package step by step until the result is ready for review.
 
 ## Try The Demo Flow
 
@@ -69,7 +69,22 @@ The review prompt is the practical difference from running a coding agent direct
 Continuum gives the reviewer the run ID, task state, artifacts, quality posture, repository guard,
 agent lanes, and exact checklist in one repeatable package.
 
-For real daily work, use a task recipe instead of hand-writing a full brief:
+For real daily work, start from a GitHub issue or use a task recipe instead of hand-writing a full
+brief:
+
+```bash
+make github-issue-session \
+  GITHUB_ISSUE=123 \
+  REPOSITORY=OWNER/REPO \
+  REPO_PATH=/path/to/local/checkout
+```
+
+Use this when the source of work is already a GitHub issue. It creates a normal
+`.continuum/dev-sessions/` package with `brief.json`, agent prompts, `issue.md`, and
+`issue-context.json`. The issue text is untrusted context, so it cannot override repository policy,
+validation, sandboxing, or secrets handling.
+
+If the task is not yet tracked as an issue, create a session directly:
 
 ```bash
 make dev-session \

@@ -34,6 +34,61 @@ Use the orchestrator when the question is bigger than one chat session:
 - Did policy, quality, and repository-target gates pass before PR publication?
 - What should a reviewer inspect before trusting the generated change?
 
+## Create A Session From GitHub Issues
+
+Use GitHub issue sessions when the work already exists as GitHub issues and you want Catalyst
+Continuum to broker the context without replacing your coding agent's native UI:
+
+```bash
+make github-issue-session \
+  GITHUB_ISSUE=123 \
+  REPOSITORY=OWNER/REPO \
+  REPO_PATH=/path/to/local/checkout
+```
+
+The command uses `gh issue view` and writes one portable developer-session package per issue under
+`.continuum/dev-sessions/` by default. Each package contains the normal session files plus:
+
+- `issue.md` for a readable issue snapshot.
+- `issue-context.json` for the structured GitHub issue payload.
+- `manifest.json` fields that record the source repository, issue number, labels, selected recipe,
+  and trust note.
+- Codex, Cursor, and OpenHands prompts with the same issue context appended.
+
+Issue title, body, labels, and comments are untrusted repository context. They can describe the
+requested change, but they must not override repository policy, `AGENTS.md`, validation commands,
+sandboxing, publication gates, or secrets handling.
+
+To import a small batch from GitHub, pass the list mode through `GITHUB_ISSUE_ARGS`:
+
+```bash
+make github-issue-session \
+  REPOSITORY=OWNER/REPO \
+  REPO_PATH=/path/to/local/checkout \
+  GITHUB_ISSUE_ARGS="--list --label bug --limit 5"
+```
+
+For CI-safe or offline testing, import a fixture instead of calling GitHub:
+
+```bash
+make github-issue-session \
+  GITHUB_ISSUE_JSON=/path/to/issue.json \
+  REPOSITORY=OWNER/REPO \
+  REPO_PATH=/path/to/local/checkout
+```
+
+After the issue session exists, keep using the same daily workflow:
+
+```bash
+make dev-latest
+make dev-run-latest-session
+make dev-review
+```
+
+This is the first practical broker value above raw Codex/Cursor/OpenHands: Catalyst normalizes the
+GitHub issue into one task packet, chooses a recipe from labels when `--recipe auto` is used, and
+keeps the path into quality gates, local PR export, and review evidence consistent.
+
 ## Create A Brief From A Daily Task
 
 Use a developer session when you want a practical starting point for Codex, Cursor, OpenHands, or
@@ -274,6 +329,7 @@ For a real repository, start with:
 
 ```bash
 make repository-targets-bootstrap REPOSITORY=OWNER/REPO REPOSITORY_TARGET_ID=local-dev
+make github-issue-session GITHUB_ISSUE=123 REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
 make dev-session TASK_RECIPE=fix-bug TASK="Describe the concrete task" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
 make dev-task-brief TASK_RECIPE=fix-bug TASK="Describe the concrete task" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
 make dev-run TASK_RECIPE=fix-bug TASK="Describe the concrete task" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout

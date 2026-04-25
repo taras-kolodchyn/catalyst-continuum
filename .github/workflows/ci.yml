@@ -50,6 +50,9 @@ jobs:
       - name: Validate developer session smoke
         run: ./scripts/dev-session-smoke.sh
 
+      - name: Validate GitHub issue session smoke
+        run: ./scripts/github-issue-session-smoke.sh
+
       - name: Validate template-repo scaffolds
         run: ./scripts/check-template-repo.sh
 

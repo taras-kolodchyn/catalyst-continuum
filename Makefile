@@ -16,6 +16,10 @@ DEV_RUN_NO_PR_EXPORT ?=
 DEV_RUN_OUTPUT_DIR ?=
 DEV_LATEST_ARGS ?=
 DOCTOR_ARGS ?=
+GITHUB_ISSUE ?=
+GITHUB_ISSUE_ARGS ?=
+GITHUB_ISSUE_JSON ?=
+GITHUB_ISSUE_OUTPUT_ROOT ?=
 LITELLM_SMOKE_ARGS ?=
 OPENHANDS_AGENT_TASK_SMOKE_ARGS ?=
 OPENHANDS_AGENT_TASK_REAL_SMOKE_ARGS ?=
@@ -48,7 +52,7 @@ help: ## Show available Make targets.
 	@awk 'BEGIN {FS = ":.*##"; printf "Catalyst Continuum targets:\n\n"} /^[a-zA-Z0-9_.-]+:.*##/ {printf "  %-38s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 .PHONY: check
-check: doctor versions markdown-links repository-targets-smoke dev-artifacts-smoke dev-session-smoke template-repo-check lint-shell lint-ui-assets rust ## Run the standard fast local validation set.
+check: doctor versions markdown-links repository-targets-smoke dev-artifacts-smoke dev-session-smoke github-issue-session-smoke template-repo-check lint-shell lint-ui-assets rust ## Run the standard fast local validation set.
 
 .PHONY: doctor
 doctor: ## Run fast local readiness checks for tools, config, and optional live services.
@@ -157,9 +161,17 @@ dev-session: ## Create brief + Codex/Cursor/OpenHands prompts for TASK="...".
 	@test -n "$(TASK)" || { echo "TASK is required"; exit 2; }
 	./scripts/create-dev-session.sh --task "$(TASK)" --recipe "$(TASK_RECIPE)" $(if $(REPOSITORY),--repository "$(REPOSITORY)") $(if $(REPOSITORY_DEFAULT_BRANCH),--default-branch "$(REPOSITORY_DEFAULT_BRANCH)") $(if $(REPO_PATH),--repo-path "$(REPO_PATH)") $(if $(PACK),--pack "$(PACK)") $(if $(DEV_SESSION_OUTPUT_DIR),--output-dir "$(DEV_SESSION_OUTPUT_DIR)") $(DEV_SESSION_ARGS)
 
+.PHONY: github-issue-session
+github-issue-session: ## Create Codex/Cursor/OpenHands packages from GITHUB_ISSUE or GITHUB_ISSUE_JSON.
+	./scripts/create-github-issue-session.sh $(if $(GITHUB_ISSUE),--issue "$(GITHUB_ISSUE)") $(if $(GITHUB_ISSUE_JSON),--issue-json "$(GITHUB_ISSUE_JSON)") $(if $(REPOSITORY),--repository "$(REPOSITORY)") $(if $(REPOSITORY_DEFAULT_BRANCH),--default-branch "$(REPOSITORY_DEFAULT_BRANCH)") $(if $(REPO_PATH),--repo-path "$(REPO_PATH)") $(if $(PACK),--pack "$(PACK)") $(if $(GITHUB_ISSUE_OUTPUT_ROOT),--output-root "$(GITHUB_ISSUE_OUTPUT_ROOT)") $(GITHUB_ISSUE_ARGS)
+
 .PHONY: dev-session-smoke
 dev-session-smoke: ## Validate developer session package generation.
 	./scripts/dev-session-smoke.sh
+
+.PHONY: github-issue-session-smoke
+github-issue-session-smoke: ## Validate GitHub issue session package generation without live GitHub.
+	./scripts/github-issue-session-smoke.sh
 
 .PHONY: dev-run
 dev-run: ## Run TASK="..." through brief, worker execution, quality, handoff, and local PR export.

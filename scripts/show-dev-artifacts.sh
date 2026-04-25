@@ -181,10 +181,12 @@ def session_items() -> list[dict[str, Any]]:
                 "path": str(manifest_path.parent),
                 "manifest_path": str(manifest_path),
                 "mtime": mtime(manifest_path),
+                "session_type": manifest.get("session_type") or "developer_session",
                 "session_id": manifest.get("session_id"),
                 "task": manifest.get("task"),
                 "recipe": manifest.get("recipe"),
                 "repository": repository_label(manifest.get("repository")),
+                "github_issue": manifest.get("github_issue"),
                 "repo_path": repository_context.get("repo_path") or manifest.get("repo_path"),
                 "current_branch": repository_context.get("current_branch"),
                 "dirty_file_count": repository_context.get("dirty_file_count"),
@@ -257,6 +259,17 @@ def recommended_next_action() -> dict[str, Any]:
         }
 
     if newest["kind"] == "session":
+        if newest.get("session_type") == "github_issue_session":
+            return {
+                "label": "Run the newest GitHub issue session through the control plane",
+                "description": (
+                    "Submit the imported issue brief, execute the run, and create a local PR candidate."
+                ),
+                "command": "make dev-run-latest-session",
+                "artifact_kind": "session",
+                "artifact_path": newest["path"],
+                "primary_path": newest.get("manifest_path"),
+            }
         return {
             "label": "Run the newest session through the control plane",
             "description": "Submit the latest session brief, execute the run, and create a local PR candidate.",
@@ -417,9 +430,16 @@ def print_section(title: str, items: list[dict[str, Any]]) -> None:
             print(f"   repository: {item.get('repository') or 'not configured'}")
             print("   next: use `make dev-session` for agent prompts or submit this brief to the orchestrator.")
         elif item["kind"] == "session":
+            github_issue = item.get("github_issue") or {}
             print(f"   task: {item.get('task') or 'unknown'}")
             print(f"   recipe: {item.get('recipe') or 'unknown'}")
             print(f"   repository: {item.get('repository') or 'not configured'}")
+            if github_issue:
+                issue_repo = github_issue.get("repository_full_name") or item.get("repository") or "unknown"
+                issue_number = github_issue.get("number") or "unknown"
+                issue_title = github_issue.get("title") or "unknown"
+                print(f"   github issue: {issue_repo}#{issue_number} - {issue_title}")
+                print(f"   issue context: {item['path']}/{github_issue.get('issue_context_path', 'issue-context.json')}")
             print(f"   checkout: {item.get('repo_path') or 'unknown'}")
             print(f"   branch: {item.get('current_branch') or 'unknown'}")
             print(f"   codex prompt: {item.get('codex_prompt_path')}")
