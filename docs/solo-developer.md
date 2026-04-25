@@ -121,6 +121,10 @@ This chooses the next issue for `per-issue`, runs the local control-plane flow, 
 candidate, and creates a dry-run GitHub issue update plan. Set `GITHUB_ISSUE_PR_STRATEGY=batch` when
 the imported issues should stay in one branch and one PR.
 
+After the workflow finishes, open `workflow-report.md` from the printed workflow output directory
+first. It is the readable handoff: outcome, selected session, run evidence, PR export branch and
+commit, draft PR URL when available, issue-sync status, and the next review action.
+
 If you want to preview the selected issue and GitHub mutation posture before starting agents, run:
 
 ```bash

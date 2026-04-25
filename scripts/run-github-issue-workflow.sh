@@ -449,6 +449,7 @@ DRAFT_PR_OUTPUT="$WORKFLOW_OUTPUT_DIR/draft-pr.out"
 WORKFLOW_SUMMARY="$WORKFLOW_OUTPUT_DIR/workflow-summary.json"
 WORKFLOW_PLAN="$WORKFLOW_OUTPUT_DIR/workflow-plan.json"
 WORKFLOW_PLAN_MARKDOWN="$WORKFLOW_OUTPUT_DIR/workflow-plan.md"
+WORKFLOW_REPORT_MARKDOWN="$WORKFLOW_OUTPUT_DIR/workflow-report.md"
 SESSION_DIR=""
 BRIEF_FILE=""
 RUN_SUMMARY=""
@@ -488,6 +489,7 @@ write_workflow_summary() {
   PLAN_ONLY="$PLAN_ONLY" \
   WORKFLOW_PLAN="$WORKFLOW_PLAN" \
   WORKFLOW_PLAN_MARKDOWN="$WORKFLOW_PLAN_MARKDOWN" \
+  WORKFLOW_REPORT_MARKDOWN="$WORKFLOW_REPORT_MARKDOWN" \
   NEXT_COMMAND="$NEXT_COMMAND" \
   CLAIM_ISSUES="$CLAIM_ISSUES" \
   APPLY_ISSUE_CLAIM="$APPLY_ISSUE_CLAIM" \
@@ -545,6 +547,11 @@ payload = {
         "markdown": optional_path(os.environ["WORKFLOW_PLAN_MARKDOWN"]) if os.environ["PLAN_ONLY"] == "1" else None,
         "next_command": optional_path(os.environ["NEXT_COMMAND"]),
     },
+    "report": {
+        "markdown": optional_path(os.environ["WORKFLOW_REPORT_MARKDOWN"])
+        if os.environ["PLAN_ONLY"] != "1"
+        else None,
+    },
     "issue_claim": {
         "requested": os.environ["CLAIM_ISSUES"] == "1",
         "applied": os.environ["APPLY_ISSUE_CLAIM"] == "1",
@@ -583,6 +590,161 @@ pathlib.Path(os.environ["WORKFLOW_SUMMARY"]).write_text(
     encoding="utf-8",
 )
 PY
+}
+
+write_workflow_report() {
+  if [ "$PLAN_ONLY" -eq 1 ]; then
+    return 0
+  fi
+
+  WORKFLOW_SUMMARY="$WORKFLOW_SUMMARY" \
+  WORKFLOW_REPORT_MARKDOWN="$WORKFLOW_REPORT_MARKDOWN" \
+  python3 - <<'PY'
+from __future__ import annotations
+
+import json
+import os
+import pathlib
+from typing import Any
+
+
+def load_json(path: str | None) -> dict[str, Any]:
+    if not path:
+        return {}
+    candidate = pathlib.Path(path)
+    if not candidate.is_file():
+        return {}
+    payload = json.loads(candidate.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        return {}
+    return payload
+
+
+def markdown_value(value: Any) -> str:
+    if value is None or value == "":
+        return "`not produced`"
+    if isinstance(value, bool):
+        return f"`{'yes' if value else 'no'}`"
+    return f"`{value}`"
+
+
+def link_or_value(value: Any) -> str:
+    if value is None or value == "":
+        return "`not produced`"
+    text = str(value)
+    if text.startswith("http://") or text.startswith("https://"):
+        return f"[{text}]({text})"
+    return f"`{text}`"
+
+
+def workflow_status(summary: dict[str, Any]) -> str:
+    run = summary.get("run") or {}
+    draft_pr = summary.get("draft_pr") or {}
+    issue_sync = summary.get("issue_sync") or {}
+    if int(run.get("exit_code") or 0) != 0:
+        return "failed"
+    if draft_pr.get("requested") and int(draft_pr.get("exit_code") or 0) != 0:
+        return "failed"
+    if int(issue_sync.get("exit_code") or 0) != 0:
+        return "failed"
+    if not run.get("summary_file"):
+        return "incomplete"
+    return "succeeded"
+
+
+summary_path = pathlib.Path(os.environ["WORKFLOW_SUMMARY"])
+summary = load_json(str(summary_path))
+run_summary = load_json(((summary.get("run") or {}).get("summary_file")))
+pr_export = run_summary.get("pr_export") if isinstance(run_summary.get("pr_export"), dict) else {}
+status = workflow_status(summary)
+session = summary.get("session") or {}
+claim = summary.get("issue_claim") or {}
+run = summary.get("run") or {}
+draft_pr = summary.get("draft_pr") or {}
+issue_sync = summary.get("issue_sync") or {}
+
+next_steps: list[str]
+if status == "failed":
+    next_steps = [
+        "Inspect the failed output file listed below before rerunning the workflow.",
+        "Use the generated issue-sync failure evidence if the source issue should show the failed attempt.",
+    ]
+elif draft_pr.get("pr_url"):
+    next_steps = [
+        "Review the draft PR in GitHub and keep the human approval boundary there.",
+        "Review the generated issue-sync plan before applying GitHub comments or labels.",
+    ]
+elif issue_sync.get("skipped"):
+    next_steps = [
+        "Review the local PR export evidence, then run issue sync explicitly when you are ready.",
+    ]
+else:
+    next_steps = [
+        "Review the generated issue-sync plan and comment before applying GitHub mutations.",
+        "Open the local PR export repository or patch when you need to inspect the produced change.",
+    ]
+
+markdown = [
+    "# GitHub Issue Workflow Report",
+    "",
+    "This is the local execution report for one Catalyst GitHub issue workflow run.",
+    "",
+    "## Outcome",
+    "",
+    f"- Status: `{status}`",
+    f"- Repository: {markdown_value(summary.get('repository_full_name'))}",
+    f"- PR strategy: {markdown_value(summary.get('pr_strategy'))}",
+    f"- Workflow output: {markdown_value(summary.get('workflow_output_dir'))}",
+    "",
+    "## Selected Session",
+    "",
+    f"- Session directory: {markdown_value(session.get('dir'))}",
+    f"- Brief file: {markdown_value(session.get('brief_file'))}",
+    f"- Session creation output: {markdown_value(session.get('output'))}",
+    "",
+    "## Execution Evidence",
+    "",
+    f"- Run exit code: {markdown_value(run.get('exit_code'))}",
+    f"- Run output: {markdown_value(run.get('output'))}",
+    f"- Run summary: {markdown_value(run.get('summary_file'))}",
+    f"- Run id: {markdown_value(run_summary.get('run_id'))}",
+    f"- Run status: {markdown_value(run_summary.get('run_status'))}",
+    f"- Quality passed: {markdown_value(run_summary.get('quality_passed'))}",
+    f"- PR export branch: {markdown_value(pr_export.get('branch_name'))}",
+    f"- PR export commit: {markdown_value(pr_export.get('commit_sha'))}",
+    f"- PR export manifest: {markdown_value(pr_export.get('manifest_path'))}",
+    f"- Combined patch: {markdown_value(pr_export.get('combined_patch_path'))}",
+    "",
+    "## GitHub Handoff",
+    "",
+    f"- Claim requested: {markdown_value(claim.get('requested'))}",
+    f"- Claim applied: {markdown_value(claim.get('applied'))}",
+    f"- Claim plan: {markdown_value(claim.get('plan'))}",
+    f"- Draft PR requested: {markdown_value(draft_pr.get('requested'))}",
+    f"- Draft PR exit code: {markdown_value(draft_pr.get('exit_code'))}",
+    f"- Draft PR URL: {link_or_value(draft_pr.get('pr_url'))}",
+    f"- Issue sync skipped: {markdown_value(issue_sync.get('skipped'))}",
+    f"- Issue sync status: {markdown_value(issue_sync.get('status'))}",
+    f"- Issue sync applied: {markdown_value(issue_sync.get('applied'))}",
+    f"- Issue sync plan: {markdown_value(issue_sync.get('plan'))}",
+    f"- Issue sync comment: {markdown_value(issue_sync.get('comment'))}",
+    "",
+    "## Next Steps",
+    "",
+]
+markdown.extend(f"- {step}" for step in next_steps)
+markdown.append("")
+
+pathlib.Path(os.environ["WORKFLOW_REPORT_MARKDOWN"]).write_text(
+    "\n".join(markdown),
+    encoding="utf-8",
+)
+PY
+}
+
+write_workflow_summary_and_report() {
+  write_workflow_summary
+  write_workflow_report
 }
 
 cleanup_auto_kept_database() {
@@ -854,14 +1016,14 @@ if [ -z "$SESSION_DIR" ]; then
 fi
 if [ -z "$SESSION_DIR" ]; then
   echo "could not resolve session directory from $SESSION_OUTPUT" >&2
-  write_workflow_summary
+  write_workflow_summary_and_report
   exit 1
 fi
 
 BRIEF_FILE="$SESSION_DIR/brief.json"
 if [ ! -f "$BRIEF_FILE" ]; then
   echo "session brief not found: $BRIEF_FILE" >&2
-  write_workflow_summary
+  write_workflow_summary_and_report
   exit 1
 fi
 
@@ -901,7 +1063,7 @@ if [ "$CLAIM_ISSUES" -eq 1 ]; then
   CLAIM_PLAN="$(extract_output_field "$CLAIM_OUTPUT" "github_issue_sync_plan")"
   CLAIM_COMMENT="$(extract_output_field "$CLAIM_OUTPUT" "github_issue_sync_comment")"
   if [ "$CLAIM_EXIT" -ne 0 ]; then
-    write_workflow_summary
+    write_workflow_summary_and_report
     echo "GitHub issue claim failed; inspect $CLAIM_OUTPUT" >&2
     exit "$CLAIM_EXIT"
   fi
@@ -949,14 +1111,14 @@ if [ "$RUN_EXIT" -ne 0 ]; then
   RUN_SUMMARY="$(extract_output_field "$RUN_OUTPUT" "summary_file")"
   prepare_failure_issue_sync "Catalyst Continuum developer run failed with exit code $RUN_EXIT. Inspect local output: $RUN_OUTPUT"
   cleanup_auto_kept_database
-  write_workflow_summary
+  write_workflow_summary_and_report
   echo "developer run failed; inspect $RUN_OUTPUT" >&2
   exit "$RUN_EXIT"
 fi
 RUN_SUMMARY="$(extract_output_field "$RUN_OUTPUT" "summary_file")"
 if [ -z "$RUN_SUMMARY" ] || [ ! -f "$RUN_SUMMARY" ]; then
   echo "could not resolve run summary from $RUN_OUTPUT" >&2
-  write_workflow_summary
+  write_workflow_summary_and_report
   exit 1
 fi
 
@@ -995,7 +1157,7 @@ if [ "$CREATE_DRAFT_PR" -eq 1 ]; then
     fi
     prepare_failure_issue_sync "Catalyst Continuum produced local run evidence, but GitHub draft PR publication failed with exit code $DRAFT_PR_EXIT. Inspect local output: $DRAFT_PR_OUTPUT"
     cleanup_auto_kept_database
-    write_workflow_summary
+    write_workflow_summary_and_report
     echo "draft PR creation failed; inspect $DRAFT_PR_OUTPUT" >&2
     exit "$DRAFT_PR_EXIT"
   fi
@@ -1032,7 +1194,7 @@ if [ "$SKIP_ISSUE_SYNC" -eq 0 ]; then
     SYNC_PLAN="$(extract_output_field "$SYNC_OUTPUT" "github_issue_sync_plan")"
     SYNC_COMMENT="$(extract_output_field "$SYNC_OUTPUT" "github_issue_sync_comment")"
     cleanup_auto_kept_database
-    write_workflow_summary
+    write_workflow_summary_and_report
     echo "GitHub issue sync failed; inspect $SYNC_OUTPUT" >&2
     exit "$SYNC_EXIT"
   fi
@@ -1041,13 +1203,14 @@ if [ "$SKIP_ISSUE_SYNC" -eq 0 ]; then
 fi
 
 cleanup_auto_kept_database
-write_workflow_summary
+write_workflow_summary_and_report
 
 printf '\nGitHub issue workflow complete.\n'
 printf 'repository: %s\n' "$REPOSITORY"
 printf 'pr_strategy: %s\n' "$PR_STRATEGY"
 printf 'workflow_output_dir: %s\n' "$WORKFLOW_OUTPUT_DIR"
 printf 'workflow_summary: %s\n' "$WORKFLOW_SUMMARY"
+printf 'workflow_report: %s\n' "$WORKFLOW_REPORT_MARKDOWN"
 printf 'session_dir: %s\n' "$SESSION_DIR"
 printf 'brief_file: %s\n' "$BRIEF_FILE"
 if [ "$CLAIM_ISSUES" -eq 1 ]; then

@@ -351,6 +351,7 @@ assert summary["plan"]["plan_only"] is True, summary
 assert summary["plan"]["json"].endswith("/workflow-plan.json"), summary
 assert summary["plan"]["markdown"].endswith("/workflow-plan.md"), summary
 assert "--plan-only" not in summary["plan"]["next_command"], summary
+assert summary["report"]["markdown"] is None, summary
 assert summary["run"]["summary_file"] is None, summary
 assert plan["source"] == "github_issue_workflow_plan", plan
 assert plan["planned_steps"]["claim_issues"] is True, plan
@@ -387,6 +388,7 @@ grep -F "GitHub issue workflow complete." "$TMP_DIR/per-issue.out" >/dev/null
 grep -F "issue_claim_applied: true" "$TMP_DIR/per-issue.out" >/dev/null
 grep -F "issue_sync_applied: false" "$TMP_DIR/per-issue.out" >/dev/null
 grep -F "workflow_summary:" "$TMP_DIR/per-issue.out" >/dev/null
+grep -F "workflow_report:" "$TMP_DIR/per-issue.out" >/dev/null
 grep -F "draft_pr_url: https://github.com/smartit/github-issue-workflow-smoke/pull/7" "$TMP_DIR/per-issue.out" >/dev/null
 grep -F -- "--next-only" "$COMMAND_LOG" >/dev/null
 grep -F "draft " "$COMMAND_LOG" >/dev/null
@@ -395,7 +397,7 @@ grep -F -- "--pr-url" "$COMMAND_LOG" >/dev/null
 grep -F -- "--session-manifest" "$COMMAND_LOG" >/dev/null
 grep -F -- "in-progress" "$COMMAND_LOG" >/dev/null
 
-python3 - "$PER_ISSUE_OUT/workflow-summary.json" <<'PY'
+python3 - "$PER_ISSUE_OUT/workflow-summary.json" "$PER_ISSUE_OUT/workflow-report.md" <<'PY'
 from __future__ import annotations
 
 import json
@@ -403,8 +405,10 @@ import pathlib
 import sys
 
 summary = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+report = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
 assert summary["repository_full_name"] == "smartit/github-issue-workflow-smoke", summary
 assert summary["pr_strategy"] == "per-issue", summary
+assert summary["report"]["markdown"].endswith("/workflow-report.md"), summary
 assert summary["issue_claim"]["requested"] is True, summary
 assert summary["issue_claim"]["applied"] is True, summary
 assert summary["issue_claim"]["exit_code"] == 0, summary
@@ -422,6 +426,10 @@ assert summary["issue_sync"]["pr_url"] == "https://github.com/smartit/github-iss
 assert summary["session"]["brief_file"].endswith("/brief.json"), summary
 assert summary["run"]["summary_file"].endswith("/run-summary.json"), summary
 assert summary["issue_sync"]["plan"].endswith("/github-issue-sync-plan.json"), summary
+assert "# GitHub Issue Workflow Report" in report, report
+assert "- Status: `succeeded`" in report, report
+assert "- PR export branch: `continuum/issue-7`" in report, report
+assert "https://github.com/smartit/github-issue-workflow-smoke/pull/7" in report, report
 PY
 
 : >"$COMMAND_LOG"
@@ -450,7 +458,7 @@ if grep -F -- "--next-only" "$COMMAND_LOG" >/dev/null; then
 fi
 grep -F -- "--apply" "$COMMAND_LOG" >/dev/null
 
-python3 - "$BATCH_OUT/workflow-summary.json" <<'PY'
+python3 - "$BATCH_OUT/workflow-summary.json" "$BATCH_OUT/workflow-report.md" <<'PY'
 from __future__ import annotations
 
 import json
@@ -458,12 +466,16 @@ import pathlib
 import sys
 
 summary = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+report = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
 assert summary["pr_strategy"] == "batch", summary
+assert summary["report"]["markdown"].endswith("/workflow-report.md"), summary
 assert summary["issue_claim"]["requested"] is False, summary
 assert summary["draft_pr"]["requested"] is False, summary
 assert summary["issue_sync"]["status"] == "done", summary
 assert summary["issue_sync"]["applied"] is True, summary
 assert summary["run"]["exit_code"] == 0, summary
+assert "- Status: `succeeded`" in report, report
+assert "- Issue sync applied: `yes`" in report, report
 PY
 
 FAIL_SYNC_OUT="$TMP_DIR/fail-sync-workflow"
@@ -494,7 +506,7 @@ grep -F -- "--status" "$COMMAND_LOG" >/dev/null
 grep -F -- "failed" "$COMMAND_LOG" >/dev/null
 grep -F -- "--session-manifest" "$COMMAND_LOG" >/dev/null
 
-python3 - "$FAIL_SYNC_OUT/workflow-summary.json" <<'PY'
+python3 - "$FAIL_SYNC_OUT/workflow-summary.json" "$FAIL_SYNC_OUT/workflow-report.md" <<'PY'
 from __future__ import annotations
 
 import json
@@ -502,13 +514,17 @@ import pathlib
 import sys
 
 summary = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+report = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
 assert summary["issue_claim"]["requested"] is False, summary
+assert summary["report"]["markdown"].endswith("/workflow-report.md"), summary
 assert summary["run"]["exit_code"] == 23, summary
 assert summary["draft_pr"]["requested"] is False, summary
 assert summary["issue_sync"]["skipped"] is False, summary
 assert summary["issue_sync"]["status"] == "failed", summary
 assert summary["issue_sync"]["exit_code"] == 0, summary
 assert summary["issue_sync"]["plan"].endswith("/github-issue-sync-plan.json"), summary
+assert "- Status: `failed`" in report, report
+assert "- Issue sync status: `failed`" in report, report
 PY
 
 FAIL_DRAFT_OUT="$TMP_DIR/fail-draft-workflow"
@@ -543,7 +559,7 @@ grep -F -- "--status" "$COMMAND_LOG" >/dev/null
 grep -F -- "failed" "$COMMAND_LOG" >/dev/null
 grep -F -- "--run-summary" "$COMMAND_LOG" >/dev/null
 
-python3 - "$FAIL_DRAFT_OUT/workflow-summary.json" <<'PY'
+python3 - "$FAIL_DRAFT_OUT/workflow-summary.json" "$FAIL_DRAFT_OUT/workflow-report.md" <<'PY'
 from __future__ import annotations
 
 import json
@@ -551,6 +567,8 @@ import pathlib
 import sys
 
 summary = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+report = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
+assert summary["report"]["markdown"].endswith("/workflow-report.md"), summary
 assert summary["run"]["exit_code"] == 0, summary
 assert summary["run"]["summary_file"].endswith("/run-summary.json"), summary
 assert summary["draft_pr"]["requested"] is True, summary
@@ -559,6 +577,8 @@ assert summary["issue_sync"]["skipped"] is False, summary
 assert summary["issue_sync"]["status"] == "failed", summary
 assert summary["issue_sync"]["exit_code"] == 0, summary
 assert summary["issue_sync"]["plan"].endswith("/github-issue-sync-plan.json"), summary
+assert "- Status: `failed`" in report, report
+assert "- Draft PR requested: `yes`" in report, report
 PY
 
 FAIL_OUT="$TMP_DIR/fail-workflow"
@@ -586,7 +606,7 @@ if [ "$fail_exit" -ne 23 ]; then
   exit 1
 fi
 
-python3 - "$FAIL_OUT/workflow-summary.json" <<'PY'
+python3 - "$FAIL_OUT/workflow-summary.json" "$FAIL_OUT/workflow-report.md" <<'PY'
 from __future__ import annotations
 
 import json
@@ -594,10 +614,14 @@ import pathlib
 import sys
 
 summary = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+report = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
+assert summary["report"]["markdown"].endswith("/workflow-report.md"), summary
 assert summary["issue_claim"]["requested"] is False, summary
 assert summary["run"]["exit_code"] == 23, summary
 assert summary["draft_pr"]["requested"] is False, summary
 assert summary["issue_sync"]["skipped"] is True, summary
+assert "- Status: `failed`" in report, report
+assert "- Issue sync skipped: `yes`" in report, report
 PY
 
 echo "github_issue_workflow_smoke=ok"

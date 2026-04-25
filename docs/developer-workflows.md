@@ -158,6 +158,11 @@ session only for the top issue, runs that session, exports a local PR candidate,
 `workflow-summary.json` under `.continuum/github-issue-workflows/`. The summary points to the
 session, `run-summary.json`, PR export evidence, and GitHub issue sync plan.
 
+The same output directory also contains `workflow-report.md`, which is the developer-facing report.
+It summarizes the workflow outcome, session, run evidence, PR export branch/commit, draft PR URL
+when present, issue-sync plan, and the next human review step. Use it as the first artifact to read
+after a run succeeds or fails.
+
 If you want to inspect that choice before running agents, use the plan-only wrapper:
 
 ```bash

@@ -74,9 +74,10 @@ batch-session with `issue-batch.md`, `issue-batch-context.json`, and a batch pla
 
 `github-issue-run` is the shortest issue-to-evidence path. It imports one issue source, creates the
 right developer session, runs the local control-plane flow for that session, exports the local PR
-candidate, and writes a GitHub issue sync dry-run plan. With the default `per-issue` strategy it
-runs only the top-ranked issue from the imported batch. With `GITHUB_ISSUE_PR_STRATEGY=batch`, it
-runs one aggregate batch session intended for one branch and one PR.
+candidate, and writes both `workflow-summary.json` and a human-readable `workflow-report.md` next to
+the GitHub issue sync dry-run plan. With the default `per-issue` strategy it runs only the
+top-ranked issue from the imported batch. With `GITHUB_ISSUE_PR_STRATEGY=batch`, it runs one
+aggregate batch session intended for one branch and one PR.
 
 Use `github-issue-plan` first when you want a safe preview. It creates the selected developer
 session plus `workflow-plan.json` and `workflow-plan.md`, then stops before running agents, opening
