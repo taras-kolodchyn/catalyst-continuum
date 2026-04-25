@@ -480,6 +480,7 @@ async function main() {
         document.body.textContent.includes("local PR bundle"),
       runActionHint: text("#runActionHint"),
       runControlReadinessCardCount: count("[data-run-control-readiness-card]"),
+      runControlReadinessDeveloperHandoffCount: count('[data-run-control-action="developer-handoff"]'),
       runControlReadinessDraftPrCount: count('[data-run-control-action="draft-pr"]'),
       runControlReadinessIncludesGuard:
         document.body.textContent.includes("Guard passed") ||
@@ -599,9 +600,9 @@ async function main() {
   if (!summary.missionFreshnessIncludesQuality) {
     problems.push("mission freshness board should summarize quality freshness");
   }
-  if (summary.runGuideProgressNow !== "5" || summary.runGuideProgressMax !== "5") {
+  if (summary.runGuideProgressNow !== "6" || summary.runGuideProgressMax !== "6") {
     problems.push(
-      `completed smoke run should show 5/5 guide progress, got ${summary.runGuideProgressNow}/${summary.runGuideProgressMax}`
+      `completed smoke run should show 6/6 guide progress, got ${summary.runGuideProgressNow}/${summary.runGuideProgressMax}`
     );
   }
   if (summary.runSectionNavLinkCount !== 5) {
@@ -613,7 +614,7 @@ async function main() {
   if (!summary.runSectionNavIncludesArtifacts) {
     problems.push("selected-run nav should include a direct artifacts jump link");
   }
-  if (!summary.runSectionNavGuideText.includes("5/5")) {
+  if (!summary.runSectionNavGuideText.includes("6/6")) {
     problems.push(`selected-run nav should expose guide progress, got ${summary.runSectionNavGuideText}`);
   }
   if (!summary.runSectionNavTaskText.includes("task")) {
@@ -707,10 +708,13 @@ async function main() {
   if (summary.agentReportCardCount < 1) {
     problems.push("no agent report cards visible");
   }
-  if (summary.runControlReadinessCardCount !== 7) {
+  if (summary.runControlReadinessCardCount !== 8) {
     problems.push(
-      `expected seven run-control readiness cards, got ${summary.runControlReadinessCardCount}`
+      `expected eight run-control readiness cards, got ${summary.runControlReadinessCardCount}`
     );
+  }
+  if (summary.runControlReadinessDeveloperHandoffCount !== 1) {
+    problems.push("run-control readiness board should explain the developer handoff control");
   }
   if (summary.runControlReadinessDraftPrCount !== 1) {
     problems.push("run-control readiness board should explain the draft PR control");

@@ -1,0 +1,261 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "urn:catalyst-continuum:schemas:artifacts:developer-handoff:v0.1"
+title: "Catalyst Continuum Developer Handoff Artifact"
+description: "Persisted developer review package manifest generated from run evidence."
+type: object
+additionalProperties: false
+required:
+  - schema_version
+  - artifact_type
+  - run
+  - task_counts
+  - artifact_count
+  - event_count
+  - artifact_types
+  - agent_lanes
+  - evidence_groups
+  - review_checklist
+  - artifacts
+  - recent_events
+properties:
+  schema_version:
+    type: string
+    const: "v0.1"
+  artifact_type:
+    type: string
+    const: "developer_handoff"
+  run:
+    $ref: "#/$defs/run"
+  task_counts:
+    $ref: "#/$defs/task_counts"
+  artifact_count:
+    type: integer
+    minimum: 0
+  event_count:
+    type: integer
+    minimum: 0
+  artifact_types:
+    type: array
+    items:
+      type: string
+      minLength: 1
+    uniqueItems: true
+  agent_lanes:
+    type: array
+    items:
+      $ref: "#/$defs/agent_lane"
+  evidence_groups:
+    type: array
+    minItems: 1
+    items:
+      $ref: "#/$defs/evidence_group"
+  review_checklist:
+    type: array
+    minItems: 1
+    items:
+      $ref: "#/$defs/review_check"
+  artifacts:
+    type: array
+    items:
+      $ref: "#/$defs/artifact_summary"
+  recent_events:
+    type: array
+    items:
+      $ref: "#/$defs/run_event_summary"
+$defs:
+  uuid_string:
+    type: string
+    format: uuid
+  nullable_string:
+    anyOf:
+      - type: string
+      - type: "null"
+  run:
+    type: object
+    additionalProperties: false
+    required:
+      - run_id
+      - title
+      - status
+      - target_pack
+      - repository
+      - default_branch
+    properties:
+      run_id:
+        $ref: "#/$defs/uuid_string"
+      title:
+        type: string
+        minLength: 1
+      status:
+        type: string
+        minLength: 1
+      target_pack:
+        $ref: "#/$defs/nullable_string"
+      repository:
+        $ref: "#/$defs/nullable_string"
+      default_branch:
+        $ref: "#/$defs/nullable_string"
+  task_counts:
+    type: object
+    additionalProperties: false
+    required:
+      - total
+      - queued
+      - running
+      - succeeded
+      - failed
+    properties:
+      total:
+        type: integer
+        minimum: 0
+      queued:
+        type: integer
+        minimum: 0
+      running:
+        type: integer
+        minimum: 0
+      succeeded:
+        type: integer
+        minimum: 0
+      failed:
+        type: integer
+        minimum: 0
+  agent_lane:
+    type: object
+    additionalProperties: false
+    required:
+      - agent
+      - total
+      - queued
+      - running
+      - succeeded
+      - failed
+    properties:
+      agent:
+        type: string
+        minLength: 1
+      total:
+        type: integer
+        minimum: 0
+      queued:
+        type: integer
+        minimum: 0
+      running:
+        type: integer
+        minimum: 0
+      succeeded:
+        type: integer
+        minimum: 0
+      failed:
+        type: integer
+        minimum: 0
+  evidence_group:
+    type: object
+    additionalProperties: false
+    required:
+      - id
+      - title
+      - expected_types
+      - recorded_type_count
+      - latest_created_at
+    properties:
+      id:
+        type: string
+        minLength: 1
+      title:
+        type: string
+        minLength: 1
+      expected_types:
+        type: array
+        minItems: 1
+        items:
+          type: string
+          minLength: 1
+      recorded_type_count:
+        type: integer
+        minimum: 0
+      latest_created_at:
+        anyOf:
+          - type: string
+            format: date-time
+          - type: "null"
+  review_check:
+    type: object
+    additionalProperties: false
+    required:
+      - id
+      - title
+      - detail
+      - ready
+    properties:
+      id:
+        type: string
+        minLength: 1
+      title:
+        type: string
+        minLength: 1
+      detail:
+        type: string
+        minLength: 1
+      ready:
+        type: boolean
+  artifact_summary:
+    type: object
+    additionalProperties: true
+    required:
+      - artifact_id
+      - artifact_type
+      - format
+      - location_kind
+      - location_value
+      - content_digest
+      - persisted
+    properties:
+      artifact_id:
+        $ref: "#/$defs/uuid_string"
+      artifact_type:
+        type: string
+        minLength: 1
+      format:
+        type: string
+        minLength: 1
+      location_kind:
+        type: string
+        minLength: 1
+      location_value:
+        type: string
+        minLength: 1
+      content_digest:
+        type: string
+        minLength: 1
+      persisted:
+        type: boolean
+  run_event_summary:
+    type: object
+    additionalProperties: true
+    required:
+      - event_id
+      - run_id
+      - scope
+      - event_type
+      - summary
+      - payload
+      - persisted
+    properties:
+      event_id:
+        $ref: "#/$defs/uuid_string"
+      run_id:
+        $ref: "#/$defs/uuid_string"
+      scope:
+        type: string
+        minLength: 1
+      event_type:
+        type: string
+        minLength: 1
+      summary:
+        type: string
+        minLength: 1
+      payload:
+        type: object
+      persisted:
+        type: boolean

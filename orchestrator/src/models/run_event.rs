@@ -7,6 +7,7 @@ pub const RUN_SUBMITTED_EVENT_TYPE: &str = "run_submitted";
 pub const RUN_STATUS_CHANGED_EVENT_TYPE: &str = "run_status_changed";
 pub const RUN_POLICY_EVALUATED_EVENT_TYPE: &str = "run_policy_evaluated";
 pub const RUN_QUALITY_EVALUATED_EVENT_TYPE: &str = "run_quality_evaluated";
+pub const RUN_DEVELOPER_HANDOFF_GENERATED_EVENT_TYPE: &str = "developer_handoff_generated";
 pub const PR_CANDIDATE_EXPORTED_EVENT_TYPE: &str = "pr_candidate_exported";
 pub const PR_EXPORT_PUBLISHED_EVENT_TYPE: &str = "pr_export_published";
 pub const GITHUB_PR_OPENED_EVENT_TYPE: &str = "github_pr_opened";
@@ -23,6 +24,7 @@ pub const RUN_EVENT_TYPES: &[&str] = &[
     RUN_STATUS_CHANGED_EVENT_TYPE,
     RUN_POLICY_EVALUATED_EVENT_TYPE,
     RUN_QUALITY_EVALUATED_EVENT_TYPE,
+    RUN_DEVELOPER_HANDOFF_GENERATED_EVENT_TYPE,
     PR_CANDIDATE_EXPORTED_EVENT_TYPE,
     PR_EXPORT_PUBLISHED_EVENT_TYPE,
     GITHUB_PR_OPENED_EVENT_TYPE,
@@ -42,6 +44,7 @@ pub const ALL_EVENT_TYPES: &[&str] = &[
     RUN_STATUS_CHANGED_EVENT_TYPE,
     RUN_POLICY_EVALUATED_EVENT_TYPE,
     RUN_QUALITY_EVALUATED_EVENT_TYPE,
+    RUN_DEVELOPER_HANDOFF_GENERATED_EVENT_TYPE,
     PR_CANDIDATE_EXPORTED_EVENT_TYPE,
     PR_EXPORT_PUBLISHED_EVENT_TYPE,
     GITHUB_PR_OPENED_EVENT_TYPE,
@@ -243,6 +246,7 @@ mod tests {
             RUN_STATUS_CHANGED_EVENT_TYPE => "executing",
             RUN_POLICY_EVALUATED_EVENT_TYPE => "passed",
             RUN_QUALITY_EVALUATED_EVENT_TYPE => "passed",
+            RUN_DEVELOPER_HANDOFF_GENERATED_EVENT_TYPE => "generated",
             PR_CANDIDATE_EXPORTED_EVENT_TYPE => "exported",
             PR_EXPORT_PUBLISHED_EVENT_TYPE => "pushed",
             GITHUB_PR_OPENED_EVENT_TYPE => "opened",

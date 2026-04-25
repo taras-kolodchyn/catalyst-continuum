@@ -1,0 +1,149 @@
+{
+  "schema_version": "v0.1",
+  "recipes": {
+    "fix-bug": {
+      "title_prefix": "Fix bug",
+      "summary": "Investigate and fix a repository bug with tests and review evidence.",
+      "goals": [
+        "Reproduce or explain the bug from repository context.",
+        "Implement the smallest safe fix.",
+        "Add or update tests that would fail without the fix.",
+        "Prepare review notes with validation evidence."
+      ],
+      "requirement_title": "Fix the reported bug",
+      "requirement_prefix": "Resolve the reported bug",
+      "constraints": [
+        "Keep the fix focused on the reported behavior.",
+        "Do not mix unrelated refactors into the change.",
+        "Preserve existing public APIs unless the task explicitly requires a breaking change."
+      ],
+      "deliverables": [
+        "focused code patch",
+        "test coverage for the bug",
+        "developer handoff review notes"
+      ],
+      "acceptance_criteria": [
+        "The bug is fixed or a concrete blocker is documented.",
+        "Relevant tests pass locally.",
+        "The generated handoff explains changed files, validation, and residual risks."
+      ],
+      "default_pack": "cli-tool",
+      "allowed_task_kinds": ["plan", "code", "test"]
+    },
+    "add-feature": {
+      "title_prefix": "Add feature",
+      "summary": "Add a bounded feature with implementation, tests, documentation, and review evidence.",
+      "goals": [
+        "Translate the requested feature into concrete implementation tasks.",
+        "Implement the feature behind existing architecture boundaries.",
+        "Add tests and update documentation when behavior changes.",
+        "Prepare a review package that explains the tradeoffs."
+      ],
+      "requirement_title": "Implement the requested feature",
+      "requirement_prefix": "Add the requested feature",
+      "constraints": [
+        "Respect the existing project architecture and coding conventions.",
+        "Keep the feature small enough to review in one pull request.",
+        "Do not bypass quality gates or repository publication policy."
+      ],
+      "deliverables": [
+        "feature implementation",
+        "tests or smoke coverage",
+        "documentation update",
+        "developer handoff review notes"
+      ],
+      "acceptance_criteria": [
+        "The requested behavior is implemented.",
+        "Tests or smoke checks prove the behavior.",
+        "Documentation reflects new commands, configuration, or user-facing behavior."
+      ],
+      "default_pack": "cli-tool",
+      "allowed_task_kinds": ["plan", "code", "test"]
+    },
+    "add-tests": {
+      "title_prefix": "Add tests",
+      "summary": "Improve confidence by adding or repairing focused tests around existing behavior.",
+      "goals": [
+        "Identify the behavior that lacks coverage.",
+        "Add the smallest deterministic tests that protect the behavior.",
+        "Avoid production-code churn unless needed to make behavior testable."
+      ],
+      "requirement_title": "Add focused test coverage",
+      "requirement_prefix": "Add test coverage for",
+      "constraints": [
+        "Prefer deterministic tests over environment-dependent checks.",
+        "Do not weaken existing assertions.",
+        "Document any validation path that cannot run locally."
+      ],
+      "deliverables": [
+        "test patch",
+        "validation output",
+        "developer handoff review notes"
+      ],
+      "acceptance_criteria": [
+        "New tests fail without the covered behavior when practical.",
+        "Relevant test commands pass.",
+        "The handoff identifies remaining untested risks."
+      ],
+      "default_pack": "cli-tool",
+      "allowed_task_kinds": ["plan", "test"]
+    },
+    "security-hardening": {
+      "title_prefix": "Harden security",
+      "summary": "Analyze and improve security posture for a bounded repository area.",
+      "goals": [
+        "Identify the security-sensitive boundary touched by the task.",
+        "Apply secure-by-default changes without broad unrelated churn.",
+        "Add tests or policy checks for the hardened behavior.",
+        "Document residual risk and manual review needs."
+      ],
+      "requirement_title": "Harden the requested security boundary",
+      "requirement_prefix": "Harden security for",
+      "constraints": [
+        "Do not introduce long-lived secrets or persistent host access.",
+        "Do not relax sandbox, repository-target, or quality-gate policy.",
+        "Prefer explicit allowlists and typed validation over ad hoc filtering."
+      ],
+      "deliverables": [
+        "security-focused patch",
+        "tests or policy checks",
+        "risk notes for human review"
+      ],
+      "acceptance_criteria": [
+        "The security boundary is clearer or stricter after the change.",
+        "Relevant checks pass.",
+        "Residual risk is documented in the developer handoff."
+      ],
+      "default_pack": "cli-tool",
+      "allowed_task_kinds": ["plan", "code", "test"]
+    },
+    "docs-update": {
+      "title_prefix": "Update docs",
+      "summary": "Update user-facing and operator-facing documentation for a concrete behavior change.",
+      "goals": [
+        "Find the docs that explain the affected workflow.",
+        "Update examples, commands, and validation guidance.",
+        "Keep links and local paths portable."
+      ],
+      "requirement_title": "Update documentation",
+      "requirement_prefix": "Document",
+      "constraints": [
+        "Do not include machine-specific local absolute paths.",
+        "Keep commands copy-pasteable.",
+        "Align docs with existing validation scripts."
+      ],
+      "deliverables": [
+        "documentation patch",
+        "markdown link validation",
+        "developer handoff review notes"
+      ],
+      "acceptance_criteria": [
+        "Documentation explains the workflow clearly.",
+        "Markdown links pass validation.",
+        "Examples match implemented behavior."
+      ],
+      "default_pack": "cli-tool",
+      "allowed_task_kinds": ["plan", "code", "test"]
+    }
+  }
+}

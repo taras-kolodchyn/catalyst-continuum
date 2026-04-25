@@ -43,6 +43,7 @@ properties:
       - run_status_changed
       - run_policy_evaluated
       - run_quality_evaluated
+      - developer_handoff_generated
       - pr_candidate_exported
       - pr_export_published
       - github_pr_opened

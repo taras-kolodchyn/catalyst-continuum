@@ -11,9 +11,10 @@ use crate::{
         describe_github_default_branch_state, describe_github_webhook_action_report,
         describe_github_webhook_receipt, describe_latest_artifact,
         describe_repository_signal_payload, evaluate_run_policy, evaluate_run_quality,
-        export_pr_candidate, publish_pr_export, run_next_github_webhook_action,
-        run_next_repository_automation, run_next_task, submit_brief::submit_validated_brief,
-        submit_next_repository_signal, submit_repository_signal::BriefSubmissionContext, worker,
+        export_pr_candidate, generate_developer_handoff, publish_pr_export,
+        run_next_github_webhook_action, run_next_repository_automation, run_next_task,
+        submit_brief::submit_validated_brief, submit_next_repository_signal,
+        submit_repository_signal::BriefSubmissionContext, worker,
     },
     config::{InstanceConfigReport, load_github_app_webhook_secret},
     coordination,
@@ -148,6 +149,7 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                         "POST /runs/{run_id}/worker/once",
                         "POST /runs/{run_id}/evaluate-policy",
                         "POST /runs/{run_id}/evaluate-quality",
+                        "POST /runs/{run_id}/developer-handoff",
                         "POST /runs/{run_id}/export-pr-candidate",
                         "POST /runs/{run_id}/publish-pr-export",
                         "POST /runs/{run_id}/draft-pr",
@@ -1136,6 +1138,47 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                     ),
                 }
             }
+            ("POST", _) if path.starts_with("/runs/") && path.ends_with("/developer-handoff") => {
+                match parse_run_action_path(path, "/developer-handoff") {
+                    Ok(run_id) => match store.fetch_run_summary(run_id) {
+                        Ok(Some(_)) => {
+                            match generate_developer_handoff::generate_developer_handoff(
+                                &mut store,
+                                run_id,
+                                &args.artifact_root,
+                            ) {
+                                Ok(report) => json_response(StatusCode(200), &report),
+                                Err(error) => json_response(
+                                    StatusCode(500),
+                                    &ErrorResponse {
+                                        error: format!(
+                                            "failed to generate developer handoff for run {run_id}: {error}"
+                                        ),
+                                    },
+                                ),
+                            }
+                        }
+                        Ok(None) => json_response(
+                            StatusCode(404),
+                            &ErrorResponse {
+                                error: format!("run not found: {run_id}"),
+                            },
+                        ),
+                        Err(error) => json_response(
+                            StatusCode(500),
+                            &ErrorResponse {
+                                error: format!("failed to load run {run_id}: {error}"),
+                            },
+                        ),
+                    },
+                    Err(error) => json_response(
+                        StatusCode(400),
+                        &ErrorResponse {
+                            error: error.to_string(),
+                        },
+                    ),
+                }
+            }
             ("POST", _) if path.starts_with("/runs/") && path.ends_with("/export-pr-candidate") => {
                 match parse_run_action_path(path, "/export-pr-candidate") {
                     Ok(run_id) => match store.fetch_run_summary(run_id) {
@@ -1907,6 +1950,9 @@ fn route_label(method: &str, path: &str) -> &'static str {
         ("POST", _) if path.starts_with("/runs/") && path.ends_with("/evaluate-quality") => {
             "/runs/{run_id}/evaluate-quality"
         }
+        ("POST", _) if path.starts_with("/runs/") && path.ends_with("/developer-handoff") => {
+            "/runs/{run_id}/developer-handoff"
+        }
         ("POST", _) if path.starts_with("/runs/") && path.ends_with("/export-pr-candidate") => {
             "/runs/{run_id}/export-pr-candidate"
         }
@@ -2183,6 +2229,13 @@ mod tests {
         assert_eq!(
             route_label("POST", "/repository-automation/next"),
             "/repository-automation/next"
+        );
+        assert_eq!(
+            route_label(
+                "POST",
+                "/runs/11111111-1111-1111-1111-111111111111/developer-handoff"
+            ),
+            "/runs/{run_id}/developer-handoff"
         );
         assert_eq!(
             route_label("GET", "/github/webhooks/delivery-1"),

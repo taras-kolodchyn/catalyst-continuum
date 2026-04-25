@@ -2,7 +2,9 @@ SHELL := /bin/bash
 
 ACT_ARGS ?=
 ACT_JOB ?= rust
+ARTIFACT_ROOT ?=
 COMPOSE := docker compose --env-file deploy/compose/.env.example -f deploy/compose/compose.yaml
+DATABASE_URL ?=
 DOCTOR_ARGS ?=
 LITELLM_SMOKE_ARGS ?=
 OPENHANDS_AGENT_TASK_SMOKE_ARGS ?=
@@ -10,6 +12,7 @@ OPENHANDS_AGENT_TASK_REAL_SMOKE_ARGS ?=
 OPERATOR_UI_ARGS ?=
 OPERATOR_UI_SMOKE_ARGS ?=
 OPERATOR_UI_REPOSITORY_TARGETS_FILE ?=
+PACK ?=
 SOLO_DEMO_ARGS ?=
 REPOSITORY ?=
 REPOSITORY_ALLOW_READONLY ?=
@@ -20,6 +23,10 @@ REPOSITORY_TARGET_ID ?=
 REPOSITORY_TARGETS_FILE ?= config/repository-targets.local.yaml
 REPOSITORY_TARGETS_FORCE ?=
 REPOSITORY_BRANCH_PREFIX ?= continuum/
+RUN_ID ?=
+TASK ?=
+TASK_BRIEF_ARGS ?=
+TASK_RECIPE ?= fix-bug
 SMOKE_SCENARIO ?= all
 UI_PORT ?= 8080
 
@@ -118,6 +125,16 @@ solo-demo-check: ## Verify the seeded solo-developer demo starts and exposes run
 
 .PHONY: dev-demo
 dev-demo: solo-demo ## Alias for solo-demo.
+
+.PHONY: developer-handoff
+developer-handoff: ## Generate a review.md + agent prompt package for RUN_ID=<uuid>.
+	@test -n "$(RUN_ID)" || { echo "RUN_ID is required"; exit 2; }
+	cargo run --quiet --package catalyst-continuum-orchestrator -- generate-developer-handoff --run-id "$(RUN_ID)" --pretty $(if $(DATABASE_URL),--database-url "$(DATABASE_URL)") $(if $(ARTIFACT_ROOT),--artifact-root "$(ARTIFACT_ROOT)")
+
+.PHONY: dev-task-brief
+dev-task-brief: ## Create a structured brief from TASK="..." and TASK_RECIPE=fix-bug.
+	@test -n "$(TASK)" || { echo "TASK is required"; exit 2; }
+	./scripts/create-dev-task-brief.sh --task "$(TASK)" --recipe "$(TASK_RECIPE)" $(if $(REPOSITORY),--repository "$(REPOSITORY)") $(if $(REPOSITORY_DEFAULT_BRANCH),--default-branch "$(REPOSITORY_DEFAULT_BRANCH)") $(if $(PACK),--pack "$(PACK)") $(TASK_BRIEF_ARGS)
 
 .PHONY: ui-smoke
 ui-smoke: ## Run browser-level operator UI smoke against seeded MVP run data.

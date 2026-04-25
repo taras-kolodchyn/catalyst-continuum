@@ -14,6 +14,7 @@ const ARTIFACT_HIGHLIGHT_TYPES: &[&str] = &[
     "agent_dispatch_plan",
     "policy_report",
     "quality_report",
+    "developer_handoff",
     "workspace_snapshot",
     "pr_candidate",
     "pr_export",

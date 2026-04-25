@@ -37,12 +37,14 @@ const BACKLOG_ARTIFACT_TYPE = "backlog";
 const POLICY_REPORT_ARTIFACT_TYPE = "policy_report";
 const DISPATCH_PLAN_ARTIFACT_TYPE = "agent_dispatch_plan";
 const QUALITY_REPORT_ARTIFACT_TYPE = "quality_report";
+const DEVELOPER_HANDOFF_ARTIFACT_TYPE = "developer_handoff";
 const PR_PUBLICATION_ARTIFACT_TYPE = "pr_publication";
 const GITHUB_PULL_REQUEST_ARTIFACT_TYPE = "github_pull_request";
 const RUN_SUBMITTED_EVENT_TYPE = "run_submitted";
 const RUN_STATUS_CHANGED_EVENT_TYPE = "run_status_changed";
 const RUN_POLICY_EVALUATED_EVENT_TYPE = "run_policy_evaluated";
 const RUN_QUALITY_EVALUATED_EVENT_TYPE = "run_quality_evaluated";
+const RUN_DEVELOPER_HANDOFF_GENERATED_EVENT_TYPE = "developer_handoff_generated";
 const PR_CANDIDATE_EXPORTED_EVENT_TYPE = "pr_candidate_exported";
 const PR_EXPORT_PUBLISHED_EVENT_TYPE = "pr_export_published";
 const GITHUB_PR_OPENED_EVENT_TYPE = "github_pr_opened";
@@ -73,6 +75,7 @@ const RUN_ACTION_BUSY_LABELS = {
   "worker-once": "Running worker...",
   "evaluate-policy": "Evaluating policy...",
   "evaluate-quality": "Evaluating quality...",
+  "developer-handoff": "Generating developer handoff...",
   "export-pr": "Exporting PR...",
   "publish-pr": "Publishing PR...",
   "draft-pr": "Creating draft PR...",
@@ -82,6 +85,7 @@ const RUN_ACTION_SEQUENCE = [
   "worker-once",
   "evaluate-policy",
   "evaluate-quality",
+  "developer-handoff",
   "export-pr",
   "publish-pr",
   "draft-pr",
@@ -116,6 +120,7 @@ const RUN_EVENT_FILTERS = [
     id: "handoff",
     label: "PR handoff",
     types: [
+      RUN_DEVELOPER_HANDOFF_GENERATED_EVENT_TYPE,
       PR_CANDIDATE_EXPORTED_EVENT_TYPE,
       PR_EXPORT_PUBLISHED_EVENT_TYPE,
       GITHUB_PR_OPENED_EVENT_TYPE,
@@ -1437,6 +1442,8 @@ function actionSpec(actionId, runId) {
       return { path: `${base}/evaluate-policy` };
     case "evaluate-quality":
       return { path: `${base}/evaluate-quality` };
+    case "developer-handoff":
+      return { path: `${base}/developer-handoff` };
     case "export-pr":
       return { path: `${base}/export-pr-candidate` };
     case "publish-pr":
@@ -2685,6 +2692,8 @@ function displayRunEventType(eventType) {
       return "Policy evaluated";
     case RUN_QUALITY_EVALUATED_EVENT_TYPE:
       return "Quality gate evaluated";
+    case RUN_DEVELOPER_HANDOFF_GENERATED_EVENT_TYPE:
+      return "Developer handoff generated";
     case PR_CANDIDATE_EXPORTED_EVENT_TYPE:
       return "PR candidate exported";
     case PR_EXPORT_PUBLISHED_EVENT_TYPE:
@@ -2716,6 +2725,7 @@ function runEventKicker(eventType, event) {
     case PR_CANDIDATE_EXPORTED_EVENT_TYPE:
     case PR_EXPORT_PUBLISHED_EVENT_TYPE:
     case GITHUB_PR_OPENED_EVENT_TYPE:
+    case RUN_DEVELOPER_HANDOFF_GENERATED_EVENT_TYPE:
       return "Promotion checkpoint";
     case TASK_STARTED_EVENT_TYPE:
     case TASK_WORKSPACE_PREPARED_EVENT_TYPE:
@@ -3344,6 +3354,9 @@ function buildDeveloperHandoffSummary(runDetail, guide) {
     artifactTypes.has(QUALITY_REPORT_ARTIFACT_TYPE) ||
     eventTypes.has(RUN_QUALITY_EVALUATED_EVENT_TYPE);
   const prCandidateReady = artifactTypes.has(PR_CANDIDATE_ARTIFACT_TYPE);
+  const developerHandoffReady =
+    artifactTypes.has(DEVELOPER_HANDOFF_ARTIFACT_TYPE) ||
+    eventTypes.has(RUN_DEVELOPER_HANDOFF_GENERATED_EVENT_TYPE);
   const prExportReady =
     artifactTypes.has(PR_EXPORT_ARTIFACT_TYPE) ||
     eventTypes.has(PR_CANDIDATE_EXPORTED_EVENT_TYPE);
@@ -3375,6 +3388,19 @@ function buildDeveloperHandoffSummary(runDetail, guide) {
         "The draft PR handoff is recorded. The developer path is now normal GitHub review, with Continuum artifacts as the audit trail.",
       title: "Review the draft PR with evidence attached",
       tone: "success",
+    });
+  }
+
+  if ((publicationReady || prExportReady) && !developerHandoffReady) {
+    return developerHandoffSummary({
+      actionId: "developer-handoff",
+      actionLabel: "Generate developer handoff",
+      actionHref: "#run-artifacts",
+      badge: "Developer",
+      detail:
+        "Promotion evidence already exists. Package it into a readable review brief and reusable agent prompt before the next coding or review pass.",
+      title: "Create the developer review package",
+      tone: "warning",
     });
   }
 
@@ -3780,6 +3806,7 @@ function buildDeveloperEvidenceCards(runDetail) {
       kicker: "PR handoff",
       title: "Review package",
       types: [
+        DEVELOPER_HANDOFF_ARTIFACT_TYPE,
         PR_CANDIDATE_ARTIFACT_TYPE,
         PR_EXPORT_ARTIFACT_TYPE,
         PR_PUBLICATION_ARTIFACT_TYPE,
@@ -4213,6 +4240,8 @@ function runActionDescription(actionId) {
       return "Re-checks the run against pack, runtime, retry, and execution policy.";
     case "evaluate-quality":
       return "Creates or refreshes the quality gate evidence before promotion.";
+    case "developer-handoff":
+      return "Packages the run into a developer-friendly review brief, evidence manifest, and reusable agent prompt.";
     case "export-pr":
       return "Turns the PR candidate into an explicit branch/export bundle.";
     case "publish-pr":
@@ -4254,6 +4283,9 @@ function buildReviewHandoffItems(runDetail) {
     artifactTypes.has(QUALITY_REPORT_ARTIFACT_TYPE) ||
     eventTypes.has(RUN_QUALITY_EVALUATED_EVENT_TYPE);
   const prCandidateReady = artifactTypes.has(PR_CANDIDATE_ARTIFACT_TYPE);
+  const developerHandoffReady =
+    artifactTypes.has(DEVELOPER_HANDOFF_ARTIFACT_TYPE) ||
+    eventTypes.has(RUN_DEVELOPER_HANDOFF_GENERATED_EVENT_TYPE);
   const prExportReady =
     artifactTypes.has(PR_EXPORT_ARTIFACT_TYPE) ||
     eventTypes.has(PR_CANDIDATE_EXPORTED_EVENT_TYPE);
@@ -4288,12 +4320,22 @@ function buildReviewHandoffItems(runDetail) {
           : `Run status is ${displayRunStatus(runDetail.status)}.`,
     }),
     reviewHandoffItem({
+      action: availability["developer-handoff"],
+      actionId: "developer-handoff",
+      detail: developerHandoffReady
+        ? "The developer review package, evidence manifest, and agent prompt are ready."
+        : "Generate a portable handoff so the next Codex, Cursor, or OpenHands session starts with run evidence instead of manual context hunting.",
+      kicker: "03 Developer handoff",
+      ready: developerHandoffReady,
+      title: developerHandoffReady ? "Developer package is ready" : "Developer package is pending",
+    }),
+    reviewHandoffItem({
       action: availability["export-pr"],
       actionId: "export-pr",
       detail: prExportReady
         ? "The PR export bundle has been assembled for branch publication."
         : "Export turns the candidate into a concrete repository branch bundle.",
-      kicker: "03 Export bundle",
+      kicker: "04 Export bundle",
       ready: prExportReady,
       title: prExportReady ? "Export bundle is ready" : "Export bundle is pending",
     }),
@@ -4303,7 +4345,7 @@ function buildReviewHandoffItems(runDetail) {
       detail: publicationReady
         ? "Publication evidence exists for the branch handoff."
         : "Publication pushes or prepares the exported branch before GitHub review starts.",
-      kicker: "04 Branch publication",
+      kicker: "05 Branch publication",
       ready: publicationReady,
       title: publicationReady ? "Branch handoff is published" : "Branch handoff is pending",
     }),
@@ -4313,7 +4355,7 @@ function buildReviewHandoffItems(runDetail) {
       detail: githubPrReady
         ? "The draft PR is recorded. Human review continues in GitHub."
         : "The final step opens or reuses the draft PR without bypassing review controls.",
-      kicker: "05 Draft PR",
+      kicker: "06 Draft PR",
       ready: githubPrReady,
       title: githubPrReady ? "GitHub review is ready" : "Draft PR is pending",
     }),
@@ -8467,9 +8509,9 @@ function buildRunGuide(runDetail, events) {
       currentStageTitle: "Waiting for a run",
       currentStageDetail:
         "The selected-run guide only activates once a concrete run, task set, and artifact history exist.",
-      progressSummary: "0 of 5 stages complete",
+      progressSummary: "0 of 6 stages complete",
       completedStageCount: 0,
-      totalStageCount: 5,
+      totalStageCount: 6,
       blockerDetail:
         "Execution, quality, and PR handoff stay pending until a run is materialized from the brief.",
       stages: [],
@@ -8491,6 +8533,9 @@ function buildRunGuide(runDetail, events) {
   const qualityReady =
     artifactTypes.has(QUALITY_REPORT_ARTIFACT_TYPE) ||
     eventTypes.has(RUN_QUALITY_EVALUATED_EVENT_TYPE);
+  const developerHandoffReady =
+    artifactTypes.has(DEVELOPER_HANDOFF_ARTIFACT_TYPE) ||
+    eventTypes.has(RUN_DEVELOPER_HANDOFF_GENERATED_EVENT_TYPE);
   const prCandidateReady = artifactTypes.has(PR_CANDIDATE_ARTIFACT_TYPE);
   const prExportReady =
     artifactTypes.has(PR_EXPORT_ARTIFACT_TYPE) ||
@@ -8553,6 +8598,23 @@ function buildRunGuide(runDetail, events) {
             : "Quality evaluation unlocks after execution succeeds.",
     },
     {
+      title: "Developer package",
+      state: executionBlocked
+        ? "blocked"
+        : developerHandoffReady
+          ? "complete"
+          : qualityReady && prCandidateReady
+            ? "active"
+            : "pending",
+      detail: executionBlocked
+        ? "Developer handoff waits until failed execution evidence is understood."
+        : developerHandoffReady
+          ? "The run has a portable review package, evidence manifest, and reusable agent prompt."
+          : qualityReady && prCandidateReady
+            ? "Generate the developer handoff so the next Codex, Cursor, or OpenHands session starts from durable run evidence."
+            : "Developer handoff becomes useful after execution and quality evidence exist.",
+    },
+    {
       title: "PR handoff",
       state: executionBlocked
         ? "blocked"
@@ -8589,6 +8651,7 @@ function buildRunGuide(runDetail, events) {
 
   const nextAction = recommendedRunAction({
     availability,
+    developerHandoffReady,
     executionBlocked,
     executionComplete,
     githubPrReady,
@@ -8607,9 +8670,11 @@ function buildRunGuide(runDetail, events) {
     badgeLabel: nextAction.badgeLabel,
     headline: guideHeadline({
       availability,
+      developerHandoffReady,
       executionBlocked,
       executionComplete,
       githubPrReady,
+      prCandidateReady,
       prExportReady,
       publicationReady,
       qualityReady,
@@ -8627,6 +8692,7 @@ function buildRunGuide(runDetail, events) {
     totalStageCount: stages.length,
     blockerDetail: guideBlockerDetail({
       availability,
+      developerHandoffReady,
       executionBlocked,
       executionComplete,
       githubPrReady,
@@ -8721,6 +8787,21 @@ function recommendedRunAction(context) {
       detail:
         "Execution finished. Evaluate quality before you export, publish, or open a PR so promotion stays tied to fresh artifacts.",
       controlActionId: "evaluate-quality",
+    };
+  }
+
+  if (
+    context.qualityReady &&
+    context.prCandidateReady &&
+    !context.developerHandoffReady
+  ) {
+    return {
+      badgeTone: "warning",
+      badgeLabel: "Developer",
+      title: "Generate developer handoff",
+      detail:
+        "Quality evidence is ready. Package the run into a readable review brief, evidence manifest, and reusable agent prompt before the next coding or review session.",
+      controlActionId: "developer-handoff",
     };
   }
 
@@ -8827,6 +8908,13 @@ function guideHeadline(context) {
   if (context.executionComplete && !context.qualityReady) {
     return "Task execution is complete, and the next control-plane decision is the quality gate.";
   }
+  if (
+    context.qualityReady &&
+    context.prCandidateReady &&
+    !context.developerHandoffReady
+  ) {
+    return "The run is promotable; the next useful step for a developer is a portable handoff package.";
+  }
   if (context.publicationReady) {
     if (!context.availability["draft-pr"].enabled) {
       return "Branch publication is complete, but repository-target policy is still blocking the draft PR handoff.";
@@ -8864,6 +8952,9 @@ function guideBlockerDetail(context) {
   }
   if (!context.prCandidateReady) {
     return "Promotion is still blocked because no pr_candidate artifact is available for this run.";
+  }
+  if (!context.developerHandoffReady) {
+    return "Generate the developer handoff to avoid losing context between the orchestrator run and the next coding or review session.";
   }
   if (!context.prExportReady) {
     if (!context.availability["publish-pr"].enabled && !context.availability["draft-pr"].enabled) {
@@ -10283,6 +10374,8 @@ function displayRunActionLabel(actionId) {
       return "Evaluate policy";
     case "evaluate-quality":
       return "Evaluate quality";
+    case "developer-handoff":
+      return "Generate developer handoff";
     case "export-pr":
       return "Export PR candidate";
     case "publish-pr":
@@ -10312,6 +10405,8 @@ function actionHighlightItems(actionId, envelope) {
       return policyEvaluationHighlightItems(payload);
     case "evaluate-quality":
       return qualityEvaluationHighlightItems(payload);
+    case "developer-handoff":
+      return developerHandoffHighlightItems(payload);
     case "export-pr":
       return exportPrHighlightItems(payload);
     case "publish-pr":
@@ -10442,6 +10537,46 @@ function qualityEvaluationHighlightItems(payload) {
       "Report artifact",
       shortId(payload.artifact.artifact_id),
       payload.artifact.artifact_type ?? "quality_report",
+      { mono: true }
+    );
+  }
+  return items;
+}
+
+function developerHandoffHighlightItems(payload) {
+  const items = [];
+  pushActionHighlightItem(
+    items,
+    "Review package",
+    payload.artifact?.artifact_type ?? "developer_handoff",
+    payload.review_markdown_path ?? "Review markdown path unavailable."
+  );
+  pushActionHighlightItem(
+    items,
+    "Agent prompt",
+    payload.agent_prompt_path,
+    "Use this prompt to continue the run in Codex, Cursor, or OpenHands."
+  );
+  pushActionHighlightItem(
+    items,
+    "Evidence",
+    `${payload.task_count ?? 0} task(s)`,
+    `${payload.artifact_count ?? 0} artifact(s) · ${payload.event_count ?? 0} event(s)`
+  );
+  if (payload.manifest_path) {
+    pushActionHighlightItem(
+      items,
+      "Manifest",
+      payload.manifest_path,
+      "Structured evidence map for tools and future UI views."
+    );
+  }
+  if (payload.artifact?.artifact_id) {
+    pushActionHighlightItem(
+      items,
+      "Artifact",
+      shortId(payload.artifact.artifact_id),
+      "Persisted developer handoff artifact.",
       { mono: true }
     );
   }
@@ -10892,6 +11027,7 @@ function runActionAvailability(runDetail) {
       "worker-once": disabledRunAction("Select a run to use operator actions."),
       "evaluate-policy": disabledRunAction("Select a run to use operator actions."),
       "evaluate-quality": disabledRunAction("Select a run to use operator actions."),
+      "developer-handoff": disabledRunAction("Select a run to use operator actions."),
       "export-pr": disabledRunAction("Select a run to use operator actions."),
       "publish-pr": disabledRunAction("Select a run to use operator actions."),
       "draft-pr": disabledRunAction("Select a run to use operator actions."),
@@ -10899,6 +11035,7 @@ function runActionAvailability(runDetail) {
   }
 
   const queuedTaskCount = Number(runDetail.task_counts?.queued ?? 0);
+  const runningTaskCount = Number(runDetail.task_counts?.running ?? 0);
   const artifactTypes = runArtifactTypes(runDetail);
   const remotePublication = remotePublicationAvailability(runDetail, "Remote publication");
   const draftPrHandoff = remotePublicationAvailability(runDetail, "Draft PR handoff");
@@ -10914,6 +11051,10 @@ function runActionAvailability(runDetail) {
         : disabledRunAction("No queued tasks remain for this run."),
     "evaluate-policy": enabledRunAction(),
     "evaluate-quality": enabledRunAction(),
+    "developer-handoff":
+      runningTaskCount > 0 || runDetail.status === "executing"
+        ? disabledRunAction("Wait for the running task to finish before packaging stable evidence.")
+        : enabledRunAction(),
     "export-pr": prCandidateAvailability(runDetail, artifactTypes, "PR export"),
     "publish-pr":
       runDetail.status !== "succeeded"
@@ -10954,6 +11095,9 @@ function runActionHintText(runDetail, availability) {
   const qualityReady =
     artifactTypes.has(QUALITY_REPORT_ARTIFACT_TYPE) ||
     eventTypes.has(RUN_QUALITY_EVALUATED_EVENT_TYPE);
+  const developerHandoffReady =
+    artifactTypes.has(DEVELOPER_HANDOFF_ARTIFACT_TYPE) ||
+    eventTypes.has(RUN_DEVELOPER_HANDOFF_GENERATED_EVENT_TYPE);
   const prPublicationReady =
     artifactTypes.has(PR_PUBLICATION_ARTIFACT_TYPE) ||
     eventTypes.has(PR_EXPORT_PUBLISHED_EVENT_TYPE);
@@ -10985,6 +11129,10 @@ function runActionHintText(runDetail, availability) {
     return "Promotion stays blocked until the run has a pr_candidate artifact.";
   }
 
+  if (!developerHandoffReady) {
+    return "Quality is available. Generate the developer handoff next so the run has a readable review package and reusable agent prompt.";
+  }
+
   if (githubPrReady) {
     return "The orchestrator already opened or reused the draft PR. Remaining approval now sits in GitHub review.";
   }
@@ -11000,7 +11148,7 @@ function runActionHintText(runDetail, availability) {
     if (!availability["publish-pr"].enabled && !availability["draft-pr"].enabled) {
       return "Quality is available. Export the PR candidate next if you want a local promotion artifact, but repository-target policy still blocks remote publication and draft PR for this run.";
     }
-    return "Quality is available. Export the PR candidate next, or use Create draft PR for the full GitHub handoff.";
+    return "Developer handoff is ready. Export the PR candidate next, or use Create draft PR for the full GitHub handoff.";
   }
 
   if (!availability["publish-pr"].enabled && !availability["draft-pr"].enabled) {

@@ -50,6 +50,7 @@ pub enum Command {
     Worker(WorkerArgs),
     EvaluateRunPolicy(EvaluateRunPolicyArgs),
     EvaluateRunQuality(EvaluateRunQualityArgs),
+    GenerateDeveloperHandoff(GenerateDeveloperHandoffArgs),
     ExportPrCandidate(ExportPrCandidateArgs),
     PublishPrExport(PublishPrExportArgs),
     OpenGithubPr(OpenGithubPrArgs),
@@ -94,6 +95,7 @@ impl Command {
             Self::Worker(_) => "worker",
             Self::EvaluateRunPolicy(_) => "evaluate-run-policy",
             Self::EvaluateRunQuality(_) => "evaluate-run-quality",
+            Self::GenerateDeveloperHandoff(_) => "generate-developer-handoff",
             Self::ExportPrCandidate(_) => "export-pr-candidate",
             Self::PublishPrExport(_) => "publish-pr-export",
             Self::OpenGithubPr(_) => "open-github-pr",
@@ -768,6 +770,25 @@ pub struct EvaluateRunPolicyArgs {
 
 #[derive(Debug, Args)]
 pub struct EvaluateRunQualityArgs {
+    #[arg(long, env = "CATALYST_DATABASE_URL")]
+    pub database_url: String,
+
+    #[arg(
+        long,
+        env = "CATALYST_ARTIFACT_ROOT",
+        default_value = ".continuum/artifacts"
+    )]
+    pub artifact_root: PathBuf,
+
+    #[arg(long)]
+    pub run_id: Uuid,
+
+    #[arg(long)]
+    pub pretty: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct GenerateDeveloperHandoffArgs {
     #[arg(long, env = "CATALYST_DATABASE_URL")]
     pub database_url: String,
 

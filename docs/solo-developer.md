@@ -60,6 +60,27 @@ The review prompt is the practical difference from running a coding agent direct
 Continuum gives the reviewer the run ID, task state, artifacts, quality posture, repository guard,
 agent lanes, and exact checklist in one repeatable package.
 
+For real daily work, use a task recipe instead of hand-writing a full brief:
+
+```bash
+make dev-task-brief \
+  TASK_RECIPE=fix-bug \
+  TASK="Fix the flaky login retry test" \
+  REPOSITORY=OWNER/REPO
+```
+
+After the run has execution and quality evidence, persist a durable review package:
+
+```bash
+make developer-handoff RUN_ID=<RUN_ID>
+```
+
+In the operator UI, the same action is available from the selected run under `Run controls` as
+`Generate developer handoff`.
+
+See [Developer Workflows](developer-workflows.md) for the available recipes and the real-repository
+path.
+
 Stop the demo with `Ctrl-C`. If a session is interrupted, run:
 
 ```bash

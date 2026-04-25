@@ -1536,6 +1536,41 @@ assert artifact["manifest"]["artifact_type"] == "quality_report", artifact
 assert artifact["manifest"]["passed"] is True, artifact
 PY
 
+DEVELOPER_HANDOFF_OUTPUT="$("$BIN" generate-developer-handoff \
+  --database-url "$DATABASE_URL" \
+  --artifact-root "$ARTIFACT_ROOT" \
+  --run-id "$RUN_ID")"
+printf '%s\n' "$DEVELOPER_HANDOFF_OUTPUT"
+printf '%s\n' "$DEVELOPER_HANDOFF_OUTPUT" | grep -q '^artifact_type: developer_handoff$'
+DEVELOPER_HANDOFF_ARTIFACT_ID="$(printf '%s\n' "$DEVELOPER_HANDOFF_OUTPUT" | awk '/^artifact_id:/ {print $2; exit}')"
+test -n "$DEVELOPER_HANDOFF_ARTIFACT_ID"
+DEVELOPER_HANDOFF_ARTIFACT_FILE="$ARTIFACT_ROOT/developer-handoff-artifact.json"
+"$BIN" describe-artifact \
+  --database-url "$DATABASE_URL" \
+  --artifact-id "$DEVELOPER_HANDOFF_ARTIFACT_ID" \
+  --json >"$DEVELOPER_HANDOFF_ARTIFACT_FILE"
+python3 - "$DEVELOPER_HANDOFF_ARTIFACT_FILE" <<'PY'
+import json
+import pathlib
+import sys
+
+artifact = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+metadata = artifact["metadata"]
+manifest = artifact["manifest"]
+prompt_path = pathlib.Path(metadata["agent_prompt_path"])
+review_path = pathlib.Path(metadata["review_markdown_path"])
+
+assert artifact["artifact"]["artifact_type"] == "developer_handoff", artifact
+assert artifact["artifact"]["format"] == "directory", artifact
+assert manifest["artifact_type"] == "developer_handoff", artifact
+assert manifest["task_counts"]["total"] >= 1, artifact
+assert manifest["review_checklist"], artifact
+assert prompt_path.is_file(), prompt_path
+assert review_path.is_file(), review_path
+assert "Review this Catalyst Continuum run" in prompt_path.read_text(encoding="utf-8")
+assert "Developer Review Handoff" in review_path.read_text(encoding="utf-8")
+PY
+
 RUN_EVENTS_CLI_FILE="$ARTIFACT_ROOT/run-events.json"
 RUN_EVENTS_HTTP_FILE="$ARTIFACT_ROOT/http-run-events.json"
 RUN_EVENTS_SUCCEEDED_HTTP_FILE="$ARTIFACT_ROOT/http-run-events-task-succeeded.json"
@@ -1569,6 +1604,7 @@ required_event_types = {
     "task_succeeded",
     "run_policy_evaluated",
     "run_quality_evaluated",
+    "developer_handoff_generated",
 }
 cli_event_types = {event["event_type"] for event in cli_events}
 http_event_types = {event["event_type"] for event in http_events["events"]}

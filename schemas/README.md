@@ -24,9 +24,10 @@ The goal of these schemas is to lock the minimum data model needed for the first
 
 The `run-event` schema now fixes the closed `v0.1` taxonomy instead of treating `event_type` as an
 open-ended string. Run-scoped event types are `run_submitted`, `run_status_changed`,
-`run_policy_evaluated`, `run_quality_evaluated`, `pr_candidate_exported`, `pr_export_published`, and
-`github_pr_opened`. Task-scoped event types are `task_started`, `task_workspace_prepared`,
-`task_heartbeat`, `task_succeeded`, `task_failed`, and `task_requeued`.
+`run_policy_evaluated`, `run_quality_evaluated`, `developer_handoff_generated`,
+`pr_candidate_exported`, `pr_export_published`, and `github_pr_opened`. Task-scoped event types are
+`task_started`, `task_workspace_prepared`, `task_heartbeat`, `task_succeeded`, `task_failed`, and
+`task_requeued`.
 
 ## v0.1 Modeling Rules
 

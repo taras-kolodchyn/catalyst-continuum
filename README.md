@@ -25,6 +25,12 @@ Open the printed `/ui` URL and start with `Mission Control` -> `Developer`. That
 review package, portable Cursor/Codex/OpenHands review prompt, agent handoff, artifacts, logs, and
 next actions without needing to configure a real GitHub repository first.
 
+For real work, start from a daily developer task instead of a blank product brief:
+
+```bash
+make dev-task-brief TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO
+```
+
 ## Current MVP
 
 The closed `v0.1` baseline is Docker-first and local-development friendly:
@@ -46,6 +52,7 @@ Proxmox and Kubernetes runtime providers are intentionally deferred to `v0.2`.
 | Need                             | Read                                                                                                 |
 | -------------------------------- | ---------------------------------------------------------------------------------------------------- |
 | Solo developer first run         | [docs/solo-developer.md](docs/solo-developer.md)                                                     |
+| Daily developer workflows        | [docs/developer-workflows.md](docs/developer-workflows.md)                                           |
 | Product and architecture context | [docs/summary.md](docs/summary.md)                                                                   |
 | Closed `v0.1` release boundary   | [docs/v0.1-scope.md](docs/v0.1-scope.md)                                                             |
 | Operator-facing `v0.1` baseline  | [docs/v0.1-release.md](docs/v0.1-release.md)                                                         |
@@ -76,6 +83,8 @@ make markdown-links
 make lint-ui-assets
 make solo-demo
 make solo-demo-check
+make dev-task-brief TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO
+make developer-handoff RUN_ID=<RUN_ID>
 make ui
 make ui-smoke
 make cleanup
@@ -277,6 +286,11 @@ The external MCP server policy is intentionally narrow in `v0.1`:
 Packs define agent routing data instead of hiding delegation in prompts. A run persists an
 `agent_dispatch_plan` artifact that groups work by assigned agent and includes the resolved external
 MCP capability contract.
+
+For solo developers, the practical handoff artifact is `developer_handoff`. Generate it from the UI
+with `Generate developer handoff` or from the CLI with `make developer-handoff RUN_ID=<RUN_ID>`.
+It writes a readable review package, a reusable agent prompt, and a structured evidence manifest so
+the next Codex, Cursor, or OpenHands session starts from run evidence instead of manual context.
 
 The current shipped packs use:
 

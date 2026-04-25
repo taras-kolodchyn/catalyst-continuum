@@ -2,6 +2,7 @@ pub mod agent_dispatch;
 pub mod agent_routing;
 pub mod backlog;
 pub mod brief_validation;
+pub mod developer_handoff;
 pub mod external_mcp;
 pub mod github_pr;
 pub mod materialization;
