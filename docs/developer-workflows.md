@@ -198,7 +198,8 @@ This creates the selected developer session and writes `workflow-plan.json` plus
 intent, issue-sync status, repository-target settings, and the next command to run the real
 workflow without `--plan-only`. When the source issue payload includes title, URL, state, labels,
 rank, or selected recipe, those details are included in both the JSON plan and the readable markdown
-preview.
+preview. The plan also lists the generated Codex, Cursor, and OpenHands prompts plus the session
+runbook and issue context files so the developer can inspect the handoff packet before execution.
 
 For a related batch that should stay in one PR:
 

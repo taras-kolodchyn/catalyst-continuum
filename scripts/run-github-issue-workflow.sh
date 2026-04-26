@@ -1112,6 +1112,86 @@ def issue_markdown(issue: dict[str, Any]) -> str:
     return f"- {text}" + (f" ({'; '.join(details)})" if details else "")
 
 
+def existing_session_file(session_dir: pathlib.Path, value: Any) -> str | None:
+    if not value:
+        return None
+    path = pathlib.Path(str(value)).expanduser()
+    if not path.is_absolute():
+        path = session_dir / path
+    return str(path.resolve()) if path.is_file() else None
+
+
+def agent_handoff(session_dir: pathlib.Path, manifest_path: pathlib.Path, manifest: dict[str, Any]) -> dict[str, Any]:
+    prompts: dict[str, str] = {}
+    prompt_files = manifest.get("agent_prompts")
+    if isinstance(prompt_files, dict):
+        for agent, prompt_file in sorted(prompt_files.items()):
+            prompt_path = existing_session_file(session_dir, prompt_file)
+            if prompt_path:
+                prompts[str(agent)] = prompt_path
+    if not prompts:
+        for agent, prompt_file in (
+            ("codex", "codex-prompt.md"),
+            ("cursor", "cursor-prompt.md"),
+            ("openhands", "openhands-prompt.md"),
+        ):
+            prompt_path = existing_session_file(session_dir, prompt_file)
+            if prompt_path:
+                prompts[agent] = prompt_path
+
+    context_files: list[dict[str, str]] = [
+        {"label": "brief", "path": str(brief_file.resolve())},
+        {"label": "session_manifest", "path": str(manifest_path.resolve())},
+    ]
+    runbook_path = existing_session_file(session_dir, "README.md")
+    if runbook_path:
+        context_files.append({"label": "runbook", "path": runbook_path})
+
+    issue = manifest.get("github_issue")
+    if isinstance(issue, dict):
+        for label, key in (
+            ("issue_markdown", "issue_markdown_path"),
+            ("issue_context", "issue_context_path"),
+        ):
+            path = existing_session_file(session_dir, issue.get(key))
+            if path:
+                context_files.append({"label": label, "path": path})
+
+    batch = manifest.get("github_issue_batch")
+    if isinstance(batch, dict):
+        for label, key in (
+            ("issue_batch_markdown", "issue_batch_markdown_path"),
+            ("issue_batch_context", "issue_batch_context_path"),
+        ):
+            path = existing_session_file(session_dir, batch.get(key))
+            if path:
+                context_files.append({"label": label, "path": path})
+
+    return {
+        "prompts": prompts,
+        "context_files": context_files,
+    }
+
+
+def handoff_markdown(handoff: dict[str, Any]) -> list[str]:
+    lines = ["## Agent Handoff", ""]
+    prompts = handoff.get("prompts")
+    if isinstance(prompts, dict) and prompts:
+        lines.append("Agent prompts:")
+        for agent, path in prompts.items():
+            lines.append(f"- {agent}: `{path}`")
+    else:
+        lines.append("Agent prompts: `not recorded`")
+
+    context_files = handoff.get("context_files")
+    if isinstance(context_files, list) and context_files:
+        lines.extend(["", "Context files:"])
+        for item in context_files:
+            if isinstance(item, dict) and item.get("label") and item.get("path"):
+                lines.append(f"- {item['label']}: `{item['path']}`")
+    return lines
+
+
 def yes_no(value: bool) -> str:
     return "yes" if value else "no"
 
@@ -1121,6 +1201,7 @@ brief_file = pathlib.Path(os.environ["BRIEF_FILE"])
 manifest_path = session_dir / "manifest.json"
 manifest = load_json(manifest_path)
 issues = manifest_issues(manifest_path, manifest)
+handoff = agent_handoff(session_dir, manifest_path, manifest)
 claim_requested = os.environ["CLAIM_ISSUES"] == "1"
 claim_apply_requested = os.environ["APPLY_ISSUE_CLAIM"] == "1"
 draft_pr_requested = os.environ["CREATE_DRAFT_PR"] == "1"
@@ -1137,6 +1218,7 @@ plan = {
     "session_manifest_path": str(manifest_path),
     "brief_file": str(brief_file),
     "issues": issues,
+    "agent_handoff": handoff,
     "planned_steps": {
         "claim_issues": claim_requested,
         "apply_issue_claim": claim_apply_requested,
@@ -1179,6 +1261,8 @@ if issues:
     markdown.extend(issue_markdown(issue) for issue in issues)
 else:
     markdown.append("- `not recorded`")
+markdown.extend([""])
+markdown.extend(handoff_markdown(handoff))
 markdown.extend([
     "",
     "## Planned Actions",

@@ -149,8 +149,9 @@ make github-issue-plan \
   GITHUB_ISSUE_ARGS="--label bug --limit 5"
 ```
 
-This writes `workflow-plan.md` with the selected issue, PR strategy, draft PR intent, issue-sync
-status, and the next command to run the real workflow.
+This writes `workflow-plan.md` with the selected issue, agent handoff prompts, session context
+files, PR strategy, draft PR intent, issue-sync status, and the next command to run the real
+workflow.
 
 If you want the source issue to show that Catalyst accepted it before the local run starts, enable
 the claim plan:

@@ -89,6 +89,11 @@ mkdir -p "$output_root" "$batch_output_dir"
 if [ "$strategy" = "batch" ] && [ "$next_only" -eq 0 ]; then
   session_dir="$output_root/batch-session"
   mkdir -p "$session_dir"
+  printf '# Batch Session\n' >"$session_dir/README.md"
+  printf '# Codex batch prompt\n' >"$session_dir/codex-prompt.md"
+  printf '# Cursor batch prompt\n' >"$session_dir/cursor-prompt.md"
+  printf '# OpenHands batch prompt\n' >"$session_dir/openhands-prompt.md"
+  printf '# Batch issue context\n' >"$session_dir/issue-batch.md"
   cat >"$session_dir/brief.json" <<'JSON'
 {
   "title": "GitHub issue batch: smartit/github-issue-workflow-smoke (2 issues)"
@@ -149,13 +154,20 @@ JSON
 {
   "schema_version": "v0.1",
   "session_type": "github_issue_batch_session",
+  "brief_path": "brief.json",
+  "agent_prompts": {
+    "codex": "codex-prompt.md",
+    "cursor": "cursor-prompt.md",
+    "openhands": "openhands-prompt.md"
+  },
   "github_issue_batch": {
     "repository_full_name": "smartit/github-issue-workflow-smoke",
     "issue_numbers": [
       7,
       42
     ],
-    "issue_batch_context_path": "issue-batch-context.json"
+    "issue_batch_context_path": "issue-batch-context.json",
+    "issue_batch_markdown_path": "issue-batch.md"
   }
 }
 JSON
@@ -166,6 +178,12 @@ JSON
 else
   session_dir="$output_root/issue-7-session"
   mkdir -p "$session_dir"
+  printf '# Issue Session\n' >"$session_dir/README.md"
+  printf '# Codex issue prompt\n' >"$session_dir/codex-prompt.md"
+  printf '# Cursor issue prompt\n' >"$session_dir/cursor-prompt.md"
+  printf '# OpenHands issue prompt\n' >"$session_dir/openhands-prompt.md"
+  printf '# Issue context\n' >"$session_dir/issue.md"
+  printf '{"schema_version":"v0.1"}\n' >"$session_dir/issue-context.json"
   cat >"$session_dir/brief.json" <<'JSON'
 {
   "title": "GitHub issue #7: Patch critical prompt injection escape"
@@ -175,6 +193,12 @@ JSON
 {
   "schema_version": "v0.1",
   "session_type": "github_issue_session",
+  "brief_path": "brief.json",
+  "agent_prompts": {
+    "codex": "codex-prompt.md",
+    "cursor": "cursor-prompt.md",
+    "openhands": "openhands-prompt.md"
+  },
   "github_issue": {
     "repository_full_name": "smartit/github-issue-workflow-smoke",
     "number": 7,
@@ -188,7 +212,9 @@ JSON
       {
         "name": "p1"
       }
-    ]
+    ],
+    "issue_context_path": "issue-context.json",
+    "issue_markdown_path": "issue.md"
   }
 }
 JSON
@@ -433,9 +459,23 @@ assert plan["issues"] == [
         "selected_recipe": None,
     }
 ], plan
+assert plan["agent_handoff"]["prompts"]["codex"].endswith("/codex-prompt.md"), plan
+assert plan["agent_handoff"]["prompts"]["cursor"].endswith("/cursor-prompt.md"), plan
+assert plan["agent_handoff"]["prompts"]["openhands"].endswith("/openhands-prompt.md"), plan
+context_labels = [item["label"] for item in plan["agent_handoff"]["context_files"]]
+assert context_labels == [
+    "brief",
+    "session_manifest",
+    "runbook",
+    "issue_markdown",
+    "issue_context",
+], plan
 assert "## Selected Issues" in markdown, markdown
 assert "[#7 Patch critical prompt injection escape](https://github.com/smartit/github-issue-workflow-smoke/issues/7)" in markdown, markdown
 assert "labels `security`, `p1`" in markdown, markdown
+assert "## Agent Handoff" in markdown, markdown
+assert "- codex: `" in markdown, markdown
+assert "- issue_context: `" in markdown, markdown
 assert "## Planned Actions" in markdown, markdown
 assert "```bash" in markdown, markdown
 PY
@@ -508,9 +548,19 @@ assert plan["issues"] == [
         "selected_recipe": "test-stabilization",
     },
 ], plan
+assert plan["agent_handoff"]["prompts"]["codex"].endswith("/codex-prompt.md"), plan
+batch_context_labels = [item["label"] for item in plan["agent_handoff"]["context_files"]]
+assert batch_context_labels == [
+    "brief",
+    "session_manifest",
+    "runbook",
+    "issue_batch_markdown",
+    "issue_batch_context",
+], plan
 assert "[#42 Fix flaky retry policy smoke](https://github.com/smartit/github-issue-workflow-smoke/issues/42)" in markdown, markdown
 assert "recipe `test-stabilization`" in markdown, markdown
 assert "rank `2`" in markdown, markdown
+assert "- issue_batch_context: `" in markdown, markdown
 PY
 
 : >"$COMMAND_LOG"
