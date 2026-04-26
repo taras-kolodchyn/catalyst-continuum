@@ -44,6 +44,7 @@ make github-issue-session REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkou
 make github-issue-plan REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE_ARGS="--label bug --limit 5"
 make github-issue-run REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE_ARGS="--label bug --limit 5"
 make github-issue-plan-review
+make github-issue-preflight
 make github-issue-review
 make github-issue-next-command
 make github-issue-sync-command
@@ -97,8 +98,13 @@ running anything. It then stops before running agents, opening draft PRs, or mut
 
 Use `github-issue-plan-review` after `github-issue-plan` when you want the shortest readable pre-run
 handoff. It prints the selected issue package, session manifest, brief, context files, prompt
-commands, planned GitHub mutations, publication policy, non-mutating preflight commands, and the
-exact next command without opening the plan JSON or markdown manually.
+commands, planned GitHub mutations, publication policy, read-only preflight checks, setup commands,
+and the exact next command without opening the plan JSON or markdown manually.
+
+Use `github-issue-preflight` after `github-issue-plan` when you want to execute only the read-only
+checks from the selected plan. It inspects the local checkout, prints remotes, verifies GitHub
+repository access, and leaves repository-target bootstrap commands as explicit follow-up setup
+instead of running them automatically.
 
 Use `github-issue-latest` or `github-issue-review` after a workflow run when you do not want to hunt
 through `.continuum/github-issue-workflows/` manually. `github-issue-review` prints the latest
@@ -236,6 +242,7 @@ make github-issue-session REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkou
 make github-issue-plan REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE_ARGS="--label bug --limit 5"
 make github-issue-run REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE_ARGS="--label bug --limit 5"
 make github-issue-plan-review
+make github-issue-preflight
 make github-issue-review
 make github-issue-next-command
 make github-issue-sync-command

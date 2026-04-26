@@ -359,11 +359,21 @@ printf 'pr_url: https://github.com/smartit/github-issue-workflow-smoke/pull/17\n
 printf 'resolution: reused\n'
 SH
 
+cat >"$FAKES_DIR/github-repo-preflight.sh" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+
+printf 'repo-preflight %q\n' "$@" >>"$COMMAND_LOG"
+printf 'repository=%s\n' "${1:-unknown}"
+printf 'publication_permission=ok\n'
+SH
+
 chmod +x \
   "$FAKES_DIR/create-github-issue-session.sh" \
   "$FAKES_DIR/run-dev-task.sh" \
   "$FAKES_DIR/sync-github-issue-status.sh" \
   "$FAKES_DIR/create-draft-pr-from-run-summary.sh" \
+  "$FAKES_DIR/github-repo-preflight.sh" \
   "$FAKES_DIR/cargo"
 
 cat >"$TMP_DIR/helper-run-summary.json" <<'JSON'
@@ -450,11 +460,13 @@ assert plan["planned_steps"]["create_draft_pr"] is True, plan
 assert plan["planned_steps"]["issue_sync_status"] == "ready-for-review", plan
 assert plan["preflight"]["repo_path"].endswith("/catalyst-continuum"), plan
 assert plan["preflight"]["default_branch"] is None, plan
-preflight_commands = [item["command"] for item in plan["preflight"]["commands"]]
+preflight_commands = [item["command"] for item in plan["preflight"]["checks"]]
 assert any(command.startswith("git -C ") and " status --short --branch" in command for command in preflight_commands), plan
 assert any(command.startswith("git -C ") and " remote -v" in command for command in preflight_commands), plan
 assert any(command.startswith("make github-repo-preflight REPOSITORY=") for command in preflight_commands), plan
-assert any("repository-targets-bootstrap" in command for command in preflight_commands), plan
+assert plan["preflight"]["commands"] == plan["preflight"]["checks"], plan
+setup_commands = [item["command"] for item in plan["preflight"]["setup_commands"]]
+assert any("repository-targets-bootstrap" in command for command in setup_commands), plan
 assert plan["preflight"]["warnings"] == [
     "Draft PR publication is requested without repository_target_id; configure a repository target before publishing to a real repo."
 ], plan
@@ -493,6 +505,9 @@ assert "AGENT=codex" in markdown, markdown
 assert "- issue_context: `" in markdown, markdown
 assert "## Planned Actions" in markdown, markdown
 assert "## Preflight Before Running" in markdown, markdown
+assert "Read-only checks:" in markdown, markdown
+assert "Setup commands, not run by `make github-issue-preflight`:" in markdown, markdown
+assert "make github-issue-preflight GITHUB_ISSUE_WORKFLOW_DIR=" in markdown, markdown
 assert "make github-repo-preflight REPOSITORY=" in markdown, markdown
 assert "make repository-targets-bootstrap REPOSITORY=" in markdown, markdown
 assert "```bash" in markdown, markdown
@@ -574,17 +589,40 @@ grep -F "Publication policy" "$TMP_DIR/plan-review.out" >/dev/null
 grep -F "Preflight before running" "$TMP_DIR/plan-review.out" >/dev/null
 grep -F "repo_path:" "$TMP_DIR/plan-review.out" >/dev/null
 grep -F "warnings:" "$TMP_DIR/plan-review.out" >/dev/null
-grep -F "commands:" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "read-only checks:" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "setup commands:" "$TMP_DIR/plan-review.out" >/dev/null
 grep -F "Inspect local checkout state: git -C " "$TMP_DIR/plan-review.out" >/dev/null
 grep -F "Verify GitHub repository access: make github-repo-preflight REPOSITORY=" "$TMP_DIR/plan-review.out" >/dev/null
 grep -F "Bootstrap repository-target policy: make repository-targets-bootstrap REPOSITORY=" "$TMP_DIR/plan-review.out" >/dev/null
 grep -F "Suggested plan commands" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "make github-issue-preflight GITHUB_ISSUE_WORKFLOW_DIR=" "$TMP_DIR/plan-review.out" >/dev/null
 grep -F "./scripts/run-github-issue-workflow.sh" "$TMP_DIR/plan-review.out" >/dev/null
 
 make github-issue-plan-review \
   GITHUB_ISSUE_WORKFLOW_DIR="$PLAN_OUT" \
   >"$TMP_DIR/plan-review-make.out"
 grep -F "Catalyst Continuum GitHub issue workflow plan review" "$TMP_DIR/plan-review-make.out" >/dev/null
+
+COMMAND_LOG="$COMMAND_LOG" \
+GITHUB_REPO_PREFLIGHT_CMD="$FAKES_DIR/github-repo-preflight.sh" \
+./scripts/run-github-issue-preflight.py \
+  --workflow-dir "$PLAN_OUT" \
+  >"$TMP_DIR/plan-preflight.out"
+grep -F "Catalyst Continuum GitHub issue workflow preflight" "$TMP_DIR/plan-preflight.out" >/dev/null
+grep -F "[Inspect local checkout state]" "$TMP_DIR/plan-preflight.out" >/dev/null
+grep -F "[Inspect local remotes]" "$TMP_DIR/plan-preflight.out" >/dev/null
+grep -F "[Verify GitHub repository access]" "$TMP_DIR/plan-preflight.out" >/dev/null
+grep -F "Setup commands not run automatically" "$TMP_DIR/plan-preflight.out" >/dev/null
+grep -F "preflight=ok" "$TMP_DIR/plan-preflight.out" >/dev/null
+grep -F "repo-preflight" "$COMMAND_LOG" >/dev/null
+
+COMMAND_LOG="$COMMAND_LOG" \
+GITHUB_REPO_PREFLIGHT_CMD="$FAKES_DIR/github-repo-preflight.sh" \
+make github-issue-preflight \
+  GITHUB_ISSUE_WORKFLOW_DIR="$PLAN_OUT" \
+  GITHUB_ISSUE_PREFLIGHT_ARGS="--print-only" \
+  >"$TMP_DIR/plan-preflight-make.out"
+grep -F "preflight=print-only" "$TMP_DIR/plan-preflight-make.out" >/dev/null
 
 python3 - "$PLAN_OUT" "$TMP_DIR/plan-workflows.json" <<'PY'
 from __future__ import annotations
@@ -614,6 +652,8 @@ assert workflow["planned_steps"]["create_draft_pr"] is True, payload
 assert workflow["publication_policy"]["repository_target_id"] is None, payload
 assert workflow["preflight"]["repo_path"].endswith("/catalyst-continuum"), payload
 assert workflow["preflight"]["warnings"], payload
+assert len(workflow["preflight"]["checks"]) == 3, payload
+assert len(workflow["preflight"]["setup_commands"]) == 1, payload
 context_labels = [item["label"] for item in workflow["plan_context_files"]]
 assert context_labels == [
     "brief",

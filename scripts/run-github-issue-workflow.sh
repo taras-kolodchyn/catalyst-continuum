@@ -1299,12 +1299,14 @@ def build_preflight(
     draft_pr_requested: bool,
     publication_policy: dict[str, Any],
 ) -> dict[str, Any]:
-    commands: list[dict[str, str]] = [
+    checks: list[dict[str, str]] = [
         {
+            "id": "git_status",
             "label": "Inspect local checkout state",
             "command": shell_command(["git", "-C", repo_path, "status", "--short", "--branch"]),
         },
         {
+            "id": "git_remotes",
             "label": "Inspect local remotes",
             "command": shell_command(["git", "-C", repo_path, "remote", "-v"]),
         },
@@ -1317,14 +1319,16 @@ def build_preflight(
     ]
     if default_branch:
         repo_preflight.append(make_assignment("REPOSITORY_DEFAULT_BRANCH", default_branch))
-    commands.append(
+    checks.append(
         {
+            "id": "github_repository_access",
             "label": "Verify GitHub repository access",
             "command": " ".join(repo_preflight),
         }
     )
 
     warnings: list[str] = []
+    setup_commands: list[dict[str, str]] = []
     if draft_pr_requested:
         repository_target_id = publication_policy.get("repository_target_id")
         repository_targets_file = publication_policy.get("repository_targets_file")
@@ -1332,8 +1336,9 @@ def build_preflight(
             warnings.append(
                 "Draft PR publication is requested without repository_target_id; configure a repository target before publishing to a real repo."
             )
-            commands.append(
+            setup_commands.append(
                 {
+                    "id": "repository_targets_bootstrap",
                     "label": "Bootstrap repository-target policy",
                     "command": " ".join(
                         [
@@ -1353,7 +1358,9 @@ def build_preflight(
     return {
         "repo_path": repo_path,
         "default_branch": default_branch,
-        "commands": commands,
+        "checks": checks,
+        "commands": checks,
+        "setup_commands": setup_commands,
         "warnings": warnings,
     }
 
@@ -1456,7 +1463,7 @@ markdown.extend([
     "",
     "## Preflight Before Running",
     "",
-    "Run these non-mutating checks before executing the next command against a real repository.",
+    "Run these read-only checks before executing the next command against a real repository.",
     "",
     f"- Repo path: `{plan['preflight']['repo_path']}`",
     f"- Default branch: `{plan['preflight']['default_branch'] or 'not detected'}`",
@@ -1467,10 +1474,26 @@ if warnings:
     markdown.extend(["Warnings:", ""])
     markdown.extend(f"- {warning}" for warning in warnings)
     markdown.append("")
-commands = plan["preflight"].get("commands") or []
-if commands:
-    markdown.extend(["```bash"])
-    markdown.extend(str(command["command"]) for command in commands if isinstance(command, dict) and command.get("command"))
+checks = plan["preflight"].get("checks") or plan["preflight"].get("commands") or []
+if checks:
+    markdown.extend(["Read-only checks:", "", "```bash"])
+    markdown.extend(str(command["command"]) for command in checks if isinstance(command, dict) and command.get("command"))
+    markdown.extend(["```", ""])
+setup_commands = plan["preflight"].get("setup_commands") or []
+if setup_commands:
+    markdown.extend([
+        "Setup commands, not run by `make github-issue-preflight`:",
+        "",
+        "```bash",
+    ])
+    markdown.extend(str(command["command"]) for command in setup_commands if isinstance(command, dict) and command.get("command"))
+    markdown.extend(["```", ""])
+if checks:
+    markdown.extend(["Run all read-only checks:", "", "```bash"])
+    markdown.append(
+        "make github-issue-preflight "
+        f"{make_assignment('GITHUB_ISSUE_WORKFLOW_DIR', os.environ['WORKFLOW_OUTPUT_DIR'])}"
+    )
     markdown.extend(["```", ""])
 markdown.extend([
     "## Next Command",

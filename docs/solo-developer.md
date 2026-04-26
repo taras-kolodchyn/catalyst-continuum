@@ -130,6 +130,7 @@ If you need to find it later, run:
 
 ```bash
 make github-issue-plan-review
+make github-issue-preflight
 make github-issue-review
 make github-issue-next-command
 make github-issue-sync-command
@@ -142,7 +143,9 @@ body. It shows the selected issue refs, session manifest, PR handoff, and issue-
 specific workflow output directory, pass `GITHUB_ISSUE_WORKFLOW_DIR=/path/to/workflow-output`. Use
 `make github-issue-plan-review` after a plan-only preview when you want the selected issue package,
 session manifest, context files, prompt commands, planned GitHub mutations, publication policy,
-preflight commands, and next run command in one focused view. Use
+read-only preflight checks, setup commands, and next run command in one focused view. Use
+`make github-issue-preflight` when you want Catalyst to run the read-only checks but leave
+repository-target bootstrap as an explicit setup step. Use
 `make github-issue-next-command` when you only want the next shell command, especially after a
 plan-only preview. Use `make github-issue-sync-command` after reviewing an unapplied issue-sync plan
 when you want the exact apply command without rebuilding it by hand.

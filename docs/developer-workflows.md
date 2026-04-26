@@ -171,6 +171,7 @@ To rediscover that report later:
 ```bash
 make github-issue-latest
 make github-issue-plan-review
+make github-issue-preflight
 make github-issue-review
 make github-issue-next-command
 make github-issue-sync-command
@@ -183,8 +184,11 @@ make github-issue-agent-prompt-command AGENT=cursor
 posture, and the recommended next action.
 `github-issue-plan-review` prints the latest or selected plan package with selected issue refs,
 session manifest, brief, context files, prompt commands, planned GitHub mutations, publication
-policy, non-mutating preflight commands, and the exact next command. Use it after
+policy, read-only preflight checks, setup commands, and the exact next command. Use it after
 `github-issue-plan` before handing work to a native agent or running the workflow for real.
+`github-issue-preflight` executes only those read-only checks: local checkout status, remotes, and
+GitHub repository access. It prints repository-target bootstrap commands as setup guidance but does
+not run them automatically.
 `github-issue-review` prints the latest or selected `workflow-report.md`; pass
 `GITHUB_ISSUE_WORKFLOW_DIR=/path/to/workflow-output` when you want a specific run.
 `github-issue-next-command` prints only the recommended command so scripts can continue from the
@@ -212,9 +216,9 @@ workflow without `--plan-only`. When the source issue payload includes title, UR
 rank, or selected recipe, those details are included in both the JSON plan and the readable markdown
 preview. The plan also lists the generated Codex, Cursor, and OpenHands prompts plus the session
 runbook, issue context files, and copy-ready prompt commands so the developer can inspect the
-handoff packet before execution. It also includes preflight commands for local checkout inspection,
-GitHub repository access, and repository-target bootstrap when draft PR publication needs policy
-setup. Run `make github-issue-plan-review` for a concise terminal view of
+handoff packet before execution. It also includes read-only preflight checks for local checkout
+inspection, GitHub repository access, and separate repository-target setup when draft PR publication
+needs policy config. Run `make github-issue-plan-review` for a concise terminal view of
 the same package without opening the generated files manually.
 
 For a related batch that should stay in one PR:

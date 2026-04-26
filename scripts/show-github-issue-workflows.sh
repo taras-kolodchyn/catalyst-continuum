@@ -778,10 +778,16 @@ def print_plan_review() -> None:
             print("warnings:")
             for warning in warnings:
                 print(f"- {warning}")
-        commands = preflight.get("commands")
-        if isinstance(commands, list) and commands:
-            print("commands:")
-            for command in commands:
+        checks = preflight.get("checks") or preflight.get("commands")
+        if isinstance(checks, list) and checks:
+            print("read-only checks:")
+            for command in checks:
+                if isinstance(command, dict) and command.get("label") and command.get("command"):
+                    print(f"- {command['label']}: {command['command']}")
+        setup_commands = preflight.get("setup_commands")
+        if isinstance(setup_commands, list) and setup_commands:
+            print("setup commands:")
+            for command in setup_commands:
                 if isinstance(command, dict) and command.get("label") and command.get("command"):
                     print(f"- {command['label']}: {command['command']}")
     else:
@@ -793,6 +799,11 @@ def print_plan_review() -> None:
         print(f"sed -n '1,260p' {shell_quote(selected['plan_report_path'])}")
     if selected.get("plan_path"):
         print(f"sed -n '1,220p' {shell_quote(selected['plan_path'])}")
+    if selected.get("preflight"):
+        print(
+            "make github-issue-preflight "
+            f"{make_assignment('GITHUB_ISSUE_WORKFLOW_DIR', selected['path'])}"
+        )
     if isinstance(prompt_commands, dict):
         for _, command in sorted(prompt_commands.items()):
             print(command)

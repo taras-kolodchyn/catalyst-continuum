@@ -35,6 +35,7 @@ GITHUB_ISSUE_SYNC_OUTPUT_DIR ?=
 GITHUB_ISSUE_SYNC_PR_URL ?=
 GITHUB_ISSUE_SYNC_RUN_SUMMARY ?=
 GITHUB_ISSUE_SYNC_STATUS ?= ready-for-review
+GITHUB_ISSUE_PREFLIGHT_ARGS ?=
 GITHUB_ISSUE_WORKFLOW_PLAN_ONLY ?=
 GITHUB_ISSUE_WORKFLOW_ARGS ?=
 GITHUB_ISSUE_WORKFLOW_DIR ?=
@@ -213,6 +214,10 @@ github-issue-review: ## Show the latest GitHub issue workflow report.
 .PHONY: github-issue-plan-review
 github-issue-plan-review: ## Show the latest GitHub issue workflow plan package and handoff commands.
 	./scripts/show-github-issue-workflows.sh --plan-review $(if $(CONTINUUM_ROOT),--root "$(CONTINUUM_ROOT)") $(if $(GITHUB_ISSUE_WORKFLOW_DIR),--workflow-dir "$(GITHUB_ISSUE_WORKFLOW_DIR)") $(GITHUB_ISSUE_WORKFLOW_LATEST_ARGS)
+
+.PHONY: github-issue-preflight
+github-issue-preflight: ## Run read-only checks for the latest or selected GitHub issue workflow plan.
+	./scripts/run-github-issue-preflight.py $(if $(CONTINUUM_ROOT),--root "$(CONTINUUM_ROOT)") $(if $(GITHUB_ISSUE_WORKFLOW_DIR),--workflow-dir "$(GITHUB_ISSUE_WORKFLOW_DIR)") $(GITHUB_ISSUE_PREFLIGHT_ARGS)
 
 .PHONY: github-issue-next-command
 github-issue-next-command: ## Print only the recommended next GitHub issue workflow command.
