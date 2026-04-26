@@ -67,13 +67,19 @@ if [ ! -f "$ENV_FILE" ]; then
   exit 1
 fi
 
-allocate_loopback_port() {
-  python3 - <<'PY'
-import socket
+append_ephemeral_port_overrides() {
+  python3 - "$@" <<'PY'
+from __future__ import annotations
 
-with socket.socket() as sock:
+import socket
+import sys
+
+allocated_sockets = []
+for variable_name in sys.argv[1:]:
+    sock = socket.socket()
     sock.bind(("127.0.0.1", 0))
-    print(sock.getsockname()[1])
+    allocated_sockets.append(sock)
+    print(f"{variable_name}={sock.getsockname()[1]}")
 PY
 }
 
@@ -104,7 +110,7 @@ cleanup() {
 trap cleanup EXIT
 
 cp "$ENV_FILE" "$COMPOSE_ENV_FILE"
-for variable_name in \
+append_ephemeral_port_overrides \
   POSTGRES_PORT \
   REDIS_PORT \
   OTEL_COLLECTOR_OTLP_HTTP_PORT \
@@ -114,9 +120,7 @@ for variable_name in \
   PROMETHEUS_PORT \
   GRAFANA_PORT \
   LITELLM_PORT \
-  ORCHESTRATOR_PORT; do
-  printf '%s=%s\n' "$variable_name" "$(allocate_loopback_port)" >>"$COMPOSE_ENV_FILE"
-done
+  ORCHESTRATOR_PORT >>"$COMPOSE_ENV_FILE"
 
 # shellcheck disable=SC1090
 source "$COMPOSE_ENV_FILE"
