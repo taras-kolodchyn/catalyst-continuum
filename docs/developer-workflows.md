@@ -161,7 +161,10 @@ session, `run-summary.json`, PR export evidence, and GitHub issue sync plan.
 The same output directory also contains `workflow-report.md`, which is the developer-facing report.
 It summarizes the workflow outcome, selected GitHub issue titles/URLs/labels when recorded,
 session, run evidence, PR export branch/commit, draft PR URL when present, issue-sync plan, and the
-next human review step. Use it as the first artifact to read after a run succeeds or fails.
+next human review step. It also embeds ready-to-run review commands for reopening the report,
+inspecting JSON artifacts, reading the generated issue-sync plan/comment, and asking Catalyst for
+the reviewed issue-sync apply command. Use it as the first artifact to read after a run succeeds or
+fails.
 
 To rediscover that report later:
 

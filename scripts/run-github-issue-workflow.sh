@@ -605,6 +605,7 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import shlex
 from typing import Any
 
 
@@ -635,6 +636,14 @@ def link_or_value(value: Any) -> str:
     if text.startswith("http://") or text.startswith("https://"):
         return f"[{text}]({text})"
     return f"`{text}`"
+
+
+def shell_quote(value: Any) -> str:
+    return shlex.quote(str(value))
+
+
+def make_assignment(name: str, value: Any) -> str:
+    return f"{name}={shell_quote(value)}"
 
 
 def label_names(value: Any) -> list[str]:
@@ -737,6 +746,29 @@ def issue_markdown(issue: dict[str, Any]) -> str:
     return f"- {text}" + (f" ({'; '.join(details)})" if details else "")
 
 
+def review_commands(
+    workflow_dir: Any,
+    summary_path: pathlib.Path,
+    issue_sync: dict[str, Any],
+) -> list[str]:
+    commands = [
+        f"make github-issue-review {make_assignment('GITHUB_ISSUE_WORKFLOW_DIR', workflow_dir)}",
+        f"sed -n '1,220p' {shell_quote(summary_path)}",
+    ]
+    issue_sync_plan = issue_sync.get("plan")
+    if issue_sync_plan:
+        commands.append(f"sed -n '1,220p' {shell_quote(issue_sync_plan)}")
+    issue_sync_comment = issue_sync.get("comment")
+    if issue_sync_comment:
+        commands.append(f"sed -n '1,220p' {shell_quote(issue_sync_comment)}")
+    if issue_sync_plan and not issue_sync.get("skipped") and not issue_sync.get("applied"):
+        commands.append(
+            "make github-issue-sync-command "
+            f"{make_assignment('GITHUB_ISSUE_WORKFLOW_DIR', workflow_dir)}"
+        )
+    return commands
+
+
 def workflow_status(summary: dict[str, Any]) -> str:
     run = summary.get("run") or {}
     draft_pr = summary.get("draft_pr") or {}
@@ -763,6 +795,7 @@ run = summary.get("run") or {}
 draft_pr = summary.get("draft_pr") or {}
 issue_sync = summary.get("issue_sync") or {}
 issues = load_session_issues(session.get("dir"))
+commands = review_commands(summary.get("workflow_output_dir"), summary_path, issue_sync)
 
 next_steps: list[str]
 if status == "failed":
@@ -838,6 +871,14 @@ markdown.extend([
     f"- Issue sync applied: {markdown_value(issue_sync.get('applied'))}",
     f"- Issue sync plan: {markdown_value(issue_sync.get('plan'))}",
     f"- Issue sync comment: {markdown_value(issue_sync.get('comment'))}",
+    "",
+    "## Review Commands",
+    "",
+    "```bash",
+])
+markdown.extend(commands)
+markdown.extend([
+    "```",
     "",
     "## Next Steps",
     "",

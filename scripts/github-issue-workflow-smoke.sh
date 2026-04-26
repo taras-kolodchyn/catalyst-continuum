@@ -452,6 +452,10 @@ assert "- Status: `succeeded`" in report, report
 assert "## Selected Issues" in report, report
 assert "[#7 Patch critical prompt injection escape](https://github.com/smartit/github-issue-workflow-smoke/issues/7)" in report, report
 assert "labels `security`, `p1`" in report, report
+assert "## Review Commands" in report, report
+assert "make github-issue-review GITHUB_ISSUE_WORKFLOW_DIR=" in report, report
+assert "make github-issue-sync-command GITHUB_ISSUE_WORKFLOW_DIR=" in report, report
+assert "sed -n '1,220p'" in report, report
 assert "- PR export branch: `continuum/issue-7`" in report, report
 assert "https://github.com/smartit/github-issue-workflow-smoke/pull/7" in report, report
 PY
