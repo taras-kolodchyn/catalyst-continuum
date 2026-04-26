@@ -372,6 +372,7 @@ def workflow_item(summary_path: pathlib.Path) -> dict[str, Any] | None:
         "next_command": optional_path(plan.get("next_command")),
         "planned_steps": plan_payload.get("planned_steps") or {},
         "publication_policy": plan_payload.get("publication_policy") or {},
+        "preflight": plan_payload.get("preflight") or {},
         "plan_context_files": (
             ((plan_payload.get("agent_handoff") or {}).get("context_files") or [])
             if isinstance(plan_payload.get("agent_handoff"), dict)
@@ -760,6 +761,29 @@ def print_plan_review() -> None:
     if publication_policy:
         for key in sorted(publication_policy):
             print(f"{key}: {publication_policy[key] or 'not configured'}")
+    else:
+        print("not recorded")
+
+    preflight = selected.get("preflight")
+    preflight = preflight if isinstance(preflight, dict) else {}
+    print("")
+    print("Preflight before running")
+    if preflight:
+        if preflight.get("repo_path"):
+            print(f"repo_path: {preflight['repo_path']}")
+        if preflight.get("default_branch"):
+            print(f"default_branch: {preflight['default_branch']}")
+        warnings = preflight.get("warnings")
+        if isinstance(warnings, list) and warnings:
+            print("warnings:")
+            for warning in warnings:
+                print(f"- {warning}")
+        commands = preflight.get("commands")
+        if isinstance(commands, list) and commands:
+            print("commands:")
+            for command in commands:
+                if isinstance(command, dict) and command.get("label") and command.get("command"):
+                    print(f"- {command['label']}: {command['command']}")
     else:
         print("not recorded")
 

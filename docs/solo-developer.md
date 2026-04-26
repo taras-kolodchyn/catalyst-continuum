@@ -141,8 +141,8 @@ Use `make github-issue-latest` when you want the recent workflow list instead of
 body. It shows the selected issue refs, session manifest, PR handoff, and issue-sync posture. For a
 specific workflow output directory, pass `GITHUB_ISSUE_WORKFLOW_DIR=/path/to/workflow-output`. Use
 `make github-issue-plan-review` after a plan-only preview when you want the selected issue package,
-session manifest, context files, prompt commands, planned GitHub mutations, publication policy, and
-next run command in one focused view. Use
+session manifest, context files, prompt commands, planned GitHub mutations, publication policy,
+preflight commands, and next run command in one focused view. Use
 `make github-issue-next-command` when you only want the next shell command, especially after a
 plan-only preview. Use `make github-issue-sync-command` after reviewing an unapplied issue-sync plan
 when you want the exact apply command without rebuilding it by hand.

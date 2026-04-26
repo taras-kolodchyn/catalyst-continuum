@@ -97,8 +97,8 @@ running anything. It then stops before running agents, opening draft PRs, or mut
 
 Use `github-issue-plan-review` after `github-issue-plan` when you want the shortest readable pre-run
 handoff. It prints the selected issue package, session manifest, brief, context files, prompt
-commands, planned GitHub mutations, publication policy, and the exact next command without opening
-the plan JSON or markdown manually.
+commands, planned GitHub mutations, publication policy, non-mutating preflight commands, and the
+exact next command without opening the plan JSON or markdown manually.
 
 Use `github-issue-latest` or `github-issue-review` after a workflow run when you do not want to hunt
 through `.continuum/github-issue-workflows/` manually. `github-issue-review` prints the latest

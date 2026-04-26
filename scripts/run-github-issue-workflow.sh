@@ -1044,6 +1044,8 @@ write_workflow_plan() {
   WORKFLOW_OUTPUT_DIR="$WORKFLOW_OUTPUT_DIR" \
   SESSION_DIR="$SESSION_DIR" \
   BRIEF_FILE="$BRIEF_FILE" \
+  REPO_PATH="$REPO_PATH" \
+  DEFAULT_BRANCH="$DEFAULT_BRANCH" \
   CLAIM_ISSUES="$CLAIM_ISSUES" \
   APPLY_ISSUE_CLAIM="$APPLY_ISSUE_CLAIM" \
   CREATE_DRAFT_PR="$CREATE_DRAFT_PR" \
@@ -1186,6 +1188,10 @@ def make_assignment(name: str, value: Any) -> str:
     return f"{name}={shell_quote(value)}"
 
 
+def shell_command(parts: list[Any]) -> str:
+    return " ".join(shell_quote(part) for part in parts)
+
+
 def agent_prompt_commands(workflow_dir: str, prompts: dict[str, str]) -> dict[str, str]:
     if not workflow_dir:
         return {}
@@ -1278,6 +1284,80 @@ def yes_no(value: bool) -> str:
     return "yes" if value else "no"
 
 
+def resolve_path(value: str) -> str:
+    path = pathlib.Path(value).expanduser()
+    if not path.is_absolute():
+        path = pathlib.Path.cwd() / path
+    return str(path.resolve())
+
+
+def build_preflight(
+    *,
+    repository: str,
+    repo_path: str,
+    default_branch: str | None,
+    draft_pr_requested: bool,
+    publication_policy: dict[str, Any],
+) -> dict[str, Any]:
+    commands: list[dict[str, str]] = [
+        {
+            "label": "Inspect local checkout state",
+            "command": shell_command(["git", "-C", repo_path, "status", "--short", "--branch"]),
+        },
+        {
+            "label": "Inspect local remotes",
+            "command": shell_command(["git", "-C", repo_path, "remote", "-v"]),
+        },
+    ]
+
+    repo_preflight = [
+        "make",
+        "github-repo-preflight",
+        make_assignment("REPOSITORY", repository),
+    ]
+    if default_branch:
+        repo_preflight.append(make_assignment("REPOSITORY_DEFAULT_BRANCH", default_branch))
+    commands.append(
+        {
+            "label": "Verify GitHub repository access",
+            "command": " ".join(repo_preflight),
+        }
+    )
+
+    warnings: list[str] = []
+    if draft_pr_requested:
+        repository_target_id = publication_policy.get("repository_target_id")
+        repository_targets_file = publication_policy.get("repository_targets_file")
+        if not repository_target_id:
+            warnings.append(
+                "Draft PR publication is requested without repository_target_id; configure a repository target before publishing to a real repo."
+            )
+            commands.append(
+                {
+                    "label": "Bootstrap repository-target policy",
+                    "command": " ".join(
+                        [
+                            "make",
+                            "repository-targets-bootstrap",
+                            make_assignment("REPOSITORY", repository),
+                            make_assignment("REPOSITORY_TARGET_ID", "local-dev"),
+                        ]
+                    ),
+                }
+            )
+        elif not repository_targets_file:
+            warnings.append(
+                "Draft PR publication has a repository_target_id but no repository_targets_file; make sure CATALYST_REPOSITORY_TARGETS_FILE is configured."
+            )
+
+    return {
+        "repo_path": repo_path,
+        "default_branch": default_branch,
+        "commands": commands,
+        "warnings": warnings,
+    }
+
+
 session_dir = pathlib.Path(os.environ["SESSION_DIR"])
 brief_file = pathlib.Path(os.environ["BRIEF_FILE"])
 manifest_path = session_dir / "manifest.json"
@@ -1290,6 +1370,13 @@ claim_apply_requested = os.environ["APPLY_ISSUE_CLAIM"] == "1"
 draft_pr_requested = os.environ["CREATE_DRAFT_PR"] == "1"
 issue_sync_skipped = os.environ["SKIP_ISSUE_SYNC"] == "1"
 issue_sync_apply_requested = os.environ["APPLY_ISSUE_SYNC"] == "1"
+default_branch = str(manifest.get("default_branch") or os.environ["DEFAULT_BRANCH"] or "").strip() or None
+repo_path = resolve_path(os.environ["REPO_PATH"])
+publication_policy = {
+    "repository_target_id": os.environ["REPOSITORY_TARGET_ID"] or None,
+    "repository_targets_file": os.environ["REPOSITORY_TARGETS_FILE"] or None,
+    "branch_name": os.environ["BRANCH_NAME"] or None,
+}
 plan = {
     "schema_version": "v0.1",
     "source": "github_issue_workflow_plan",
@@ -1311,11 +1398,14 @@ plan = {
         "issue_sync_status": os.environ["SYNC_STATUS"],
         "apply_issue_sync": issue_sync_apply_requested,
     },
-    "publication_policy": {
-        "repository_target_id": os.environ["REPOSITORY_TARGET_ID"] or None,
-        "repository_targets_file": os.environ["REPOSITORY_TARGETS_FILE"] or None,
-        "branch_name": os.environ["BRANCH_NAME"] or None,
-    },
+    "publication_policy": publication_policy,
+    "preflight": build_preflight(
+        repository=os.environ["REPOSITORY"],
+        repo_path=repo_path,
+        default_branch=default_branch,
+        draft_pr_requested=draft_pr_requested,
+        publication_policy=publication_policy,
+    ),
     "next_command": os.environ["NEXT_COMMAND"],
 }
 
@@ -1364,6 +1454,25 @@ markdown.extend([
     f"- Repository targets file: `{os.environ['REPOSITORY_TARGETS_FILE'] or 'not configured'}`",
     f"- Branch override: `{os.environ['BRANCH_NAME'] or 'not configured'}`",
     "",
+    "## Preflight Before Running",
+    "",
+    "Run these non-mutating checks before executing the next command against a real repository.",
+    "",
+    f"- Repo path: `{plan['preflight']['repo_path']}`",
+    f"- Default branch: `{plan['preflight']['default_branch'] or 'not detected'}`",
+    "",
+])
+warnings = plan["preflight"].get("warnings") or []
+if warnings:
+    markdown.extend(["Warnings:", ""])
+    markdown.extend(f"- {warning}" for warning in warnings)
+    markdown.append("")
+commands = plan["preflight"].get("commands") or []
+if commands:
+    markdown.extend(["```bash"])
+    markdown.extend(str(command["command"]) for command in commands if isinstance(command, dict) and command.get("command"))
+    markdown.extend(["```", ""])
+markdown.extend([
     "## Next Command",
     "",
     "```bash",
