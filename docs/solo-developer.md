@@ -269,6 +269,8 @@ To find the most recent output later, run:
 ```bash
 make dev-latest
 make dev-next
+make dev-agent-prompt AGENT=codex
+make dev-agent-prompt-command AGENT=cursor
 make dev-review
 make run-guide RUN_ID=<RUN_ID>
 ```
@@ -278,6 +280,11 @@ and the recommended next safe action without manually browsing `.continuum/`.
 
 Use `make dev-next` when you only want the next action, or `make dev-next-command` when another
 script needs the recommended command.
+
+Use `make dev-agent-prompt AGENT=codex`, `AGENT=cursor`, or `AGENT=openhands` when you want the
+latest generated session prompt without opening `.continuum/dev-sessions/` manually. Use
+`make dev-agent-prompt-path AGENT=codex` for native launchers that need only the file path, or
+`make dev-agent-prompt-command AGENT=codex` when a wrapper or UI should display the exact command.
 
 Use `make dev-review` after `make dev-run` when you want the latest review package, agent review
 prompt, local PR export paths, and suggested local diff commands in one focused view.

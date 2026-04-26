@@ -98,6 +98,13 @@ NEXT_OUTPUT="$TMP_DIR/dev-next.txt"
 NEXT_COMMAND_OUTPUT="$TMP_DIR/dev-next-command.txt"
 BRIEF_NEXT_COMMAND_OUTPUT="$TMP_DIR/dev-brief-next-command.txt"
 REVIEW_OUTPUT="$TMP_DIR/dev-review.txt"
+SESSION_DIR="$(python3 - "$CONTINUUM_ROOT/dev-sessions/session-a" <<'PY'
+import pathlib
+import sys
+
+print(pathlib.Path(sys.argv[1]).resolve())
+PY
+)"
 
 ./scripts/show-dev-artifacts.sh --root "$CONTINUUM_ROOT" --limit 1 >"$TEXT_OUTPUT"
 ./scripts/show-dev-artifacts.sh --root "$CONTINUUM_ROOT" --limit 1 --json >"$JSON_OUTPUT"
@@ -105,8 +112,19 @@ REVIEW_OUTPUT="$TMP_DIR/dev-review.txt"
 ./scripts/show-dev-artifacts.sh --root "$CONTINUUM_ROOT" --limit 1 --next-command >"$NEXT_COMMAND_OUTPUT"
 ./scripts/show-dev-artifacts.sh --root "$CONTINUUM_ROOT" --kind briefs --limit 1 --next-command \
   >"$BRIEF_NEXT_COMMAND_OUTPUT"
+./scripts/show-dev-artifacts.sh --root "$CONTINUUM_ROOT" --session-dir "$SESSION_DIR" --agent-prompt codex \
+  >"$TMP_DIR/dev-codex-prompt.txt"
+./scripts/show-dev-artifacts.sh --root "$CONTINUUM_ROOT" --session-dir "$SESSION_DIR" --agent-prompt-path openhands \
+  >"$TMP_DIR/dev-openhands-prompt-path.txt"
+./scripts/show-dev-artifacts.sh --root "$CONTINUUM_ROOT" --session-dir "$SESSION_DIR" --agent-prompt-command cursor \
+  >"$TMP_DIR/dev-cursor-prompt-command.txt"
 make dev-next-command DEV_LATEST_ARGS="--root '$CONTINUUM_ROOT' --limit 1" \
   >"$TMP_DIR/dev-next-command-make.txt"
+make dev-agent-prompt DEV_SESSION_DIR="$SESSION_DIR" AGENT=codex >"$TMP_DIR/dev-codex-prompt-make.txt"
+make dev-agent-prompt-path DEV_SESSION_DIR="$SESSION_DIR" AGENT=openhands \
+  >"$TMP_DIR/dev-openhands-prompt-path-make.txt"
+make dev-agent-prompt-command DEV_SESSION_DIR="$SESSION_DIR" AGENT=cursor \
+  >"$TMP_DIR/dev-cursor-prompt-command-make.txt"
 ./scripts/show-dev-artifacts.sh --root "$CONTINUUM_ROOT" --limit 3 --review >"$REVIEW_OUTPUT"
 
 grep -F "Catalyst Continuum developer artifacts" "$TEXT_OUTPUT" >/dev/null
@@ -123,6 +141,9 @@ grep -F "Latest sessions" "$TEXT_OUTPUT" >/dev/null
 grep -F "codex prompt:" "$TEXT_OUTPUT" >/dev/null
 grep -F "cursor prompt:" "$TEXT_OUTPUT" >/dev/null
 grep -F "openhands prompt:" "$TEXT_OUTPUT" >/dev/null
+grep -F "codex command: make dev-agent-prompt DEV_SESSION_DIR=" "$TEXT_OUTPUT" >/dev/null
+grep -F "cursor command: make dev-agent-prompt DEV_SESSION_DIR=" "$TEXT_OUTPUT" >/dev/null
+grep -F "openhands command: make dev-agent-prompt DEV_SESSION_DIR=" "$TEXT_OUTPUT" >/dev/null
 grep -F "make dev-run-latest-session" "$TEXT_OUTPUT" >/dev/null
 grep -F "Latest briefs" "$TEXT_OUTPUT" >/dev/null
 
@@ -146,6 +167,28 @@ fi
 grep -F "make dev-run-brief BRIEF_FILE='" "$BRIEF_NEXT_COMMAND_OUTPUT" >/dev/null
 grep -F "/continuum root/.continuum/dev-briefs/20260425120000-fix-bug.json'" \
   "$BRIEF_NEXT_COMMAND_OUTPUT" >/dev/null
+grep -F "# Prompt" "$TMP_DIR/dev-codex-prompt.txt" >/dev/null
+grep -F "# Prompt" "$TMP_DIR/dev-codex-prompt-make.txt" >/dev/null
+if [ "$(cat "$TMP_DIR/dev-openhands-prompt-path.txt")" != "$SESSION_DIR/openhands-prompt.md" ]; then
+  echo "dev artifacts smoke failed: unexpected OpenHands prompt path" >&2
+  cat "$TMP_DIR/dev-openhands-prompt-path.txt" >&2
+  exit 1
+fi
+if [ "$(cat "$TMP_DIR/dev-openhands-prompt-path-make.txt")" != "$SESSION_DIR/openhands-prompt.md" ]; then
+  echo "dev artifacts smoke failed: make dev-agent-prompt-path returned unexpected path" >&2
+  cat "$TMP_DIR/dev-openhands-prompt-path-make.txt" >&2
+  exit 1
+fi
+grep -F "make dev-agent-prompt DEV_SESSION_DIR=" "$TMP_DIR/dev-cursor-prompt-command.txt" >/dev/null
+grep -F "AGENT=cursor" "$TMP_DIR/dev-cursor-prompt-command.txt" >/dev/null
+grep -F "make dev-agent-prompt DEV_SESSION_DIR=" "$TMP_DIR/dev-cursor-prompt-command-make.txt" >/dev/null
+grep -F "AGENT=cursor" "$TMP_DIR/dev-cursor-prompt-command-make.txt" >/dev/null
+if ./scripts/show-dev-artifacts.sh --root "$CONTINUUM_ROOT" --session-dir "$SESSION_DIR" --agent-prompt unknown \
+  >"$TMP_DIR/dev-unknown-prompt.out" 2>&1; then
+  echo "dev artifacts smoke failed: unknown agent prompt should fail" >&2
+  exit 1
+fi
+grep -F "No prompt for agent 'unknown'" "$TMP_DIR/dev-unknown-prompt.out" >/dev/null
 
 python3 - "$JSON_OUTPUT" <<'PY'
 import json
@@ -162,6 +205,9 @@ assert payload["artifacts"]["runs"][0]["run_status"] == "succeeded", payload
 assert payload["artifacts"]["runs"][0]["brief_source_path"].endswith("/dev-sessions/session-a/brief.json"), payload
 assert payload["artifacts"]["runs"][0]["pr_export"]["branch_name"] == "continuum/demo", payload
 assert payload["artifacts"]["sessions"][0]["current_branch"] == "main", payload
+assert payload["artifacts"]["sessions"][0]["agent_prompts"]["codex"].endswith("/codex-prompt.md"), payload
+assert "make dev-agent-prompt " in payload["artifacts"]["sessions"][0]["agent_prompt_commands"]["codex"], payload
+assert "AGENT=codex" in payload["artifacts"]["sessions"][0]["agent_prompt_commands"]["codex"], payload
 assert payload["artifacts"]["briefs"][0]["recipe"] == "fix-bug", payload
 PY
 

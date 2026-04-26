@@ -56,6 +56,8 @@ make dev-run-brief BRIEF_FILE=.continuum/dev-sessions/<session>/brief.json
 make dev-run-latest-session
 make dev-latest
 make dev-next
+make dev-agent-prompt AGENT=codex
+make dev-agent-prompt-command AGENT=cursor
 make dev-review
 make github-issue-sync GITHUB_ISSUE_SYNC_PR_URL=https://github.com/OWNER/REPO/pull/123 GITHUB_ISSUE_SYNC_APPLY=1
 make run-guide RUN_ID=<RUN_ID>
@@ -151,6 +153,11 @@ export, and recommended next action.
 
 `dev-next` prints only that recommended next action. `dev-next-command` prints only the command when
 you want to wire the flow into shell automation.
+
+`dev-agent-prompt` prints the generated Codex, Cursor, or OpenHands prompt from the latest or
+selected `.continuum/dev-sessions/` package. Use `dev-agent-prompt-path` for shell launchers that
+only need the file path, or `dev-agent-prompt-command` when a UI/wrapper needs to show the exact
+continuation command.
 
 `dev-review` is the shortest review-stage command after a local run. It prints the latest
 `review.md`, reusable agent review prompt, local PR export paths, and suggested `git`/`sed` commands

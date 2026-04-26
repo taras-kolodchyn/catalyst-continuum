@@ -8,6 +8,8 @@ CONTINUUM_ROOT="$ROOT_DIR/.continuum"
 FORMAT="text"
 KIND="all"
 LIMIT=3
+DEV_SESSION_DIR=""
+AGENT_PROMPT_AGENT=""
 
 usage() {
   cat <<'EOF'
@@ -17,12 +19,20 @@ Show the latest solo-developer briefs, sessions, and local orchestration runs.
 
 Options:
   --root PATH       Continuum state root (default: .continuum).
+  --session-dir PATH
+                    Inspect one specific dev session directory.
   --kind KIND       all, briefs, sessions, or runs (default: all).
   --limit N         Number of artifacts per kind (default: 3).
   --json            Emit machine-readable JSON.
   --next            Emit only the recommended next action.
   --next-command    Emit only the recommended shell command.
   --review          Emit the latest run review package and local PR inspection commands.
+  --agent-prompt AGENT
+                    Print the latest or selected session prompt for codex, cursor, or openhands.
+  --agent-prompt-path AGENT
+                    Print only the path to that session prompt.
+  --agent-prompt-command AGENT
+                    Print the command that prints that session prompt.
   -h, --help        Show this help.
 EOF
 }
@@ -31,6 +41,10 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --root)
       CONTINUUM_ROOT="${2:?missing value for --root}"
+      shift 2
+      ;;
+    --session-dir)
+      DEV_SESSION_DIR="${2:?missing value for --session-dir}"
       shift 2
       ;;
     --kind)
@@ -58,6 +72,27 @@ while [ "$#" -gt 0 ]; do
       KIND="runs"
       LIMIT=1
       shift
+      ;;
+    --agent-prompt)
+      FORMAT="agent-prompt"
+      KIND="sessions"
+      LIMIT=1
+      AGENT_PROMPT_AGENT="${2:?missing value for --agent-prompt}"
+      shift 2
+      ;;
+    --agent-prompt-path)
+      FORMAT="agent-prompt-path"
+      KIND="sessions"
+      LIMIT=1
+      AGENT_PROMPT_AGENT="${2:?missing value for --agent-prompt-path}"
+      shift 2
+      ;;
+    --agent-prompt-command)
+      FORMAT="agent-prompt-command"
+      KIND="sessions"
+      LIMIT=1
+      AGENT_PROMPT_AGENT="${2:?missing value for --agent-prompt-command}"
+      shift 2
       ;;
     -h|--help)
       usage
@@ -94,6 +129,8 @@ CONTINUUM_ROOT="$CONTINUUM_ROOT" \
 FORMAT="$FORMAT" \
 KIND="$KIND" \
 LIMIT="$LIMIT" \
+DEV_SESSION_DIR="$DEV_SESSION_DIR" \
+AGENT_PROMPT_AGENT="$AGENT_PROMPT_AGENT" \
 python3 - <<'PY'
 from __future__ import annotations
 
@@ -111,6 +148,14 @@ root = root.resolve()
 limit = int(os.environ["LIMIT"])
 kind = os.environ["KIND"]
 output_format = os.environ["FORMAT"]
+dev_session_dir_arg = os.environ["DEV_SESSION_DIR"]
+agent_prompt_agent = os.environ["AGENT_PROMPT_AGENT"].strip().lower()
+
+DEFAULT_AGENT_PROMPT_FILES = {
+    "codex": "codex-prompt.md",
+    "cursor": "cursor-prompt.md",
+    "openhands": "openhands-prompt.md",
+}
 
 
 def read_json(path: pathlib.Path) -> dict[str, Any] | None:
@@ -145,6 +190,58 @@ def shell_quote(value: str) -> str:
     return shlex.quote(value)
 
 
+def resolve_path(value: str) -> pathlib.Path:
+    path = pathlib.Path(value).expanduser()
+    if not path.is_absolute():
+        path = pathlib.Path.cwd() / path
+    return path.resolve()
+
+
+def make_assignment(name: str, value: str) -> str:
+    return f"{name}={shell_quote(value)}"
+
+
+def optional_existing_file(value: Any, base_dir: pathlib.Path) -> str | None:
+    if not value:
+        return None
+    path = pathlib.Path(str(value)).expanduser()
+    if not path.is_absolute():
+        path = base_dir / path
+    path = path.resolve()
+    return str(path) if path.is_file() else None
+
+
+def load_agent_prompts(manifest_path: pathlib.Path, manifest: dict[str, Any]) -> dict[str, str]:
+    session_dir = manifest_path.parent
+    prompts: dict[str, str] = {}
+    prompt_files = manifest.get("agent_prompts") or {}
+
+    if isinstance(prompt_files, dict):
+        for agent, value in prompt_files.items():
+            if not isinstance(agent, str):
+                continue
+            prompt_path = optional_existing_file(value, session_dir)
+            if prompt_path:
+                prompts[agent.strip().lower()] = prompt_path
+
+    for agent, filename in DEFAULT_AGENT_PROMPT_FILES.items():
+        if agent in prompts:
+            continue
+        candidate = session_dir / filename
+        if candidate.is_file():
+            prompts[agent] = str(candidate.resolve())
+    return prompts
+
+
+def agent_prompt_commands(session_dir: str, prompts: dict[str, str]) -> dict[str, str]:
+    return {
+        agent: "make dev-agent-prompt "
+        f"{make_assignment('DEV_SESSION_DIR', session_dir)} "
+        f"AGENT={shell_quote(agent)}"
+        for agent in sorted(prompts)
+    }
+
+
 def brief_items() -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     for path in (root / "dev-briefs").glob("*.json"):
@@ -169,16 +266,22 @@ def brief_items() -> list[dict[str, Any]]:
 
 def session_items() -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
-    for manifest_path in (root / "dev-sessions").glob("*/manifest.json"):
+    if dev_session_dir_arg:
+        manifest_paths = [resolve_path(dev_session_dir_arg) / "manifest.json"]
+    else:
+        manifest_paths = list((root / "dev-sessions").glob("*/manifest.json"))
+    for manifest_path in manifest_paths:
         manifest = read_json(manifest_path)
         if manifest is None:
             continue
         repository_context = manifest.get("repository_context") or {}
         prompt_files = manifest.get("agent_prompts") or {}
+        prompts = load_agent_prompts(manifest_path, manifest)
+        session_dir = str(manifest_path.parent.resolve())
         items.append(
             {
                 "kind": "session",
-                "path": str(manifest_path.parent),
+                "path": session_dir,
                 "manifest_path": str(manifest_path),
                 "mtime": mtime(manifest_path),
                 "session_type": manifest.get("session_type") or "developer_session",
@@ -192,10 +295,17 @@ def session_items() -> list[dict[str, Any]]:
                 "repo_path": repository_context.get("repo_path") or manifest.get("repo_path"),
                 "current_branch": repository_context.get("current_branch"),
                 "dirty_file_count": repository_context.get("dirty_file_count"),
-                "codex_prompt_path": str(manifest_path.parent / prompt_files.get("codex", "codex-prompt.md")),
-                "cursor_prompt_path": str(manifest_path.parent / prompt_files.get("cursor", "cursor-prompt.md")),
-                "openhands_prompt_path": str(
-                    manifest_path.parent / prompt_files.get("openhands", "openhands-prompt.md")
+                "agent_prompts": prompts,
+                "agent_prompt_commands": agent_prompt_commands(session_dir, prompts),
+                "codex_prompt_path": prompts.get(
+                    "codex", str(manifest_path.parent / prompt_files.get("codex", "codex-prompt.md"))
+                ),
+                "cursor_prompt_path": prompts.get(
+                    "cursor", str(manifest_path.parent / prompt_files.get("cursor", "cursor-prompt.md"))
+                ),
+                "openhands_prompt_path": prompts.get(
+                    "openhands",
+                    str(manifest_path.parent / prompt_files.get("openhands", "openhands-prompt.md")),
                 ),
             }
         )
@@ -239,6 +349,8 @@ artifacts = {
     "sessions": session_items() if kind in {"all", "sessions"} else [],
     "runs": run_items() if kind in {"all", "runs"} else [],
 }
+
+selected_session = artifacts["sessions"][0] if artifacts["sessions"] else None
 
 
 def newest_artifact() -> dict[str, Any] | None:
@@ -328,6 +440,7 @@ payload = {
     "root": str(root),
     "limit": limit,
     "kind": kind,
+    "selected_session_dir": str(resolve_path(dev_session_dir_arg)) if dev_session_dir_arg else None,
     "artifacts": artifacts,
     "recommended_next_action": recommended_next_action(),
     "empty": not any(artifacts.values()),
@@ -338,6 +451,69 @@ if output_format == "json":
     sys.exit(0)
 
 action = payload["recommended_next_action"]
+
+
+def agent_prompt_action(session: dict[str, Any] | None, agent: str) -> dict[str, Any]:
+    if session is None:
+        return {
+            "available": False,
+            "reason": "No developer session found yet.",
+            "path": None,
+            "command": None,
+        }
+    if not agent:
+        return {
+            "available": False,
+            "reason": "Agent name is required. Use codex, cursor, or openhands.",
+            "path": None,
+            "command": None,
+        }
+    prompts = session.get("agent_prompts")
+    prompts = prompts if isinstance(prompts, dict) else {}
+    prompt_path = prompts.get(agent)
+    if not prompt_path:
+        available = ", ".join(sorted(prompts)) or "none"
+        return {
+            "available": False,
+            "reason": f"No prompt for agent '{agent}' in the selected session. Available agents: {available}.",
+            "path": None,
+            "command": None,
+        }
+    candidate = pathlib.Path(str(prompt_path))
+    if not candidate.is_file():
+        return {
+            "available": False,
+            "reason": f"Prompt for agent '{agent}' is missing from disk: {candidate}",
+            "path": str(candidate),
+            "command": None,
+        }
+    commands = session.get("agent_prompt_commands")
+    commands = commands if isinstance(commands, dict) else {}
+    return {
+        "available": True,
+        "reason": "Prompt is available.",
+        "path": str(candidate),
+        "command": commands.get(agent),
+    }
+
+
+if output_format in {"agent-prompt", "agent-prompt-path", "agent-prompt-command"}:
+    prompt_action = agent_prompt_action(selected_session, agent_prompt_agent)
+    prompt_path = prompt_action.get("path")
+    if not prompt_action.get("available") or not prompt_path:
+        print(prompt_action.get("reason") or "No agent prompt is available.", file=sys.stderr)
+        sys.exit(3)
+    if output_format == "agent-prompt-command":
+        command = prompt_action.get("command")
+        if not command:
+            print(f"No prompt command is available for agent '{agent_prompt_agent}'.", file=sys.stderr)
+            sys.exit(3)
+        print(command)
+    elif output_format == "agent-prompt-path":
+        print(prompt_path)
+    else:
+        print(pathlib.Path(prompt_path).read_text(encoding="utf-8").rstrip())
+    sys.exit(0)
 
 
 def print_action(action: dict[str, Any]) -> None:
@@ -471,6 +647,10 @@ def print_section(title: str, items: list[dict[str, Any]]) -> None:
             print(f"   codex prompt: {item.get('codex_prompt_path')}")
             print(f"   cursor prompt: {item.get('cursor_prompt_path')}")
             print(f"   openhands prompt: {item.get('openhands_prompt_path')}")
+            prompt_commands = item.get("agent_prompt_commands")
+            if isinstance(prompt_commands, dict):
+                for agent, command in sorted(prompt_commands.items()):
+                    print(f"   {agent} command: {command}")
             print(
                 "   next: hand the prompt to Codex/Cursor/OpenHands or run the newest session with "
                 "`make dev-run-latest-session`."
