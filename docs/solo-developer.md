@@ -131,6 +131,7 @@ If you need to find it later, run:
 make github-issue-review
 make github-issue-next-command
 make github-issue-sync-command
+make github-issue-agent-prompt AGENT=codex
 ```
 
 Use `make github-issue-latest` when you want the recent workflow list instead of printing the report
@@ -139,6 +140,9 @@ specific workflow output directory, pass `GITHUB_ISSUE_WORKFLOW_DIR=/path/to/wor
 `make github-issue-next-command` when you only want the next shell command, especially after a
 plan-only preview. Use `make github-issue-sync-command` after reviewing an unapplied issue-sync plan
 when you want the exact apply command without rebuilding it by hand.
+Use `make github-issue-agent-prompt AGENT=codex`, `AGENT=cursor`, or `AGENT=openhands` when you want
+to paste the generated workflow prompt directly into the agent's native UI. Use
+`make github-issue-agent-prompt-path AGENT=codex` when a script only needs the file path.
 
 If you want to preview the selected issue and GitHub mutation posture before starting agents, run:
 

@@ -2,6 +2,7 @@ SHELL := /bin/bash
 
 ACT_ARGS ?=
 ACT_JOB ?= rust
+AGENT ?= codex
 ARTIFACT_ROOT ?=
 BRIEF_FILE ?=
 COMPOSE := docker compose --env-file deploy/compose/.env.example -f deploy/compose/compose.yaml
@@ -216,6 +217,14 @@ github-issue-next-command: ## Print only the recommended next GitHub issue workf
 .PHONY: github-issue-sync-command
 github-issue-sync-command: ## Print only the command that applies the latest GitHub issue sync plan.
 	@./scripts/show-github-issue-workflows.sh --issue-sync-command $(if $(CONTINUUM_ROOT),--root "$(CONTINUUM_ROOT)") $(if $(GITHUB_ISSUE_WORKFLOW_DIR),--workflow-dir "$(GITHUB_ISSUE_WORKFLOW_DIR)") $(GITHUB_ISSUE_WORKFLOW_LATEST_ARGS)
+
+.PHONY: github-issue-agent-prompt
+github-issue-agent-prompt: ## Print latest/selected GitHub issue workflow prompt for AGENT=codex|cursor|openhands.
+	@./scripts/show-github-issue-workflows.sh --agent-prompt "$(AGENT)" $(if $(CONTINUUM_ROOT),--root "$(CONTINUUM_ROOT)") $(if $(GITHUB_ISSUE_WORKFLOW_DIR),--workflow-dir "$(GITHUB_ISSUE_WORKFLOW_DIR)") $(GITHUB_ISSUE_WORKFLOW_LATEST_ARGS)
+
+.PHONY: github-issue-agent-prompt-path
+github-issue-agent-prompt-path: ## Print path to latest/selected GitHub issue workflow prompt for AGENT=codex|cursor|openhands.
+	@./scripts/show-github-issue-workflows.sh --agent-prompt-path "$(AGENT)" $(if $(CONTINUUM_ROOT),--root "$(CONTINUUM_ROOT)") $(if $(GITHUB_ISSUE_WORKFLOW_DIR),--workflow-dir "$(GITHUB_ISSUE_WORKFLOW_DIR)") $(GITHUB_ISSUE_WORKFLOW_LATEST_ARGS)
 
 .PHONY: dev-session-smoke
 dev-session-smoke: ## Validate developer session package generation.

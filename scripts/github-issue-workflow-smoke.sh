@@ -490,6 +490,40 @@ if grep -F -- "--plan-only" "$TMP_DIR/plan-next-command.out" >/dev/null; then
   exit 1
 fi
 
+./scripts/show-github-issue-workflows.sh \
+  --workflow-dir "$PLAN_OUT" \
+  --agent-prompt-path codex \
+  >"$TMP_DIR/plan-codex-prompt-path.out"
+grep -F "codex-prompt.md" "$TMP_DIR/plan-codex-prompt-path.out" >/dev/null
+
+./scripts/show-github-issue-workflows.sh \
+  --workflow-dir "$PLAN_OUT" \
+  --agent-prompt codex \
+  >"$TMP_DIR/plan-codex-prompt.out"
+grep -F "# Codex issue prompt" "$TMP_DIR/plan-codex-prompt.out" >/dev/null
+
+make github-issue-agent-prompt-path \
+  GITHUB_ISSUE_WORKFLOW_DIR="$PLAN_OUT" \
+  AGENT=cursor \
+  >"$TMP_DIR/plan-cursor-prompt-path.out"
+grep -F "cursor-prompt.md" "$TMP_DIR/plan-cursor-prompt-path.out" >/dev/null
+
+make github-issue-agent-prompt \
+  GITHUB_ISSUE_WORKFLOW_DIR="$PLAN_OUT" \
+  AGENT=openhands \
+  >"$TMP_DIR/plan-openhands-prompt.out"
+grep -F "# OpenHands issue prompt" "$TMP_DIR/plan-openhands-prompt.out" >/dev/null
+
+if ./scripts/show-github-issue-workflows.sh \
+  --workflow-dir "$PLAN_OUT" \
+  --agent-prompt unknown \
+  >"$TMP_DIR/plan-unknown-prompt.out" \
+  2>"$TMP_DIR/plan-unknown-prompt.err"; then
+  echo "unknown agent prompt lookup must fail" >&2
+  exit 1
+fi
+grep -F "No prompt for agent 'unknown'" "$TMP_DIR/plan-unknown-prompt.err" >/dev/null
+
 : >"$COMMAND_LOG"
 
 COMMAND_LOG="$COMMAND_LOG" \
@@ -647,6 +681,7 @@ grep -F "Recommended next action" "$TMP_DIR/per-issue-latest.out" >/dev/null
 grep -F "command: make github-issue-review" "$TMP_DIR/per-issue-latest.out" >/dev/null
 grep -F "issues: #7" "$TMP_DIR/per-issue-latest.out" >/dev/null
 grep -F "session manifest:" "$TMP_DIR/per-issue-latest.out" >/dev/null
+grep -F "agent prompts: codex=" "$TMP_DIR/per-issue-latest.out" >/dev/null
 grep -F "Issue sync apply command" "$TMP_DIR/per-issue-latest.out" >/dev/null
 grep -F "command: make github-issue-sync" "$TMP_DIR/per-issue-latest.out" >/dev/null
 grep -F "issue sync: ready-for-review (dry-run)" "$TMP_DIR/per-issue-latest.out" >/dev/null
@@ -685,7 +720,9 @@ cmp "$TMP_DIR/per-issue-sync-command.out" "$TMP_DIR/per-issue-sync-command-make.
 grep -F "Catalyst Continuum GitHub issue workflow review" "$TMP_DIR/per-issue-review.out" >/dev/null
 grep -F "issues: #7" "$TMP_DIR/per-issue-review.out" >/dev/null
 grep -F "session manifest:" "$TMP_DIR/per-issue-review.out" >/dev/null
+grep -F "agent prompts: codex=" "$TMP_DIR/per-issue-review.out" >/dev/null
 grep -F "# GitHub Issue Workflow Report" "$TMP_DIR/per-issue-review.out" >/dev/null
+grep -F "make github-issue-agent-prompt" "$TMP_DIR/per-issue-review.out" >/dev/null
 grep -F "make github-issue-sync" "$TMP_DIR/per-issue-review.out" >/dev/null
 grep -F "draft pr: https://github.com/smartit/github-issue-workflow-smoke/pull/7" "$TMP_DIR/per-issue-latest.out" >/dev/null
 
@@ -715,6 +752,9 @@ assert payload["issue_sync_apply_action"]["available"] is True, payload
 assert payload["issue_sync_apply_action"]["command"].startswith("make github-issue-sync "), payload
 assert payload["workflows"][0]["status"] == "succeeded", payload
 assert payload["workflows"][0]["issue_refs"] == "#7 Patch critical prompt injection escape", payload
+assert payload["workflows"][0]["agent_prompts"]["codex"].endswith("/codex-prompt.md"), payload
+assert payload["workflows"][0]["agent_prompts"]["cursor"].endswith("/cursor-prompt.md"), payload
+assert payload["workflows"][0]["agent_prompts"]["openhands"].endswith("/openhands-prompt.md"), payload
 assert payload["workflows"][0]["issues"] == [
     {
         "number": 7,

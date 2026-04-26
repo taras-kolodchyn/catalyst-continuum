@@ -173,6 +173,8 @@ make github-issue-latest
 make github-issue-review
 make github-issue-next-command
 make github-issue-sync-command
+make github-issue-agent-prompt AGENT=codex
+make github-issue-agent-prompt-path AGENT=openhands
 ```
 
 `github-issue-latest` lists recent workflow output directories, selected issue refs, handoff
@@ -183,6 +185,9 @@ posture, and the recommended next action.
 latest plan or report without parsing the full human-readable output.
 `github-issue-sync-command` prints only the apply command for the latest unapplied issue-sync plan,
 after you have reviewed the generated plan and comment.
+`github-issue-agent-prompt` prints the generated Codex, Cursor, or OpenHands prompt for the latest
+or selected workflow. `github-issue-agent-prompt-path` prints only the prompt path, which is better
+for shell aliases and native agent launchers.
 
 If you want to inspect that choice before running agents, use the plan-only wrapper:
 

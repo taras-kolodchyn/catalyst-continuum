@@ -46,6 +46,8 @@ make github-issue-run REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GI
 make github-issue-review
 make github-issue-next-command
 make github-issue-sync-command
+make github-issue-agent-prompt AGENT=codex
+make github-issue-agent-prompt-path AGENT=openhands
 make dev-session TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
 make dev-task-brief TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
 make dev-run TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
@@ -98,6 +100,9 @@ directories.
 `github-issue-plan` or inside small local automations.
 `github-issue-sync-command` prints the reviewed apply command for the latest unapplied issue-sync
 plan; it does not mutate GitHub by itself.
+`github-issue-agent-prompt` prints the generated prompt for `AGENT=codex`, `AGENT=cursor`, or
+`AGENT=openhands` from the latest or selected workflow, and `github-issue-agent-prompt-path` prints
+only that prompt path for shell automation.
 
 Add `GITHUB_ISSUE_CLAIM=1` when you want the workflow to prepare an `in-progress` issue claim plan
 before execution. Add `GITHUB_ISSUE_CLAIM_APPLY=1` only when you want that claim comment and label

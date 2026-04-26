@@ -9,6 +9,7 @@ WORKFLOWS_ROOT=""
 WORKFLOW_DIR=""
 FORMAT="text"
 LIMIT=3
+AGENT_PROMPT_AGENT=""
 
 usage() {
   cat <<'EOF'
@@ -25,6 +26,9 @@ Options:
   --report                Print the latest or selected workflow-report.md.
   --next-command          Emit only the recommended shell command.
   --issue-sync-command    Emit only the command that applies the latest issue-sync plan.
+  --agent-prompt AGENT    Print the latest or selected workflow prompt for codex, cursor, or openhands.
+  --agent-prompt-path AGENT
+                          Print only the path to that workflow prompt.
   -h, --help              Show this help.
 EOF
 }
@@ -63,6 +67,16 @@ while [ "$#" -gt 0 ]; do
       FORMAT="issue-sync-command"
       shift
       ;;
+    --agent-prompt)
+      FORMAT="agent-prompt"
+      AGENT_PROMPT_AGENT="${2:?missing value for --agent-prompt}"
+      shift 2
+      ;;
+    --agent-prompt-path)
+      FORMAT="agent-prompt-path"
+      AGENT_PROMPT_AGENT="${2:?missing value for --agent-prompt-path}"
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -90,6 +104,7 @@ WORKFLOWS_ROOT="$WORKFLOWS_ROOT" \
 WORKFLOW_DIR="$WORKFLOW_DIR" \
 FORMAT="$FORMAT" \
 LIMIT="$LIMIT" \
+AGENT_PROMPT_AGENT="$AGENT_PROMPT_AGENT" \
 python3 - <<'PY'
 from __future__ import annotations
 
@@ -99,6 +114,12 @@ import pathlib
 import shlex
 import sys
 from typing import Any
+
+DEFAULT_AGENT_PROMPT_FILES = {
+    "codex": "codex-prompt.md",
+    "cursor": "cursor-prompt.md",
+    "openhands": "openhands-prompt.md",
+}
 
 
 def resolve_path(value: str, default: pathlib.Path | None = None) -> pathlib.Path:
@@ -219,6 +240,27 @@ def load_manifest_issues(manifest_path: pathlib.Path) -> list[dict[str, Any]]:
     return []
 
 
+def load_agent_prompts(manifest_path: pathlib.Path) -> dict[str, str]:
+    manifest = read_json(manifest_path)
+    session_dir = manifest_path.parent
+    prompts: dict[str, str] = {}
+
+    if isinstance(manifest, dict) and isinstance(manifest.get("agent_prompts"), dict):
+        for agent, value in manifest["agent_prompts"].items():
+            if not isinstance(agent, str):
+                continue
+            prompt_path = optional_existing_file(value, session_dir)
+            if prompt_path:
+                prompts[agent.strip().lower()] = prompt_path
+
+    for agent, filename in DEFAULT_AGENT_PROMPT_FILES.items():
+        prompts.setdefault(agent, str((session_dir / filename).resolve()))
+        if not pathlib.Path(prompts[agent]).is_file():
+            prompts.pop(agent, None)
+
+    return prompts
+
+
 def issue_refs(issues: list[dict[str, Any]]) -> str | None:
     if not issues:
         return None
@@ -266,11 +308,13 @@ def workflow_item(summary_path: pathlib.Path) -> dict[str, Any] | None:
     session_dir = optional_path(session.get("dir"))
     session_manifest = None
     issues: list[dict[str, Any]] = []
+    agent_prompts: dict[str, str] = {}
     if session_dir:
         candidate = pathlib.Path(session_dir) / "manifest.json"
         if candidate.is_file():
             session_manifest = str(candidate.resolve())
             issues = load_manifest_issues(candidate)
+            agent_prompts = load_agent_prompts(candidate)
     return {
         "path": str(summary_path.parent),
         "summary_path": str(summary_path),
@@ -281,6 +325,7 @@ def workflow_item(summary_path: pathlib.Path) -> dict[str, Any] | None:
         "pr_strategy": summary.get("pr_strategy"),
         "session_dir": session_dir,
         "session_manifest": session_manifest,
+        "agent_prompts": agent_prompts,
         "issues": issues,
         "issue_refs": issue_refs(issues),
         "brief_file": optional_path(session.get("brief_file")),
@@ -308,6 +353,7 @@ workflows_root = resolve_path(os.environ["WORKFLOWS_ROOT"], root / "github-issue
 workflow_dir_arg = os.environ["WORKFLOW_DIR"]
 output_format = os.environ["FORMAT"]
 limit = int(os.environ["LIMIT"])
+agent_prompt_agent = os.environ["AGENT_PROMPT_AGENT"].strip().lower()
 
 if workflow_dir_arg:
     workflow_dir = resolve_path(workflow_dir_arg)
@@ -390,6 +436,43 @@ def issue_sync_apply_action(item: dict[str, Any] | None) -> dict[str, Any]:
 
 sync_apply_action = issue_sync_apply_action(selected)
 
+
+def agent_prompt_action(item: dict[str, Any] | None, agent: str) -> dict[str, Any]:
+    if item is None:
+        return {
+            "available": False,
+            "reason": "No GitHub issue workflow found yet.",
+            "path": None,
+        }
+    if not agent:
+        return {
+            "available": False,
+            "reason": "Agent name is required. Use codex, cursor, or openhands.",
+            "path": None,
+        }
+    prompts = item.get("agent_prompts")
+    prompts = prompts if isinstance(prompts, dict) else {}
+    prompt_path = prompts.get(agent)
+    if not prompt_path:
+        available = ", ".join(sorted(prompts)) or "none"
+        return {
+            "available": False,
+            "reason": f"No prompt for agent '{agent}' in the selected workflow. Available agents: {available}.",
+            "path": None,
+        }
+    candidate = pathlib.Path(str(prompt_path))
+    if not candidate.is_file():
+        return {
+            "available": False,
+            "reason": f"Prompt for agent '{agent}' is missing from disk: {candidate}",
+            "path": str(candidate),
+        }
+    return {
+        "available": True,
+        "reason": "Prompt is available.",
+        "path": str(candidate),
+    }
+
 if selected is None:
     action = {
         "label": "Preview the next GitHub issue work package",
@@ -457,6 +540,18 @@ if output_format == "issue-sync-command":
     )
     sys.exit(3)
 
+if output_format in {"agent-prompt", "agent-prompt-path"}:
+    prompt_action = agent_prompt_action(selected, agent_prompt_agent)
+    prompt_path = prompt_action.get("path")
+    if not prompt_action.get("available") or not prompt_path:
+        print(prompt_action.get("reason") or "No agent prompt is available.", file=sys.stderr)
+        sys.exit(3)
+    if output_format == "agent-prompt-path":
+        print(prompt_path)
+    else:
+        print(pathlib.Path(prompt_path).read_text(encoding="utf-8").rstrip())
+    sys.exit(0)
+
 
 def print_action() -> None:
     print("Recommended next action")
@@ -486,6 +581,10 @@ def print_workflow(item: dict[str, Any], index: int) -> None:
         print(f"   plan: {item['plan_report_path']}")
     if item.get("session_manifest"):
         print(f"   session manifest: {item['session_manifest']}")
+    if item.get("agent_prompts"):
+        prompts = item["agent_prompts"]
+        prompt_refs = ", ".join(f"{agent}={path}" for agent, path in sorted(prompts.items()))
+        print(f"   agent prompts: {prompt_refs}")
     if item.get("run_summary"):
         print(f"   run summary: {item['run_summary']}")
     if item.get("draft_pr_url"):
@@ -518,6 +617,10 @@ def print_report() -> None:
     print(f"summary: {selected['summary_path']}")
     if selected.get("session_manifest"):
         print(f"session manifest: {selected['session_manifest']}")
+    if selected.get("agent_prompts"):
+        prompts = selected["agent_prompts"]
+        prompt_refs = ", ".join(f"{agent}={path}" for agent, path in sorted(prompts.items()))
+        print(f"agent prompts: {prompt_refs}")
     report_path = selected.get("report_path")
     plan_report_path = selected.get("plan_report_path")
     if report_path:
@@ -535,6 +638,12 @@ def print_report() -> None:
     print("")
     print("Suggested commands")
     print(f"sed -n '1,220p' {shell_quote(selected['summary_path'])}")
+    if selected.get("agent_prompts"):
+        print(
+            "make github-issue-agent-prompt "
+            f"{make_assignment('GITHUB_ISSUE_WORKFLOW_DIR', selected['path'])} "
+            "AGENT=codex"
+        )
     if report_path:
         print(f"sed -n '1,260p' {shell_quote(report_path)}")
     if selected.get("issue_sync_plan"):
