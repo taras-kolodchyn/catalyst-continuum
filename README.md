@@ -52,6 +52,7 @@ make github-issue-sync-command
 make github-issue-agent-prompt AGENT=codex
 make github-issue-agent-prompt-path AGENT=openhands
 make github-issue-agent-prompt-command AGENT=cursor
+make github-issue-agent-prompt-copy AGENT=codex
 make dev-session TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
 make dev-task-brief TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
 make dev-run TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
@@ -62,6 +63,7 @@ make dev-next
 make dev-session-review
 make dev-agent-prompt AGENT=codex
 make dev-agent-prompt-command AGENT=cursor
+make dev-agent-prompt-copy AGENT=codex
 make dev-review
 make github-issue-sync GITHUB_ISSUE_SYNC_PR_URL=https://github.com/OWNER/REPO/pull/123 GITHUB_ISSUE_SYNC_APPLY=1
 make run-guide RUN_ID=<RUN_ID>
@@ -138,7 +140,8 @@ plan; it does not mutate GitHub by itself.
 `AGENT=openhands` from the latest or selected workflow, and `github-issue-agent-prompt-path` prints
 only that prompt path for shell automation. `github-issue-agent-prompt-command` prints the
 copy-ready command for the selected agent when another script or UI needs to present the next action
-without reading markdown.
+without reading markdown. `github-issue-agent-prompt-copy` copies the selected prompt to the system
+clipboard through `pbcopy`, `wl-copy`, `xclip`, or `xsel`.
 
 Add `GITHUB_ISSUE_CLAIM=1` when you want the workflow to prepare an `in-progress` issue claim plan
 before execution. Add `GITHUB_ISSUE_CLAIM_APPLY=1` only when you want that claim comment and label
@@ -195,7 +198,8 @@ and the exact `dev-run-brief` command for moving that same package into the cont
 `dev-agent-prompt` prints the generated Codex, Cursor, or OpenHands prompt from the latest or
 selected `.continuum/dev-sessions/` package. Use `dev-agent-prompt-path` for shell launchers that
 only need the file path, or `dev-agent-prompt-command` when a UI/wrapper needs to show the exact
-continuation command.
+continuation command. Use `dev-agent-prompt-copy` when you want to paste the selected prompt into a
+native agent UI without printing the full prompt in the terminal.
 
 `dev-review` is the shortest review-stage command after a local run. It prints the latest
 `review.md`, reusable agent review prompt, local PR export paths, and suggested `git`/`sed` commands

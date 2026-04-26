@@ -179,6 +179,7 @@ make github-issue-sync-command
 make github-issue-agent-prompt AGENT=codex
 make github-issue-agent-prompt-path AGENT=openhands
 make github-issue-agent-prompt-command AGENT=cursor
+make github-issue-agent-prompt-copy AGENT=codex
 ```
 
 `github-issue-latest` lists recent workflow output directories, selected issue refs, handoff
@@ -205,6 +206,8 @@ after you have reviewed the generated plan and comment.
 or selected workflow. `github-issue-agent-prompt-path` prints only the prompt path, which is better
 for shell aliases and native agent launchers. `github-issue-agent-prompt-command` prints the
 copy-ready command for the selected agent so a UI or wrapper can show the exact continuation action.
+`github-issue-agent-prompt-copy` copies the selected prompt directly to the system clipboard when
+`pbcopy`, `wl-copy`, `xclip`, or `xsel` is available.
 
 If you want to inspect that choice before running agents, use the plan-only wrapper:
 
@@ -488,6 +491,7 @@ make dev-next
 make dev-session-review
 make dev-agent-prompt AGENT=codex
 make dev-agent-prompt-command AGENT=cursor
+make dev-agent-prompt-copy AGENT=codex
 make dev-review
 ```
 
@@ -498,6 +502,7 @@ It prints the latest briefs, sessions, and runs with the paths that matter most:
 - The focused session handoff view with checkout state, brief, runbook, prompts, validation
   commands, and the matching `dev-run-brief` command.
 - Copy-ready `make dev-agent-prompt ... AGENT=...` commands for continuing in the agent UI.
+- Clipboard-ready prompt handoff through `make dev-agent-prompt-copy AGENT=...`.
 - The review markdown and agent review prompt for a run.
 - The local PR export repository, branch, commit, manifest, and combined patch when export exists.
 - A short next-action hint for each artifact type.
@@ -512,6 +517,7 @@ make dev-session-review
 make dev-session-review DEV_SESSION_DIR=.continuum/dev-sessions/<session>
 make dev-agent-prompt-path AGENT=openhands
 make dev-agent-prompt-command AGENT=cursor
+make dev-agent-prompt-copy AGENT=codex
 ```
 
 Use `dev-session-review` before handing work to a native agent or before converting a session into a

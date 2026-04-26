@@ -17,6 +17,14 @@ ISSUE_FIXTURE="$TMP_DIR/issues.json"
 mkdir -p "$FAKES_DIR"
 : >"$COMMAND_LOG"
 
+cat >"$FAKES_DIR/pbcopy" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+: "${CLIPBOARD_CAPTURE:?CLIPBOARD_CAPTURE is required}"
+cat >"$CLIPBOARD_CAPTURE"
+SH
+chmod +x "$FAKES_DIR/pbcopy"
+
 cat >"$ISSUE_FIXTURE" <<'JSON'
 [
   {
@@ -565,6 +573,18 @@ make github-issue-agent-prompt-command \
   >"$TMP_DIR/plan-cursor-prompt-command.out"
 grep -F "make github-issue-agent-prompt GITHUB_ISSUE_WORKFLOW_DIR=" "$TMP_DIR/plan-cursor-prompt-command.out" >/dev/null
 grep -F "AGENT=cursor" "$TMP_DIR/plan-cursor-prompt-command.out" >/dev/null
+PATH="$FAKES_DIR:$PATH" CLIPBOARD_CAPTURE="$TMP_DIR/plan-codex-prompt.clipboard" \
+  make github-issue-agent-prompt-copy \
+  GITHUB_ISSUE_WORKFLOW_DIR="$PLAN_OUT" \
+  AGENT=codex \
+  >"$TMP_DIR/plan-codex-prompt-copy.out" 2>"$TMP_DIR/plan-codex-prompt-copy.err"
+grep -F "# Codex issue prompt" "$TMP_DIR/plan-codex-prompt.clipboard" >/dev/null
+grep -F "Copied GitHub issue codex prompt" "$TMP_DIR/plan-codex-prompt-copy.err" >/dev/null
+if [ -s "$TMP_DIR/plan-codex-prompt-copy.out" ]; then
+  echo "github issue workflow smoke failed: prompt-copy target should not print copied prompt to stdout" >&2
+  cat "$TMP_DIR/plan-codex-prompt-copy.out" >&2
+  exit 1
+fi
 
 ./scripts/show-github-issue-workflows.sh \
   --workflow-dir "$PLAN_OUT" \

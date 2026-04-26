@@ -8,6 +8,17 @@ TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 CONTINUUM_ROOT="$TMP_DIR/continuum root/.continuum"
+FAKE_BIN="$TMP_DIR/fake-bin"
+mkdir -p "$FAKE_BIN"
+
+cat >"$FAKE_BIN/pbcopy" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+: "${CLIPBOARD_CAPTURE:?CLIPBOARD_CAPTURE is required}"
+cat >"$CLIPBOARD_CAPTURE"
+SH
+chmod +x "$FAKE_BIN/pbcopy"
+
 mkdir -p \
   "$CONTINUUM_ROOT/dev-briefs" \
   "$CONTINUUM_ROOT/dev-sessions/session-a" \
@@ -144,6 +155,9 @@ make dev-agent-prompt-path DEV_SESSION_DIR="$SESSION_DIR" AGENT=openhands \
   >"$TMP_DIR/dev-openhands-prompt-path-make.txt"
 make dev-agent-prompt-command DEV_SESSION_DIR="$SESSION_DIR" AGENT=cursor \
   >"$TMP_DIR/dev-cursor-prompt-command-make.txt"
+PATH="$FAKE_BIN:$PATH" CLIPBOARD_CAPTURE="$TMP_DIR/dev-codex-prompt.clipboard" \
+  make dev-agent-prompt-copy DEV_SESSION_DIR="$SESSION_DIR" AGENT=codex \
+  >"$TMP_DIR/dev-codex-prompt-copy.out" 2>"$TMP_DIR/dev-codex-prompt-copy.err"
 make dev-session-review DEV_SESSION_DIR="$SESSION_DIR" DEV_LATEST_ARGS="--root '$CONTINUUM_ROOT'" \
   >"$TMP_DIR/dev-session-review-make.txt"
 ./scripts/show-dev-artifacts.sh --root "$CONTINUUM_ROOT" --limit 3 --review >"$REVIEW_OUTPUT"
@@ -208,6 +222,13 @@ grep -F "make dev-agent-prompt DEV_SESSION_DIR=" "$TMP_DIR/dev-cursor-prompt-com
 grep -F "AGENT=cursor" "$TMP_DIR/dev-cursor-prompt-command.txt" >/dev/null
 grep -F "make dev-agent-prompt DEV_SESSION_DIR=" "$TMP_DIR/dev-cursor-prompt-command-make.txt" >/dev/null
 grep -F "AGENT=cursor" "$TMP_DIR/dev-cursor-prompt-command-make.txt" >/dev/null
+grep -F "# Prompt" "$TMP_DIR/dev-codex-prompt.clipboard" >/dev/null
+grep -F "Copied developer session codex prompt" "$TMP_DIR/dev-codex-prompt-copy.err" >/dev/null
+if [ -s "$TMP_DIR/dev-codex-prompt-copy.out" ]; then
+  echo "dev artifacts smoke failed: prompt-copy target should not print copied prompt to stdout" >&2
+  cat "$TMP_DIR/dev-codex-prompt-copy.out" >&2
+  exit 1
+fi
 if ./scripts/show-dev-artifacts.sh --root "$CONTINUUM_ROOT" --session-dir "$SESSION_DIR" --agent-prompt unknown \
   >"$TMP_DIR/dev-unknown-prompt.out" 2>&1; then
   echo "dev artifacts smoke failed: unknown agent prompt should fail" >&2

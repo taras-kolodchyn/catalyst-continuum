@@ -137,6 +137,7 @@ make github-issue-next-command
 make github-issue-sync-command
 make github-issue-agent-prompt AGENT=codex
 make github-issue-agent-prompt-command AGENT=cursor
+make github-issue-agent-prompt-copy AGENT=codex
 ```
 
 Use `make github-issue-latest` when you want the recent workflow list instead of printing the report
@@ -157,7 +158,8 @@ Use `make github-issue-agent-prompt AGENT=codex`, `AGENT=cursor`, or `AGENT=open
 to paste the generated workflow prompt directly into the agent's native UI. Use
 `make github-issue-agent-prompt-path AGENT=codex` when a script only needs the file path. Use
 `make github-issue-agent-prompt-command AGENT=codex` when you want to show or reuse the exact command
-without opening the workflow report.
+without opening the workflow report. Use `make github-issue-agent-prompt-copy AGENT=codex` when you
+want Catalyst to copy the prompt straight to your clipboard.
 
 If you want to preview the selected issue and GitHub mutation posture before starting agents, run:
 
@@ -290,6 +292,7 @@ make dev-next
 make dev-session-review
 make dev-agent-prompt AGENT=codex
 make dev-agent-prompt-command AGENT=cursor
+make dev-agent-prompt-copy AGENT=codex
 make dev-review
 make run-guide RUN_ID=<RUN_ID>
 ```
@@ -309,6 +312,8 @@ Use `make dev-agent-prompt AGENT=codex`, `AGENT=cursor`, or `AGENT=openhands` wh
 latest generated session prompt without opening `.continuum/dev-sessions/` manually. Use
 `make dev-agent-prompt-path AGENT=codex` for native launchers that need only the file path, or
 `make dev-agent-prompt-command AGENT=codex` when a wrapper or UI should display the exact command.
+Use `make dev-agent-prompt-copy AGENT=codex` when you want to paste the prompt into a native agent
+UI without printing the full prompt in the terminal.
 
 Use `make dev-review` after `make dev-run` when you want the latest review package, agent review
 prompt, local PR export paths, and suggested local diff commands in one focused view.

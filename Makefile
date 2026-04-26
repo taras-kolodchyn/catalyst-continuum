@@ -244,6 +244,10 @@ github-issue-agent-prompt-path: ## Print path to latest/selected GitHub issue wo
 github-issue-agent-prompt-command: ## Print the command that prints latest/selected GitHub issue workflow prompt for AGENT=codex|cursor|openhands.
 	@./scripts/show-github-issue-workflows.sh --agent-prompt-command "$(AGENT)" $(if $(CONTINUUM_ROOT),--root "$(CONTINUUM_ROOT)") $(if $(GITHUB_ISSUE_WORKFLOW_DIR),--workflow-dir "$(GITHUB_ISSUE_WORKFLOW_DIR)") $(GITHUB_ISSUE_WORKFLOW_LATEST_ARGS)
 
+.PHONY: github-issue-agent-prompt-copy
+github-issue-agent-prompt-copy: ## Copy latest/selected GitHub issue workflow prompt to the clipboard for AGENT=codex|cursor|openhands.
+	@./scripts/show-github-issue-workflows.sh --agent-prompt "$(AGENT)" $(if $(CONTINUUM_ROOT),--root "$(CONTINUUM_ROOT)") $(if $(GITHUB_ISSUE_WORKFLOW_DIR),--workflow-dir "$(GITHUB_ISSUE_WORKFLOW_DIR)") $(GITHUB_ISSUE_WORKFLOW_LATEST_ARGS) | ./scripts/copy-to-clipboard.sh "GitHub issue $(AGENT) prompt"
+
 .PHONY: dev-session-smoke
 dev-session-smoke: ## Validate developer session package generation.
 	./scripts/dev-session-smoke.sh
@@ -305,6 +309,10 @@ dev-agent-prompt-path: ## Print path to latest/selected dev session prompt for A
 .PHONY: dev-agent-prompt-command
 dev-agent-prompt-command: ## Print the command that prints latest/selected dev session prompt for AGENT=codex|cursor|openhands.
 	@./scripts/show-dev-artifacts.sh --agent-prompt-command "$(AGENT)" $(if $(DEV_SESSION_DIR),--session-dir "$(DEV_SESSION_DIR)") $(DEV_LATEST_ARGS)
+
+.PHONY: dev-agent-prompt-copy
+dev-agent-prompt-copy: ## Copy latest/selected dev session prompt to the clipboard for AGENT=codex|cursor|openhands.
+	@./scripts/show-dev-artifacts.sh --agent-prompt "$(AGENT)" $(if $(DEV_SESSION_DIR),--session-dir "$(DEV_SESSION_DIR)") $(DEV_LATEST_ARGS) | ./scripts/copy-to-clipboard.sh "developer session $(AGENT) prompt"
 
 .PHONY: dev-review
 dev-review: ## Show the latest local run review package and PR export inspection commands.
