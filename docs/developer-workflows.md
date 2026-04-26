@@ -170,6 +170,7 @@ To rediscover that report later:
 
 ```bash
 make github-issue-latest
+make github-issue-plan-review
 make github-issue-review
 make github-issue-next-command
 make github-issue-sync-command
@@ -180,6 +181,10 @@ make github-issue-agent-prompt-command AGENT=cursor
 
 `github-issue-latest` lists recent workflow output directories, selected issue refs, handoff
 posture, and the recommended next action.
+`github-issue-plan-review` prints the latest or selected plan package with selected issue refs,
+session manifest, brief, context files, prompt commands, planned GitHub mutations, publication
+policy, and the exact next command. Use it after `github-issue-plan` before handing work to a native
+agent or running the workflow for real.
 `github-issue-review` prints the latest or selected `workflow-report.md`; pass
 `GITHUB_ISSUE_WORKFLOW_DIR=/path/to/workflow-output` when you want a specific run.
 `github-issue-next-command` prints only the recommended command so scripts can continue from the
@@ -207,7 +212,8 @@ workflow without `--plan-only`. When the source issue payload includes title, UR
 rank, or selected recipe, those details are included in both the JSON plan and the readable markdown
 preview. The plan also lists the generated Codex, Cursor, and OpenHands prompts plus the session
 runbook, issue context files, and copy-ready prompt commands so the developer can inspect the
-handoff packet before execution.
+handoff packet before execution. Run `make github-issue-plan-review` for a concise terminal view of
+the same package without opening the generated files manually.
 
 For a related batch that should stay in one PR:
 

@@ -210,6 +210,10 @@ github-issue-latest: ## Show the latest GitHub issue workflow runs and recommend
 github-issue-review: ## Show the latest GitHub issue workflow report.
 	./scripts/show-github-issue-workflows.sh --report $(if $(CONTINUUM_ROOT),--root "$(CONTINUUM_ROOT)") $(if $(GITHUB_ISSUE_WORKFLOW_DIR),--workflow-dir "$(GITHUB_ISSUE_WORKFLOW_DIR)") $(GITHUB_ISSUE_WORKFLOW_LATEST_ARGS)
 
+.PHONY: github-issue-plan-review
+github-issue-plan-review: ## Show the latest GitHub issue workflow plan package and handoff commands.
+	./scripts/show-github-issue-workflows.sh --plan-review $(if $(CONTINUUM_ROOT),--root "$(CONTINUUM_ROOT)") $(if $(GITHUB_ISSUE_WORKFLOW_DIR),--workflow-dir "$(GITHUB_ISSUE_WORKFLOW_DIR)") $(GITHUB_ISSUE_WORKFLOW_LATEST_ARGS)
+
 .PHONY: github-issue-next-command
 github-issue-next-command: ## Print only the recommended next GitHub issue workflow command.
 	@./scripts/show-github-issue-workflows.sh --next-command $(if $(CONTINUUM_ROOT),--root "$(CONTINUUM_ROOT)") $(if $(GITHUB_ISSUE_WORKFLOW_DIR),--workflow-dir "$(GITHUB_ISSUE_WORKFLOW_DIR)") $(GITHUB_ISSUE_WORKFLOW_LATEST_ARGS)

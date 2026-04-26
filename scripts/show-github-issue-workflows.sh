@@ -24,6 +24,7 @@ Options:
   --limit N               Number of workflow runs to show (default: 3).
   --json                  Emit machine-readable JSON.
   --report                Print the latest or selected workflow-report.md.
+  --plan-review           Print the latest or selected plan package and agent handoff commands.
   --next-command          Emit only the recommended shell command.
   --issue-sync-command    Emit only the command that applies the latest issue-sync plan.
   --agent-prompt AGENT    Print the latest or selected workflow prompt for codex, cursor, or openhands.
@@ -59,6 +60,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --report)
       FORMAT="report"
+      shift
+      ;;
+    --plan-review)
+      FORMAT="plan-review"
       shift
       ;;
     --next-command)
@@ -312,6 +317,8 @@ def workflow_item(summary_path: pathlib.Path) -> dict[str, Any] | None:
         return None
     report = summary.get("report") or {}
     plan = summary.get("plan") or {}
+    plan_payload = read_json(summary_path.parent / str(plan.get("json") or ""))
+    plan_payload = plan_payload if isinstance(plan_payload, dict) else {}
     run = summary.get("run") or {}
     draft_pr = summary.get("draft_pr") or {}
     issue_sync = summary.get("issue_sync") or {}
@@ -363,6 +370,13 @@ def workflow_item(summary_path: pathlib.Path) -> dict[str, Any] | None:
         "plan_path": optional_path(plan.get("json")),
         "plan_report_path": plan_report,
         "next_command": optional_path(plan.get("next_command")),
+        "planned_steps": plan_payload.get("planned_steps") or {},
+        "publication_policy": plan_payload.get("publication_policy") or {},
+        "plan_context_files": (
+            ((plan_payload.get("agent_handoff") or {}).get("context_files") or [])
+            if isinstance(plan_payload.get("agent_handoff"), dict)
+            else []
+        ),
     }
 
 
@@ -675,8 +689,103 @@ def print_report() -> None:
         print(sync_apply_action["command"])
 
 
+def yes_no(value: Any) -> str:
+    return "yes" if bool(value) else "no"
+
+
+def print_plan_review() -> None:
+    print("Catalyst Continuum GitHub issue workflow plan review")
+    print(f"workflows root: {workflows_root}")
+
+    if selected is None:
+        print("")
+        print("No GitHub issue workflow plan found yet.")
+        print(f"command: {action['command']}")
+        return
+
+    print("")
+    print("Selected workflow")
+    print(f"workflow: {selected['path']}")
+    print(f"status: {selected.get('status') or 'unknown'}")
+    print(f"repository: {selected.get('repository_full_name') or 'unknown'}")
+    print(f"pr_strategy: {selected.get('pr_strategy') or 'unknown'}")
+    if selected.get("issue_refs"):
+        print(f"issues: {selected['issue_refs']}")
+    print(f"summary: {selected['summary_path']}")
+    if selected.get("plan_path"):
+        print(f"plan json: {selected['plan_path']}")
+    if selected.get("plan_report_path"):
+        print(f"plan: {selected['plan_report_path']}")
+
+    print("")
+    print("Session package")
+    print(f"session: {selected.get('session_dir') or 'unknown'}")
+    print(f"brief: {selected.get('brief_file') or 'unknown'}")
+    print(f"session manifest: {selected.get('session_manifest') or 'unknown'}")
+
+    print("")
+    print("Agent prompt commands")
+    prompt_commands = selected.get("agent_prompt_commands")
+    if isinstance(prompt_commands, dict) and prompt_commands:
+        for agent, command in sorted(prompt_commands.items()):
+            print(f"{agent}: {command}")
+    else:
+        print("none")
+
+    context_files = selected.get("plan_context_files")
+    if isinstance(context_files, list) and context_files:
+        print("")
+        print("Context files")
+        for item in context_files:
+            if isinstance(item, dict) and item.get("label") and item.get("path"):
+                print(f"{item['label']}: {item['path']}")
+
+    planned_steps = selected.get("planned_steps")
+    planned_steps = planned_steps if isinstance(planned_steps, dict) else {}
+    print("")
+    print("Planned actions")
+    if planned_steps:
+        for key in sorted(planned_steps):
+            value = planned_steps[key]
+            if isinstance(value, bool):
+                value = yes_no(value)
+            print(f"{key}: {value}")
+    else:
+        print("not recorded")
+
+    publication_policy = selected.get("publication_policy")
+    publication_policy = publication_policy if isinstance(publication_policy, dict) else {}
+    print("")
+    print("Publication policy")
+    if publication_policy:
+        for key in sorted(publication_policy):
+            print(f"{key}: {publication_policy[key] or 'not configured'}")
+    else:
+        print("not recorded")
+
+    print("")
+    print("Suggested plan commands")
+    if selected.get("plan_report_path"):
+        print(f"sed -n '1,260p' {shell_quote(selected['plan_report_path'])}")
+    if selected.get("plan_path"):
+        print(f"sed -n '1,220p' {shell_quote(selected['plan_path'])}")
+    if isinstance(prompt_commands, dict):
+        for _, command in sorted(prompt_commands.items()):
+            print(command)
+    if selected.get("next_command"):
+        print(selected["next_command"])
+
+    print("")
+    print("Next")
+    print("Review the plan and prompts first; run the next command only when the selected issue package is correct.")
+
+
 if output_format == "report":
     print_report()
+    sys.exit(0)
+
+if output_format == "plan-review":
+    print_plan_review()
     sys.exit(0)
 
 print("Catalyst Continuum GitHub issue workflows")

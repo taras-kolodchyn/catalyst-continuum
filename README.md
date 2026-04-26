@@ -43,6 +43,7 @@ make github-issue-session GITHUB_ISSUE=123 REPOSITORY=OWNER/REPO REPO_PATH=/path
 make github-issue-session REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE_PR_STRATEGY=batch GITHUB_ISSUE_ARGS="--list --label bug --limit 5"
 make github-issue-plan REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE_ARGS="--label bug --limit 5"
 make github-issue-run REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE_ARGS="--label bug --limit 5"
+make github-issue-plan-review
 make github-issue-review
 make github-issue-next-command
 make github-issue-sync-command
@@ -93,6 +94,11 @@ session plus `workflow-plan.json` and `workflow-plan.md` with the selected issue
 command. The plan also lists the Codex, Cursor, and OpenHands handoff prompts plus the issue context
 files and ready `make github-issue-agent-prompt` commands so you can inspect or paste them before
 running anything. It then stops before running agents, opening draft PRs, or mutating GitHub issues.
+
+Use `github-issue-plan-review` after `github-issue-plan` when you want the shortest readable pre-run
+handoff. It prints the selected issue package, session manifest, brief, context files, prompt
+commands, planned GitHub mutations, publication policy, and the exact next command without opening
+the plan JSON or markdown manually.
 
 Use `github-issue-latest` or `github-issue-review` after a workflow run when you do not want to hunt
 through `.continuum/github-issue-workflows/` manually. `github-issue-review` prints the latest
@@ -229,6 +235,7 @@ make github-issue-session GITHUB_ISSUE=123 REPOSITORY=OWNER/REPO REPO_PATH=/path
 make github-issue-session REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE_PR_STRATEGY=batch GITHUB_ISSUE_ARGS="--list --label bug --limit 5"
 make github-issue-plan REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE_ARGS="--label bug --limit 5"
 make github-issue-run REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE_ARGS="--label bug --limit 5"
+make github-issue-plan-review
 make github-issue-review
 make github-issue-next-command
 make github-issue-sync-command

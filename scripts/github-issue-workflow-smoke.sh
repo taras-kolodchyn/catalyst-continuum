@@ -533,6 +533,75 @@ make github-issue-agent-prompt-command \
 grep -F "make github-issue-agent-prompt GITHUB_ISSUE_WORKFLOW_DIR=" "$TMP_DIR/plan-cursor-prompt-command.out" >/dev/null
 grep -F "AGENT=cursor" "$TMP_DIR/plan-cursor-prompt-command.out" >/dev/null
 
+./scripts/show-github-issue-workflows.sh \
+  --workflow-dir "$PLAN_OUT" \
+  --plan-review \
+  >"$TMP_DIR/plan-review.out"
+grep -F "Catalyst Continuum GitHub issue workflow plan review" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "workflow:" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "status: planned" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "repository: smartit/github-issue-workflow-smoke" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "pr_strategy: per-issue" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "issues: #7 Patch critical prompt injection escape" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "plan json:" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "workflow-plan.json" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "plan:" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "workflow-plan.md" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "Session package" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "brief:" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "session manifest:" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "Agent prompt commands" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "codex: make github-issue-agent-prompt GITHUB_ISSUE_WORKFLOW_DIR=" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "Context files" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "issue_context:" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "Planned actions" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "claim_issues: yes" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "create_draft_pr: yes" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "Publication policy" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "Suggested plan commands" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "./scripts/run-github-issue-workflow.sh" "$TMP_DIR/plan-review.out" >/dev/null
+
+make github-issue-plan-review \
+  GITHUB_ISSUE_WORKFLOW_DIR="$PLAN_OUT" \
+  >"$TMP_DIR/plan-review-make.out"
+grep -F "Catalyst Continuum GitHub issue workflow plan review" "$TMP_DIR/plan-review-make.out" >/dev/null
+
+python3 - "$PLAN_OUT" "$TMP_DIR/plan-workflows.json" <<'PY'
+from __future__ import annotations
+
+import json
+import pathlib
+import subprocess
+import sys
+
+workflow_dir = pathlib.Path(sys.argv[1])
+output_path = pathlib.Path(sys.argv[2])
+output = subprocess.check_output(
+    [
+        "./scripts/show-github-issue-workflows.sh",
+        "--workflow-dir",
+        str(workflow_dir),
+        "--json",
+    ],
+    text=True,
+)
+output_path.write_text(output, encoding="utf-8")
+payload = json.loads(output)
+workflow = payload["workflows"][0]
+assert workflow["status"] == "planned", payload
+assert workflow["planned_steps"]["claim_issues"] is True, payload
+assert workflow["planned_steps"]["create_draft_pr"] is True, payload
+assert workflow["publication_policy"]["repository_target_id"] is None, payload
+context_labels = [item["label"] for item in workflow["plan_context_files"]]
+assert context_labels == [
+    "brief",
+    "session_manifest",
+    "runbook",
+    "issue_markdown",
+    "issue_context",
+], payload
+PY
+
 if ./scripts/show-github-issue-workflows.sh \
   --workflow-dir "$PLAN_OUT" \
   --agent-prompt unknown \
