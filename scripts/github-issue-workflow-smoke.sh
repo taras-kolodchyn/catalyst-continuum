@@ -124,7 +124,18 @@ JSON
   "session_type": "github_issue_session",
   "github_issue": {
     "repository_full_name": "smartit/github-issue-workflow-smoke",
-    "number": 7
+    "number": 7,
+    "title": "Patch critical prompt injection escape",
+    "url": "https://github.com/smartit/github-issue-workflow-smoke/issues/7",
+    "state": "OPEN",
+    "labels": [
+      {
+        "name": "security"
+      },
+      {
+        "name": "p1"
+      }
+    ]
   }
 }
 JSON
@@ -358,7 +369,7 @@ assert plan["planned_steps"]["claim_issues"] is True, plan
 assert plan["planned_steps"]["run_local_flow"] is True, plan
 assert plan["planned_steps"]["create_draft_pr"] is True, plan
 assert plan["planned_steps"]["issue_sync_status"] == "ready-for-review", plan
-assert plan["issues"] == [{"number": 7, "title": None}], plan
+assert plan["issues"] == [{"number": 7, "title": "Patch critical prompt injection escape"}], plan
 assert "## Planned Actions" in markdown, markdown
 assert "```bash" in markdown, markdown
 PY
@@ -438,6 +449,9 @@ assert summary["run"]["summary_file"].endswith("/run-summary.json"), summary
 assert summary["issue_sync"]["plan"].endswith("/github-issue-sync-plan.json"), summary
 assert "# GitHub Issue Workflow Report" in report, report
 assert "- Status: `succeeded`" in report, report
+assert "## Selected Issues" in report, report
+assert "[#7 Patch critical prompt injection escape](https://github.com/smartit/github-issue-workflow-smoke/issues/7)" in report, report
+assert "labels `security`, `p1`" in report, report
 assert "- PR export branch: `continuum/issue-7`" in report, report
 assert "https://github.com/smartit/github-issue-workflow-smoke/pull/7" in report, report
 PY
@@ -517,14 +531,14 @@ assert payload["recommended_next_action"]["command"] == "make github-issue-revie
 assert payload["issue_sync_apply_action"]["available"] is True, payload
 assert payload["issue_sync_apply_action"]["command"].startswith("make github-issue-sync "), payload
 assert payload["workflows"][0]["status"] == "succeeded", payload
-assert payload["workflows"][0]["issue_refs"] == "#7", payload
+assert payload["workflows"][0]["issue_refs"] == "#7 Patch critical prompt injection escape", payload
 assert payload["workflows"][0]["issues"] == [
     {
         "number": 7,
-        "title": None,
-        "url": None,
-        "state": None,
-        "labels": [],
+        "title": "Patch critical prompt injection escape",
+        "url": "https://github.com/smartit/github-issue-workflow-smoke/issues/7",
+        "state": "OPEN",
+        "labels": ["security", "p1"],
         "rank": None,
         "selected_recipe": None,
     }

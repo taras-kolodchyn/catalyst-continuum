@@ -637,6 +637,106 @@ def link_or_value(value: Any) -> str:
     return f"`{text}`"
 
 
+def label_names(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    labels: list[str] = []
+    for item in value:
+        if isinstance(item, str):
+            labels.append(item)
+        elif isinstance(item, dict) and item.get("name"):
+            labels.append(str(item["name"]))
+    return labels
+
+
+def issue_item(value: dict[str, Any], rank: Any = None, selected_recipe: Any = None) -> dict[str, Any] | None:
+    number = value.get("number")
+    if number is None:
+        return None
+    return {
+        "number": number,
+        "title": value.get("title"),
+        "url": value.get("url"),
+        "state": value.get("state"),
+        "labels": label_names(value.get("labels")),
+        "rank": rank,
+        "selected_recipe": selected_recipe,
+    }
+
+
+def load_session_issues(session_dir: Any) -> list[dict[str, Any]]:
+    if not session_dir:
+        return []
+    manifest_path = pathlib.Path(str(session_dir)) / "manifest.json"
+    manifest = load_json(str(manifest_path))
+
+    issue = manifest.get("github_issue")
+    if isinstance(issue, dict):
+        item = issue_item(issue)
+        return [item] if item else []
+
+    batch = manifest.get("github_issue_batch")
+    if not isinstance(batch, dict):
+        return []
+
+    context_path = batch.get("issue_batch_context_path")
+    context = load_json(str(manifest_path.parent / str(context_path))) if context_path else {}
+    if isinstance(context.get("issues"), list):
+        issues: list[dict[str, Any]] = []
+        for entry in context["issues"]:
+            if not isinstance(entry, dict):
+                continue
+            source = entry.get("issue")
+            if not isinstance(source, dict):
+                continue
+            item = issue_item(
+                source,
+                rank=entry.get("rank"),
+                selected_recipe=entry.get("selected_recipe"),
+            )
+            if item:
+                issues.append(item)
+        if issues:
+            return issues
+
+    issue_numbers = batch.get("issue_numbers")
+    if not isinstance(issue_numbers, list):
+        return []
+    return [
+        {
+            "number": number,
+            "title": None,
+            "url": None,
+            "state": None,
+            "labels": [],
+            "rank": None,
+            "selected_recipe": None,
+        }
+        for number in issue_numbers
+    ]
+
+
+def issue_markdown(issue: dict[str, Any]) -> str:
+    ref = f"#{issue['number']}"
+    title = issue.get("title")
+    text = f"{ref} {title}" if title else ref
+    url = issue.get("url")
+    if url:
+        text = f"[{text}]({url})"
+
+    details: list[str] = []
+    if issue.get("state"):
+        details.append(f"state `{issue['state']}`")
+    if issue.get("labels"):
+        labels = ", ".join(f"`{label}`" for label in issue["labels"])
+        details.append(f"labels {labels}")
+    if issue.get("selected_recipe"):
+        details.append(f"recipe `{issue['selected_recipe']}`")
+    if issue.get("rank") is not None:
+        details.append(f"rank `{issue['rank']}`")
+    return f"- {text}" + (f" ({'; '.join(details)})" if details else "")
+
+
 def workflow_status(summary: dict[str, Any]) -> str:
     run = summary.get("run") or {}
     draft_pr = summary.get("draft_pr") or {}
@@ -662,6 +762,7 @@ claim = summary.get("issue_claim") or {}
 run = summary.get("run") or {}
 draft_pr = summary.get("draft_pr") or {}
 issue_sync = summary.get("issue_sync") or {}
+issues = load_session_issues(session.get("dir"))
 
 next_steps: list[str]
 if status == "failed":
@@ -702,6 +803,15 @@ markdown = [
     f"- Brief file: {markdown_value(session.get('brief_file'))}",
     f"- Session creation output: {markdown_value(session.get('output'))}",
     "",
+    "## Selected Issues",
+    "",
+]
+if issues:
+    markdown.extend(issue_markdown(issue) for issue in issues)
+else:
+    markdown.append("- `not recorded`")
+markdown.extend([
+    "",
     "## Execution Evidence",
     "",
     f"- Run exit code: {markdown_value(run.get('exit_code'))}",
@@ -731,7 +841,7 @@ markdown = [
     "",
     "## Next Steps",
     "",
-]
+])
 markdown.extend(f"- {step}" for step in next_steps)
 markdown.append("")
 
