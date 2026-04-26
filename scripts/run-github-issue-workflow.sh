@@ -646,6 +646,49 @@ def make_assignment(name: str, value: Any) -> str:
     return f"{name}={shell_quote(value)}"
 
 
+def existing_session_file(session_dir: pathlib.Path, value: Any) -> str | None:
+    if not value:
+        return None
+    path = pathlib.Path(str(value)).expanduser()
+    if not path.is_absolute():
+        path = session_dir / path
+    return str(path.resolve()) if path.is_file() else None
+
+
+def load_agent_prompts(session_dir_value: Any) -> dict[str, str]:
+    if not session_dir_value:
+        return {}
+    session_dir = pathlib.Path(str(session_dir_value))
+    manifest = load_json(str(session_dir / "manifest.json"))
+    prompts: dict[str, str] = {}
+    prompt_files = manifest.get("agent_prompts")
+    if isinstance(prompt_files, dict):
+        for agent, prompt_file in sorted(prompt_files.items()):
+            prompt_path = existing_session_file(session_dir, prompt_file)
+            if prompt_path:
+                prompts[str(agent).strip().lower()] = prompt_path
+    for agent, prompt_file in (
+        ("codex", "codex-prompt.md"),
+        ("cursor", "cursor-prompt.md"),
+        ("openhands", "openhands-prompt.md"),
+    ):
+        prompt_path = existing_session_file(session_dir, prompt_file)
+        if prompt_path:
+            prompts.setdefault(agent, prompt_path)
+    return prompts
+
+
+def agent_prompt_commands(workflow_dir: Any, prompts: dict[str, str]) -> dict[str, str]:
+    if not workflow_dir:
+        return {}
+    return {
+        agent: "make github-issue-agent-prompt "
+        f"{make_assignment('GITHUB_ISSUE_WORKFLOW_DIR', workflow_dir)} "
+        f"AGENT={shell_quote(agent)}"
+        for agent in sorted(prompts)
+    }
+
+
 def label_names(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
@@ -795,6 +838,8 @@ run = summary.get("run") or {}
 draft_pr = summary.get("draft_pr") or {}
 issue_sync = summary.get("issue_sync") or {}
 issues = load_session_issues(session.get("dir"))
+agent_prompts = load_agent_prompts(session.get("dir"))
+prompt_commands = agent_prompt_commands(summary.get("workflow_output_dir"), agent_prompts)
 commands = review_commands(summary.get("workflow_output_dir"), summary_path, issue_sync)
 
 next_steps: list[str]
@@ -836,9 +881,20 @@ markdown = [
     f"- Brief file: {markdown_value(session.get('brief_file'))}",
     f"- Session creation output: {markdown_value(session.get('output'))}",
     "",
-    "## Selected Issues",
+    "## Agent Prompt Commands",
     "",
 ]
+if prompt_commands:
+    markdown.append("```bash")
+    markdown.extend(prompt_commands.values())
+    markdown.append("```")
+else:
+    markdown.append("- `not recorded`")
+markdown.extend([
+    "",
+    "## Selected Issues",
+    "",
+])
 if issues:
     markdown.extend(issue_markdown(issue) for issue in issues)
 else:
@@ -1005,6 +1061,7 @@ import datetime
 import json
 import os
 import pathlib
+import shlex
 from typing import Any
 
 
@@ -1121,6 +1178,25 @@ def existing_session_file(session_dir: pathlib.Path, value: Any) -> str | None:
     return str(path.resolve()) if path.is_file() else None
 
 
+def shell_quote(value: Any) -> str:
+    return shlex.quote(str(value))
+
+
+def make_assignment(name: str, value: Any) -> str:
+    return f"{name}={shell_quote(value)}"
+
+
+def agent_prompt_commands(workflow_dir: str, prompts: dict[str, str]) -> dict[str, str]:
+    if not workflow_dir:
+        return {}
+    return {
+        agent: "make github-issue-agent-prompt "
+        f"{make_assignment('GITHUB_ISSUE_WORKFLOW_DIR', workflow_dir)} "
+        f"AGENT={shell_quote(agent)}"
+        for agent in sorted(prompts)
+    }
+
+
 def agent_handoff(session_dir: pathlib.Path, manifest_path: pathlib.Path, manifest: dict[str, Any]) -> dict[str, Any]:
     prompts: dict[str, str] = {}
     prompt_files = manifest.get("agent_prompts")
@@ -1183,6 +1259,12 @@ def handoff_markdown(handoff: dict[str, Any]) -> list[str]:
     else:
         lines.append("Agent prompts: `not recorded`")
 
+    prompt_commands = handoff.get("prompt_commands")
+    if isinstance(prompt_commands, dict) and prompt_commands:
+        lines.extend(["", "Prompt commands:", "```bash"])
+        lines.extend(str(command) for _, command in sorted(prompt_commands.items()))
+        lines.append("```")
+
     context_files = handoff.get("context_files")
     if isinstance(context_files, list) and context_files:
         lines.extend(["", "Context files:"])
@@ -1202,6 +1284,7 @@ manifest_path = session_dir / "manifest.json"
 manifest = load_json(manifest_path)
 issues = manifest_issues(manifest_path, manifest)
 handoff = agent_handoff(session_dir, manifest_path, manifest)
+handoff["prompt_commands"] = agent_prompt_commands(os.environ["WORKFLOW_OUTPUT_DIR"], handoff["prompts"])
 claim_requested = os.environ["CLAIM_ISSUES"] == "1"
 claim_apply_requested = os.environ["APPLY_ISSUE_CLAIM"] == "1"
 draft_pr_requested = os.environ["CREATE_DRAFT_PR"] == "1"

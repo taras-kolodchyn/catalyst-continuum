@@ -462,6 +462,8 @@ assert plan["issues"] == [
 assert plan["agent_handoff"]["prompts"]["codex"].endswith("/codex-prompt.md"), plan
 assert plan["agent_handoff"]["prompts"]["cursor"].endswith("/cursor-prompt.md"), plan
 assert plan["agent_handoff"]["prompts"]["openhands"].endswith("/openhands-prompt.md"), plan
+assert "make github-issue-agent-prompt " in plan["agent_handoff"]["prompt_commands"]["codex"], plan
+assert "AGENT=codex" in plan["agent_handoff"]["prompt_commands"]["codex"], plan
 context_labels = [item["label"] for item in plan["agent_handoff"]["context_files"]]
 assert context_labels == [
     "brief",
@@ -475,6 +477,9 @@ assert "[#7 Patch critical prompt injection escape](https://github.com/smartit/g
 assert "labels `security`, `p1`" in markdown, markdown
 assert "## Agent Handoff" in markdown, markdown
 assert "- codex: `" in markdown, markdown
+assert "Prompt commands:" in markdown, markdown
+assert "make github-issue-agent-prompt GITHUB_ISSUE_WORKFLOW_DIR=" in markdown, markdown
+assert "AGENT=codex" in markdown, markdown
 assert "- issue_context: `" in markdown, markdown
 assert "## Planned Actions" in markdown, markdown
 assert "```bash" in markdown, markdown
@@ -583,6 +588,7 @@ assert plan["issues"] == [
     },
 ], plan
 assert plan["agent_handoff"]["prompts"]["codex"].endswith("/codex-prompt.md"), plan
+assert "AGENT=codex" in plan["agent_handoff"]["prompt_commands"]["codex"], plan
 batch_context_labels = [item["label"] for item in plan["agent_handoff"]["context_files"]]
 assert batch_context_labels == [
     "brief",
@@ -666,6 +672,9 @@ assert "## Selected Issues" in report, report
 assert "[#7 Patch critical prompt injection escape](https://github.com/smartit/github-issue-workflow-smoke/issues/7)" in report, report
 assert "labels `security`, `p1`" in report, report
 assert "## Review Commands" in report, report
+assert "## Agent Prompt Commands" in report, report
+assert "make github-issue-agent-prompt GITHUB_ISSUE_WORKFLOW_DIR=" in report, report
+assert "AGENT=codex" in report, report
 assert "make github-issue-review GITHUB_ISSUE_WORKFLOW_DIR=" in report, report
 assert "make github-issue-sync-command GITHUB_ISSUE_WORKFLOW_DIR=" in report, report
 assert "sed -n '1,220p'" in report, report

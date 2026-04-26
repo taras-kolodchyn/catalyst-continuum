@@ -122,8 +122,9 @@ candidate, and creates a dry-run GitHub issue update plan. Set `GITHUB_ISSUE_PR_
 the imported issues should stay in one branch and one PR.
 
 After the workflow finishes, open `workflow-report.md` from the printed workflow output directory
-first. It is the readable handoff: outcome, selected session, run evidence, PR export branch and
-commit, draft PR URL when available, issue-sync status, and the next review action.
+first. It is the readable handoff: outcome, selected session, copy-ready Codex/Cursor/OpenHands
+prompt commands, run evidence, PR export branch and commit, draft PR URL when available, issue-sync
+status, and the next review action.
 
 If you need to find it later, run:
 
@@ -153,9 +154,9 @@ make github-issue-plan \
   GITHUB_ISSUE_ARGS="--label bug --limit 5"
 ```
 
-This writes `workflow-plan.md` with the selected issue, agent handoff prompts, session context
-files, PR strategy, draft PR intent, issue-sync status, and the next command to run the real
-workflow.
+This writes `workflow-plan.md` with the selected issue, agent handoff prompts, copy-ready prompt
+commands, session context files, PR strategy, draft PR intent, issue-sync status, and the next
+command to run the real workflow.
 
 If you want the source issue to show that Catalyst accepted it before the local run starts, enable
 the claim plan:

@@ -87,13 +87,15 @@ aggregate batch session intended for one branch and one PR.
 Use `github-issue-plan` first when you want a safe preview. It creates the selected developer
 session plus `workflow-plan.json` and `workflow-plan.md` with the selected issue details and next
 command. The plan also lists the Codex, Cursor, and OpenHands handoff prompts plus the issue context
-files so you can inspect or paste them before running anything. It then stops before running agents,
-opening draft PRs, or mutating GitHub issues.
+files and ready `make github-issue-agent-prompt` commands so you can inspect or paste them before
+running anything. It then stops before running agents, opening draft PRs, or mutating GitHub issues.
 
 Use `github-issue-latest` or `github-issue-review` after a workflow run when you do not want to hunt
 through `.continuum/github-issue-workflows/` manually. `github-issue-review` prints the latest
 `workflow-report.md` plus the selected issue refs, title/label details when the session recorded
 them, session manifest, summary, embedded review commands, and issue-sync inspection commands.
+It also embeds ready `make github-issue-agent-prompt` commands for continuing in Codex, Cursor, or
+OpenHands.
 `github-issue-latest` lists the selected issue refs and handoff posture for recent workflow
 directories.
 `github-issue-next-command` prints only the recommended next shell command, which is useful after
