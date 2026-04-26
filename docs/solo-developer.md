@@ -147,7 +147,9 @@ session manifest, context files, prompt commands, planned GitHub mutations, publ
 read-only preflight checks, setup commands, and next run command in one focused view. Use
 `make github-issue-preflight` when you want Catalyst to run the read-only checks but leave
 repository-target bootstrap as an explicit setup step. Use `make github-issue-preflight-strict`
-before handing the planned issue package to an agent so a dirty local checkout fails fast. Use
+before handing the planned issue package to an agent so a dirty local checkout fails fast. For real
+runs, also pass `GITHUB_ISSUE_REQUIRE_CLEAN_CHECKOUT=1` so the workflow blocks before issue claim or
+agent execution if the target checkout is dirty. Use
 `make github-issue-next-command` when you only want the next shell command, especially after a
 plan-only preview. Use `make github-issue-sync-command` after reviewing an unapplied issue-sync plan
 when you want the exact apply command without rebuilding it by hand.
@@ -178,7 +180,8 @@ make github-issue-run \
   REPOSITORY=OWNER/REPO \
   REPO_PATH=/path/to/local/checkout \
   GITHUB_ISSUE=123 \
-  GITHUB_ISSUE_CLAIM=1
+  GITHUB_ISSUE_CLAIM=1 \
+  GITHUB_ISSUE_REQUIRE_CLEAN_CHECKOUT=1
 ```
 
 This is still dry-run by default. Add `GITHUB_ISSUE_CLAIM_APPLY=1` only when you want the
@@ -193,7 +196,8 @@ make github-issue-run \
   REPO_PATH=/path/to/local/checkout \
   REPOSITORY_TARGET_ID=primary \
   GITHUB_ISSUE=123 \
-  GITHUB_ISSUE_CREATE_DRAFT_PR=1
+  GITHUB_ISSUE_CREATE_DRAFT_PR=1 \
+  GITHUB_ISSUE_REQUIRE_CLEAN_CHECKOUT=1
 ```
 
 The flow opens or reuses the draft PR through the orchestrator, then passes that PR URL into the

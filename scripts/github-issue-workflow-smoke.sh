@@ -410,6 +410,7 @@ TMPDIR="$TMP_DIR/plan-tmp" \
   --issue-json "$ISSUE_FIXTURE" \
   --repository smartit/github-issue-workflow-smoke \
   --repo-path "$ROOT_DIR" \
+  --require-clean-checkout \
   --pr-strategy per-issue \
   --workflow-output-dir "$PLAN_OUT" \
   --session-output-root "$TMP_DIR/plan-sessions" \
@@ -456,6 +457,7 @@ assert summary["run"]["summary_file"] is None, summary
 assert plan["source"] == "github_issue_workflow_plan", plan
 assert plan["planned_steps"]["claim_issues"] is True, plan
 assert plan["planned_steps"]["run_local_flow"] is True, plan
+assert plan["planned_steps"]["require_clean_checkout"] is True, plan
 assert plan["planned_steps"]["create_draft_pr"] is True, plan
 assert plan["planned_steps"]["issue_sync_status"] == "ready-for-review", plan
 assert plan["preflight"]["repo_path"].endswith("/catalyst-continuum"), plan
@@ -504,6 +506,7 @@ assert "make github-issue-agent-prompt GITHUB_ISSUE_WORKFLOW_DIR=" in markdown, 
 assert "AGENT=codex" in markdown, markdown
 assert "- issue_context: `" in markdown, markdown
 assert "## Planned Actions" in markdown, markdown
+assert "- Require clean checkout before execution: `yes`" in markdown, markdown
 assert "## Preflight Before Running" in markdown, markdown
 assert "Read-only checks:" in markdown, markdown
 assert "Setup commands, not run by `make github-issue-preflight`:" in markdown, markdown
@@ -519,6 +522,7 @@ PY
   --next-command \
   >"$TMP_DIR/plan-next-command.out"
 grep -F "./scripts/run-github-issue-workflow.sh" "$TMP_DIR/plan-next-command.out" >/dev/null
+grep -F -- "--require-clean-checkout" "$TMP_DIR/plan-next-command.out" >/dev/null
 if grep -F -- "--plan-only" "$TMP_DIR/plan-next-command.out" >/dev/null; then
   echo "plan next command must be executable, not another plan-only preview" >&2
   exit 1
@@ -585,6 +589,7 @@ grep -F "Context files" "$TMP_DIR/plan-review.out" >/dev/null
 grep -F "issue_context:" "$TMP_DIR/plan-review.out" >/dev/null
 grep -F "Planned actions" "$TMP_DIR/plan-review.out" >/dev/null
 grep -F "claim_issues: yes" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "require_clean_checkout: yes" "$TMP_DIR/plan-review.out" >/dev/null
 grep -F "create_draft_pr: yes" "$TMP_DIR/plan-review.out" >/dev/null
 grep -F "Publication policy" "$TMP_DIR/plan-review.out" >/dev/null
 grep -F "Preflight before running" "$TMP_DIR/plan-review.out" >/dev/null
@@ -697,6 +702,7 @@ payload = json.loads(output)
 workflow = payload["workflows"][0]
 assert workflow["status"] == "planned", payload
 assert workflow["planned_steps"]["claim_issues"] is True, payload
+assert workflow["planned_steps"]["require_clean_checkout"] is True, payload
 assert workflow["planned_steps"]["create_draft_pr"] is True, payload
 assert workflow["publication_policy"]["repository_target_id"] is None, payload
 assert workflow["preflight"]["repo_path"].endswith("/catalyst-continuum"), payload
@@ -722,6 +728,72 @@ if ./scripts/show-github-issue-workflows.sh \
   exit 1
 fi
 grep -F "No prompt for agent 'unknown'" "$TMP_DIR/plan-unknown-prompt.err" >/dev/null
+
+DIRTY_RUN_REPO="$TMP_DIR/dirty-run-repo"
+DIRTY_RUN_OUT="$TMP_DIR/dirty-run-workflow"
+git init "$DIRTY_RUN_REPO" >/dev/null 2>&1
+printf 'local scratch\n' >"$DIRTY_RUN_REPO/untracked.txt"
+: >"$COMMAND_LOG"
+set +e
+COMMAND_LOG="$COMMAND_LOG" \
+CREATE_GITHUB_ISSUE_SESSION_CMD="$FAKES_DIR/create-github-issue-session.sh" \
+RUN_DEV_TASK_CMD="$FAKES_DIR/run-dev-task.sh" \
+SYNC_GITHUB_ISSUE_STATUS_CMD="$FAKES_DIR/sync-github-issue-status.sh" \
+CREATE_DRAFT_PR_FROM_RUN_SUMMARY_CMD="$FAKES_DIR/create-draft-pr-from-run-summary.sh" \
+TMPDIR="$TMP_DIR/dirty-run-tmp" \
+./scripts/run-github-issue-workflow.sh \
+  --issue-json "$ISSUE_FIXTURE" \
+  --repository smartit/github-issue-workflow-smoke \
+  --repo-path "$DIRTY_RUN_REPO" \
+  --require-clean-checkout \
+  --pr-strategy per-issue \
+  --workflow-output-dir "$DIRTY_RUN_OUT" \
+  --session-output-root "$TMP_DIR/dirty-run-sessions" \
+  --claim-issues \
+  --apply-issue-claim \
+  >"$TMP_DIR/dirty-run.out" 2>"$TMP_DIR/dirty-run.err"
+dirty_run_exit=$?
+set -e
+if [ "$dirty_run_exit" -eq 0 ]; then
+  echo "dirty checkout guard unexpectedly allowed execution" >&2
+  exit 1
+fi
+grep -F "blocked GitHub issue workflow" "$TMP_DIR/dirty-run.err" >/dev/null
+grep -F "untracked.txt" "$TMP_DIR/dirty-run.err" >/dev/null
+grep -F "create " "$COMMAND_LOG" >/dev/null
+if grep -F "run " "$COMMAND_LOG" >/dev/null; then
+  echo "dirty checkout guard must stop before developer run" >&2
+  exit 1
+fi
+if grep -F "sync " "$COMMAND_LOG" >/dev/null; then
+  echo "dirty checkout guard must stop before issue claim or sync" >&2
+  exit 1
+fi
+
+python3 - "$DIRTY_RUN_OUT/workflow-summary.json" "$DIRTY_RUN_OUT/run-dev-task.out" "$DIRTY_RUN_OUT/workflow-report.md" <<'PY'
+from __future__ import annotations
+
+import json
+import pathlib
+import sys
+
+summary = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+run_output = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
+report = pathlib.Path(sys.argv[3]).read_text(encoding="utf-8")
+
+assert summary["plan_only"] is False, summary
+assert summary["execution_guard"]["require_clean_checkout"] is True, summary
+assert summary["execution_guard"]["blocked"] is True, summary
+assert summary["run"]["exit_code"] != 0, summary
+assert summary["run"]["summary_file"] is None, summary
+assert summary["report"]["markdown"].endswith("/workflow-report.md"), summary
+assert summary["issue_claim"]["requested"] is True, summary
+assert summary["issue_claim"]["exit_code"] == 0, summary
+assert summary["issue_claim"]["plan"] is None, summary
+assert "untracked.txt" in run_output, run_output
+assert "- Status: `failed`" in report, report
+assert "run-dev-task.out" in report, report
+PY
 
 : >"$COMMAND_LOG"
 

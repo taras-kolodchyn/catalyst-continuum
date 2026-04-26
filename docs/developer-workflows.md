@@ -192,7 +192,9 @@ GitHub repository access. It prints repository-target bootstrap commands as setu
 not run them automatically.
 `github-issue-preflight-strict` adds a clean-checkout gate on top of the same read-only checks. Use
 it before handing a planned issue package to Codex, Cursor, or OpenHands so uncommitted local work
-does not get mixed into the generated branch or PR evidence.
+does not get mixed into the generated branch or PR evidence. For the actual execution command, pass
+`GITHUB_ISSUE_REQUIRE_CLEAN_CHECKOUT=1`; the workflow will stop before issue claim or agent run if
+the target checkout is dirty.
 `github-issue-review` prints the latest or selected `workflow-report.md`; pass
 `GITHUB_ISSUE_WORKFLOW_DIR=/path/to/workflow-output` when you want a specific run.
 `github-issue-next-command` prints only the recommended command so scripts can continue from the
@@ -247,7 +249,8 @@ make github-issue-run \
   REPOSITORY=OWNER/REPO \
   REPO_PATH=/path/to/local/checkout \
   GITHUB_ISSUE=123 \
-  GITHUB_ISSUE_CLAIM=1
+  GITHUB_ISSUE_CLAIM=1 \
+  GITHUB_ISSUE_REQUIRE_CLEAN_CHECKOUT=1
 ```
 
 This writes an `in-progress` issue claim plan into the workflow output. Add
@@ -265,7 +268,8 @@ make github-issue-run \
   REPO_PATH=/path/to/local/checkout \
   REPOSITORY_TARGET_ID=primary \
   GITHUB_ISSUE=123 \
-  GITHUB_ISSUE_CREATE_DRAFT_PR=1
+  GITHUB_ISSUE_CREATE_DRAFT_PR=1 \
+  GITHUB_ISSUE_REQUIRE_CLEAN_CHECKOUT=1
 ```
 
 This does not bypass repository policy. The wrapper calls the same orchestrator `create-draft-pr`

@@ -33,6 +33,7 @@ CREATE_DRAFT_PR=0
 DRAFT_PR_REMOTE_URL=""
 AUTO_KEEP_DATABASE_FOR_DRAFT_PR=0
 PLAN_ONLY=0
+REQUIRE_CLEAN_CHECKOUT=0
 NO_VALIDATE=0
 KEEP_DATABASE=0
 NO_PR_EXPORT=0
@@ -84,6 +85,7 @@ Workflow options:
   --session-output-root PATH    Session output root passed to create-github-issue-session.sh.
   --batch-output-dir PATH       Batch plan output directory.
   --repo-path PATH              Local repository checkout (default: cwd).
+  --require-clean-checkout      Fail before claim/run if --repo-path has local changes.
   --default-branch NAME         Repository default branch.
   --visibility VALUE            Repository visibility: private or public (default: private).
   --requested-by VALUE          Brief requested_by value (default: $USER@local).
@@ -163,6 +165,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --plan-only)
       PLAN_ONLY=1
+      shift
+      ;;
+    --require-clean-checkout)
+      REQUIRE_CLEAN_CHECKOUT=1
       shift
       ;;
     --workflow-output-dir)
@@ -419,6 +425,20 @@ detect_repository() {
   esac
 }
 
+require_clean_checkout() {
+  local status_output
+  if ! status_output="$(git -C "$REPO_PATH" status --porcelain)"; then
+    printf 'could not inspect --repo-path clean state: %s\n' "$REPO_PATH" >&2
+    return 1
+  fi
+  if [ -n "$status_output" ]; then
+    printf '%s\n' "--require-clean-checkout blocked GitHub issue workflow because --repo-path has local changes:" >&2
+    printf '%s\n' "$status_output" >&2
+    printf '%s\n' "Commit or stash local changes before running a real GitHub issue workflow." >&2
+    return 1
+  fi
+}
+
 if [ -z "$REPOSITORY" ]; then
   REPOSITORY="$(detect_repository || true)"
 fi
@@ -465,6 +485,7 @@ DRAFT_PR_EXIT=0
 DRAFT_PR_URL=""
 DRAFT_PR_NUMBER=""
 DRAFT_PR_AUTO_DATABASE_CLEANED=0
+EXECUTION_GUARD_BLOCKED=0
 
 extract_output_field() {
   local file="$1"
@@ -483,6 +504,8 @@ write_workflow_summary() {
   WORKFLOW_SUMMARY="$WORKFLOW_SUMMARY" \
   REPOSITORY="$REPOSITORY" \
   PR_STRATEGY="$PR_STRATEGY" \
+  REQUIRE_CLEAN_CHECKOUT="$REQUIRE_CLEAN_CHECKOUT" \
+  EXECUTION_GUARD_BLOCKED="$EXECUTION_GUARD_BLOCKED" \
   SESSION_OUTPUT="$SESSION_OUTPUT" \
   SESSION_DIR="$SESSION_DIR" \
   BRIEF_FILE="$BRIEF_FILE" \
@@ -536,6 +559,10 @@ payload = {
     "repository_full_name": os.environ["REPOSITORY"],
     "pr_strategy": os.environ["PR_STRATEGY"],
     "workflow_output_dir": os.environ["WORKFLOW_OUTPUT_DIR"],
+    "execution_guard": {
+        "require_clean_checkout": os.environ["REQUIRE_CLEAN_CHECKOUT"] == "1",
+        "blocked": os.environ["EXECUTION_GUARD_BLOCKED"] == "1",
+    },
     "session": {
         "output": os.environ["SESSION_OUTPUT"],
         "dir": optional_path(os.environ["SESSION_DIR"]),
@@ -1048,6 +1075,7 @@ write_workflow_plan() {
   DEFAULT_BRANCH="$DEFAULT_BRANCH" \
   CLAIM_ISSUES="$CLAIM_ISSUES" \
   APPLY_ISSUE_CLAIM="$APPLY_ISSUE_CLAIM" \
+  REQUIRE_CLEAN_CHECKOUT="$REQUIRE_CLEAN_CHECKOUT" \
   CREATE_DRAFT_PR="$CREATE_DRAFT_PR" \
   SKIP_ISSUE_SYNC="$SKIP_ISSUE_SYNC" \
   APPLY_ISSUE_SYNC="$APPLY_ISSUE_SYNC" \
@@ -1374,6 +1402,7 @@ handoff = agent_handoff(session_dir, manifest_path, manifest)
 handoff["prompt_commands"] = agent_prompt_commands(os.environ["WORKFLOW_OUTPUT_DIR"], handoff["prompts"])
 claim_requested = os.environ["CLAIM_ISSUES"] == "1"
 claim_apply_requested = os.environ["APPLY_ISSUE_CLAIM"] == "1"
+require_clean_checkout = os.environ["REQUIRE_CLEAN_CHECKOUT"] == "1"
 draft_pr_requested = os.environ["CREATE_DRAFT_PR"] == "1"
 issue_sync_skipped = os.environ["SKIP_ISSUE_SYNC"] == "1"
 issue_sync_apply_requested = os.environ["APPLY_ISSUE_SYNC"] == "1"
@@ -1399,6 +1428,7 @@ plan = {
     "planned_steps": {
         "claim_issues": claim_requested,
         "apply_issue_claim": claim_apply_requested,
+        "require_clean_checkout": require_clean_checkout,
         "run_local_flow": True,
         "create_draft_pr": draft_pr_requested,
         "issue_sync_skipped": issue_sync_skipped,
@@ -1449,6 +1479,7 @@ markdown.extend([
     "",
     f"- Claim issue before execution: `{yes_no(claim_requested)}`",
     f"- Apply claim to GitHub: `{yes_no(claim_apply_requested)}`",
+    f"- Require clean checkout before execution: `{yes_no(require_clean_checkout)}`",
     "- Run local Catalyst flow: `yes`",
     f"- Create GitHub draft PR: `{yes_no(draft_pr_requested)}`",
     f"- Skip issue sync: `{yes_no(issue_sync_skipped)}`",
@@ -1593,6 +1624,22 @@ if [ "$PLAN_ONLY" -eq 1 ]; then
   printf 'brief_file: %s\n' "$BRIEF_FILE"
   printf 'next_command: %s\n' "$NEXT_COMMAND"
   exit 0
+fi
+
+if [ "$REQUIRE_CLEAN_CHECKOUT" -eq 1 ]; then
+  printf '[github-issue-run] requiring clean checkout before claim/run\n'
+  set +e
+  require_clean_checkout >"$RUN_OUTPUT" 2>&1
+  RUN_EXIT=$?
+  set -e
+  if [ "$RUN_EXIT" -ne 0 ]; then
+    EXECUTION_GUARD_BLOCKED=1
+    cat "$RUN_OUTPUT" >&2
+    write_workflow_summary_and_report
+    printf 'GitHub issue workflow blocked before claim/run; summary: %s\n' "$WORKFLOW_SUMMARY" >&2
+    exit "$RUN_EXIT"
+  fi
+  RUN_EXIT=0
 fi
 
 if [ "$CLAIM_ISSUES" -eq 1 ]; then

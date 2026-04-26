@@ -112,6 +112,16 @@ real repository run. It performs the same read-only checks and fails if the targ
 uncommitted or untracked files, which prevents agent output from being mixed with local developer
 scratch changes.
 
+For real execution, keep the same guard on the run command itself:
+
+```bash
+make github-issue-run \
+  REPOSITORY=OWNER/REPO \
+  REPO_PATH=/path/to/local/checkout \
+  GITHUB_ISSUE=123 \
+  GITHUB_ISSUE_REQUIRE_CLEAN_CHECKOUT=1
+```
+
 Use `github-issue-latest` or `github-issue-review` after a workflow run when you do not want to hunt
 through `.continuum/github-issue-workflows/` manually. `github-issue-review` prints the latest
 `workflow-report.md` plus the selected issue refs, title/label details when the session recorded
@@ -253,8 +263,8 @@ make github-issue-preflight-strict
 make github-issue-review
 make github-issue-next-command
 make github-issue-sync-command
-make github-issue-run REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE=123 GITHUB_ISSUE_CLAIM=1
-make github-issue-run REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout REPOSITORY_TARGET_ID=primary GITHUB_ISSUE=123 GITHUB_ISSUE_CREATE_DRAFT_PR=1
+make github-issue-run REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE=123 GITHUB_ISSUE_CLAIM=1 GITHUB_ISSUE_REQUIRE_CLEAN_CHECKOUT=1
+make github-issue-run REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout REPOSITORY_TARGET_ID=primary GITHUB_ISSUE=123 GITHUB_ISSUE_CREATE_DRAFT_PR=1 GITHUB_ISSUE_REQUIRE_CLEAN_CHECKOUT=1
 make dev-session TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO
 make dev-task-brief TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO
 make dev-run TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO
