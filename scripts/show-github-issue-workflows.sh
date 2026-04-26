@@ -804,6 +804,10 @@ def print_plan_review() -> None:
             "make github-issue-preflight "
             f"{make_assignment('GITHUB_ISSUE_WORKFLOW_DIR', selected['path'])}"
         )
+        print(
+            "make github-issue-preflight-strict "
+            f"{make_assignment('GITHUB_ISSUE_WORKFLOW_DIR', selected['path'])}"
+        )
     if isinstance(prompt_commands, dict):
         for _, command in sorted(prompt_commands.items()):
             print(command)

@@ -1495,6 +1495,12 @@ if checks:
         f"{make_assignment('GITHUB_ISSUE_WORKFLOW_DIR', os.environ['WORKFLOW_OUTPUT_DIR'])}"
     )
     markdown.extend(["```", ""])
+    markdown.extend(["Require a clean checkout before agent execution:", "", "```bash"])
+    markdown.append(
+        "make github-issue-preflight-strict "
+        f"{make_assignment('GITHUB_ISSUE_WORKFLOW_DIR', os.environ['WORKFLOW_OUTPUT_DIR'])}"
+    )
+    markdown.extend(["```", ""])
 markdown.extend([
     "## Next Command",
     "",

@@ -66,6 +66,9 @@ When the change touches agent integrations or MCP behavior, also review:
 - For local compose runtime validation, use an isolated compose project name. Prefer
   `./scripts/compose-runtime-check.sh` over ad hoc `docker compose down -v` against the default
   `COMPOSE_PROJECT_NAME`, so validation does not tear down a developer's active local stack.
+- Before handing a planned GitHub issue workflow to an agent or running it against a real checkout,
+  prefer `make github-issue-preflight-strict` so dirty local changes cannot be mixed into the
+  generated branch or PR evidence by accident.
 - Do not leave repo-local helper processes or disposable databases behind after local UI, smoke, or
   OpenHands checks. Use `./scripts/cleanup-local-dev.sh` after those workflows and prefer the
   repository helpers over ad hoc detached `nohup` or background `serve` processes.

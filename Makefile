@@ -219,6 +219,10 @@ github-issue-plan-review: ## Show the latest GitHub issue workflow plan package 
 github-issue-preflight: ## Run read-only checks for the latest or selected GitHub issue workflow plan.
 	./scripts/run-github-issue-preflight.py $(if $(CONTINUUM_ROOT),--root "$(CONTINUUM_ROOT)") $(if $(GITHUB_ISSUE_WORKFLOW_DIR),--workflow-dir "$(GITHUB_ISSUE_WORKFLOW_DIR)") $(GITHUB_ISSUE_PREFLIGHT_ARGS)
 
+.PHONY: github-issue-preflight-strict
+github-issue-preflight-strict: ## Run GitHub issue preflight and fail if the target checkout is dirty.
+	./scripts/run-github-issue-preflight.py --require-clean $(if $(CONTINUUM_ROOT),--root "$(CONTINUUM_ROOT)") $(if $(GITHUB_ISSUE_WORKFLOW_DIR),--workflow-dir "$(GITHUB_ISSUE_WORKFLOW_DIR)") $(GITHUB_ISSUE_PREFLIGHT_ARGS)
+
 .PHONY: github-issue-next-command
 github-issue-next-command: ## Print only the recommended next GitHub issue workflow command.
 	@./scripts/show-github-issue-workflows.sh --next-command $(if $(CONTINUUM_ROOT),--root "$(CONTINUUM_ROOT)") $(if $(GITHUB_ISSUE_WORKFLOW_DIR),--workflow-dir "$(GITHUB_ISSUE_WORKFLOW_DIR)") $(GITHUB_ISSUE_WORKFLOW_LATEST_ARGS)

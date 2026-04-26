@@ -45,6 +45,7 @@ make github-issue-plan REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout G
 make github-issue-run REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE_ARGS="--label bug --limit 5"
 make github-issue-plan-review
 make github-issue-preflight
+make github-issue-preflight-strict
 make github-issue-review
 make github-issue-next-command
 make github-issue-sync-command
@@ -105,6 +106,11 @@ Use `github-issue-preflight` after `github-issue-plan` when you want to execute 
 checks from the selected plan. It inspects the local checkout, prints remotes, verifies GitHub
 repository access, and leaves repository-target bootstrap commands as explicit follow-up setup
 instead of running them automatically.
+
+Use `github-issue-preflight-strict` before handing the package to Codex, Cursor, or OpenHands for a
+real repository run. It performs the same read-only checks and fails if the target checkout has
+uncommitted or untracked files, which prevents agent output from being mixed with local developer
+scratch changes.
 
 Use `github-issue-latest` or `github-issue-review` after a workflow run when you do not want to hunt
 through `.continuum/github-issue-workflows/` manually. `github-issue-review` prints the latest
@@ -243,6 +249,7 @@ make github-issue-plan REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout G
 make github-issue-run REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE_ARGS="--label bug --limit 5"
 make github-issue-plan-review
 make github-issue-preflight
+make github-issue-preflight-strict
 make github-issue-review
 make github-issue-next-command
 make github-issue-sync-command

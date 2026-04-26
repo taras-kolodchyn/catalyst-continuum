@@ -508,6 +508,7 @@ assert "## Preflight Before Running" in markdown, markdown
 assert "Read-only checks:" in markdown, markdown
 assert "Setup commands, not run by `make github-issue-preflight`:" in markdown, markdown
 assert "make github-issue-preflight GITHUB_ISSUE_WORKFLOW_DIR=" in markdown, markdown
+assert "make github-issue-preflight-strict GITHUB_ISSUE_WORKFLOW_DIR=" in markdown, markdown
 assert "make github-repo-preflight REPOSITORY=" in markdown, markdown
 assert "make repository-targets-bootstrap REPOSITORY=" in markdown, markdown
 assert "```bash" in markdown, markdown
@@ -596,6 +597,7 @@ grep -F "Verify GitHub repository access: make github-repo-preflight REPOSITORY=
 grep -F "Bootstrap repository-target policy: make repository-targets-bootstrap REPOSITORY=" "$TMP_DIR/plan-review.out" >/dev/null
 grep -F "Suggested plan commands" "$TMP_DIR/plan-review.out" >/dev/null
 grep -F "make github-issue-preflight GITHUB_ISSUE_WORKFLOW_DIR=" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "make github-issue-preflight-strict GITHUB_ISSUE_WORKFLOW_DIR=" "$TMP_DIR/plan-review.out" >/dev/null
 grep -F "./scripts/run-github-issue-workflow.sh" "$TMP_DIR/plan-review.out" >/dev/null
 
 make github-issue-plan-review \
@@ -623,6 +625,53 @@ make github-issue-preflight \
   GITHUB_ISSUE_PREFLIGHT_ARGS="--print-only" \
   >"$TMP_DIR/plan-preflight-make.out"
 grep -F "preflight=print-only" "$TMP_DIR/plan-preflight-make.out" >/dev/null
+
+COMMAND_LOG="$COMMAND_LOG" \
+GITHUB_REPO_PREFLIGHT_CMD="$FAKES_DIR/github-repo-preflight.sh" \
+make github-issue-preflight-strict \
+  GITHUB_ISSUE_WORKFLOW_DIR="$PLAN_OUT" \
+  GITHUB_ISSUE_PREFLIGHT_ARGS="--print-only" \
+  >"$TMP_DIR/plan-preflight-strict-make.out"
+grep -F "[Require clean local checkout]" "$TMP_DIR/plan-preflight-strict-make.out" >/dev/null
+grep -F "preflight=print-only" "$TMP_DIR/plan-preflight-strict-make.out" >/dev/null
+
+DIRTY_REPO="$TMP_DIR/dirty-repo"
+DIRTY_PLAN_OUT="$TMP_DIR/dirty-plan-workflow"
+git init "$DIRTY_REPO" >/dev/null 2>&1
+printf 'local scratch\n' >"$DIRTY_REPO/untracked.txt"
+cp -R "$PLAN_OUT" "$DIRTY_PLAN_OUT"
+python3 - "$DIRTY_PLAN_OUT/workflow-summary.json" "$DIRTY_PLAN_OUT/workflow-plan.json" "$DIRTY_REPO" <<'PY'
+from __future__ import annotations
+
+import json
+import pathlib
+import sys
+
+summary_path = pathlib.Path(sys.argv[1])
+plan_path = pathlib.Path(sys.argv[2])
+repo_path = pathlib.Path(sys.argv[3]).resolve()
+summary = json.loads(summary_path.read_text(encoding="utf-8"))
+summary["workflow_output_dir"] = str(summary_path.parent)
+summary["plan"]["json"] = str(plan_path)
+summary["plan"]["markdown"] = str(summary_path.parent / "workflow-plan.md")
+summary_path.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+plan = json.loads(plan_path.read_text(encoding="utf-8"))
+plan["workflow_output_dir"] = str(summary_path.parent)
+plan["preflight"]["repo_path"] = str(repo_path)
+plan_path.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
+PY
+if ./scripts/run-github-issue-preflight.py \
+  --workflow-dir "$DIRTY_PLAN_OUT" \
+  --require-clean \
+  --skip-github \
+  >"$TMP_DIR/dirty-plan-preflight.out" \
+  2>"$TMP_DIR/dirty-plan-preflight.err"; then
+  echo "strict preflight unexpectedly accepted a dirty checkout" >&2
+  exit 1
+fi
+grep -F "[Require clean local checkout]" "$TMP_DIR/dirty-plan-preflight.out" >/dev/null
+grep -F "untracked.txt" "$TMP_DIR/dirty-plan-preflight.out" >/dev/null
+grep -F "local checkout is not clean" "$TMP_DIR/dirty-plan-preflight.err" >/dev/null
 
 python3 - "$PLAN_OUT" "$TMP_DIR/plan-workflows.json" <<'PY'
 from __future__ import annotations

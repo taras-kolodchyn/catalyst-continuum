@@ -131,6 +131,7 @@ If you need to find it later, run:
 ```bash
 make github-issue-plan-review
 make github-issue-preflight
+make github-issue-preflight-strict
 make github-issue-review
 make github-issue-next-command
 make github-issue-sync-command
@@ -145,7 +146,8 @@ specific workflow output directory, pass `GITHUB_ISSUE_WORKFLOW_DIR=/path/to/wor
 session manifest, context files, prompt commands, planned GitHub mutations, publication policy,
 read-only preflight checks, setup commands, and next run command in one focused view. Use
 `make github-issue-preflight` when you want Catalyst to run the read-only checks but leave
-repository-target bootstrap as an explicit setup step. Use
+repository-target bootstrap as an explicit setup step. Use `make github-issue-preflight-strict`
+before handing the planned issue package to an agent so a dirty local checkout fails fast. Use
 `make github-issue-next-command` when you only want the next shell command, especially after a
 plan-only preview. Use `make github-issue-sync-command` after reviewing an unapplied issue-sync plan
 when you want the exact apply command without rebuilding it by hand.

@@ -172,6 +172,7 @@ To rediscover that report later:
 make github-issue-latest
 make github-issue-plan-review
 make github-issue-preflight
+make github-issue-preflight-strict
 make github-issue-review
 make github-issue-next-command
 make github-issue-sync-command
@@ -189,6 +190,9 @@ policy, read-only preflight checks, setup commands, and the exact next command. 
 `github-issue-preflight` executes only those read-only checks: local checkout status, remotes, and
 GitHub repository access. It prints repository-target bootstrap commands as setup guidance but does
 not run them automatically.
+`github-issue-preflight-strict` adds a clean-checkout gate on top of the same read-only checks. Use
+it before handing a planned issue package to Codex, Cursor, or OpenHands so uncommitted local work
+does not get mixed into the generated branch or PR evidence.
 `github-issue-review` prints the latest or selected `workflow-report.md`; pass
 `GITHUB_ISSUE_WORKFLOW_DIR=/path/to/workflow-output` when you want a specific run.
 `github-issue-next-command` prints only the recommended command so scripts can continue from the

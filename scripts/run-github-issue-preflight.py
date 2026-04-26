@@ -69,6 +69,34 @@ def run_step(label: str, argv: list[str], *, print_only: bool) -> None:
         raise SystemExit(completed.returncode)
 
 
+def require_clean_checkout(repo_path: str, *, print_only: bool) -> None:
+    argv = ["git", "-C", repo_path, "status", "--porcelain"]
+    print("")
+    print("[Require clean local checkout]")
+    print(f"$ {shell_join(argv)}")
+    if print_only:
+        return
+
+    completed = subprocess.run(
+        argv,
+        cwd=ROOT_DIR,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if completed.stdout:
+        print(completed.stdout, end="")
+    if completed.stderr:
+        print(completed.stderr, end="", file=sys.stderr)
+    if completed.returncode != 0:
+        raise SystemExit(completed.returncode)
+    if completed.stdout.strip():
+        raise SystemExit(
+            "local checkout is not clean; commit or stash local changes before running a "
+            "real GitHub issue workflow"
+        )
+
+
 def require_string(value: Any, label: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise SystemExit(f"selected workflow is missing {label}")
@@ -100,6 +128,11 @@ def main() -> int:
     parser.add_argument("--workflow-dir", help="Inspect one specific workflow output directory.")
     parser.add_argument("--print-only", action="store_true", help="Print checks without executing them.")
     parser.add_argument("--skip-github", action="store_true", help="Skip live GitHub repository access check.")
+    parser.add_argument(
+        "--require-clean",
+        action="store_true",
+        help="Fail if the target checkout has uncommitted or untracked changes.",
+    )
     parser.add_argument(
         "--allow-readonly",
         action="store_true",
@@ -138,6 +171,8 @@ def main() -> int:
         ["git", "-C", repo_path, "remote", "-v"],
         print_only=args.print_only,
     )
+    if args.require_clean:
+        require_clean_checkout(repo_path, print_only=args.print_only)
 
     if args.skip_github:
         print("")
