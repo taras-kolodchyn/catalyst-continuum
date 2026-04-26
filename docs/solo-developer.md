@@ -236,6 +236,11 @@ That creates a `.continuum/dev-sessions/` package with `brief.json`, `codex-prom
 for the selected checkout. Use it when you want immediate value from an existing coding agent before
 deciding whether to submit the brief into the orchestrator.
 
+Each generated prompt includes the brief-derived contract directly: goals, functional
+requirements, acceptance criteria, constraints, deliverables, policy limits, validation commands,
+and the expected final delivery report. That makes the prompt useful in the native Codex, Cursor,
+or OpenHands UI without relying on a reconstructed chat summary.
+
 If you only want the structured brief:
 
 ```bash

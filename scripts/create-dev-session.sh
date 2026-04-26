@@ -265,6 +265,100 @@ repository_context = {
     "dirty_files_truncated": len(dirty_files) > dirty_file_limit,
 }
 
+
+def string_items(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
+
+
+def markdown_list(items: list[str], *, fallback: str = "not recorded") -> str:
+    if not items:
+        return f"- {fallback}"
+    return "\n".join(f"- {item}" for item in items)
+
+
+def functional_requirement_items(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    items: list[str] = []
+    for entry in value:
+        if not isinstance(entry, dict):
+            continue
+        requirement_id = str(entry.get("id") or "requirement").strip()
+        title = str(entry.get("title") or "Untitled requirement").strip()
+        description = str(entry.get("description") or "").strip()
+        priority = str(entry.get("priority") or "unspecified").strip()
+        suffix = f": {description}" if description else ""
+        items.append(f"`{requirement_id}` {title}{suffix} (priority: `{priority}`)")
+    return items
+
+
+def csv_items(value: object) -> str:
+    items = string_items(value)
+    return ", ".join(items) if items else "not configured"
+
+
+def scalar_text(value: object, *, fallback: str = "not configured") -> str:
+    if value is None:
+        return fallback
+    text = str(value).strip()
+    return text if text else fallback
+
+
+execution_preferences = brief.get("execution_preferences")
+execution_preferences = execution_preferences if isinstance(execution_preferences, dict) else {}
+policy = brief.get("policy")
+policy = policy if isinstance(policy, dict) else {}
+goals = string_items(brief.get("goals"))
+functional_requirements = functional_requirement_items(brief.get("functional_requirements"))
+acceptance_criteria = string_items(brief.get("acceptance_criteria"))
+constraints = string_items(brief.get("constraints"))
+deliverables = string_items(brief.get("deliverables"))
+allowed_agents = string_items(execution_preferences.get("allowed_agents"))
+allowed_task_kinds = string_items(policy.get("allowed_task_kinds"))
+allowed_runtime_providers = string_items(policy.get("allowed_runtime_providers"))
+allowed_sandbox_profiles = string_items(policy.get("allowed_sandbox_profiles"))
+
+brief_contract_block = f"""Brief contract:
+
+- Brief title: `{scalar_text(brief.get('title'), fallback='not recorded')}`
+- Repo pack: `{scalar_text(execution_preferences.get('repo_pack'))}`
+- Runtime provider: `{scalar_text(execution_preferences.get('default_runtime_provider'))}`
+- Sandbox profile: `{scalar_text(execution_preferences.get('sandbox_profile'))}`
+- Default agent: `{scalar_text(execution_preferences.get('default_agent'))}`
+- Allowed agents: {csv_items(allowed_agents)}
+
+Goals:
+
+{markdown_list(goals)}
+
+Functional requirements:
+
+{markdown_list(functional_requirements)}
+
+Acceptance criteria:
+
+{markdown_list(acceptance_criteria)}
+
+Constraints:
+
+{markdown_list(constraints)}
+
+Deliverables:
+
+{markdown_list(deliverables)}
+
+Policy limits:
+
+- Allowed task kinds: {csv_items(allowed_task_kinds)}
+- Allowed runtime providers: {csv_items(allowed_runtime_providers)}
+- Allowed sandbox profiles: {csv_items(allowed_sandbox_profiles)}
+- Max task count: `{scalar_text(policy.get('max_task_count'))}`
+- Max total timeout seconds: `{scalar_text(policy.get('max_total_timeout_seconds'))}`
+- Max task retries: `{scalar_text(policy.get('max_task_retry_count'))}`
+"""
+
 session_id = str(uuid.uuid4())
 created_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
 prompt_files = {
@@ -287,6 +381,15 @@ manifest = {
     "agent_prompts": prompt_files,
     "validation_commands": commands,
     "agents_guidance_path": agents_path or None,
+    "prompt_contract": {
+        "repo_pack": execution_preferences.get("repo_pack"),
+        "default_runtime_provider": execution_preferences.get("default_runtime_provider"),
+        "sandbox_profile": execution_preferences.get("sandbox_profile"),
+        "allowed_agents": allowed_agents,
+        "allowed_task_kinds": allowed_task_kinds,
+        "acceptance_criteria_count": len(acceptance_criteria),
+        "deliverable_count": len(deliverables),
+    },
     "next_steps": [
         "Review brief.json before handing work to an agent.",
         "Use the matching agent prompt for Codex, Cursor, or OpenHands.",
@@ -336,9 +439,19 @@ Session files:
 - Human runbook: `README.md`
 {agents_line}
 
+{brief_contract_block}
+
 Validation commands to run before delivery:
 
 {validation_block}
+
+Delivery report contract:
+
+- Summarize changed files and why each change was needed.
+- List the validation commands you ran and their result.
+- Call out tests or checks you could not run.
+- Record residual risks, follow-ups, or assumptions.
+- Do not claim the task is complete if acceptance criteria or validation are still unproven.
 
 Working rules:
 
@@ -408,6 +521,18 @@ Cursor, OpenHands, or another coding agent start from the same structured contex
 ## Validation Commands
 
 {validation_block}
+
+## Brief Contract
+
+{brief_contract_block}
+
+## Delivery Report Contract
+
+- Summarize changed files and why each change was needed.
+- List the validation commands you ran and their result.
+- Call out tests or checks you could not run.
+- Record residual risks, follow-ups, or assumptions.
+- Do not claim the task is complete if acceptance criteria or validation are still unproven.
 
 ## Why This Exists
 

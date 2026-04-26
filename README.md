@@ -155,6 +155,11 @@ Codex, Cursor, and OpenHands prompts into `.continuum/dev-sessions/` before you 
 submit the brief into the orchestrator. The package also records the selected checkout path, branch,
 HEAD SHA, dirty-file count, and detected validation commands.
 
+Those generated prompts are self-contained. They embed the brief title, goals, functional
+requirements, acceptance criteria, constraints, deliverables, policy limits, validation commands,
+and the expected delivery report, so a native agent session starts from the same contract the
+orchestrator will later run.
+
 `dev-run` is the first real control-plane entrypoint for daily work. It creates the brief, submits
 it, executes the Docker-backed run, evaluates policy and quality, exports a local PR candidate, and
 generates the developer handoff without pushing to GitHub. Its `run-summary.json` points to the

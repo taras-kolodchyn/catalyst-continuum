@@ -353,11 +353,17 @@ The command writes a portable package under `.continuum/dev-sessions/`:
 - `cursor-prompt.md` is a prompt shaped for Cursor.
 - `openhands-prompt.md` is a prompt shaped for OpenHands.
 - `manifest.json` records the recipe, repository, git branch, dirty-file count, prompt files, and
-  validation commands.
+  validation commands. It also records the prompt contract derived from `brief.json`, including the
+  repo pack, runtime provider, sandbox profile, allowed agents, allowed task kinds, and acceptance
+  evidence counts.
 - `README.md` explains the session order for the human developer.
 
 This is the first reason to use Catalyst before a full orchestrator run: every agent starts from the
 same task, validation contract, and evidence discipline instead of a different chat summary.
+The generated prompts are intentionally self-contained: they include the brief title, goals,
+functional requirements, acceptance criteria, constraints, deliverables, policy limits, validation
+commands, and final delivery-report expectations so a native agent session does not depend on a
+separate chat summary.
 
 If you only need the brief file, use a task recipe directly:
 

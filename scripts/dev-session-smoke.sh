@@ -59,6 +59,15 @@ assert manifest["repository_context"]["head_sha"], manifest
 assert manifest["repository_context"]["dirty_file_count"] == 1, manifest
 assert brief["metadata"]["task_recipe"] == "add-tests", brief
 assert brief["execution_preferences"]["repo_pack"] == "cli-tool", brief
+assert manifest["prompt_contract"] == {
+    "repo_pack": "cli-tool",
+    "default_runtime_provider": "docker",
+    "sandbox_profile": "restricted",
+    "allowed_agents": ["openhands", "codex"],
+    "allowed_task_kinds": ["plan", "scaffold", "code", "test"],
+    "acceptance_criteria_count": 3,
+    "deliverable_count": 3,
+}, manifest
 
 commands = set(manifest["validation_commands"])
 assert "make check" in commands, commands
@@ -70,11 +79,18 @@ for prompt_name in ("codex-prompt.md", "cursor-prompt.md", "openhands-prompt.md"
     prompt = (session_dir / prompt_name).read_text(encoding="utf-8")
     assert "Catalyst Continuum Developer Session" in prompt, prompt_name
     assert "Repository context" in prompt, prompt_name
+    assert "Brief contract" in prompt, prompt_name
+    assert "Repo pack: `cli-tool`" in prompt, prompt_name
+    assert "Allowed task kinds: plan, scaffold, code, test" in prompt, prompt_name
+    assert "Acceptance criteria" in prompt, prompt_name
+    assert "Delivery report contract" in prompt, prompt_name
     assert "brief.json" in prompt, prompt_name
     assert "Validation commands to run before delivery" in prompt, prompt_name
 
 readme = (session_dir / "README.md").read_text(encoding="utf-8")
 assert "Use The Session" in readme, readme
+assert "Brief Contract" in readme, readme
+assert "Delivery Report Contract" in readme, readme
 assert "developer_handoff" in readme, readme
 PY
 
