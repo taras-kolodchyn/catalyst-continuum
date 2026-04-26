@@ -276,6 +276,10 @@ dev-next: ## Show only the recommended next solo-developer action.
 dev-next-command: ## Print only the recommended next solo-developer command.
 	@./scripts/show-dev-artifacts.sh --next-command $(DEV_LATEST_ARGS)
 
+.PHONY: dev-session-review
+dev-session-review: ## Show latest/selected dev session package, prompts, and handoff commands.
+	./scripts/show-dev-artifacts.sh --session-review $(if $(DEV_SESSION_DIR),--session-dir "$(DEV_SESSION_DIR)") $(DEV_LATEST_ARGS)
+
 .PHONY: dev-agent-prompt
 dev-agent-prompt: ## Print latest/selected dev session prompt for AGENT=codex|cursor|openhands.
 	@./scripts/show-dev-artifacts.sh --agent-prompt "$(AGENT)" $(if $(DEV_SESSION_DIR),--session-dir "$(DEV_SESSION_DIR)") $(DEV_LATEST_ARGS)

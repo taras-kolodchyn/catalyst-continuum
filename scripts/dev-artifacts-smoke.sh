@@ -35,6 +35,19 @@ root = pathlib.Path(sys.argv[1])
 )
 
 session_dir = root / "dev-sessions" / "session-a"
+(session_dir / "brief.json").write_text(
+    json.dumps(
+        {
+            "title": "Fix bug: stabilize login retry",
+            "repository": {"owner": "smartit", "name": "demo"},
+            "metadata": {"task_recipe": "fix-bug"},
+        },
+        indent=2,
+    )
+    + "\n",
+    encoding="utf-8",
+)
+(session_dir / "README.md").write_text("# Developer Session\n", encoding="utf-8")
 (session_dir / "codex-prompt.md").write_text("# Prompt\n", encoding="utf-8")
 (session_dir / "cursor-prompt.md").write_text("# Prompt\n", encoding="utf-8")
 (session_dir / "openhands-prompt.md").write_text("# Prompt\n", encoding="utf-8")
@@ -42,19 +55,24 @@ session_dir = root / "dev-sessions" / "session-a"
     json.dumps(
         {
             "session_id": "session-1",
+            "created_at": "2026-04-25T12:01:00+00:00",
             "task": "Fix the flaky login retry test",
             "recipe": "fix-bug",
             "repository": {"owner": "smartit", "name": "demo"},
             "repository_context": {
                 "repo_path": "/tmp/demo",
                 "current_branch": "main",
+                "head_sha": "def456",
+                "origin_url": "https://github.com/smartit/demo.git",
                 "dirty_file_count": 1,
             },
+            "brief_path": "brief.json",
             "agent_prompts": {
                 "codex": "codex-prompt.md",
                 "cursor": "cursor-prompt.md",
                 "openhands": "openhands-prompt.md",
             },
+            "validation_commands": ["make check", "cargo test --workspace --locked"],
         },
         indent=2,
     )
@@ -98,6 +116,7 @@ NEXT_OUTPUT="$TMP_DIR/dev-next.txt"
 NEXT_COMMAND_OUTPUT="$TMP_DIR/dev-next-command.txt"
 BRIEF_NEXT_COMMAND_OUTPUT="$TMP_DIR/dev-brief-next-command.txt"
 REVIEW_OUTPUT="$TMP_DIR/dev-review.txt"
+SESSION_REVIEW_OUTPUT="$TMP_DIR/dev-session-review.txt"
 SESSION_DIR="$(python3 - "$CONTINUUM_ROOT/dev-sessions/session-a" <<'PY'
 import pathlib
 import sys
@@ -125,7 +144,11 @@ make dev-agent-prompt-path DEV_SESSION_DIR="$SESSION_DIR" AGENT=openhands \
   >"$TMP_DIR/dev-openhands-prompt-path-make.txt"
 make dev-agent-prompt-command DEV_SESSION_DIR="$SESSION_DIR" AGENT=cursor \
   >"$TMP_DIR/dev-cursor-prompt-command-make.txt"
+make dev-session-review DEV_SESSION_DIR="$SESSION_DIR" DEV_LATEST_ARGS="--root '$CONTINUUM_ROOT'" \
+  >"$TMP_DIR/dev-session-review-make.txt"
 ./scripts/show-dev-artifacts.sh --root "$CONTINUUM_ROOT" --limit 3 --review >"$REVIEW_OUTPUT"
+./scripts/show-dev-artifacts.sh --root "$CONTINUUM_ROOT" --session-dir "$SESSION_DIR" --session-review \
+  >"$SESSION_REVIEW_OUTPUT"
 
 grep -F "Catalyst Continuum developer artifacts" "$TEXT_OUTPUT" >/dev/null
 grep -F "Recommended next action" "$TEXT_OUTPUT" >/dev/null
@@ -146,6 +169,8 @@ grep -F "cursor command: make dev-agent-prompt DEV_SESSION_DIR=" "$TEXT_OUTPUT" 
 grep -F "openhands command: make dev-agent-prompt DEV_SESSION_DIR=" "$TEXT_OUTPUT" >/dev/null
 grep -F "make dev-run-latest-session" "$TEXT_OUTPUT" >/dev/null
 grep -F "Latest briefs" "$TEXT_OUTPUT" >/dev/null
+grep -F "brief: $SESSION_DIR/brief.json" "$TEXT_OUTPUT" >/dev/null
+grep -F "runbook: $SESSION_DIR/README.md" "$TEXT_OUTPUT" >/dev/null
 
 grep -F "Recommended next action" "$NEXT_OUTPUT" >/dev/null
 grep -F "Review the latest local PR candidate" "$NEXT_OUTPUT" >/dev/null
@@ -229,6 +254,29 @@ grep -F "Suggested review commands" "$REVIEW_OUTPUT" >/dev/null
 grep -F "git -C " "$REVIEW_OUTPUT" >/dev/null
 grep -F "show --patch --stat HEAD" "$REVIEW_OUTPUT" >/dev/null
 grep -F "sed -n '1,240p'" "$REVIEW_OUTPUT" >/dev/null
+
+grep -F "Catalyst Continuum developer session review" "$SESSION_REVIEW_OUTPUT" >/dev/null
+grep -F "session: $SESSION_DIR" "$SESSION_REVIEW_OUTPUT" >/dev/null
+grep -F "manifest: $SESSION_DIR/manifest.json" "$SESSION_REVIEW_OUTPUT" >/dev/null
+grep -F "session_id: session-1" "$SESSION_REVIEW_OUTPUT" >/dev/null
+grep -F "task: Fix the flaky login retry test" "$SESSION_REVIEW_OUTPUT" >/dev/null
+grep -F "repository: smartit/demo" "$SESSION_REVIEW_OUTPUT" >/dev/null
+grep -F "Checkout" "$SESSION_REVIEW_OUTPUT" >/dev/null
+grep -F "branch: main" "$SESSION_REVIEW_OUTPUT" >/dev/null
+grep -F "head: def456" "$SESSION_REVIEW_OUTPUT" >/dev/null
+grep -F "origin: https://github.com/smartit/demo.git" "$SESSION_REVIEW_OUTPUT" >/dev/null
+grep -F "brief: $SESSION_DIR/brief.json" "$SESSION_REVIEW_OUTPUT" >/dev/null
+grep -F "runbook: $SESSION_DIR/README.md" "$SESSION_REVIEW_OUTPUT" >/dev/null
+grep -F "codex prompt: $SESSION_DIR/codex-prompt.md" "$SESSION_REVIEW_OUTPUT" >/dev/null
+grep -F "Agent prompt commands" "$SESSION_REVIEW_OUTPUT" >/dev/null
+grep -F "codex: make dev-agent-prompt DEV_SESSION_DIR=" "$SESSION_REVIEW_OUTPUT" >/dev/null
+grep -F "Validation commands" "$SESSION_REVIEW_OUTPUT" >/dev/null
+grep -F -- "- make check" "$SESSION_REVIEW_OUTPUT" >/dev/null
+grep -F "Suggested session commands" "$SESSION_REVIEW_OUTPUT" >/dev/null
+grep -F "sed -n '1,220p'" "$SESSION_REVIEW_OUTPUT" >/dev/null
+grep -F "make dev-run-brief BRIEF_FILE=" "$SESSION_REVIEW_OUTPUT" >/dev/null
+grep -F "make dev-run-latest-session" "$SESSION_REVIEW_OUTPUT" >/dev/null
+grep -F "Catalyst Continuum developer session review" "$TMP_DIR/dev-session-review-make.txt" >/dev/null
 
 INVALID_KIND_OUTPUT="$TMP_DIR/dev-artifacts-invalid-kind.txt"
 if ./scripts/show-dev-artifacts.sh --root "$CONTINUUM_ROOT" --kind nope >"$INVALID_KIND_OUTPUT" 2>&1; then

@@ -269,6 +269,7 @@ To find the most recent output later, run:
 ```bash
 make dev-latest
 make dev-next
+make dev-session-review
 make dev-agent-prompt AGENT=codex
 make dev-agent-prompt-command AGENT=cursor
 make dev-review
@@ -280,6 +281,11 @@ and the recommended next safe action without manually browsing `.continuum/`.
 
 Use `make dev-next` when you only want the next action, or `make dev-next-command` when another
 script needs the recommended command.
+
+Use `make dev-session-review` before handing a generated package to Codex, Cursor, or OpenHands. It
+prints the selected session manifest, checkout state, brief, runbook, prompt paths, prompt commands,
+validation commands, and the exact `make dev-run-brief ...` command for keeping the later run tied
+to the same input.
 
 Use `make dev-agent-prompt AGENT=codex`, `AGENT=cursor`, or `AGENT=openhands` when you want the
 latest generated session prompt without opening `.continuum/dev-sessions/` manually. Use

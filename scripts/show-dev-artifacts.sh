@@ -27,6 +27,7 @@ Options:
   --next            Emit only the recommended next action.
   --next-command    Emit only the recommended shell command.
   --review          Emit the latest run review package and local PR inspection commands.
+  --session-review  Emit the latest or selected session package and agent handoff commands.
   --agent-prompt AGENT
                     Print the latest or selected session prompt for codex, cursor, or openhands.
   --agent-prompt-path AGENT
@@ -70,6 +71,12 @@ while [ "$#" -gt 0 ]; do
     --review)
       FORMAT="review"
       KIND="runs"
+      LIMIT=1
+      shift
+      ;;
+    --session-review)
+      FORMAT="session-review"
+      KIND="sessions"
       LIMIT=1
       shift
       ;;
@@ -278,6 +285,9 @@ def session_items() -> list[dict[str, Any]]:
         prompt_files = manifest.get("agent_prompts") or {}
         prompts = load_agent_prompts(manifest_path, manifest)
         session_dir = str(manifest_path.parent.resolve())
+        validation_commands = manifest.get("validation_commands")
+        if not isinstance(validation_commands, list):
+            validation_commands = []
         items.append(
             {
                 "kind": "session",
@@ -286,15 +296,23 @@ def session_items() -> list[dict[str, Any]]:
                 "mtime": mtime(manifest_path),
                 "session_type": manifest.get("session_type") or "developer_session",
                 "session_id": manifest.get("session_id"),
+                "created_at": manifest.get("created_at"),
                 "task": manifest.get("task"),
                 "recipe": manifest.get("recipe"),
                 "repository": repository_label(manifest.get("repository")),
                 "github_issue": manifest.get("github_issue"),
                 "github_issue_batch": manifest.get("github_issue_batch"),
                 "pr_strategy": manifest.get("pr_strategy"),
+                "brief_path": optional_existing_file(manifest.get("brief_path") or "brief.json", manifest_path.parent),
+                "runbook_path": optional_existing_file(
+                    manifest.get("runbook_path") or "README.md", manifest_path.parent
+                ),
                 "repo_path": repository_context.get("repo_path") or manifest.get("repo_path"),
                 "current_branch": repository_context.get("current_branch"),
+                "head_sha": repository_context.get("head_sha"),
+                "origin_url": repository_context.get("origin_url"),
                 "dirty_file_count": repository_context.get("dirty_file_count"),
+                "validation_commands": [str(command) for command in validation_commands if command],
                 "agent_prompts": prompts,
                 "agent_prompt_commands": agent_prompt_commands(session_dir, prompts),
                 "codex_prompt_path": prompts.get(
@@ -582,6 +600,143 @@ def print_latest_review() -> None:
     print("Open a real GitHub PR only after the review package, patch, and validation evidence make sense.")
 
 
+def session_relative_path(session: dict[str, Any], value: Any) -> str | None:
+    if not value:
+        return None
+    path = pathlib.Path(session["path"]) / str(value)
+    return str(path.resolve()) if path.is_file() else None
+
+
+def print_latest_session_review() -> None:
+    sessions = artifacts["sessions"]
+    print("Catalyst Continuum developer session review")
+    print(f"root: {root}")
+
+    if not sessions:
+        print("")
+        print("No developer session found yet.")
+        print('command: make dev-session TASK="..."')
+        return
+
+    session = sessions[0]
+    github_issue = session.get("github_issue") or {}
+    github_issue_batch = session.get("github_issue_batch") or {}
+    pr_strategy = session.get("pr_strategy") or {}
+    prompts = session.get("agent_prompts")
+    prompts = prompts if isinstance(prompts, dict) else {}
+    prompt_commands = session.get("agent_prompt_commands")
+    prompt_commands = prompt_commands if isinstance(prompt_commands, dict) else {}
+    validation_commands = session.get("validation_commands")
+    validation_commands = validation_commands if isinstance(validation_commands, list) else []
+
+    print("")
+    print("Latest session")
+    print(f"session: {session['path']}")
+    print(f"manifest: {session.get('manifest_path') or 'unknown'}")
+    print(f"session_id: {session.get('session_id') or 'unknown'}")
+    print(f"type: {session.get('session_type') or 'unknown'}")
+    if session.get("created_at"):
+        print(f"created_at: {session['created_at']}")
+    print(f"task: {session.get('task') or 'unknown'}")
+    print(f"recipe: {session.get('recipe') or 'unknown'}")
+    print(f"repository: {session.get('repository') or 'not configured'}")
+    if pr_strategy:
+        print(f"pr_strategy: {pr_strategy.get('mode') or 'unknown'}")
+
+    print("")
+    print("Checkout")
+    print(f"path: {session.get('repo_path') or 'unknown'}")
+    print(f"branch: {session.get('current_branch') or 'unknown'}")
+    print(f"head: {session.get('head_sha') or 'unknown'}")
+    if session.get("origin_url"):
+        print(f"origin: {session['origin_url']}")
+    dirty_file_count = session.get("dirty_file_count")
+    print(f"dirty_files: {dirty_file_count if dirty_file_count is not None else 'unknown'}")
+
+    if github_issue:
+        print("")
+        print("GitHub issue context")
+        issue_repo = github_issue.get("repository_full_name") or session.get("repository") or "unknown"
+        issue_number = github_issue.get("number") or "unknown"
+        issue_title = github_issue.get("title") or "unknown"
+        print(f"issue: {issue_repo}#{issue_number}")
+        print(f"title: {issue_title}")
+        if github_issue.get("url"):
+            print(f"url: {github_issue['url']}")
+        issue_markdown_path = session_relative_path(session, github_issue.get("issue_markdown_path") or "issue.md")
+        issue_context_path = session_relative_path(
+            session, github_issue.get("issue_context_path") or "issue-context.json"
+        )
+        if issue_markdown_path:
+            print(f"issue markdown: {issue_markdown_path}")
+        if issue_context_path:
+            print(f"issue context: {issue_context_path}")
+
+    if github_issue_batch:
+        print("")
+        print("GitHub issue batch context")
+        issue_repo = github_issue_batch.get("repository_full_name") or session.get("repository") or "unknown"
+        issue_numbers = github_issue_batch.get("issue_numbers") or []
+        issue_label = ", ".join(f"#{number}" for number in issue_numbers) or "unknown"
+        print(f"repository: {issue_repo}")
+        print(f"issues: {issue_label}")
+        issue_batch_markdown_path = session_relative_path(
+            session, github_issue_batch.get("issue_batch_markdown_path") or "issue-batch.md"
+        )
+        issue_batch_context_path = session_relative_path(
+            session, github_issue_batch.get("issue_batch_context_path") or "issue-batch-context.json"
+        )
+        if issue_batch_markdown_path:
+            print(f"issue batch markdown: {issue_batch_markdown_path}")
+        if issue_batch_context_path:
+            print(f"issue batch context: {issue_batch_context_path}")
+
+    print("")
+    print("Context files")
+    if session.get("brief_path"):
+        print(f"brief: {session['brief_path']}")
+    else:
+        print("brief: missing")
+    if session.get("runbook_path"):
+        print(f"runbook: {session['runbook_path']}")
+    else:
+        print("runbook: missing")
+    for agent, prompt_path in sorted(prompts.items()):
+        print(f"{agent} prompt: {prompt_path}")
+
+    print("")
+    print("Agent prompt commands")
+    if prompt_commands:
+        for agent, command in sorted(prompt_commands.items()):
+            print(f"{agent}: {command}")
+    else:
+        print("none")
+
+    print("")
+    print("Validation commands")
+    if validation_commands:
+        for command in validation_commands:
+            print(f"- {command}")
+    else:
+        print("- not recorded")
+
+    print("")
+    print("Suggested session commands")
+    if session.get("brief_path"):
+        print(f"sed -n '1,220p' {shell_quote(session['brief_path'])}")
+    if session.get("runbook_path"):
+        print(f"sed -n '1,220p' {shell_quote(session['runbook_path'])}")
+    for command in sorted(prompt_commands.values()):
+        print(command)
+    if session.get("brief_path"):
+        print(f"make dev-run-brief BRIEF_FILE={shell_quote(session['brief_path'])}")
+    print("make dev-run-latest-session")
+
+    print("")
+    print("Next")
+    print("Hand the right prompt to the chosen agent, or run the brief through Catalyst for durable evidence.")
+
+
 if output_format == "next-command":
     print(action.get("command") or "")
     sys.exit(0)
@@ -592,6 +747,10 @@ if output_format == "next":
 
 if output_format == "review":
     print_latest_review()
+    sys.exit(0)
+
+if output_format == "session-review":
+    print_latest_session_review()
     sys.exit(0)
 
 print("Catalyst Continuum developer artifacts")
@@ -644,6 +803,10 @@ def print_section(title: str, items: list[dict[str, Any]]) -> None:
                 )
             print(f"   checkout: {item.get('repo_path') or 'unknown'}")
             print(f"   branch: {item.get('current_branch') or 'unknown'}")
+            if item.get("brief_path"):
+                print(f"   brief: {item['brief_path']}")
+            if item.get("runbook_path"):
+                print(f"   runbook: {item['runbook_path']}")
             print(f"   codex prompt: {item.get('codex_prompt_path')}")
             print(f"   cursor prompt: {item.get('cursor_prompt_path')}")
             print(f"   openhands prompt: {item.get('openhands_prompt_path')}")

@@ -459,6 +459,7 @@ After a few sessions or runs, use `dev-latest` instead of hunting through `.cont
 ```bash
 make dev-latest
 make dev-next
+make dev-session-review
 make dev-agent-prompt AGENT=codex
 make dev-agent-prompt-command AGENT=cursor
 make dev-review
@@ -468,6 +469,8 @@ It prints the latest briefs, sessions, and runs with the paths that matter most:
 
 - A recommended next action based on the newest artifact.
 - The Codex/Cursor/OpenHands prompt paths for a session.
+- The focused session handoff view with checkout state, brief, runbook, prompts, validation
+  commands, and the matching `dev-run-brief` command.
 - Copy-ready `make dev-agent-prompt ... AGENT=...` commands for continuing in the agent UI.
 - The review markdown and agent review prompt for a run.
 - The local PR export repository, branch, commit, manifest, and combined patch when export exists.
@@ -479,9 +482,15 @@ shell integration, use JSON or command-only output:
 ```bash
 make dev-latest DEV_LATEST_ARGS="--json --limit 1"
 make dev-next-command
+make dev-session-review
+make dev-session-review DEV_SESSION_DIR=.continuum/dev-sessions/<session>
 make dev-agent-prompt-path AGENT=openhands
 make dev-agent-prompt-command AGENT=cursor
 ```
+
+Use `dev-session-review` before handing work to a native agent or before converting a session into a
+run. It is the shortest readable view of the selected package and avoids opening `manifest.json`,
+`brief.json`, `README.md`, and three prompt files manually.
 
 After a local run, use `dev-review` when you want the review surface without the full artifact
 index. It prints the latest run summary, `review.md`, reusable agent review prompt, local PR export
@@ -566,6 +575,7 @@ make dev-run TASK_RECIPE=fix-bug TASK="Describe the concrete task" REPOSITORY=OW
 make dev-run-brief BRIEF_FILE=.continuum/dev-sessions/<session>/brief.json
 make dev-run-latest-session
 make dev-latest
+make dev-session-review
 ```
 
 Use the generated agent prompt when you want immediate Codex, Cursor, or OpenHands help. Use
