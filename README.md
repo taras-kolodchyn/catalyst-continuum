@@ -83,8 +83,8 @@ top-ranked issue from the imported batch. With `GITHUB_ISSUE_PR_STRATEGY=batch`,
 aggregate batch session intended for one branch and one PR.
 
 Use `github-issue-plan` first when you want a safe preview. It creates the selected developer
-session plus `workflow-plan.json` and `workflow-plan.md`, then stops before running agents, opening
-draft PRs, or mutating GitHub issues.
+session plus `workflow-plan.json` and `workflow-plan.md` with the selected issue details and next
+command, then stops before running agents, opening draft PRs, or mutating GitHub issues.
 
 Use `github-issue-latest` or `github-issue-review` after a workflow run when you do not want to hunt
 through `.continuum/github-issue-workflows/` manually. `github-issue-review` prints the latest

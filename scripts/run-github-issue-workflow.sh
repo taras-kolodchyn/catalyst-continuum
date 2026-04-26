@@ -1015,14 +1015,101 @@ def load_json(path: pathlib.Path) -> dict[str, Any]:
     return payload
 
 
-def manifest_issues(manifest: dict[str, Any]) -> list[dict[str, Any]]:
+def optional_json(path: pathlib.Path) -> dict[str, Any]:
+    if not path.is_file():
+        return {}
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return payload if isinstance(payload, dict) else {}
+
+
+def label_names(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    labels: list[str] = []
+    for item in value:
+        if isinstance(item, str):
+            labels.append(item)
+        elif isinstance(item, dict) and item.get("name"):
+            labels.append(str(item["name"]))
+    return labels
+
+
+def issue_item(value: dict[str, Any], rank: Any = None, selected_recipe: Any = None) -> dict[str, Any] | None:
+    number = value.get("number")
+    if number is None:
+        return None
+    return {
+        "number": number,
+        "title": value.get("title"),
+        "url": value.get("url"),
+        "state": value.get("state"),
+        "labels": label_names(value.get("labels")),
+        "rank": rank,
+        "selected_recipe": selected_recipe,
+    }
+
+
+def manifest_issues(manifest_path: pathlib.Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
     issue = manifest.get("github_issue")
     if isinstance(issue, dict):
-        return [{"number": issue.get("number"), "title": issue.get("title")}]
+        item = issue_item(issue)
+        return [item] if item else []
+
     batch = manifest.get("github_issue_batch")
     if isinstance(batch, dict):
-        return [{"number": number, "title": None} for number in batch.get("issue_numbers", [])]
+        context_path = batch.get("issue_batch_context_path")
+        context = optional_json(manifest_path.parent / str(context_path)) if context_path else {}
+        if isinstance(context.get("issues"), list):
+            issues: list[dict[str, Any]] = []
+            for entry in context["issues"]:
+                if not isinstance(entry, dict):
+                    continue
+                source = entry.get("issue")
+                if not isinstance(source, dict):
+                    continue
+                item = issue_item(
+                    source,
+                    rank=entry.get("rank"),
+                    selected_recipe=entry.get("selected_recipe"),
+                )
+                if item:
+                    issues.append(item)
+            if issues:
+                return issues
+        return [
+            {
+                "number": number,
+                "title": None,
+                "url": None,
+                "state": None,
+                "labels": [],
+                "rank": None,
+                "selected_recipe": None,
+            }
+            for number in batch.get("issue_numbers", [])
+        ]
     return []
+
+
+def issue_markdown(issue: dict[str, Any]) -> str:
+    ref = f"#{issue['number']}"
+    title = issue.get("title")
+    text = f"{ref} {title}" if title else ref
+    url = issue.get("url")
+    if url:
+        text = f"[{text}]({url})"
+
+    details: list[str] = []
+    if issue.get("state"):
+        details.append(f"state `{issue['state']}`")
+    if issue.get("labels"):
+        labels = ", ".join(f"`{label}`" for label in issue["labels"])
+        details.append(f"labels {labels}")
+    if issue.get("selected_recipe"):
+        details.append(f"recipe `{issue['selected_recipe']}`")
+    if issue.get("rank") is not None:
+        details.append(f"rank `{issue['rank']}`")
+    return f"- {text}" + (f" ({'; '.join(details)})" if details else "")
 
 
 def yes_no(value: bool) -> str:
@@ -1033,7 +1120,7 @@ session_dir = pathlib.Path(os.environ["SESSION_DIR"])
 brief_file = pathlib.Path(os.environ["BRIEF_FILE"])
 manifest_path = session_dir / "manifest.json"
 manifest = load_json(manifest_path)
-issues = manifest_issues(manifest)
+issues = manifest_issues(manifest_path, manifest)
 claim_requested = os.environ["CLAIM_ISSUES"] == "1"
 claim_apply_requested = os.environ["APPLY_ISSUE_CLAIM"] == "1"
 draft_pr_requested = os.environ["CREATE_DRAFT_PR"] == "1"
@@ -1085,6 +1172,15 @@ markdown = [
     f"- Session: `{session_dir}`",
     f"- Brief: `{brief_file}`",
     "",
+    "## Selected Issues",
+    "",
+]
+if issues:
+    markdown.extend(issue_markdown(issue) for issue in issues)
+else:
+    markdown.append("- `not recorded`")
+markdown.extend([
+    "",
     "## Planned Actions",
     "",
     f"- Claim issue before execution: `{yes_no(claim_requested)}`",
@@ -1107,7 +1203,7 @@ markdown = [
     os.environ["NEXT_COMMAND"],
     "```",
     "",
-]
+])
 markdown_path.write_text("\n".join(markdown), encoding="utf-8")
 PY
 }

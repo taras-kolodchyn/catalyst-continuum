@@ -196,7 +196,9 @@ make github-issue-plan \
 This creates the selected developer session and writes `workflow-plan.json` plus
 `workflow-plan.md`. The plan shows the selected issue(s), PR strategy, claim/apply posture, draft PR
 intent, issue-sync status, repository-target settings, and the next command to run the real
-workflow without `--plan-only`.
+workflow without `--plan-only`. When the source issue payload includes title, URL, state, labels,
+rank, or selected recipe, those details are included in both the JSON plan and the readable markdown
+preview.
 
 For a related batch that should stay in one PR:
 

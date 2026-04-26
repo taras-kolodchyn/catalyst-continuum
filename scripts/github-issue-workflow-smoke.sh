@@ -9,6 +9,7 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 
 FAKES_DIR="$TMP_DIR/fakes"
 PER_ISSUE_OUT="$TMP_DIR/per-issue-workflow"
+BATCH_PLAN_OUT="$TMP_DIR/batch-plan-workflow"
 BATCH_OUT="$TMP_DIR/batch-workflow"
 COMMAND_LOG="$TMP_DIR/commands.log"
 ISSUE_FIXTURE="$TMP_DIR/issues.json"
@@ -93,6 +94,57 @@ if [ "$strategy" = "batch" ] && [ "$next_only" -eq 0 ]; then
   "title": "GitHub issue batch: smartit/github-issue-workflow-smoke (2 issues)"
 }
 JSON
+  cat >"$session_dir/issue-batch-context.json" <<'JSON'
+{
+  "schema_version": "v0.1",
+  "source": "github_issue_batch_session",
+  "repository_full_name": "smartit/github-issue-workflow-smoke",
+  "selected_recipe": "batch-maintenance",
+  "issues": [
+    {
+      "rank": 1,
+      "score": 90,
+      "score_reasons": [
+        "security"
+      ],
+      "selected_recipe": "security-hardening",
+      "issue": {
+        "number": 7,
+        "title": "Patch critical prompt injection escape",
+        "url": "https://github.com/smartit/github-issue-workflow-smoke/issues/7",
+        "state": "OPEN",
+        "labels": [
+          {
+            "name": "security"
+          },
+          {
+            "name": "p1"
+          }
+        ]
+      }
+    },
+    {
+      "rank": 2,
+      "score": 40,
+      "score_reasons": [
+        "test"
+      ],
+      "selected_recipe": "test-stabilization",
+      "issue": {
+        "number": 42,
+        "title": "Fix flaky retry policy smoke",
+        "url": "https://github.com/smartit/github-issue-workflow-smoke/issues/42",
+        "state": "OPEN",
+        "labels": [
+          {
+            "name": "test"
+          }
+        ]
+      }
+    }
+  ]
+}
+JSON
   cat >"$session_dir/manifest.json" <<'JSON'
 {
   "schema_version": "v0.1",
@@ -102,7 +154,8 @@ JSON
     "issue_numbers": [
       7,
       42
-    ]
+    ],
+    "issue_batch_context_path": "issue-batch-context.json"
   }
 }
 JSON
@@ -369,7 +422,20 @@ assert plan["planned_steps"]["claim_issues"] is True, plan
 assert plan["planned_steps"]["run_local_flow"] is True, plan
 assert plan["planned_steps"]["create_draft_pr"] is True, plan
 assert plan["planned_steps"]["issue_sync_status"] == "ready-for-review", plan
-assert plan["issues"] == [{"number": 7, "title": "Patch critical prompt injection escape"}], plan
+assert plan["issues"] == [
+    {
+        "number": 7,
+        "title": "Patch critical prompt injection escape",
+        "url": "https://github.com/smartit/github-issue-workflow-smoke/issues/7",
+        "state": "OPEN",
+        "labels": ["security", "p1"],
+        "rank": None,
+        "selected_recipe": None,
+    }
+], plan
+assert "## Selected Issues" in markdown, markdown
+assert "[#7 Patch critical prompt injection escape](https://github.com/smartit/github-issue-workflow-smoke/issues/7)" in markdown, markdown
+assert "labels `security`, `p1`" in markdown, markdown
 assert "## Planned Actions" in markdown, markdown
 assert "```bash" in markdown, markdown
 PY
@@ -383,6 +449,69 @@ if grep -F -- "--plan-only" "$TMP_DIR/plan-next-command.out" >/dev/null; then
   echo "plan next command must be executable, not another plan-only preview" >&2
   exit 1
 fi
+
+: >"$COMMAND_LOG"
+
+COMMAND_LOG="$COMMAND_LOG" \
+CREATE_GITHUB_ISSUE_SESSION_CMD="$FAKES_DIR/create-github-issue-session.sh" \
+RUN_DEV_TASK_CMD="$FAKES_DIR/run-dev-task.sh" \
+SYNC_GITHUB_ISSUE_STATUS_CMD="$FAKES_DIR/sync-github-issue-status.sh" \
+CREATE_DRAFT_PR_FROM_RUN_SUMMARY_CMD="$FAKES_DIR/create-draft-pr-from-run-summary.sh" \
+TMPDIR="$TMP_DIR/batch-plan-tmp" \
+./scripts/run-github-issue-workflow.sh \
+  --plan-only \
+  --issue-json "$ISSUE_FIXTURE" \
+  --repository smartit/github-issue-workflow-smoke \
+  --repo-path "$ROOT_DIR" \
+  --pr-strategy batch \
+  --workflow-output-dir "$BATCH_PLAN_OUT" \
+  --session-output-root "$TMP_DIR/batch-plan-sessions" \
+  --issue-sync-status "done" \
+  >"$TMP_DIR/batch-plan.out"
+
+grep -F "GitHub issue workflow plan ready." "$TMP_DIR/batch-plan.out" >/dev/null
+grep -F "create " "$COMMAND_LOG" >/dev/null
+if grep -F "run " "$COMMAND_LOG" >/dev/null; then
+  echo "batch plan-only workflow must not run the developer flow" >&2
+  exit 1
+fi
+
+python3 - "$BATCH_PLAN_OUT/workflow-plan.json" "$BATCH_PLAN_OUT/workflow-plan.md" <<'PY'
+from __future__ import annotations
+
+import json
+import pathlib
+import sys
+
+plan = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+markdown = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
+
+assert plan["pr_strategy"] == "batch", plan
+assert plan["planned_steps"]["issue_sync_status"] == "done", plan
+assert plan["issues"] == [
+    {
+        "number": 7,
+        "title": "Patch critical prompt injection escape",
+        "url": "https://github.com/smartit/github-issue-workflow-smoke/issues/7",
+        "state": "OPEN",
+        "labels": ["security", "p1"],
+        "rank": 1,
+        "selected_recipe": "security-hardening",
+    },
+    {
+        "number": 42,
+        "title": "Fix flaky retry policy smoke",
+        "url": "https://github.com/smartit/github-issue-workflow-smoke/issues/42",
+        "state": "OPEN",
+        "labels": ["test"],
+        "rank": 2,
+        "selected_recipe": "test-stabilization",
+    },
+], plan
+assert "[#42 Fix flaky retry policy smoke](https://github.com/smartit/github-issue-workflow-smoke/issues/42)" in markdown, markdown
+assert "recipe `test-stabilization`" in markdown, markdown
+assert "rank `2`" in markdown, markdown
+PY
 
 : >"$COMMAND_LOG"
 
