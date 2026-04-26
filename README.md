@@ -48,6 +48,7 @@ make github-issue-next-command
 make github-issue-sync-command
 make github-issue-agent-prompt AGENT=codex
 make github-issue-agent-prompt-path AGENT=openhands
+make github-issue-agent-prompt-command AGENT=cursor
 make dev-session TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
 make dev-task-brief TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
 make dev-run TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
@@ -104,7 +105,9 @@ directories.
 plan; it does not mutate GitHub by itself.
 `github-issue-agent-prompt` prints the generated prompt for `AGENT=codex`, `AGENT=cursor`, or
 `AGENT=openhands` from the latest or selected workflow, and `github-issue-agent-prompt-path` prints
-only that prompt path for shell automation.
+only that prompt path for shell automation. `github-issue-agent-prompt-command` prints the
+copy-ready command for the selected agent when another script or UI needs to present the next action
+without reading markdown.
 
 Add `GITHUB_ISSUE_CLAIM=1` when you want the workflow to prepare an `in-progress` issue claim plan
 before execution. Add `GITHUB_ISSUE_CLAIM_APPLY=1` only when you want that claim comment and label

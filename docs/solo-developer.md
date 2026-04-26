@@ -133,6 +133,7 @@ make github-issue-review
 make github-issue-next-command
 make github-issue-sync-command
 make github-issue-agent-prompt AGENT=codex
+make github-issue-agent-prompt-command AGENT=cursor
 ```
 
 Use `make github-issue-latest` when you want the recent workflow list instead of printing the report
@@ -143,7 +144,9 @@ plan-only preview. Use `make github-issue-sync-command` after reviewing an unapp
 when you want the exact apply command without rebuilding it by hand.
 Use `make github-issue-agent-prompt AGENT=codex`, `AGENT=cursor`, or `AGENT=openhands` when you want
 to paste the generated workflow prompt directly into the agent's native UI. Use
-`make github-issue-agent-prompt-path AGENT=codex` when a script only needs the file path.
+`make github-issue-agent-prompt-path AGENT=codex` when a script only needs the file path. Use
+`make github-issue-agent-prompt-command AGENT=codex` when you want to show or reuse the exact command
+without opening the workflow report.
 
 If you want to preview the selected issue and GitHub mutation posture before starting agents, run:
 

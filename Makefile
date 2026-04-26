@@ -226,6 +226,10 @@ github-issue-agent-prompt: ## Print latest/selected GitHub issue workflow prompt
 github-issue-agent-prompt-path: ## Print path to latest/selected GitHub issue workflow prompt for AGENT=codex|cursor|openhands.
 	@./scripts/show-github-issue-workflows.sh --agent-prompt-path "$(AGENT)" $(if $(CONTINUUM_ROOT),--root "$(CONTINUUM_ROOT)") $(if $(GITHUB_ISSUE_WORKFLOW_DIR),--workflow-dir "$(GITHUB_ISSUE_WORKFLOW_DIR)") $(GITHUB_ISSUE_WORKFLOW_LATEST_ARGS)
 
+.PHONY: github-issue-agent-prompt-command
+github-issue-agent-prompt-command: ## Print the command that prints latest/selected GitHub issue workflow prompt for AGENT=codex|cursor|openhands.
+	@./scripts/show-github-issue-workflows.sh --agent-prompt-command "$(AGENT)" $(if $(CONTINUUM_ROOT),--root "$(CONTINUUM_ROOT)") $(if $(GITHUB_ISSUE_WORKFLOW_DIR),--workflow-dir "$(GITHUB_ISSUE_WORKFLOW_DIR)") $(GITHUB_ISSUE_WORKFLOW_LATEST_ARGS)
+
 .PHONY: dev-session-smoke
 dev-session-smoke: ## Validate developer session package generation.
 	./scripts/dev-session-smoke.sh

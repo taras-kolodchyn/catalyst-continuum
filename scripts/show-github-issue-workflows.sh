@@ -29,6 +29,8 @@ Options:
   --agent-prompt AGENT    Print the latest or selected workflow prompt for codex, cursor, or openhands.
   --agent-prompt-path AGENT
                           Print only the path to that workflow prompt.
+  --agent-prompt-command AGENT
+                          Print the command that prints that workflow prompt.
   -h, --help              Show this help.
 EOF
 }
@@ -75,6 +77,11 @@ while [ "$#" -gt 0 ]; do
     --agent-prompt-path)
       FORMAT="agent-prompt-path"
       AGENT_PROMPT_AGENT="${2:?missing value for --agent-prompt-path}"
+      shift 2
+      ;;
+    --agent-prompt-command)
+      FORMAT="agent-prompt-command"
+      AGENT_PROMPT_AGENT="${2:?missing value for --agent-prompt-command}"
       shift 2
       ;;
     -h|--help)
@@ -261,6 +268,15 @@ def load_agent_prompts(manifest_path: pathlib.Path) -> dict[str, str]:
     return prompts
 
 
+def agent_prompt_commands(workflow_dir: str, prompts: dict[str, str]) -> dict[str, str]:
+    return {
+        agent: "make github-issue-agent-prompt "
+        f"{make_assignment('GITHUB_ISSUE_WORKFLOW_DIR', workflow_dir)} "
+        f"AGENT={shell_quote(agent)}"
+        for agent in sorted(prompts)
+    }
+
+
 def issue_refs(issues: list[dict[str, Any]]) -> str | None:
     if not issues:
         return None
@@ -315,8 +331,9 @@ def workflow_item(summary_path: pathlib.Path) -> dict[str, Any] | None:
             session_manifest = str(candidate.resolve())
             issues = load_manifest_issues(candidate)
             agent_prompts = load_agent_prompts(candidate)
+    workflow_dir = str(summary_path.parent)
     return {
-        "path": str(summary_path.parent),
+        "path": workflow_dir,
         "summary_path": str(summary_path),
         "mtime": mtime(summary_path),
         "status": workflow_status(summary),
@@ -326,6 +343,7 @@ def workflow_item(summary_path: pathlib.Path) -> dict[str, Any] | None:
         "session_dir": session_dir,
         "session_manifest": session_manifest,
         "agent_prompts": agent_prompts,
+        "agent_prompt_commands": agent_prompt_commands(workflow_dir, agent_prompts),
         "issues": issues,
         "issue_refs": issue_refs(issues),
         "brief_file": optional_path(session.get("brief_file")),
@@ -471,6 +489,7 @@ def agent_prompt_action(item: dict[str, Any] | None, agent: str) -> dict[str, An
         "available": True,
         "reason": "Prompt is available.",
         "path": str(candidate),
+        "command": ((item.get("agent_prompt_commands") or {}).get(agent) if isinstance(item, dict) else None),
     }
 
 if selected is None:
@@ -540,13 +559,19 @@ if output_format == "issue-sync-command":
     )
     sys.exit(3)
 
-if output_format in {"agent-prompt", "agent-prompt-path"}:
+if output_format in {"agent-prompt", "agent-prompt-path", "agent-prompt-command"}:
     prompt_action = agent_prompt_action(selected, agent_prompt_agent)
     prompt_path = prompt_action.get("path")
     if not prompt_action.get("available") or not prompt_path:
         print(prompt_action.get("reason") or "No agent prompt is available.", file=sys.stderr)
         sys.exit(3)
-    if output_format == "agent-prompt-path":
+    if output_format == "agent-prompt-command":
+        command = prompt_action.get("command")
+        if not command:
+            print(f"No prompt command is available for agent '{agent_prompt_agent}'.", file=sys.stderr)
+            sys.exit(3)
+        print(command)
+    elif output_format == "agent-prompt-path":
         print(prompt_path)
     else:
         print(pathlib.Path(prompt_path).read_text(encoding="utf-8").rstrip())
@@ -638,12 +663,10 @@ def print_report() -> None:
     print("")
     print("Suggested commands")
     print(f"sed -n '1,220p' {shell_quote(selected['summary_path'])}")
-    if selected.get("agent_prompts"):
-        print(
-            "make github-issue-agent-prompt "
-            f"{make_assignment('GITHUB_ISSUE_WORKFLOW_DIR', selected['path'])} "
-            "AGENT=codex"
-        )
+    prompt_commands = selected.get("agent_prompt_commands")
+    if isinstance(prompt_commands, dict):
+        for _, command in sorted(prompt_commands.items()):
+            print(command)
     if report_path:
         print(f"sed -n '1,260p' {shell_quote(report_path)}")
     if selected.get("issue_sync_plan"):

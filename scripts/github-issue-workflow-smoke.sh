@@ -519,6 +519,20 @@ make github-issue-agent-prompt \
   >"$TMP_DIR/plan-openhands-prompt.out"
 grep -F "# OpenHands issue prompt" "$TMP_DIR/plan-openhands-prompt.out" >/dev/null
 
+./scripts/show-github-issue-workflows.sh \
+  --workflow-dir "$PLAN_OUT" \
+  --agent-prompt-command codex \
+  >"$TMP_DIR/plan-codex-prompt-command.out"
+grep -F "make github-issue-agent-prompt GITHUB_ISSUE_WORKFLOW_DIR=" "$TMP_DIR/plan-codex-prompt-command.out" >/dev/null
+grep -F "AGENT=codex" "$TMP_DIR/plan-codex-prompt-command.out" >/dev/null
+
+make github-issue-agent-prompt-command \
+  GITHUB_ISSUE_WORKFLOW_DIR="$PLAN_OUT" \
+  AGENT=cursor \
+  >"$TMP_DIR/plan-cursor-prompt-command.out"
+grep -F "make github-issue-agent-prompt GITHUB_ISSUE_WORKFLOW_DIR=" "$TMP_DIR/plan-cursor-prompt-command.out" >/dev/null
+grep -F "AGENT=cursor" "$TMP_DIR/plan-cursor-prompt-command.out" >/dev/null
+
 if ./scripts/show-github-issue-workflows.sh \
   --workflow-dir "$PLAN_OUT" \
   --agent-prompt unknown \
@@ -732,6 +746,9 @@ grep -F "session manifest:" "$TMP_DIR/per-issue-review.out" >/dev/null
 grep -F "agent prompts: codex=" "$TMP_DIR/per-issue-review.out" >/dev/null
 grep -F "# GitHub Issue Workflow Report" "$TMP_DIR/per-issue-review.out" >/dev/null
 grep -F "make github-issue-agent-prompt" "$TMP_DIR/per-issue-review.out" >/dev/null
+grep -F "AGENT=codex" "$TMP_DIR/per-issue-review.out" >/dev/null
+grep -F "AGENT=cursor" "$TMP_DIR/per-issue-review.out" >/dev/null
+grep -F "AGENT=openhands" "$TMP_DIR/per-issue-review.out" >/dev/null
 grep -F "make github-issue-sync" "$TMP_DIR/per-issue-review.out" >/dev/null
 grep -F "draft pr: https://github.com/smartit/github-issue-workflow-smoke/pull/7" "$TMP_DIR/per-issue-latest.out" >/dev/null
 
@@ -764,6 +781,8 @@ assert payload["workflows"][0]["issue_refs"] == "#7 Patch critical prompt inject
 assert payload["workflows"][0]["agent_prompts"]["codex"].endswith("/codex-prompt.md"), payload
 assert payload["workflows"][0]["agent_prompts"]["cursor"].endswith("/cursor-prompt.md"), payload
 assert payload["workflows"][0]["agent_prompts"]["openhands"].endswith("/openhands-prompt.md"), payload
+assert "make github-issue-agent-prompt " in payload["workflows"][0]["agent_prompt_commands"]["codex"], payload
+assert "AGENT=codex" in payload["workflows"][0]["agent_prompt_commands"]["codex"], payload
 assert payload["workflows"][0]["issues"] == [
     {
         "number": 7,
