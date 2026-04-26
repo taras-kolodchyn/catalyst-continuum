@@ -134,11 +134,11 @@ make github-issue-sync-command
 ```
 
 Use `make github-issue-latest` when you want the recent workflow list instead of printing the report
-body. For a specific workflow output directory, pass
-`GITHUB_ISSUE_WORKFLOW_DIR=/path/to/workflow-output`. Use `make github-issue-next-command` when you
-only want the next shell command, especially after a plan-only preview. Use
-`make github-issue-sync-command` after reviewing an unapplied issue-sync plan when you want the exact
-apply command without rebuilding it by hand.
+body. It shows the selected issue refs, session manifest, PR handoff, and issue-sync posture. For a
+specific workflow output directory, pass `GITHUB_ISSUE_WORKFLOW_DIR=/path/to/workflow-output`. Use
+`make github-issue-next-command` when you only want the next shell command, especially after a
+plan-only preview. Use `make github-issue-sync-command` after reviewing an unapplied issue-sync plan
+when you want the exact apply command without rebuilding it by hand.
 
 If you want to preview the selected issue and GitHub mutation posture before starting agents, run:
 

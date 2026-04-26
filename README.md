@@ -88,10 +88,12 @@ draft PRs, or mutating GitHub issues.
 
 Use `github-issue-latest` or `github-issue-review` after a workflow run when you do not want to hunt
 through `.continuum/github-issue-workflows/` manually. `github-issue-review` prints the latest
-`workflow-report.md` plus the summary and issue-sync inspection commands. `github-issue-next-command`
-prints only the recommended next shell command, which is useful after `github-issue-plan` or inside
-small local automations. `github-issue-sync-command` prints the reviewed apply command for the
-latest unapplied issue-sync plan; it does not mutate GitHub by itself.
+`workflow-report.md` plus the selected issue refs, session manifest, summary, and issue-sync
+inspection commands. `github-issue-latest` lists the selected issue refs and handoff posture for
+recent workflow directories. `github-issue-next-command` prints only the recommended next shell
+command, which is useful after `github-issue-plan` or inside small local automations.
+`github-issue-sync-command` prints the reviewed apply command for the latest unapplied issue-sync
+plan; it does not mutate GitHub by itself.
 
 Add `GITHUB_ISSUE_CLAIM=1` when you want the workflow to prepare an `in-progress` issue claim plan
 before execution. Add `GITHUB_ISSUE_CLAIM_APPLY=1` only when you want that claim comment and label

@@ -448,8 +448,11 @@ PY
 grep -F "Catalyst Continuum GitHub issue workflows" "$TMP_DIR/per-issue-latest.out" >/dev/null
 grep -F "Recommended next action" "$TMP_DIR/per-issue-latest.out" >/dev/null
 grep -F "command: make github-issue-review" "$TMP_DIR/per-issue-latest.out" >/dev/null
+grep -F "issues: #7" "$TMP_DIR/per-issue-latest.out" >/dev/null
+grep -F "session manifest:" "$TMP_DIR/per-issue-latest.out" >/dev/null
 grep -F "Issue sync apply command" "$TMP_DIR/per-issue-latest.out" >/dev/null
 grep -F "command: make github-issue-sync" "$TMP_DIR/per-issue-latest.out" >/dev/null
+grep -F "issue sync: ready-for-review (dry-run)" "$TMP_DIR/per-issue-latest.out" >/dev/null
 grep -F "report:" "$TMP_DIR/per-issue-latest.out" >/dev/null
 grep -F "workflow-report.md" "$TMP_DIR/per-issue-latest.out" >/dev/null
 
@@ -483,6 +486,8 @@ cmp "$TMP_DIR/per-issue-sync-command.out" "$TMP_DIR/per-issue-sync-command-make.
   --report \
   >"$TMP_DIR/per-issue-review.out"
 grep -F "Catalyst Continuum GitHub issue workflow review" "$TMP_DIR/per-issue-review.out" >/dev/null
+grep -F "issues: #7" "$TMP_DIR/per-issue-review.out" >/dev/null
+grep -F "session manifest:" "$TMP_DIR/per-issue-review.out" >/dev/null
 grep -F "# GitHub Issue Workflow Report" "$TMP_DIR/per-issue-review.out" >/dev/null
 grep -F "make github-issue-sync" "$TMP_DIR/per-issue-review.out" >/dev/null
 grep -F "draft pr: https://github.com/smartit/github-issue-workflow-smoke/pull/7" "$TMP_DIR/per-issue-latest.out" >/dev/null
@@ -512,6 +517,18 @@ assert payload["recommended_next_action"]["command"] == "make github-issue-revie
 assert payload["issue_sync_apply_action"]["available"] is True, payload
 assert payload["issue_sync_apply_action"]["command"].startswith("make github-issue-sync "), payload
 assert payload["workflows"][0]["status"] == "succeeded", payload
+assert payload["workflows"][0]["issue_refs"] == "#7", payload
+assert payload["workflows"][0]["issues"] == [
+    {
+        "number": 7,
+        "title": None,
+        "url": None,
+        "state": None,
+        "labels": [],
+        "rank": None,
+        "selected_recipe": None,
+    }
+], payload
 assert payload["workflows"][0]["report_path"].endswith("/workflow-report.md"), payload
 PY
 

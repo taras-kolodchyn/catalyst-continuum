@@ -147,6 +147,90 @@ def optional_existing_file(value: Any, base_dir: pathlib.Path) -> str | None:
     return str(path) if path.is_file() else None
 
 
+def label_names(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    names: list[str] = []
+    for item in value:
+        if isinstance(item, str):
+            names.append(item)
+        elif isinstance(item, dict) and item.get("name"):
+            names.append(str(item["name"]))
+    return names
+
+
+def issue_item(value: dict[str, Any], rank: Any = None, selected_recipe: Any = None) -> dict[str, Any] | None:
+    number = value.get("number")
+    if number is None:
+        return None
+    return {
+        "number": number,
+        "title": value.get("title"),
+        "url": value.get("url"),
+        "state": value.get("state"),
+        "labels": label_names(value.get("labels")),
+        "rank": rank,
+        "selected_recipe": selected_recipe,
+    }
+
+
+def load_manifest_issues(manifest_path: pathlib.Path) -> list[dict[str, Any]]:
+    manifest = read_json(manifest_path)
+    if manifest is None:
+        return []
+
+    issue = manifest.get("github_issue")
+    if isinstance(issue, dict):
+        item = issue_item(issue)
+        return [item] if item else []
+
+    batch = manifest.get("github_issue_batch")
+    if not isinstance(batch, dict):
+        return []
+
+    context = read_json(manifest_path.parent / str(batch.get("issue_batch_context_path") or ""))
+    if isinstance(context, dict) and isinstance(context.get("issues"), list):
+        issues: list[dict[str, Any]] = []
+        for entry in context["issues"]:
+            if not isinstance(entry, dict):
+                continue
+            source = entry.get("issue")
+            if isinstance(source, dict):
+                item = issue_item(source, rank=entry.get("rank"), selected_recipe=entry.get("selected_recipe"))
+                if item:
+                    issues.append(item)
+        if issues:
+            return issues
+
+    issue_numbers = batch.get("issue_numbers")
+    if isinstance(issue_numbers, list):
+        return [
+            {
+                "number": number,
+                "title": None,
+                "url": None,
+                "state": None,
+                "labels": [],
+                "rank": None,
+                "selected_recipe": None,
+            }
+            for number in issue_numbers
+        ]
+    return []
+
+
+def issue_refs(issues: list[dict[str, Any]]) -> str | None:
+    if not issues:
+        return None
+    refs: list[str] = []
+    for issue in issues:
+        ref = f"#{issue['number']}"
+        if issue.get("title"):
+            ref = f"{ref} {issue['title']}"
+        refs.append(ref)
+    return ", ".join(refs)
+
+
 def workflow_status(summary: dict[str, Any]) -> str:
     if summary.get("plan_only"):
         return "planned"
@@ -179,6 +263,14 @@ def workflow_item(summary_path: pathlib.Path) -> dict[str, Any] | None:
         candidate = summary_path.parent / "workflow-report.md"
         report_path = str(candidate) if candidate.is_file() else None
     plan_report = optional_existing_file(plan.get("markdown"), summary_path.parent)
+    session_dir = optional_path(session.get("dir"))
+    session_manifest = None
+    issues: list[dict[str, Any]] = []
+    if session_dir:
+        candidate = pathlib.Path(session_dir) / "manifest.json"
+        if candidate.is_file():
+            session_manifest = str(candidate.resolve())
+            issues = load_manifest_issues(candidate)
     return {
         "path": str(summary_path.parent),
         "summary_path": str(summary_path),
@@ -187,7 +279,10 @@ def workflow_item(summary_path: pathlib.Path) -> dict[str, Any] | None:
         "plan_only": bool(summary.get("plan_only")),
         "repository_full_name": summary.get("repository_full_name"),
         "pr_strategy": summary.get("pr_strategy"),
-        "session_dir": optional_path(session.get("dir")),
+        "session_dir": session_dir,
+        "session_manifest": session_manifest,
+        "issues": issues,
+        "issue_refs": issue_refs(issues),
         "brief_file": optional_path(session.get("brief_file")),
         "run_summary": optional_path(run.get("summary_file")),
         "run_exit_code": run.get("exit_code"),
@@ -383,16 +478,25 @@ def print_workflow(item: dict[str, Any], index: int) -> None:
     print(f"   status: {item.get('status') or 'unknown'}")
     print(f"   repository: {item.get('repository_full_name') or 'unknown'}")
     print(f"   pr strategy: {item.get('pr_strategy') or 'unknown'}")
+    if item.get("issue_refs"):
+        print(f"   issues: {item['issue_refs']}")
     if item.get("report_path"):
         print(f"   report: {item['report_path']}")
     if item.get("plan_report_path"):
         print(f"   plan: {item['plan_report_path']}")
+    if item.get("session_manifest"):
+        print(f"   session manifest: {item['session_manifest']}")
     if item.get("run_summary"):
         print(f"   run summary: {item['run_summary']}")
     if item.get("draft_pr_url"):
         print(f"   draft pr: {item['draft_pr_url']}")
     if item.get("issue_sync_plan"):
         print(f"   issue sync plan: {item['issue_sync_plan']}")
+    if item.get("issue_sync_status"):
+        posture = "applied" if item.get("issue_sync_applied") else "dry-run"
+        if item.get("issue_sync_skipped"):
+            posture = "skipped"
+        print(f"   issue sync: {item['issue_sync_status']} ({posture})")
     print(f"   summary: {item['summary_path']}")
 
 
@@ -409,7 +513,11 @@ def print_report() -> None:
     print("Latest workflow")
     print(f"workflow: {selected['path']}")
     print(f"status: {selected.get('status') or 'unknown'}")
+    if selected.get("issue_refs"):
+        print(f"issues: {selected['issue_refs']}")
     print(f"summary: {selected['summary_path']}")
+    if selected.get("session_manifest"):
+        print(f"session manifest: {selected['session_manifest']}")
     report_path = selected.get("report_path")
     plan_report_path = selected.get("plan_report_path")
     if report_path:

@@ -172,7 +172,8 @@ make github-issue-next-command
 make github-issue-sync-command
 ```
 
-`github-issue-latest` lists recent workflow output directories and the recommended next action.
+`github-issue-latest` lists recent workflow output directories, selected issue refs, handoff
+posture, and the recommended next action.
 `github-issue-review` prints the latest or selected `workflow-report.md`; pass
 `GITHUB_ISSUE_WORKFLOW_DIR=/path/to/workflow-output` when you want a specific run.
 `github-issue-next-command` prints only the recommended command so scripts can continue from the
