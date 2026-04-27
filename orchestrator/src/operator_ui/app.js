@@ -392,10 +392,10 @@ function bindEvents() {
       return;
     }
 
-    const copyCommandButton = event.target.closest("[data-copy-command]");
-    if (copyCommandButton) {
-      copyCommandToClipboard(copyCommandButton).catch((error) => {
-        console.error("copy command failed", error);
+    const copyTextButton = event.target.closest("[data-copy-command], [data-copy-text-selector]");
+    if (copyTextButton) {
+      copyTextToClipboard(copyTextButton).catch((error) => {
+        console.error("copy text failed", error);
       });
       return;
     }
@@ -619,13 +619,13 @@ function automationDisclosureElements() {
   ].filter(Boolean);
 }
 
-async function copyCommandToClipboard(button) {
-  const command = button.dataset.copyCommand;
-  if (!command) {
+async function copyTextToClipboard(button) {
+  const text = copyButtonText(button);
+  if (!text) {
     return;
   }
 
-  const copied = await writeClipboardText(command);
+  const copied = await writeClipboardText(text);
   const idleLabel = button.dataset.idleLabel || button.textContent || "Copy command";
   button.dataset.idleLabel = idleLabel;
   button.textContent = copied
@@ -634,6 +634,18 @@ async function copyCommandToClipboard(button) {
   window.setTimeout(() => {
     button.textContent = button.dataset.idleLabel || "Copy command";
   }, 1400);
+}
+
+function copyButtonText(button) {
+  if (button.dataset.copyCommand) {
+    return button.dataset.copyCommand;
+  }
+
+  if (!button.dataset.copyTextSelector) {
+    return "";
+  }
+
+  return document.querySelector(button.dataset.copyTextSelector)?.textContent || "";
 }
 
 async function writeClipboardText(text) {
@@ -3679,6 +3691,14 @@ function renderDeveloperReviewPromptPanel(reviewPrompt) {
         </p>
         <pre data-developer-review-prompt-text="true">${escapeHtml(reviewPrompt)}</pre>
         <div class="developer-review-prompt-actions">
+          <button
+            class="button button-secondary"
+            type="button"
+            data-copy-text-selector="[data-developer-review-prompt-text='true']"
+            data-copy-success-label="Prompt copied"
+          >
+            Copy review prompt
+          </button>
           <a class="button button-ghost button-link" href="#run-tasks">Open tasks</a>
           <a class="button button-ghost button-link" href="#run-artifacts">Open artifacts</a>
           <a class="button button-ghost button-link" href="#mission-agents">Open agents</a>

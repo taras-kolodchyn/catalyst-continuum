@@ -550,7 +550,8 @@ MCP capability contract.
 For solo developers, the practical handoff artifact is `developer_handoff`. Generate it from the UI
 with `Generate developer handoff` or from the CLI with `make developer-handoff RUN_ID=<RUN_ID>`.
 It writes a readable review package, a reusable agent prompt, and a structured evidence manifest so
-the next Codex, Cursor, or OpenHands session starts from run evidence instead of manual context.
+the next Codex, Cursor, or OpenHands session starts from run evidence instead of manual context. The
+UI Developer tab makes that prompt copy-ready and also exposes runnable Codex app-server commands.
 
 Before choosing the next control manually, ask the orchestrator for the run guide:
 `make run-guide RUN_ID=<RUN_ID>`. The same guide is exposed over HTTP at

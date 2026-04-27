@@ -614,6 +614,9 @@ The command persists a `developer_handoff` artifact containing:
 - `agent-review-prompt.md` for Cursor, Codex, OpenHands, or another review agent.
 - `manifest.json` with task counts, artifact groups, recent events, and review checklist state.
 
+The operator UI Developer tab renders the review prompt with a copy action so a solo developer can
+hand the same evidence package to another agent without manually selecting the prompt text.
+
 The same command layer is exposed as:
 
 - CLI: `generate-developer-handoff`.

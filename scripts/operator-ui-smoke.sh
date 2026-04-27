@@ -372,6 +372,12 @@ async function main() {
 
   await page.click('[data-mission-tab="developer"]');
   await page.waitForSelector('[data-developer-codex-command-card="true"]', { timeout: 10000 });
+  await page.locator('[data-copy-text-selector]').first().click();
+  await page.waitForFunction(() => {
+    const button = document.querySelector('[data-copy-text-selector]');
+    return button && button.textContent.includes("Prompt copied");
+  }, { timeout: 5000 });
+  const copiedReviewPrompt = await page.evaluate(() => navigator.clipboard.readText());
   await page
     .locator('[data-developer-codex-command-card="true"] [data-copy-command]')
     .first()
@@ -423,6 +429,7 @@ async function main() {
         document.body.textContent.includes("GitHub remains the human approval boundary"),
       developerHandoffPanelCount: count('[data-developer-handoff-panel="true"]'),
       developerReviewPromptPanelCount: count('[data-developer-review-prompt-panel="true"]'),
+      developerReviewPromptCopyButtonCount: count('[data-copy-text-selector]'),
       developerReviewPromptIncludesAgent:
         document.body.textContent.includes("Bring Continuum evidence into Cursor, Codex, or OpenHands") &&
         document.body.textContent.includes("Review this Catalyst Continuum run before I trust or merge"),
@@ -531,6 +538,7 @@ async function main() {
     focusChecks,
     screenshotPath,
     eventFilterCheck,
+    copiedReviewPrompt,
     copiedCodexCommand,
     ok: false,
   };
@@ -598,6 +606,15 @@ async function main() {
   }
   if (!summary.developerReviewPromptIncludesAgent) {
     problems.push("developer tab should expose a portable Cursor/Codex/OpenHands review prompt");
+  }
+  if (summary.developerReviewPromptCopyButtonCount !== 1) {
+    problems.push(`expected one developer review prompt copy button, got ${summary.developerReviewPromptCopyButtonCount}`);
+  }
+  if (
+    !copiedReviewPrompt.includes("Review this Catalyst Continuum run") ||
+    !copiedReviewPrompt.includes("Continuum review checklist")
+  ) {
+    problems.push("developer review prompt copy action should write the portable prompt to clipboard");
   }
   if (summary.developerCodexPanelCount !== 1) {
     problems.push(`expected one developer Codex app-server panel, got ${summary.developerCodexPanelCount}`);
