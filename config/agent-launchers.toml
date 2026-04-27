@@ -1,5 +1,26 @@
 default_agent = "openhands"
 
+[agents.codex]
+default_profile = "app-server-spawn"
+default_prompt_source = "codex-prompt.md"
+mcp_tool_allowlist = [
+  "list_packs",
+  "validate_brief",
+  "describe_run",
+  "describe_run_guide",
+  "claim_next_agent_task",
+  "prepare_agent_task_workspace",
+  "complete_agent_task",
+]
+
+[agents.codex.profiles.app-server-spawn]
+runtime = "process"
+description = "Start a standalone `codex app-server` process, create a Catalyst thread, stream events, and persist JSONL evidence."
+
+[agents.codex.profiles.app-server-proxy]
+runtime = "process"
+description = "Use `codex app-server proxy` to connect to a running Codex app-server control socket when Desktop/IDE integration is available."
+
 [agents.openhands]
 default_profile = "container-sandbox"
 default_task_file = "examples/openhands/bootstrap-task.md"

@@ -175,9 +175,10 @@ Before delivering, run the smallest meaningful validation set that proves the ch
 repository-standard checks:
 
 - Prefer the checked-in `Makefile` for common local entrypoints such as `make check`, `make ci`,
-  `make release-check`, `make alpha-readiness`, `make lint-ui-assets`, `make ui`, `make cleanup`,
-  and `make act-rust`, but keep the underlying `./scripts/*` helpers as the source of truth. When a
-  standard workflow changes, update the script, Make target, and docs together.
+  `make release-check`, `make alpha-readiness`, `make lint-ui-assets`,
+  `make codex-app-server-smoke`, `make ui`, `make cleanup`, and `make act-rust`, but keep the
+  underlying `./scripts/*` helpers as the source of truth. When a standard workflow changes, update
+  the script, Make target, and docs together.
 - `./scripts/alpha-guide-smoke.sh` for first-user alpha guide output and read-only release-readiness
   summary changes
 - `./scripts/check-versions.sh` for version pins, workflow pins, image refs, and shared version
@@ -229,6 +230,9 @@ repository-standard checks:
 - `./scripts/mcp-reference-smoke.sh` for upstream MCP interoperability checks against the pinned
   `Everything` reference server
 - `./scripts/mcp-stateful-smoke.sh` for MCP stateful-path changes, especially OpenHands-facing flows
+- `./scripts/codex-app-server-run-smoke.sh` for Codex app-server bridge changes, especially
+  protocol handshakes, Catalyst prompt submission, proxy/spawn command rendering, and persisted
+  thread/turn evidence manifests
 - `./scripts/openhands-launch-smoke.sh` for pinned OpenHands launch-profile, repo-local persistence,
   and LiteLLM/MCP launcher-contract changes
 - `./scripts/openhands-run-agent-task-smoke.sh` for external OpenHands executor-wrapper changes,

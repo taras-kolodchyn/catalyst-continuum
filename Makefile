@@ -6,6 +6,15 @@ AGENT ?= codex
 ALPHA_GUIDE_ARGS ?=
 ARTIFACT_ROOT ?=
 BRIEF_FILE ?=
+CODEX_APP_SERVER_ARGS ?=
+CODEX_APP_SERVER_EFFORT ?= medium
+CODEX_APP_SERVER_MODE ?= spawn
+CODEX_APP_SERVER_MODEL ?=
+CODEX_APP_SERVER_OUTPUT_DIR ?=
+CODEX_APP_SERVER_PROMPT_FILE ?=
+CODEX_APP_SERVER_SOCKET ?=
+CODEX_APP_SERVER_SUMMARY ?= concise
+CODEX_APP_SERVER_TIMEOUT_SECONDS ?= 1800
 COMPOSE := docker compose --env-file deploy/compose/.env.example -f deploy/compose/compose.yaml
 CONTINUUM_ROOT ?=
 DATABASE_URL ?=
@@ -76,7 +85,7 @@ help: ## Show available Make targets.
 	@awk 'BEGIN {FS = ":.*##"; printf "Catalyst Continuum targets:\n\n"} /^[a-zA-Z0-9_.-]+:.*##/ {printf "  %-38s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 .PHONY: check
-check: doctor versions markdown-links alpha-guide-smoke repository-targets-smoke dev-artifacts-smoke dev-session-smoke github-issue-session-smoke github-issue-sync-smoke github-issue-workflow-smoke template-repo-check lint-shell lint-ui-assets rust ## Run the standard fast local validation set.
+check: doctor versions markdown-links alpha-guide-smoke codex-app-server-smoke repository-targets-smoke dev-artifacts-smoke dev-session-smoke github-issue-session-smoke github-issue-sync-smoke github-issue-workflow-smoke template-repo-check lint-shell lint-ui-assets rust ## Run the standard fast local validation set.
 
 .PHONY: doctor
 doctor: ## Run fast local readiness checks for tools, config, and optional live services.
@@ -280,6 +289,10 @@ github-issue-workflow-smoke: ## Validate the GitHub issue run wrapper without li
 alpha-guide-smoke: ## Validate alpha guide and release-readiness summary output.
 	./scripts/alpha-guide-smoke.sh
 
+.PHONY: codex-app-server-smoke
+codex-app-server-smoke: ## Validate Codex app-server bridge protocol handling with a fake Codex binary.
+	./scripts/codex-app-server-run-smoke.sh
+
 .PHONY: dev-run
 dev-run: ## Run TASK="..." through brief, worker execution, quality, handoff, and local PR export.
 	@test -n "$(TASK)" || { echo "TASK is required"; exit 2; }
@@ -329,6 +342,27 @@ dev-agent-prompt-command: ## Print the command that prints latest/selected dev s
 .PHONY: dev-agent-prompt-copy
 dev-agent-prompt-copy: ## Copy latest/selected dev session prompt to the clipboard for AGENT=codex|cursor|openhands.
 	@./scripts/show-dev-artifacts.sh --agent-prompt "$(AGENT)" $(if $(DEV_SESSION_DIR),--session-dir "$(DEV_SESSION_DIR)") $(DEV_LATEST_ARGS) | ./scripts/copy-to-clipboard.sh "developer session $(AGENT) prompt"
+
+.PHONY: codex-app-server-run
+codex-app-server-run: ## Run CODEX_APP_SERVER_PROMPT_FILE through Codex app-server and persist JSONL evidence.
+	@test -n "$(CODEX_APP_SERVER_PROMPT_FILE)" || { echo "CODEX_APP_SERVER_PROMPT_FILE is required"; exit 2; }
+	./scripts/codex-app-server-run.py --prompt-file "$(CODEX_APP_SERVER_PROMPT_FILE)" --mode "$(CODEX_APP_SERVER_MODE)" --timeout-seconds "$(CODEX_APP_SERVER_TIMEOUT_SECONDS)" $(if $(REPO_PATH),--repo-path "$(REPO_PATH)") $(if $(CODEX_APP_SERVER_OUTPUT_DIR),--output-dir "$(CODEX_APP_SERVER_OUTPUT_DIR)") $(if $(CODEX_APP_SERVER_MODEL),--model "$(CODEX_APP_SERVER_MODEL)") $(if $(CODEX_APP_SERVER_EFFORT),--effort "$(CODEX_APP_SERVER_EFFORT)") $(if $(CODEX_APP_SERVER_SUMMARY),--summary "$(CODEX_APP_SERVER_SUMMARY)") $(if $(CODEX_APP_SERVER_SOCKET),--socket "$(CODEX_APP_SERVER_SOCKET)") $(CODEX_APP_SERVER_ARGS)
+
+.PHONY: dev-codex-app-server
+dev-codex-app-server: ## Run the latest or selected dev-session Codex prompt through Codex app-server.
+	@prompt_file="$$(./scripts/show-dev-artifacts.sh --agent-prompt-path codex $(if $(DEV_SESSION_DIR),--session-dir "$(DEV_SESSION_DIR)") $(DEV_LATEST_ARGS))"; \
+	./scripts/codex-app-server-run.py --prompt-file "$$prompt_file" --mode "$(CODEX_APP_SERVER_MODE)" --timeout-seconds "$(CODEX_APP_SERVER_TIMEOUT_SECONDS)" $(if $(REPO_PATH),--repo-path "$(REPO_PATH)") $(if $(CODEX_APP_SERVER_OUTPUT_DIR),--output-dir "$(CODEX_APP_SERVER_OUTPUT_DIR)") $(if $(CODEX_APP_SERVER_MODEL),--model "$(CODEX_APP_SERVER_MODEL)") $(if $(CODEX_APP_SERVER_EFFORT),--effort "$(CODEX_APP_SERVER_EFFORT)") $(if $(CODEX_APP_SERVER_SUMMARY),--summary "$(CODEX_APP_SERVER_SUMMARY)") $(if $(CODEX_APP_SERVER_SOCKET),--socket "$(CODEX_APP_SERVER_SOCKET)") $(CODEX_APP_SERVER_ARGS)
+
+.PHONY: dev-codex-ui
+dev-codex-ui: dev-codex-app-server ## Alias for running a dev session through Codex app-server.
+
+.PHONY: github-issue-codex-app-server
+github-issue-codex-app-server: ## Run the latest or selected GitHub issue Codex prompt through Codex app-server.
+	@prompt_file="$$(./scripts/show-github-issue-workflows.sh --agent-prompt-path codex $(if $(CONTINUUM_ROOT),--root "$(CONTINUUM_ROOT)") $(if $(GITHUB_ISSUE_WORKFLOW_DIR),--workflow-dir "$(GITHUB_ISSUE_WORKFLOW_DIR)") $(GITHUB_ISSUE_WORKFLOW_LATEST_ARGS))"; \
+	./scripts/codex-app-server-run.py --prompt-file "$$prompt_file" --mode "$(CODEX_APP_SERVER_MODE)" --timeout-seconds "$(CODEX_APP_SERVER_TIMEOUT_SECONDS)" $(if $(REPO_PATH),--repo-path "$(REPO_PATH)") $(if $(CODEX_APP_SERVER_OUTPUT_DIR),--output-dir "$(CODEX_APP_SERVER_OUTPUT_DIR)") $(if $(CODEX_APP_SERVER_MODEL),--model "$(CODEX_APP_SERVER_MODEL)") $(if $(CODEX_APP_SERVER_EFFORT),--effort "$(CODEX_APP_SERVER_EFFORT)") $(if $(CODEX_APP_SERVER_SUMMARY),--summary "$(CODEX_APP_SERVER_SUMMARY)") $(if $(CODEX_APP_SERVER_SOCKET),--socket "$(CODEX_APP_SERVER_SOCKET)") $(CODEX_APP_SERVER_ARGS)
+
+.PHONY: github-issue-codex-ui
+github-issue-codex-ui: github-issue-codex-app-server ## Alias for running a GitHub issue workflow through Codex app-server.
 
 .PHONY: dev-review
 dev-review: ## Show the latest local run review package and PR export inspection commands.

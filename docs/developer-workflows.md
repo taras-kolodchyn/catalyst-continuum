@@ -189,6 +189,7 @@ make github-issue-agent-prompt AGENT=codex
 make github-issue-agent-prompt-path AGENT=openhands
 make github-issue-agent-prompt-command AGENT=cursor
 make github-issue-agent-prompt-copy AGENT=codex
+make github-issue-codex-ui
 ```
 
 `github-issue-latest` lists recent workflow output directories, selected issue refs, handoff
@@ -217,6 +218,10 @@ for shell aliases and native agent launchers. `github-issue-agent-prompt-command
 copy-ready command for the selected agent so a UI or wrapper can show the exact continuation action.
 `github-issue-agent-prompt-copy` copies the selected prompt directly to the system clipboard when
 `pbcopy`, `wl-copy`, `xclip`, or `xsel` is available.
+`github-issue-codex-ui` sends the latest or selected workflow `codex-prompt.md` through Codex
+app-server and persists thread/turn evidence under `.continuum/codex-app-server-runs/`. Use
+`CODEX_APP_SERVER_MODE=proxy` only when a running Codex Desktop or IDE app-server control socket is
+available and you want the best chance of attaching that turn to the live Codex UI.
 
 If you want to inspect that choice before running agents, use the plan-only wrapper:
 
@@ -501,6 +506,7 @@ make dev-session-review
 make dev-agent-prompt AGENT=codex
 make dev-agent-prompt-command AGENT=cursor
 make dev-agent-prompt-copy AGENT=codex
+make dev-codex-ui
 make dev-review
 ```
 
@@ -512,6 +518,8 @@ It prints the latest briefs, sessions, and runs with the paths that matter most:
   commands, and the matching `dev-run-brief` command.
 - Copy-ready `make dev-agent-prompt ... AGENT=...` commands for continuing in the agent UI.
 - Clipboard-ready prompt handoff through `make dev-agent-prompt-copy AGENT=...`.
+- Codex app-server handoff through `make dev-codex-ui` when Codex should start from the generated
+  Catalyst prompt without manual copy/paste.
 - The review markdown and agent review prompt for a run.
 - The local PR export repository, branch, commit, manifest, and combined patch when export exists.
 - A short next-action hint for each artifact type.
@@ -527,11 +535,16 @@ make dev-session-review DEV_SESSION_DIR=.continuum/dev-sessions/<session>
 make dev-agent-prompt-path AGENT=openhands
 make dev-agent-prompt-command AGENT=cursor
 make dev-agent-prompt-copy AGENT=codex
+make dev-codex-ui CODEX_APP_SERVER_MODE=proxy
 ```
 
 Use `dev-session-review` before handing work to a native agent or before converting a session into a
 run. It is the shortest readable view of the selected package and avoids opening `manifest.json`,
 `brief.json`, `README.md`, and three prompt files manually.
+
+`dev-codex-ui` and `github-issue-codex-ui` are bridge commands, not a new agent runtime. The
+orchestrator still owns task packets, policy, evidence, and publication gates; Codex owns the
+interactive coding UX, sandbox behavior, and any human approval UI.
 
 After a local run, use `dev-review` when you want the review surface without the full artifact
 index. It prints the latest run summary, `review.md`, reusable agent review prompt, local PR export
@@ -617,6 +630,7 @@ make dev-run-brief BRIEF_FILE=.continuum/dev-sessions/<session>/brief.json
 make dev-run-latest-session
 make dev-latest
 make dev-session-review
+make dev-codex-ui
 ```
 
 Use the generated agent prompt when you want immediate Codex, Cursor, or OpenHands help. Use

@@ -154,6 +154,21 @@ REPOSITORY_ARG="$(assignment REPOSITORY "$REPOSITORY")"
 REPO_PATH_ARG="$(assignment REPO_PATH "$REPO_PATH")"
 AGENT_ARG="$(assignment AGENT "$AGENT")"
 TASK_ARG="$(assignment TASK "$TASK")"
+CODEX_APP_SERVER_HINT=""
+CODEX_DAILY_APP_SERVER_HINT=""
+
+if [ "$AGENT" = "codex" ]; then
+  CODEX_APP_SERVER_HINT="$(cat <<'EOF'
+
+  Optional Codex app-server handoff instead of clipboard copy:
+     make github-issue-codex-ui
+EOF
+)"
+  CODEX_DAILY_APP_SERVER_HINT="$(cat <<'EOF'
+  make dev-codex-ui
+EOF
+)"
+fi
 
 cat <<EOF
 Catalyst Continuum alpha guide
@@ -176,6 +191,7 @@ Real GitHub issue path:
 
   3. Hand the same packet to your native agent:
      make github-issue-agent-prompt-copy $AGENT_ARG
+$CODEX_APP_SERVER_HINT
 
   4. After the agent work is ready, run the evidence and PR-export path:
      make github-issue-run $REPOSITORY_ARG $REPO_PATH_ARG $ISSUE_SELECTOR GITHUB_ISSUE_REQUIRE_CLEAN_CHECKOUT=1
@@ -187,6 +203,7 @@ Real GitHub issue path:
 Daily task path without a GitHub issue:
   make dev-session TASK_RECIPE=fix-bug $TASK_ARG $REPOSITORY_ARG $REPO_PATH_ARG
   make dev-agent-prompt-copy $AGENT_ARG
+$CODEX_DAILY_APP_SERVER_HINT
   make dev-run-latest-session
   make dev-review
 

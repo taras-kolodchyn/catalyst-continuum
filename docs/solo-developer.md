@@ -147,6 +147,7 @@ make github-issue-sync-command
 make github-issue-agent-prompt AGENT=codex
 make github-issue-agent-prompt-command AGENT=cursor
 make github-issue-agent-prompt-copy AGENT=codex
+make github-issue-codex-ui
 ```
 
 Use `make github-issue-latest` when you want the recent workflow list instead of printing the report
@@ -169,6 +170,13 @@ to paste the generated workflow prompt directly into the agent's native UI. Use
 `make github-issue-agent-prompt-command AGENT=codex` when you want to show or reuse the exact command
 without opening the workflow report. Use `make github-issue-agent-prompt-copy AGENT=codex` when you
 want Catalyst to copy the prompt straight to your clipboard.
+
+If Codex is your selected agent and you want Catalyst to start the generated prompt through Codex
+app-server instead of copying it to the clipboard, run `make github-issue-codex-ui`. By default this
+starts a standalone `codex app-server` process and writes evidence under
+`.continuum/codex-app-server-runs/`. When a Codex Desktop or IDE app-server control socket is
+already running, use `make github-issue-codex-ui CODEX_APP_SERVER_MODE=proxy` for the best chance of
+attaching the generated turn to that live Codex UI.
 
 If you want to preview the selected issue and GitHub mutation posture before starting agents, run:
 
@@ -302,6 +310,7 @@ make dev-session-review
 make dev-agent-prompt AGENT=codex
 make dev-agent-prompt-command AGENT=cursor
 make dev-agent-prompt-copy AGENT=codex
+make dev-codex-ui
 make dev-review
 make run-guide RUN_ID=<RUN_ID>
 ```
@@ -323,6 +332,12 @@ latest generated session prompt without opening `.continuum/dev-sessions/` manua
 `make dev-agent-prompt-command AGENT=codex` when a wrapper or UI should display the exact command.
 Use `make dev-agent-prompt-copy AGENT=codex` when you want to paste the prompt into a native agent
 UI without printing the full prompt in the terminal.
+
+Use `make dev-codex-ui` when you want Catalyst to start the latest or selected `codex-prompt.md`
+through Codex app-server and persist thread/turn evidence. This gives a smoother Codex handoff than
+clipboard copy while keeping Catalyst's prompt, repo path, sandbox policy, and app-server events in
+one inspectable run directory. The bridge does not silently approve interactive Codex prompts; keep
+human approvals inside Codex itself.
 
 Use `make dev-review` after `make dev-run` when you want the latest review package, agent review
 prompt, local PR export paths, and suggested local diff commands in one focused view.

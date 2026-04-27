@@ -62,6 +62,9 @@ jobs:
       - name: Validate alpha guide smoke
         run: ./scripts/alpha-guide-smoke.sh
 
+      - name: Validate Codex app-server smoke
+        run: ./scripts/codex-app-server-run-smoke.sh
+
       - name: Validate template-repo scaffolds
         run: ./scripts/check-template-repo.sh
 

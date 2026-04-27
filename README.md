@@ -54,8 +54,14 @@ make github-issue-preflight-strict
 make github-issue-agent-prompt-copy AGENT=codex
 ```
 
-Then let Codex, Cursor, or OpenHands do the coding in its native UI. When the change is ready for
-the control-plane evidence path, run:
+Then let Codex, Cursor, or OpenHands do the coding in its native UI. If you want Catalyst to start
+the generated prompt through Codex app-server instead of using clipboard handoff, run:
+
+```bash
+make github-issue-codex-ui
+```
+
+When the change is ready for the control-plane evidence path, run:
 
 ```bash
 make github-issue-run REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE_ARGS="--label bug --limit 5" GITHUB_ISSUE_REQUIRE_CLEAN_CHECKOUT=1
@@ -72,6 +78,9 @@ make dev-agent-prompt-copy AGENT=codex
 make dev-run-latest-session
 make dev-review
 ```
+
+Use `make dev-codex-ui` instead of the clipboard step when you want Catalyst to start the generated
+prompt through Codex app-server.
 
 Use [docs/solo-developer.md](docs/solo-developer.md) and
 [docs/developer-workflows.md](docs/developer-workflows.md) for the complete command reference.
@@ -209,6 +218,12 @@ only need the file path, or `dev-agent-prompt-command` when a UI/wrapper needs t
 continuation command. Use `dev-agent-prompt-copy` when you want to paste the selected prompt into a
 native agent UI without printing the full prompt in the terminal.
 
+`dev-codex-ui` starts the latest or selected `codex-prompt.md` through Codex app-server and writes
+thread/turn evidence under `.continuum/codex-app-server-runs/`. The default `spawn` mode is the
+deterministic local evidence path. Set `CODEX_APP_SERVER_MODE=proxy` when a running Codex
+Desktop/IDE app-server control socket is available and you want the best chance of attaching the
+turn to the active Codex UI.
+
 `dev-review` is the shortest review-stage command after a local run. It prints the latest
 `review.md`, reusable agent review prompt, local PR export paths, and suggested `git`/`sed` commands
 for inspecting the exported candidate before opening a real PR.
@@ -228,6 +243,8 @@ The closed `v0.1` baseline is Docker-first and local-development friendly:
 - Built-in operator UI at `/ui` with WebSocket live updates, Mission Control, agent panels, logs,
   Grafana, and LiteLLM embeds.
 - OpenHands launch profiles for host-full-access and container-sandbox workflows.
+- Codex app-server bridge for starting generated Catalyst prompts through Codex while preserving
+  thread and turn evidence.
 - Real repository publication through a repository-target allowlist and draft-PR handoff.
 - Local observability stack with OpenTelemetry Collector, Prometheus, Loki, Tempo, and Grafana.
 
@@ -282,9 +299,12 @@ make github-issue-preflight-strict
 make github-issue-review
 make github-issue-next-command
 make github-issue-sync-command
+make github-issue-codex-ui
 make github-issue-run REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE=123 GITHUB_ISSUE_CLAIM=1 GITHUB_ISSUE_REQUIRE_CLEAN_CHECKOUT=1
 make github-issue-run REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout REPOSITORY_TARGET_ID=primary GITHUB_ISSUE=123 GITHUB_ISSUE_CREATE_DRAFT_PR=1 GITHUB_ISSUE_REQUIRE_CLEAN_CHECKOUT=1
 make dev-session TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO
+make dev-codex-ui
+make codex-app-server-run CODEX_APP_SERVER_PROMPT_FILE=.continuum/dev-sessions/<session>/codex-prompt.md REPO_PATH=/path/to/local/checkout
 make dev-task-brief TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO
 make dev-run TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO
 make dev-run-brief BRIEF_FILE=.continuum/dev-sessions/<session>/brief.json
@@ -295,6 +315,7 @@ make dev-session-review
 make dev-review
 make github-issue-sync GITHUB_ISSUE_SYNC_PR_URL=https://github.com/OWNER/REPO/pull/123 GITHUB_ISSUE_SYNC_APPLY=1
 make dev-run-smoke
+make codex-app-server-smoke
 make run-guide RUN_ID=<RUN_ID>
 make developer-handoff RUN_ID=<RUN_ID>
 make ui
@@ -446,6 +467,19 @@ OPENHANDS_REAL_AGENT_SMOKE=1 make openhands-agent-task-real-smoke
 Pass live-smoke launcher overrides through `OPENHANDS_AGENT_TASK_REAL_SMOKE_ARGS`, for example
 `OPENHANDS_AGENT_TASK_REAL_SMOKE_ARGS="--profile host-full-access"` when deliberately debugging the
 unsafe host-run profile.
+
+## Validate Codex App Server
+
+The Codex app-server bridge starts generated Catalyst prompts through the experimental Codex
+app-server protocol and persists JSONL thread/turn evidence:
+
+```bash
+make codex-app-server-smoke
+```
+
+That smoke is CI-safe and uses a fake Codex app-server. For real Codex UI attachment, use
+`make dev-codex-ui CODEX_APP_SERVER_MODE=proxy` only when a Codex Desktop/IDE app-server control
+socket is running.
 
 ## Run The Full Local Stack
 
