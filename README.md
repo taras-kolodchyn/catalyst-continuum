@@ -225,6 +225,10 @@ deterministic local evidence path. Set `CODEX_APP_SERVER_MODE=proxy` when a runn
 Desktop/IDE app-server control socket is available and you want the best chance of attaching the
 turn to the active Codex UI.
 
+Generated `developer_handoff` artifacts also persist ready-to-run Codex app-server commands for the
+review prompt. The operator UI shows those commands in the Developer tab once the handoff artifact
+exists, so a developer can move from run evidence to Codex without hunting for the prompt path.
+
 `dev-review` is the shortest review-stage command after a local run. It prints the latest
 `review.md`, reusable agent review prompt, local PR export paths, and suggested `git`/`sed` commands
 for inspecting the exported candidate before opening a real PR.

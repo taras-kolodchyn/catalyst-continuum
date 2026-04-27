@@ -15,6 +15,7 @@ required:
   - agent_lanes
   - evidence_groups
   - review_checklist
+  - codex_app_server_commands
   - artifacts
   - recent_events
 properties:
@@ -54,6 +55,8 @@ properties:
     minItems: 1
     items:
       $ref: "#/$defs/review_check"
+  codex_app_server_commands:
+    $ref: "#/$defs/codex_app_server_commands"
   artifacts:
     type: array
     items:
@@ -199,6 +202,19 @@ $defs:
         minLength: 1
       ready:
         type: boolean
+  codex_app_server_commands:
+    type: object
+    additionalProperties: false
+    required:
+      - spawn
+      - proxy
+    properties:
+      spawn:
+        type: string
+        minLength: 1
+      proxy:
+        type: string
+        minLength: 1
   artifact_summary:
     type: object
     additionalProperties: true

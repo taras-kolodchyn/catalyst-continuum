@@ -162,6 +162,11 @@ make codex-app-server-run \
   REPO_PATH=/path/to/local/checkout
 ```
 
+Run-level developer handoffs expose the same bridge. After `generate-developer-handoff` creates a
+`developer_handoff` artifact, the artifact metadata and manifest include `codex_app_server_commands`
+for the persisted `agent-review-prompt.md`. The operator UI Developer tab renders those commands so
+a reviewer can start Codex from the exact handoff evidence instead of copying prompt text manually.
+
 The bridge writes a run directory under `.continuum/codex-app-server-runs/` by default:
 
 - `manifest.json` records the Codex command, mode, repo path, prompt path, thread ID, turn ID,

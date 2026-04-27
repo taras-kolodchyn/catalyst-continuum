@@ -367,6 +367,9 @@ async function main() {
     eventFilterCheck.restoredAllFilter = true;
   }
 
+  await page.click('[data-mission-tab="developer"]');
+  await page.waitForSelector('[data-developer-codex-command-card="true"]', { timeout: 10000 });
+
   const summary = await page.evaluate(() => {
     const text = (selector) => document.querySelector(selector)?.textContent?.trim() || "";
     const count = (selector) => document.querySelectorAll(selector).length;
@@ -409,6 +412,11 @@ async function main() {
       developerReviewPromptIncludesAgent:
         document.body.textContent.includes("Bring Continuum evidence into Cursor, Codex, or OpenHands") &&
         document.body.textContent.includes("Review this Catalyst Continuum run before I trust or merge"),
+      developerCodexPanelCount: count('[data-developer-codex-panel="true"]'),
+      developerCodexCommandCardCount: count('[data-developer-codex-command-card="true"]'),
+      developerCodexIncludesCommand:
+        document.body.textContent.includes("make codex-app-server-run") &&
+        document.body.textContent.includes("CODEX_APP_SERVER_PROMPT_FILE="),
       developerValueCardCount: count("[data-developer-value-card]"),
       developerReviewItemCount: count("[data-developer-review-item]"),
       developerEvidenceCardCount: count("[data-developer-evidence-card]"),
@@ -575,6 +583,15 @@ async function main() {
   }
   if (!summary.developerReviewPromptIncludesAgent) {
     problems.push("developer tab should expose a portable Cursor/Codex/OpenHands review prompt");
+  }
+  if (summary.developerCodexPanelCount !== 1) {
+    problems.push(`expected one developer Codex app-server panel, got ${summary.developerCodexPanelCount}`);
+  }
+  if (summary.developerCodexCommandCardCount !== 2) {
+    problems.push(`expected two developer Codex command cards, got ${summary.developerCodexCommandCardCount}`);
+  }
+  if (!summary.developerCodexIncludesCommand) {
+    problems.push("developer tab should expose a runnable Codex app-server command for the handoff prompt");
   }
   if (summary.developerValueCardCount < 5) {
     problems.push(`expected developer value cards, got ${summary.developerValueCardCount}`);

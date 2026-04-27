@@ -392,6 +392,14 @@ function bindEvents() {
       return;
     }
 
+    const copyCommandButton = event.target.closest("[data-copy-command]");
+    if (copyCommandButton) {
+      copyCommandToClipboard(copyCommandButton).catch((error) => {
+        console.error("copy command failed", error);
+      });
+      return;
+    }
+
     const missionActionButton = event.target.closest("[data-run-action]");
     if (missionActionButton) {
       executeRunAction(missionActionButton.dataset.runAction).catch((error) => {
@@ -609,6 +617,51 @@ function automationDisclosureElements() {
     elements.webhookDeliveriesDisclosure,
     elements.queueInspectorDisclosure,
   ].filter(Boolean);
+}
+
+async function copyCommandToClipboard(button) {
+  const command = button.dataset.copyCommand;
+  if (!command) {
+    return;
+  }
+
+  const copied = await writeClipboardText(command);
+  const idleLabel = button.dataset.idleLabel || button.textContent || "Copy command";
+  button.dataset.idleLabel = idleLabel;
+  button.textContent = copied
+    ? button.dataset.copySuccessLabel || "Copied"
+    : "Copy unavailable";
+  window.setTimeout(() => {
+    button.textContent = button.dataset.idleLabel || "Copy command";
+  }, 1400);
+}
+
+async function writeClipboardText(text) {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (_) {
+      // Fall back to the legacy selection path below.
+    }
+  }
+
+  const field = document.createElement("textarea");
+  field.value = text;
+  field.setAttribute("readonly", "readonly");
+  field.style.position = "fixed";
+  field.style.left = "-9999px";
+  document.body.appendChild(field);
+  field.select();
+  let copied = false;
+  try {
+    copied = document.execCommand("copy");
+  } catch (_) {
+    copied = false;
+  } finally {
+    document.body.removeChild(field);
+  }
+  return copied;
 }
 
 function restoreAutomationDisclosurePreferences() {
@@ -3280,6 +3333,7 @@ function renderMissionDeveloperPanel() {
       <div class="developer-handoff-layout" data-developer-handoff-panel="true">
         ${renderDeveloperHandoffHero(runDetail, summary)}
         ${renderDeveloperReviewPromptPanel(reviewPrompt)}
+        ${renderDeveloperCodexAppServerPanel(runDetail)}
         <section class="developer-value-shell">
           <div class="detail-section-head">
             <div>
@@ -3631,6 +3685,84 @@ function renderDeveloperReviewPromptPanel(reviewPrompt) {
         </div>
       </div>
     </section>
+  `;
+}
+
+function renderDeveloperCodexAppServerPanel(runDetail) {
+  const commands = developerCodexAppServerCommands(runDetail);
+  const handoffArtifact = latestDeveloperHandoffArtifact(runDetail);
+  if (!commands) {
+    return `
+      <section class="developer-codex-shell" data-developer-codex-panel="true">
+        <div class="detail-section-head">
+          <div>
+            <p class="panel-kicker">Codex app-server</p>
+            <h3>Generate a persisted handoff before launching Codex</h3>
+          </div>
+          <span class="badge badge-warning">Locked</span>
+        </div>
+        <div class="developer-codex-empty">
+          <p>
+            The Codex app-server command appears after the run has a
+            <code>developer_handoff</code> artifact. That keeps Codex attached to a stable prompt
+            file and leaves evidence under <code>.continuum/codex-app-server-runs/</code>.
+          </p>
+        </div>
+      </section>
+    `;
+  }
+
+  return `
+    <section class="developer-codex-shell" data-developer-codex-panel="true">
+      <div class="detail-section-head">
+        <div>
+          <p class="panel-kicker">Codex app-server</p>
+          <h3>Start this handoff in Codex with evidence tracking</h3>
+        </div>
+        <span class="badge badge-success">Runnable</span>
+      </div>
+      <div class="developer-codex-grid">
+        ${renderDeveloperCodexCommandCard({
+          command: commands.spawn,
+          detail:
+            "Deterministic local run. Starts a standalone Codex app-server process and records thread/turn evidence.",
+          kicker: "Default",
+          title: "Spawn Codex app-server",
+        })}
+        ${renderDeveloperCodexCommandCard({
+          command: commands.proxy,
+          detail:
+            "Use only when Codex Desktop or an IDE app-server control socket is already running.",
+          kicker: "Live UI",
+          title: "Proxy to running Codex",
+        })}
+      </div>
+      <p class="microcopy">
+        Prompt source: ${escapeHtml(
+          developerHandoffAgentPromptPath(handoffArtifact) ?? "developer handoff artifact"
+        )}. Add <code>REPO_PATH=/path/to/local/checkout</code> when Codex should attach to a
+        specific checkout.
+      </p>
+    </section>
+  `;
+}
+
+function renderDeveloperCodexCommandCard({ command, detail, kicker, title }) {
+  return `
+    <article class="developer-codex-card" data-developer-codex-command-card="true">
+      <p class="panel-kicker">${escapeHtml(kicker)}</p>
+      <h4>${escapeHtml(title)}</h4>
+      <p>${escapeHtml(detail)}</p>
+      <pre>${escapeHtml(command)}</pre>
+      <button
+        class="button button-ghost"
+        type="button"
+        data-copy-command="${escapeHtml(command)}"
+        data-copy-success-label="Copied"
+      >
+        Copy command
+      </button>
+    </article>
   `;
 }
 
@@ -10938,6 +11070,64 @@ function runArtifacts(runDetail) {
     artifacts.push(artifact);
   }
   return artifacts;
+}
+
+function latestDeveloperHandoffArtifact(runDetail) {
+  return runArtifacts(runDetail)
+    .filter((artifact) => artifact.artifact_type === DEVELOPER_HANDOFF_ARTIFACT_TYPE)
+    .sort((left, right) => sortableTimestamp(right.created_at) - sortableTimestamp(left.created_at))[0] ?? null;
+}
+
+function developerHandoffAgentPromptPath(handoffArtifact) {
+  const metadataPath = nonEmptyString(
+    handoffArtifact?.metadata?.agent_prompt_path ??
+      handoffArtifact?.metadata?.agentPromptPath
+  );
+  if (metadataPath) {
+    return metadataPath;
+  }
+
+  const locationValue = nonEmptyString(handoffArtifact?.location_value);
+  if (handoffArtifact?.location_kind === "path" && locationValue) {
+    return `${locationValue.replace(/\/+$/, "")}/agent-review-prompt.md`;
+  }
+
+  return null;
+}
+
+function developerCodexAppServerCommands(runDetail) {
+  const handoffArtifact = latestDeveloperHandoffArtifact(runDetail);
+  const metadataCommands =
+    handoffArtifact?.metadata?.codex_app_server_commands ??
+    handoffArtifact?.metadata?.codexAppServerCommands;
+  const metadataSpawn = nonEmptyString(metadataCommands?.spawn);
+  const metadataProxy = nonEmptyString(metadataCommands?.proxy);
+  if (metadataSpawn && metadataProxy) {
+    return {
+      spawn: metadataSpawn,
+      proxy: metadataProxy,
+    };
+  }
+
+  const agentPromptPath = developerHandoffAgentPromptPath(handoffArtifact);
+  if (!agentPromptPath) {
+    return null;
+  }
+
+  const promptAssignment = `CODEX_APP_SERVER_PROMPT_FILE=${shellQuote(agentPromptPath)}`;
+  const spawn = `make codex-app-server-run ${promptAssignment}`;
+  return {
+    spawn,
+    proxy: `${spawn} CODEX_APP_SERVER_MODE=proxy`,
+  };
+}
+
+function nonEmptyString(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function shellQuote(value) {
+  return `'${String(value).replaceAll("'", "'\\''")}'`;
 }
 
 function latestRunEventTimestamp(eventTypes, events = state.selectedRunEvents) {

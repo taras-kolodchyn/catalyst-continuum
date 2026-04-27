@@ -73,15 +73,16 @@ pub fn generate_developer_handoff(
         )
     })?;
 
-    let manifest = build_manifest(run, run_detail, events);
-    let agent_prompt = render_agent_review_prompt(&manifest)?;
-    let review_markdown = render_review_markdown(&manifest, &agent_prompt)?;
-    let serialized_manifest =
-        serde_json::to_vec_pretty(&manifest).context("failed to serialize developer handoff")?;
-
     let review_markdown_path = handoff_root.join("review.md");
     let agent_prompt_path = handoff_root.join("agent-review-prompt.md");
     let manifest_path = handoff_root.join("manifest.json");
+    let codex_app_server_commands = codex_app_server_commands(&agent_prompt_path);
+    let manifest = build_manifest(run, run_detail, events, codex_app_server_commands.clone());
+    let agent_prompt = render_agent_review_prompt(&manifest)?;
+    let review_markdown =
+        render_review_markdown(&manifest, &agent_prompt, &codex_app_server_commands)?;
+    let serialized_manifest =
+        serde_json::to_vec_pretty(&manifest).context("failed to serialize developer handoff")?;
 
     fs::write(&review_markdown_path, review_markdown.as_bytes()).with_context(|| {
         format!(
@@ -134,6 +135,7 @@ pub fn generate_developer_handoff(
                 "event_count": manifest.event_count,
                 "review_check_count": manifest.review_checklist.len(),
                 "ready_review_check_count": manifest.review_checklist.iter().filter(|item| item.ready).count(),
+                "codex_app_server_commands": codex_app_server_commands,
             }),
         },
         review_markdown_path,
@@ -149,6 +151,7 @@ fn build_manifest(
     run: &RunContext,
     run_detail: &RunDetail,
     events: &[RunEventSummary],
+    codex_app_server_commands: CodexAppServerCommands,
 ) -> DeveloperHandoffManifest {
     let artifacts = run_detail.artifacts.clone();
     let tasks = run_detail.tasks.clone();
@@ -176,6 +179,7 @@ fn build_manifest(
         agent_lanes,
         evidence_groups,
         review_checklist,
+        codex_app_server_commands,
         artifacts,
         recent_events: events.iter().take(25).cloned().collect(),
     }
@@ -184,6 +188,7 @@ fn build_manifest(
 fn render_review_markdown(
     manifest: &DeveloperHandoffManifest,
     agent_prompt: &str,
+    codex_app_server_commands: &CodexAppServerCommands,
 ) -> Result<String> {
     let mut output = String::new();
     use std::fmt::Write as _;
@@ -264,6 +269,37 @@ fn render_review_markdown(
             .context("failed to render developer handoff")?;
         }
     }
+    writeln!(&mut output).context("failed to render developer handoff")?;
+    writeln!(&mut output, "## Codex App-Server Handoff")
+        .context("failed to render developer handoff")?;
+    writeln!(&mut output).context("failed to render developer handoff")?;
+    writeln!(
+        &mut output,
+        "Use this when you want Codex to start from the persisted review prompt instead of copying text manually:"
+    )
+    .context("failed to render developer handoff")?;
+    writeln!(&mut output).context("failed to render developer handoff")?;
+    writeln!(&mut output, "```bash").context("failed to render developer handoff")?;
+    writeln!(&mut output, "{}", codex_app_server_commands.spawn)
+        .context("failed to render developer handoff")?;
+    writeln!(&mut output, "```").context("failed to render developer handoff")?;
+    writeln!(&mut output).context("failed to render developer handoff")?;
+    writeln!(
+        &mut output,
+        "Use proxy mode only when a Codex Desktop or IDE app-server control socket is already running:"
+    )
+    .context("failed to render developer handoff")?;
+    writeln!(&mut output).context("failed to render developer handoff")?;
+    writeln!(&mut output, "```bash").context("failed to render developer handoff")?;
+    writeln!(&mut output, "{}", codex_app_server_commands.proxy)
+        .context("failed to render developer handoff")?;
+    writeln!(&mut output, "```").context("failed to render developer handoff")?;
+    writeln!(&mut output).context("failed to render developer handoff")?;
+    writeln!(
+        &mut output,
+        "Add `REPO_PATH=/path/to/local/checkout` when Codex should attach the run to a specific local repository checkout."
+    )
+    .context("failed to render developer handoff")?;
     writeln!(&mut output).context("failed to render developer handoff")?;
     writeln!(&mut output, "## Agent Review Prompt")
         .context("failed to render developer handoff")?;
@@ -421,6 +457,32 @@ struct DeveloperHandoffManifest {
     review_checklist: Vec<ReviewCheck>,
     artifacts: Vec<ArtifactSummary>,
     recent_events: Vec<RunEventSummary>,
+    codex_app_server_commands: CodexAppServerCommands,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct CodexAppServerCommands {
+    spawn: String,
+    proxy: String,
+}
+
+fn codex_app_server_commands(agent_prompt_path: &Path) -> CodexAppServerCommands {
+    let prompt_assignment = make_assignment(
+        "CODEX_APP_SERVER_PROMPT_FILE",
+        &agent_prompt_path.display().to_string(),
+    );
+    let spawn = format!("make codex-app-server-run {prompt_assignment}");
+    let proxy = format!("{spawn} CODEX_APP_SERVER_MODE=proxy");
+
+    CodexAppServerCommands { spawn, proxy }
+}
+
+fn make_assignment(name: &str, value: &str) -> String {
+    format!("{name}={}", shell_quote(value))
+}
+
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
 }
 
 #[derive(Debug, Clone, Serialize)]

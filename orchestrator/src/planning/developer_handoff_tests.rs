@@ -34,6 +34,9 @@ fn writes_review_prompt_and_manifest() {
     let prompt = fs::read_to_string(&handoff.agent_prompt_path).expect("prompt exists");
     assert!(prompt.contains("Review this Catalyst Continuum run"));
     assert!(prompt.contains("Do not assume the code is correct"));
+    let review = fs::read_to_string(&handoff.review_markdown_path).expect("review markdown exists");
+    assert!(review.contains("## Codex App-Server Handoff"));
+    assert!(review.contains("make codex-app-server-run CODEX_APP_SERVER_PROMPT_FILE="));
 
     let manifest: serde_json::Value = serde_json::from_slice(
         &fs::read(&handoff.manifest_path).expect("manifest should be readable"),
@@ -41,6 +44,24 @@ fn writes_review_prompt_and_manifest() {
     .expect("manifest is json");
     assert_eq!(manifest["artifact_type"], DEVELOPER_HANDOFF_ARTIFACT_TYPE);
     assert_eq!(manifest["agent_lanes"][0]["agent"], "openhands");
+    assert!(
+        manifest["codex_app_server_commands"]["spawn"]
+            .as_str()
+            .expect("spawn command should be present")
+            .contains("make codex-app-server-run CODEX_APP_SERVER_PROMPT_FILE=")
+    );
+    assert!(
+        manifest["codex_app_server_commands"]["proxy"]
+            .as_str()
+            .expect("proxy command should be present")
+            .contains("CODEX_APP_SERVER_MODE=proxy")
+    );
+    assert!(
+        handoff.artifact.metadata["codex_app_server_commands"]["spawn"]
+            .as_str()
+            .expect("metadata spawn command should be present")
+            .contains("make codex-app-server-run CODEX_APP_SERVER_PROMPT_FILE=")
+    );
     assert_json_file_matches_schema(
         "schemas/artifacts/developer-handoff.schema.yaml",
         handoff.manifest_path.as_path(),

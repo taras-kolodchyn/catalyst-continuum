@@ -522,7 +522,8 @@ It prints the latest briefs, sessions, and runs with the paths that matter most:
 - Clipboard-ready prompt handoff through `make dev-agent-prompt-copy AGENT=...`.
 - Codex app-server handoff through `make dev-codex-ui` with the selected session `REPO_PATH` when
   Codex should start from the generated Catalyst prompt without manual copy/paste.
-- The review markdown and agent review prompt for a run.
+- The review markdown, agent review prompt, and generated Codex app-server command for a run
+  `developer_handoff` artifact.
 - The local PR export repository, branch, commit, manifest, and combined patch when export exists.
 - A short next-action hint for each artifact type.
 
@@ -547,6 +548,11 @@ run. It is the shortest readable view of the selected package and avoids opening
 `dev-codex-ui` and `github-issue-codex-ui` are bridge commands, not a new agent runtime. The
 orchestrator still owns task packets, policy, evidence, and publication gates; Codex owns the
 interactive coding UX, sandbox behavior, and any human approval UI.
+
+When a run reaches the review stage, `generate-developer-handoff` writes a stable
+`agent-review-prompt.md` plus `codex_app_server_commands` into the handoff manifest and artifact
+metadata. The operator UI Developer tab renders those commands next to the review prompt so the
+handoff can continue in Codex from the same evidence package.
 
 After a local run, use `dev-review` when you want the review surface without the full artifact
 index. It prints the latest run summary, `review.md`, reusable agent review prompt, local PR export
