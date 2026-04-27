@@ -220,6 +220,9 @@ const screenshotPath = path.join(outDir, "operator-ui-browser.png");
 async function main() {
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({ viewport: { width: 1440, height: 1100 } });
+  await context.grantPermissions(["clipboard-read", "clipboard-write"], {
+    origin: new URL(uiUrl).origin,
+  });
   const page = await context.newPage();
   const consoleMessages = [];
   const pageErrors = [];
@@ -369,6 +372,17 @@ async function main() {
 
   await page.click('[data-mission-tab="developer"]');
   await page.waitForSelector('[data-developer-codex-command-card="true"]', { timeout: 10000 });
+  await page
+    .locator('[data-developer-codex-command-card="true"] [data-copy-command]')
+    .first()
+    .click();
+  await page.waitForFunction(() => {
+    const button = document.querySelector(
+      '[data-developer-codex-command-card="true"] [data-copy-command]'
+    );
+    return button && button.textContent.includes("Copied");
+  }, { timeout: 5000 });
+  const copiedCodexCommand = await page.evaluate(() => navigator.clipboard.readText());
 
   const summary = await page.evaluate(() => {
     const text = (selector) => document.querySelector(selector)?.textContent?.trim() || "";
@@ -517,6 +531,7 @@ async function main() {
     focusChecks,
     screenshotPath,
     eventFilterCheck,
+    copiedCodexCommand,
     ok: false,
   };
 
@@ -592,6 +607,12 @@ async function main() {
   }
   if (!summary.developerCodexIncludesCommand) {
     problems.push("developer tab should expose a runnable Codex app-server command for the handoff prompt");
+  }
+  if (
+    !copiedCodexCommand.includes("make codex-app-server-run") ||
+    !copiedCodexCommand.includes("CODEX_APP_SERVER_PROMPT_FILE=")
+  ) {
+    problems.push("developer Codex command copy action should write the runnable command to clipboard");
   }
   if (summary.developerValueCardCount < 5) {
     problems.push(`expected developer value cards, got ${summary.developerValueCardCount}`);
