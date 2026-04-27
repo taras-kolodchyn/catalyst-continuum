@@ -616,6 +616,12 @@ async function main() {
   ) {
     problems.push("developer review prompt copy action should write the portable prompt to clipboard");
   }
+  if (
+    copiedReviewPrompt.includes("artifact group(s)") ||
+    !copiedReviewPrompt.includes("artifact(s) across")
+  ) {
+    problems.push("developer review prompt evidence map should use valid artifact/type wording");
+  }
   if (summary.developerCodexPanelCount !== 1) {
     problems.push(`expected one developer Codex app-server panel, got ${summary.developerCodexPanelCount}`);
   }

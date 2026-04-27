@@ -3634,7 +3634,7 @@ function buildDeveloperReviewPrompt(
     : ["- No assigned agent lanes yet."];
   const evidenceLines = evidenceCards.map(
     (item) =>
-      `- ${item.kicker}: ${item.count}/${item.types.length} artifact group(s) recorded (${item.types.join(", ")})`
+      `- ${item.kicker}: ${item.count} artifact(s) across ${item.types.length} evidence type(s) (${item.types.join(", ")})`
   );
   const reviewLines = reviewItems.map(
     (item) => `- ${item.status}: ${item.title} - ${item.detail}`
