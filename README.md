@@ -25,7 +25,17 @@ orchestrator. It is letting Catalyst Continuum watch GitHub, turn issues or repo
 clear work packages, hand those packages to the developer's preferred agent, then track the result
 through evidence and PR gates.
 
-Run the seeded first-run demo:
+Start with the release-facing alpha guide:
+
+```bash
+make start
+```
+
+It prints the shortest path for a solo developer: demo first, then GitHub issue preview, native
+agent prompt handoff, local evidence run, review, and issue sync.
+
+Run the seeded first-run demo when you want to see the product without connecting a real
+repository:
 
 ```bash
 make solo-demo
@@ -35,39 +45,37 @@ Open the printed `/ui` URL and start with `Mission Control` -> `Developer`. That
 review package, portable Cursor/Codex/OpenHands review prompt, agent handoff, artifacts, logs, and
 next actions without needing to configure a real GitHub repository first.
 
-For real work, start from a daily developer task instead of a blank product brief:
+For real work, start with a safe GitHub issue preview:
 
 ```bash
-make github-issue-next REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE_ARGS="--label bug --limit 5"
-make github-issue-session GITHUB_ISSUE=123 REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
-make github-issue-session REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE_PR_STRATEGY=batch GITHUB_ISSUE_ARGS="--list --label bug --limit 5"
 make github-issue-plan REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE_ARGS="--label bug --limit 5"
-make github-issue-run REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE_ARGS="--label bug --limit 5"
 make github-issue-plan-review
-make github-issue-preflight
 make github-issue-preflight-strict
+make github-issue-agent-prompt-copy AGENT=codex
+```
+
+Then let Codex, Cursor, or OpenHands do the coding in its native UI. When the change is ready for
+the control-plane evidence path, run:
+
+```bash
+make github-issue-run REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE_ARGS="--label bug --limit 5" GITHUB_ISSUE_REQUIRE_CLEAN_CHECKOUT=1
 make github-issue-review
 make github-issue-next-command
 make github-issue-sync-command
-make github-issue-agent-prompt AGENT=codex
-make github-issue-agent-prompt-path AGENT=openhands
-make github-issue-agent-prompt-command AGENT=cursor
-make github-issue-agent-prompt-copy AGENT=codex
-make dev-session TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
-make dev-task-brief TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
-make dev-run TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
-make dev-run-brief BRIEF_FILE=.continuum/dev-sessions/<session>/brief.json
-make dev-run-latest-session
-make dev-latest
-make dev-next
-make dev-session-review
-make dev-agent-prompt AGENT=codex
-make dev-agent-prompt-command AGENT=cursor
-make dev-agent-prompt-copy AGENT=codex
-make dev-review
-make github-issue-sync GITHUB_ISSUE_SYNC_PR_URL=https://github.com/OWNER/REPO/pull/123 GITHUB_ISSUE_SYNC_APPLY=1
-make run-guide RUN_ID=<RUN_ID>
 ```
+
+For a daily task that is not tracked as an issue yet:
+
+```bash
+make dev-session TASK_RECIPE=fix-bug TASK="Fix the flaky login retry test" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
+make dev-agent-prompt-copy AGENT=codex
+make dev-run-latest-session
+make dev-review
+```
+
+Use [docs/solo-developer.md](docs/solo-developer.md) and
+[docs/developer-workflows.md](docs/developer-workflows.md) for the complete command reference.
+Before cutting or announcing an alpha, run `make alpha-readiness` and then `make release-check`.
 
 `github-issue-next` is the step-by-step issue broker entrypoint. It imports a bounded issue batch,
 scores the issues with deterministic repository-local heuristics, creates a session only for the
@@ -253,6 +261,8 @@ of truth.
 
 ```bash
 make help
+make start
+make alpha-readiness
 make doctor
 make check
 make ci

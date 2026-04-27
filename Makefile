@@ -3,6 +3,7 @@ SHELL := /bin/bash
 ACT_ARGS ?=
 ACT_JOB ?= rust
 AGENT ?= codex
+ALPHA_GUIDE_ARGS ?=
 ARTIFACT_ROOT ?=
 BRIEF_FILE ?=
 COMPOSE := docker compose --env-file deploy/compose/.env.example -f deploy/compose/compose.yaml
@@ -75,7 +76,7 @@ help: ## Show available Make targets.
 	@awk 'BEGIN {FS = ":.*##"; printf "Catalyst Continuum targets:\n\n"} /^[a-zA-Z0-9_.-]+:.*##/ {printf "  %-38s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 .PHONY: check
-check: doctor versions markdown-links repository-targets-smoke dev-artifacts-smoke dev-session-smoke github-issue-session-smoke github-issue-sync-smoke github-issue-workflow-smoke template-repo-check lint-shell lint-ui-assets rust ## Run the standard fast local validation set.
+check: doctor versions markdown-links alpha-guide-smoke repository-targets-smoke dev-artifacts-smoke dev-session-smoke github-issue-session-smoke github-issue-sync-smoke github-issue-workflow-smoke template-repo-check lint-shell lint-ui-assets rust ## Run the standard fast local validation set.
 
 .PHONY: doctor
 doctor: ## Run fast local readiness checks for tools, config, and optional live services.
@@ -89,6 +90,17 @@ ci-full: ci sbom ## Run broad local validation plus SBOM generation.
 
 .PHONY: release-check
 release-check: doctor ci solo-demo-check ui-smoke ui-smoke-repository-policy ui-smoke-repository-policy-blocked ## Run the v0.1 release-baseline validation gate.
+
+.PHONY: start
+start: alpha-guide ## Show the shortest alpha first-run and real-repository path.
+
+.PHONY: alpha-guide
+alpha-guide: ## Show the solo-developer alpha guide and recommended commands.
+	@./scripts/alpha-guide.sh $(if $(REPOSITORY),--repository "$(REPOSITORY)") $(if $(REPO_PATH),--repo-path "$(REPO_PATH)") $(if $(GITHUB_ISSUE),--issue "$(GITHUB_ISSUE)") $(if $(AGENT),--agent "$(AGENT)") $(if $(TASK),--task "$(TASK)") $(ALPHA_GUIDE_ARGS)
+
+.PHONY: alpha-readiness
+alpha-readiness: ## Print read-only local/GitHub readiness status before cutting alpha.
+	@./scripts/alpha-readiness.sh
 
 .PHONY: versions
 versions: ## Check pinned versions, workflow pins, and image refs.
@@ -263,6 +275,10 @@ github-issue-sync-smoke: ## Validate dry-run GitHub issue status sync plans with
 .PHONY: github-issue-workflow-smoke
 github-issue-workflow-smoke: ## Validate the GitHub issue run wrapper without live GitHub mutation.
 	./scripts/github-issue-workflow-smoke.sh
+
+.PHONY: alpha-guide-smoke
+alpha-guide-smoke: ## Validate alpha guide and release-readiness summary output.
+	./scripts/alpha-guide-smoke.sh
 
 .PHONY: dev-run
 dev-run: ## Run TASK="..." through brief, worker execution, quality, handoff, and local PR export.

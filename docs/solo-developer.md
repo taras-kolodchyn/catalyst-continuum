@@ -43,6 +43,15 @@ set should stay in one branch and one PR.
 
 ## Try The Demo Flow
 
+If you are not sure where to start, run the alpha guide first:
+
+```bash
+make start
+```
+
+It prints the shortest solo-developer path: local demo, GitHub issue preview, native-agent prompt
+handoff, evidence run, review, and release-readiness checks.
+
 Run:
 
 ```bash

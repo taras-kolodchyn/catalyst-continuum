@@ -11,6 +11,15 @@ Catalyst Continuum should be useful before a team adopts it. The solo-developer 
 The product value is not that Catalyst writes code instead of a coding agent. The value is that it
 keeps the work repeatable, reviewable, and tied to evidence.
 
+If you are evaluating the alpha and want the shortest path first, run:
+
+```bash
+make start
+```
+
+That prints the recommended demo, GitHub issue preview, native-agent handoff, evidence run, review,
+and release-readiness commands without requiring you to read the full workflow catalog.
+
 Catalyst Continuum should not make developers give up the native Codex, Cursor, or OpenHands
 experience. Those tools already provide strong interactive coding UX, host-access modes, and
 sandbox modes. The orchestrator adds value when it acts as the repository task broker: pick or

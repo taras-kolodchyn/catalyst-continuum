@@ -59,6 +59,9 @@ jobs:
       - name: Validate GitHub issue workflow smoke
         run: ./scripts/github-issue-workflow-smoke.sh
 
+      - name: Validate alpha guide smoke
+        run: ./scripts/alpha-guide-smoke.sh
+
       - name: Validate template-repo scaffolds
         run: ./scripts/check-template-repo.sh
 
