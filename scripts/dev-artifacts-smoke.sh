@@ -181,6 +181,8 @@ grep -F "openhands prompt:" "$TEXT_OUTPUT" >/dev/null
 grep -F "codex command: make dev-agent-prompt DEV_SESSION_DIR=" "$TEXT_OUTPUT" >/dev/null
 grep -F "cursor command: make dev-agent-prompt DEV_SESSION_DIR=" "$TEXT_OUTPUT" >/dev/null
 grep -F "openhands command: make dev-agent-prompt DEV_SESSION_DIR=" "$TEXT_OUTPUT" >/dev/null
+grep -F "codex app-server: make dev-codex-ui DEV_SESSION_DIR=" "$TEXT_OUTPUT" >/dev/null
+grep -F "REPO_PATH=/tmp/demo" "$TEXT_OUTPUT" >/dev/null
 grep -F "make dev-run-latest-session" "$TEXT_OUTPUT" >/dev/null
 grep -F "Latest briefs" "$TEXT_OUTPUT" >/dev/null
 grep -F "brief: $SESSION_DIR/brief.json" "$TEXT_OUTPUT" >/dev/null
@@ -254,6 +256,9 @@ assert payload["artifacts"]["sessions"][0]["current_branch"] == "main", payload
 assert payload["artifacts"]["sessions"][0]["agent_prompts"]["codex"].endswith("/codex-prompt.md"), payload
 assert "make dev-agent-prompt " in payload["artifacts"]["sessions"][0]["agent_prompt_commands"]["codex"], payload
 assert "AGENT=codex" in payload["artifacts"]["sessions"][0]["agent_prompt_commands"]["codex"], payload
+assert "make dev-codex-ui " in payload["artifacts"]["sessions"][0]["codex_app_server_commands"]["spawn"], payload
+assert "REPO_PATH=/tmp/demo" in payload["artifacts"]["sessions"][0]["codex_app_server_commands"]["spawn"], payload
+assert "CODEX_APP_SERVER_MODE=proxy" in payload["artifacts"]["sessions"][0]["codex_app_server_commands"]["proxy"], payload
 assert payload["artifacts"]["briefs"][0]["recipe"] == "fix-bug", payload
 PY
 
@@ -291,10 +296,14 @@ grep -F "runbook: $SESSION_DIR/README.md" "$SESSION_REVIEW_OUTPUT" >/dev/null
 grep -F "codex prompt: $SESSION_DIR/codex-prompt.md" "$SESSION_REVIEW_OUTPUT" >/dev/null
 grep -F "Agent prompt commands" "$SESSION_REVIEW_OUTPUT" >/dev/null
 grep -F "codex: make dev-agent-prompt DEV_SESSION_DIR=" "$SESSION_REVIEW_OUTPUT" >/dev/null
+grep -F "Codex app-server commands" "$SESSION_REVIEW_OUTPUT" >/dev/null
+grep -F "spawn: make dev-codex-ui DEV_SESSION_DIR=" "$SESSION_REVIEW_OUTPUT" >/dev/null
+grep -F "proxy: make dev-codex-ui DEV_SESSION_DIR=" "$SESSION_REVIEW_OUTPUT" >/dev/null
 grep -F "Validation commands" "$SESSION_REVIEW_OUTPUT" >/dev/null
 grep -F -- "- make check" "$SESSION_REVIEW_OUTPUT" >/dev/null
 grep -F "Suggested session commands" "$SESSION_REVIEW_OUTPUT" >/dev/null
 grep -F "sed -n '1,220p'" "$SESSION_REVIEW_OUTPUT" >/dev/null
+grep -F "make dev-codex-ui DEV_SESSION_DIR=" "$SESSION_REVIEW_OUTPUT" >/dev/null
 grep -F "make dev-run-brief BRIEF_FILE=" "$SESSION_REVIEW_OUTPUT" >/dev/null
 grep -F "make dev-run-latest-session" "$SESSION_REVIEW_OUTPUT" >/dev/null
 grep -F "Catalyst Continuum developer session review" "$TMP_DIR/dev-session-review-make.txt" >/dev/null

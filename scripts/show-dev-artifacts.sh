@@ -249,6 +249,16 @@ def agent_prompt_commands(session_dir: str, prompts: dict[str, str]) -> dict[str
     }
 
 
+def codex_app_server_commands(session_dir: str, repo_path: Any) -> dict[str, str]:
+    command = "make dev-codex-ui " f"{make_assignment('DEV_SESSION_DIR', session_dir)}"
+    if repo_path:
+        command += " " f"{make_assignment('REPO_PATH', str(repo_path))}"
+    return {
+        "spawn": command,
+        "proxy": f"{command} CODEX_APP_SERVER_MODE=proxy",
+    }
+
+
 def brief_items() -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     for path in (root / "dev-briefs").glob("*.json"):
@@ -285,6 +295,7 @@ def session_items() -> list[dict[str, Any]]:
         prompt_files = manifest.get("agent_prompts") or {}
         prompts = load_agent_prompts(manifest_path, manifest)
         session_dir = str(manifest_path.parent.resolve())
+        repo_path = repository_context.get("repo_path") or manifest.get("repo_path")
         validation_commands = manifest.get("validation_commands")
         if not isinstance(validation_commands, list):
             validation_commands = []
@@ -307,7 +318,7 @@ def session_items() -> list[dict[str, Any]]:
                 "runbook_path": optional_existing_file(
                     manifest.get("runbook_path") or "README.md", manifest_path.parent
                 ),
-                "repo_path": repository_context.get("repo_path") or manifest.get("repo_path"),
+                "repo_path": repo_path,
                 "current_branch": repository_context.get("current_branch"),
                 "head_sha": repository_context.get("head_sha"),
                 "origin_url": repository_context.get("origin_url"),
@@ -315,6 +326,9 @@ def session_items() -> list[dict[str, Any]]:
                 "validation_commands": [str(command) for command in validation_commands if command],
                 "agent_prompts": prompts,
                 "agent_prompt_commands": agent_prompt_commands(session_dir, prompts),
+                "codex_app_server_commands": codex_app_server_commands(session_dir, repo_path)
+                if prompts.get("codex")
+                else {},
                 "codex_prompt_path": prompts.get(
                     "codex", str(manifest_path.parent / prompt_files.get("codex", "codex-prompt.md"))
                 ),
@@ -626,6 +640,8 @@ def print_latest_session_review() -> None:
     prompts = prompts if isinstance(prompts, dict) else {}
     prompt_commands = session.get("agent_prompt_commands")
     prompt_commands = prompt_commands if isinstance(prompt_commands, dict) else {}
+    codex_commands = session.get("codex_app_server_commands")
+    codex_commands = codex_commands if isinstance(codex_commands, dict) else {}
     validation_commands = session.get("validation_commands")
     validation_commands = validation_commands if isinstance(validation_commands, list) else []
 
@@ -713,6 +729,16 @@ def print_latest_session_review() -> None:
         print("none")
 
     print("")
+    print("Codex app-server commands")
+    if codex_commands:
+        if codex_commands.get("spawn"):
+            print(f"spawn: {codex_commands['spawn']}")
+        if codex_commands.get("proxy"):
+            print(f"proxy: {codex_commands['proxy']}")
+    else:
+        print("none")
+
+    print("")
     print("Validation commands")
     if validation_commands:
         for command in validation_commands:
@@ -728,6 +754,8 @@ def print_latest_session_review() -> None:
         print(f"sed -n '1,220p' {shell_quote(session['runbook_path'])}")
     for command in sorted(prompt_commands.values()):
         print(command)
+    if codex_commands.get("spawn"):
+        print(codex_commands["spawn"])
     if session.get("brief_path"):
         print(f"make dev-run-brief BRIEF_FILE={shell_quote(session['brief_path'])}")
     print("make dev-run-latest-session")
@@ -814,9 +842,12 @@ def print_section(title: str, items: list[dict[str, Any]]) -> None:
             if isinstance(prompt_commands, dict):
                 for agent, command in sorted(prompt_commands.items()):
                     print(f"   {agent} command: {command}")
+            codex_commands = item.get("codex_app_server_commands")
+            if isinstance(codex_commands, dict) and codex_commands.get("spawn"):
+                print(f"   codex app-server: {codex_commands['spawn']}")
             print(
-                "   next: hand the prompt to Codex/Cursor/OpenHands or run the newest session with "
-                "`make dev-run-latest-session`."
+                "   next: hand the prompt to Codex/Cursor/OpenHands, start Codex with `make dev-codex-ui`, "
+                "or run the newest session with `make dev-run-latest-session`."
             )
         elif item["kind"] == "run":
             pr_export = item["pr_export"]

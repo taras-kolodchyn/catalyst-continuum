@@ -170,10 +170,11 @@ session, `run-summary.json`, PR export evidence, and GitHub issue sync plan.
 The same output directory also contains `workflow-report.md`, which is the developer-facing report.
 It summarizes the workflow outcome, selected GitHub issue titles/URLs/labels when recorded,
 session, copy-ready Codex/Cursor/OpenHands prompt commands, run evidence, PR export branch/commit,
-draft PR URL when present, issue-sync plan, and the next human review step. It also embeds
-ready-to-run review commands for reopening the report, inspecting JSON artifacts, reading the
-generated issue-sync plan/comment, and asking Catalyst for the reviewed issue-sync apply command.
-Use it as the first artifact to read after a run succeeds or fails.
+Codex app-server commands with the selected `REPO_PATH`, draft PR URL when present, issue-sync plan,
+and the next human review step. It also embeds ready-to-run review commands for reopening the
+report, inspecting JSON artifacts, reading the generated issue-sync plan/comment, starting Codex from
+the generated prompt, and asking Catalyst for the reviewed issue-sync apply command. Use it as the
+first artifact to read after a run succeeds or fails.
 
 To rediscover that report later:
 
@@ -196,8 +197,9 @@ make github-issue-codex-ui
 posture, and the recommended next action.
 `github-issue-plan-review` prints the latest or selected plan package with selected issue refs,
 session manifest, brief, context files, prompt commands, planned GitHub mutations, publication
-policy, read-only preflight checks, setup commands, and the exact next command. Use it after
-`github-issue-plan` before handing work to a native agent or running the workflow for real.
+policy, read-only preflight checks, setup commands, Codex app-server commands, and the exact next
+command. Use it after `github-issue-plan` before handing work to a native agent or running the
+workflow for real.
 `github-issue-preflight` executes only those read-only checks: local checkout status, remotes, and
 GitHub repository access. It prints repository-target bootstrap commands as setup guidance but does
 not run them automatically.
@@ -518,8 +520,8 @@ It prints the latest briefs, sessions, and runs with the paths that matter most:
   commands, and the matching `dev-run-brief` command.
 - Copy-ready `make dev-agent-prompt ... AGENT=...` commands for continuing in the agent UI.
 - Clipboard-ready prompt handoff through `make dev-agent-prompt-copy AGENT=...`.
-- Codex app-server handoff through `make dev-codex-ui` when Codex should start from the generated
-  Catalyst prompt without manual copy/paste.
+- Codex app-server handoff through `make dev-codex-ui` with the selected session `REPO_PATH` when
+  Codex should start from the generated Catalyst prompt without manual copy/paste.
 - The review markdown and agent review prompt for a run.
 - The local PR export repository, branch, commit, manifest, and combined patch when export exists.
 - A short next-action hint for each artifact type.

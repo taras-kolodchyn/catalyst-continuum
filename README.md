@@ -209,8 +209,9 @@ export, and recommended next action.
 you want to wire the flow into shell automation.
 
 `dev-session-review` is the focused pre-run handoff view. It prints the latest or selected session
-manifest, checkout state, brief, runbook, agent prompt paths, prompt commands, validation commands,
-and the exact `dev-run-brief` command for moving that same package into the control plane.
+manifest, checkout state, brief, runbook, agent prompt paths, prompt commands, Codex app-server
+commands with the session `REPO_PATH`, validation commands, and the exact `dev-run-brief` command
+for moving that same package into the control plane.
 
 `dev-agent-prompt` prints the generated Codex, Cursor, or OpenHands prompt from the latest or
 selected `.continuum/dev-sessions/` package. Use `dev-agent-prompt-path` for shell launchers that

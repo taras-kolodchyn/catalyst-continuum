@@ -189,6 +189,8 @@ for prompt_name in ("codex-prompt.md", "cursor-prompt.md", "openhands-prompt.md"
 readme = (session_dir / "README.md").read_text(encoding="utf-8")
 assert "GitHub Issue" in readme, readme
 assert "native UI or sandbox mode" in readme, readme
+assert "Codex App-Server Handoff" in readme, readme
+assert "make dev-codex-ui " in readme, readme
 assert "PR strategy: `per-issue`" in readme, readme
 PY
 
@@ -207,6 +209,7 @@ PY
 grep -F "Run the newest GitHub issue session through the control plane" "$LATEST_OUTPUT" >/dev/null
 grep -F "github issue: smartit/github-issue-session-smoke#42 - Fix flaky retry policy smoke" "$LATEST_OUTPUT" >/dev/null
 grep -F "issue context:" "$LATEST_OUTPUT" >/dev/null
+grep -F "codex app-server: make dev-codex-ui DEV_SESSION_DIR=" "$LATEST_OUTPUT" >/dev/null
 
 ./scripts/create-github-issue-session.sh \
   --issue-json "$ISSUES_JSON" \
@@ -329,6 +332,7 @@ for prompt_name in ("codex-prompt.md", "cursor-prompt.md", "openhands-prompt.md"
 readme = (session_dir / "README.md").read_text(encoding="utf-8")
 assert "GitHub Issue Batch" in readme, readme
 assert "PR strategy: `batch`" in readme, readme
+assert "Codex App-Server Handoff" in readme, readme
 
 assert plan["requested_pr_strategy"] == "batch", plan
 assert plan["pr_strategy"]["mode"] == "batch", plan
@@ -347,5 +351,6 @@ PY
 grep -F "Run the newest GitHub issue batch through the control plane" "$BATCH_LATEST_OUTPUT" >/dev/null
 grep -F "github issue batch: smartit/github-issue-session-smoke [#7, #42, #9]" "$BATCH_LATEST_OUTPUT" >/dev/null
 grep -F "pr strategy: batch" "$BATCH_LATEST_OUTPUT" >/dev/null
+grep -F "codex app-server: make dev-codex-ui DEV_SESSION_DIR=" "$BATCH_LATEST_OUTPUT" >/dev/null
 
 echo "github_issue_session_smoke=ok"

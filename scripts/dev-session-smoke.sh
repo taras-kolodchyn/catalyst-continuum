@@ -59,6 +59,10 @@ assert manifest["repository_context"]["head_sha"], manifest
 assert manifest["repository_context"]["dirty_file_count"] == 1, manifest
 assert brief["metadata"]["task_recipe"] == "add-tests", brief
 assert brief["execution_preferences"]["repo_pack"] == "cli-tool", brief
+assert "make dev-codex-ui " in manifest["codex_app_server_commands"]["spawn"], manifest
+assert f"DEV_SESSION_DIR={session_dir}" in manifest["codex_app_server_commands"]["spawn"], manifest
+assert "REPO_PATH=" in manifest["codex_app_server_commands"]["spawn"], manifest
+assert "CODEX_APP_SERVER_MODE=proxy" in manifest["codex_app_server_commands"]["proxy"], manifest
 assert manifest["prompt_contract"] == {
     "repo_pack": "cli-tool",
     "default_runtime_provider": "docker",
@@ -91,6 +95,8 @@ readme = (session_dir / "README.md").read_text(encoding="utf-8")
 assert "Use The Session" in readme, readme
 assert "Brief Contract" in readme, readme
 assert "Delivery Report Contract" in readme, readme
+assert "Codex App-Server Handoff" in readme, readme
+assert "make dev-codex-ui " in readme, readme
 assert "developer_handoff" in readme, readme
 PY
 

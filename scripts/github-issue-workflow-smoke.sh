@@ -496,6 +496,9 @@ assert plan["agent_handoff"]["prompts"]["cursor"].endswith("/cursor-prompt.md"),
 assert plan["agent_handoff"]["prompts"]["openhands"].endswith("/openhands-prompt.md"), plan
 assert "make github-issue-agent-prompt " in plan["agent_handoff"]["prompt_commands"]["codex"], plan
 assert "AGENT=codex" in plan["agent_handoff"]["prompt_commands"]["codex"], plan
+assert "make github-issue-codex-ui " in plan["agent_handoff"]["codex_app_server_commands"]["spawn"], plan
+assert "REPO_PATH=" in plan["agent_handoff"]["codex_app_server_commands"]["spawn"], plan
+assert "CODEX_APP_SERVER_MODE=proxy" in plan["agent_handoff"]["codex_app_server_commands"]["proxy"], plan
 context_labels = [item["label"] for item in plan["agent_handoff"]["context_files"]]
 assert context_labels == [
     "brief",
@@ -512,6 +515,9 @@ assert "- codex: `" in markdown, markdown
 assert "Prompt commands:" in markdown, markdown
 assert "make github-issue-agent-prompt GITHUB_ISSUE_WORKFLOW_DIR=" in markdown, markdown
 assert "AGENT=codex" in markdown, markdown
+assert "Codex app-server commands:" in markdown, markdown
+assert "make github-issue-codex-ui GITHUB_ISSUE_WORKFLOW_DIR=" in markdown, markdown
+assert "CODEX_APP_SERVER_MODE=proxy" in markdown, markdown
 assert "- issue_context: `" in markdown, markdown
 assert "## Planned Actions" in markdown, markdown
 assert "- Require clean checkout before execution: `yes`" in markdown, markdown
@@ -605,6 +611,9 @@ grep -F "brief:" "$TMP_DIR/plan-review.out" >/dev/null
 grep -F "session manifest:" "$TMP_DIR/plan-review.out" >/dev/null
 grep -F "Agent prompt commands" "$TMP_DIR/plan-review.out" >/dev/null
 grep -F "codex: make github-issue-agent-prompt GITHUB_ISSUE_WORKFLOW_DIR=" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "Codex app-server commands" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "spawn: make github-issue-codex-ui GITHUB_ISSUE_WORKFLOW_DIR=" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "proxy: make github-issue-codex-ui GITHUB_ISSUE_WORKFLOW_DIR=" "$TMP_DIR/plan-review.out" >/dev/null
 grep -F "Context files" "$TMP_DIR/plan-review.out" >/dev/null
 grep -F "issue_context:" "$TMP_DIR/plan-review.out" >/dev/null
 grep -F "Planned actions" "$TMP_DIR/plan-review.out" >/dev/null
@@ -623,6 +632,7 @@ grep -F "Bootstrap repository-target policy: make repository-targets-bootstrap R
 grep -F "Suggested plan commands" "$TMP_DIR/plan-review.out" >/dev/null
 grep -F "make github-issue-preflight GITHUB_ISSUE_WORKFLOW_DIR=" "$TMP_DIR/plan-review.out" >/dev/null
 grep -F "make github-issue-preflight-strict GITHUB_ISSUE_WORKFLOW_DIR=" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "make github-issue-codex-ui GITHUB_ISSUE_WORKFLOW_DIR=" "$TMP_DIR/plan-review.out" >/dev/null
 grep -F "./scripts/run-github-issue-workflow.sh" "$TMP_DIR/plan-review.out" >/dev/null
 
 make github-issue-plan-review \
@@ -729,6 +739,8 @@ assert workflow["preflight"]["repo_path"].endswith("/catalyst-continuum"), paylo
 assert workflow["preflight"]["warnings"], payload
 assert len(workflow["preflight"]["checks"]) == 3, payload
 assert len(workflow["preflight"]["setup_commands"]) == 1, payload
+assert "make github-issue-codex-ui " in workflow["codex_app_server_commands"]["spawn"], payload
+assert "CODEX_APP_SERVER_MODE=proxy" in workflow["codex_app_server_commands"]["proxy"], payload
 context_labels = [item["label"] for item in workflow["plan_context_files"]]
 assert context_labels == [
     "brief",
@@ -875,6 +887,7 @@ assert plan["issues"] == [
 ], plan
 assert plan["agent_handoff"]["prompts"]["codex"].endswith("/codex-prompt.md"), plan
 assert "AGENT=codex" in plan["agent_handoff"]["prompt_commands"]["codex"], plan
+assert "make github-issue-codex-ui " in plan["agent_handoff"]["codex_app_server_commands"]["spawn"], plan
 batch_context_labels = [item["label"] for item in plan["agent_handoff"]["context_files"]]
 assert batch_context_labels == [
     "brief",
@@ -934,6 +947,7 @@ summary = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
 report = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
 assert summary["repository_full_name"] == "smartit/github-issue-workflow-smoke", summary
 assert summary["pr_strategy"] == "per-issue", summary
+assert summary["repo_path"].endswith("/catalyst-continuum"), summary
 assert summary["report"]["markdown"].endswith("/workflow-report.md"), summary
 assert summary["issue_claim"]["requested"] is True, summary
 assert summary["issue_claim"]["applied"] is True, summary
@@ -961,6 +975,9 @@ assert "## Review Commands" in report, report
 assert "## Agent Prompt Commands" in report, report
 assert "make github-issue-agent-prompt GITHUB_ISSUE_WORKFLOW_DIR=" in report, report
 assert "AGENT=codex" in report, report
+assert "## Codex App-Server Commands" in report, report
+assert "make github-issue-codex-ui GITHUB_ISSUE_WORKFLOW_DIR=" in report, report
+assert "CODEX_APP_SERVER_MODE=proxy" in report, report
 assert "make github-issue-review GITHUB_ISSUE_WORKFLOW_DIR=" in report, report
 assert "make github-issue-sync-command GITHUB_ISSUE_WORKFLOW_DIR=" in report, report
 assert "sed -n '1,220p'" in report, report
@@ -977,6 +994,7 @@ grep -F "command: make github-issue-review" "$TMP_DIR/per-issue-latest.out" >/de
 grep -F "issues: #7" "$TMP_DIR/per-issue-latest.out" >/dev/null
 grep -F "session manifest:" "$TMP_DIR/per-issue-latest.out" >/dev/null
 grep -F "agent prompts: codex=" "$TMP_DIR/per-issue-latest.out" >/dev/null
+grep -F "codex app-server: make github-issue-codex-ui GITHUB_ISSUE_WORKFLOW_DIR=" "$TMP_DIR/per-issue-latest.out" >/dev/null
 grep -F "Issue sync apply command" "$TMP_DIR/per-issue-latest.out" >/dev/null
 grep -F "command: make github-issue-sync" "$TMP_DIR/per-issue-latest.out" >/dev/null
 grep -F "issue sync: ready-for-review (dry-run)" "$TMP_DIR/per-issue-latest.out" >/dev/null
@@ -1018,6 +1036,7 @@ grep -F "session manifest:" "$TMP_DIR/per-issue-review.out" >/dev/null
 grep -F "agent prompts: codex=" "$TMP_DIR/per-issue-review.out" >/dev/null
 grep -F "# GitHub Issue Workflow Report" "$TMP_DIR/per-issue-review.out" >/dev/null
 grep -F "make github-issue-agent-prompt" "$TMP_DIR/per-issue-review.out" >/dev/null
+grep -F "make github-issue-codex-ui" "$TMP_DIR/per-issue-review.out" >/dev/null
 grep -F "AGENT=codex" "$TMP_DIR/per-issue-review.out" >/dev/null
 grep -F "AGENT=cursor" "$TMP_DIR/per-issue-review.out" >/dev/null
 grep -F "AGENT=openhands" "$TMP_DIR/per-issue-review.out" >/dev/null
@@ -1053,6 +1072,8 @@ assert payload["workflows"][0]["issue_refs"] == "#7 Patch critical prompt inject
 assert payload["workflows"][0]["agent_prompts"]["codex"].endswith("/codex-prompt.md"), payload
 assert payload["workflows"][0]["agent_prompts"]["cursor"].endswith("/cursor-prompt.md"), payload
 assert payload["workflows"][0]["agent_prompts"]["openhands"].endswith("/openhands-prompt.md"), payload
+assert "make github-issue-codex-ui " in payload["workflows"][0]["codex_app_server_commands"]["spawn"], payload
+assert "CODEX_APP_SERVER_MODE=proxy" in payload["workflows"][0]["codex_app_server_commands"]["proxy"], payload
 assert "make github-issue-agent-prompt " in payload["workflows"][0]["agent_prompt_commands"]["codex"], payload
 assert "AGENT=codex" in payload["workflows"][0]["agent_prompt_commands"]["codex"], payload
 assert payload["workflows"][0]["issues"] == [

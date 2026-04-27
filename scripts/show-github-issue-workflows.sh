@@ -273,12 +273,34 @@ def load_agent_prompts(manifest_path: pathlib.Path) -> dict[str, str]:
     return prompts
 
 
+def load_session_repo_path(manifest_path: pathlib.Path) -> str | None:
+    manifest = read_json(manifest_path)
+    if not isinstance(manifest, dict):
+        return None
+    repository_context = manifest.get("repository_context")
+    if isinstance(repository_context, dict) and repository_context.get("repo_path"):
+        return str(repository_context["repo_path"])
+    if manifest.get("repo_path"):
+        return str(manifest["repo_path"])
+    return None
+
+
 def agent_prompt_commands(workflow_dir: str, prompts: dict[str, str]) -> dict[str, str]:
     return {
         agent: "make github-issue-agent-prompt "
         f"{make_assignment('GITHUB_ISSUE_WORKFLOW_DIR', workflow_dir)} "
         f"AGENT={shell_quote(agent)}"
         for agent in sorted(prompts)
+    }
+
+
+def codex_app_server_commands(workflow_dir: str, repo_path: Any) -> dict[str, str]:
+    command = "make github-issue-codex-ui " f"{make_assignment('GITHUB_ISSUE_WORKFLOW_DIR', workflow_dir)}"
+    if repo_path:
+        command += " " f"{make_assignment('REPO_PATH', str(repo_path))}"
+    return {
+        "spawn": command,
+        "proxy": f"{command} CODEX_APP_SERVER_MODE=proxy",
     }
 
 
@@ -332,12 +354,17 @@ def workflow_item(summary_path: pathlib.Path) -> dict[str, Any] | None:
     session_manifest = None
     issues: list[dict[str, Any]] = []
     agent_prompts: dict[str, str] = {}
+    repo_path = optional_path(summary.get("repo_path"))
+    preflight = plan_payload.get("preflight")
+    if not repo_path and isinstance(preflight, dict):
+        repo_path = optional_path(preflight.get("repo_path"))
     if session_dir:
         candidate = pathlib.Path(session_dir) / "manifest.json"
         if candidate.is_file():
             session_manifest = str(candidate.resolve())
             issues = load_manifest_issues(candidate)
             agent_prompts = load_agent_prompts(candidate)
+            repo_path = load_session_repo_path(candidate) or repo_path
     workflow_dir = str(summary_path.parent)
     return {
         "path": workflow_dir,
@@ -349,8 +376,12 @@ def workflow_item(summary_path: pathlib.Path) -> dict[str, Any] | None:
         "pr_strategy": summary.get("pr_strategy"),
         "session_dir": session_dir,
         "session_manifest": session_manifest,
+        "repo_path": repo_path,
         "agent_prompts": agent_prompts,
         "agent_prompt_commands": agent_prompt_commands(workflow_dir, agent_prompts),
+        "codex_app_server_commands": codex_app_server_commands(workflow_dir, repo_path)
+        if agent_prompts.get("codex")
+        else {},
         "issues": issues,
         "issue_refs": issue_refs(issues),
         "brief_file": optional_path(session.get("brief_file")),
@@ -625,6 +656,9 @@ def print_workflow(item: dict[str, Any], index: int) -> None:
         prompts = item["agent_prompts"]
         prompt_refs = ", ".join(f"{agent}={path}" for agent, path in sorted(prompts.items()))
         print(f"   agent prompts: {prompt_refs}")
+    codex_commands = item.get("codex_app_server_commands")
+    if isinstance(codex_commands, dict) and codex_commands.get("spawn"):
+        print(f"   codex app-server: {codex_commands['spawn']}")
     if item.get("run_summary"):
         print(f"   run summary: {item['run_summary']}")
     if item.get("draft_pr_url"):
@@ -661,6 +695,8 @@ def print_report() -> None:
         prompts = selected["agent_prompts"]
         prompt_refs = ", ".join(f"{agent}={path}" for agent, path in sorted(prompts.items()))
         print(f"agent prompts: {prompt_refs}")
+    codex_commands = selected.get("codex_app_server_commands")
+    codex_commands = codex_commands if isinstance(codex_commands, dict) else {}
     report_path = selected.get("report_path")
     plan_report_path = selected.get("plan_report_path")
     if report_path:
@@ -682,6 +718,8 @@ def print_report() -> None:
     if isinstance(prompt_commands, dict):
         for _, command in sorted(prompt_commands.items()):
             print(command)
+    if codex_commands.get("spawn"):
+        print(codex_commands["spawn"])
     if report_path:
         print(f"sed -n '1,260p' {shell_quote(report_path)}")
     if selected.get("issue_sync_plan"):
@@ -730,6 +768,18 @@ def print_plan_review() -> None:
     if isinstance(prompt_commands, dict) and prompt_commands:
         for agent, command in sorted(prompt_commands.items()):
             print(f"{agent}: {command}")
+    else:
+        print("none")
+
+    print("")
+    print("Codex app-server commands")
+    codex_commands = selected.get("codex_app_server_commands")
+    codex_commands = codex_commands if isinstance(codex_commands, dict) else {}
+    if codex_commands:
+        if codex_commands.get("spawn"):
+            print(f"spawn: {codex_commands['spawn']}")
+        if codex_commands.get("proxy"):
+            print(f"proxy: {codex_commands['proxy']}")
     else:
         print("none")
 
@@ -811,6 +861,8 @@ def print_plan_review() -> None:
     if isinstance(prompt_commands, dict):
         for _, command in sorted(prompt_commands.items()):
             print(command)
+    if codex_commands.get("spawn"):
+        print(codex_commands["spawn"])
     if selected.get("next_command"):
         print(selected["next_command"])
 

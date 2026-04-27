@@ -216,6 +216,7 @@ import json
 import os
 import pathlib
 import subprocess
+import shlex
 import uuid
 
 output_dir = pathlib.Path(os.environ["OUTPUT_DIR"])
@@ -306,6 +307,10 @@ def scalar_text(value: object, *, fallback: str = "not configured") -> str:
     return text if text else fallback
 
 
+def shell_quote(value: object) -> str:
+    return shlex.quote(str(value))
+
+
 execution_preferences = brief.get("execution_preferences")
 execution_preferences = execution_preferences if isinstance(execution_preferences, dict) else {}
 policy = brief.get("policy")
@@ -366,6 +371,12 @@ prompt_files = {
     "cursor": "cursor-prompt.md",
     "openhands": "openhands-prompt.md",
 }
+dev_codex_ui_command = (
+    "make dev-codex-ui "
+    f"DEV_SESSION_DIR={shell_quote(output_dir)} "
+    f"REPO_PATH={shell_quote(repo_path)}"
+)
+dev_codex_ui_proxy_command = f"{dev_codex_ui_command} CODEX_APP_SERVER_MODE=proxy"
 
 manifest = {
     "schema_version": "v0.1",
@@ -379,6 +390,10 @@ manifest = {
     "repository_context": repository_context,
     "brief_path": "brief.json",
     "agent_prompts": prompt_files,
+    "codex_app_server_commands": {
+        "spawn": dev_codex_ui_command,
+        "proxy": dev_codex_ui_proxy_command,
+    },
     "validation_commands": commands,
     "agents_guidance_path": agents_path or None,
     "prompt_contract": {
@@ -393,6 +408,7 @@ manifest = {
     "next_steps": [
         "Review brief.json before handing work to an agent.",
         "Use the matching agent prompt for Codex, Cursor, or OpenHands.",
+        "Use make dev-codex-ui when you want Catalyst to start the Codex prompt through app-server.",
         "Run the listed validation commands before trusting the change.",
         "Submit the brief to Catalyst Continuum when you want durable orchestration evidence.",
         "Generate developer_handoff after the run to preserve review evidence.",
@@ -517,6 +533,21 @@ Cursor, OpenHands, or another coding agent start from the same structured contex
 3. Run the validation commands before trusting the result.
 4. Submit `brief.json` to Catalyst Continuum when you want durable run evidence.
 5. Generate `developer_handoff` after the run so review context is not lost.
+
+## Codex App-Server Handoff
+
+From the Catalyst repository root, run this when you want Catalyst to start the generated Codex
+prompt through Codex app-server and preserve thread/turn evidence:
+
+```bash
+{dev_codex_ui_command}
+```
+
+Use proxy mode only when a Codex Desktop or IDE app-server control socket is already running:
+
+```bash
+{dev_codex_ui_proxy_command}
+```
 
 ## Validation Commands
 

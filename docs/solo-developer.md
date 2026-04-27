@@ -132,8 +132,8 @@ the imported issues should stay in one branch and one PR.
 
 After the workflow finishes, open `workflow-report.md` from the printed workflow output directory
 first. It is the readable handoff: outcome, selected session, copy-ready Codex/Cursor/OpenHands
-prompt commands, run evidence, PR export branch and commit, draft PR URL when available, issue-sync
-status, and the next review action.
+prompt commands, Codex app-server commands with the selected `REPO_PATH`, run evidence, PR export
+branch and commit, draft PR URL when available, issue-sync status, and the next review action.
 
 If you need to find it later, run:
 
@@ -155,8 +155,9 @@ body. It shows the selected issue refs, session manifest, PR handoff, and issue-
 specific workflow output directory, pass `GITHUB_ISSUE_WORKFLOW_DIR=/path/to/workflow-output`. Use
 `make github-issue-plan-review` after a plan-only preview when you want the selected issue package,
 session manifest, context files, prompt commands, planned GitHub mutations, publication policy,
-read-only preflight checks, setup commands, and next run command in one focused view. Use
-`make github-issue-preflight` when you want Catalyst to run the read-only checks but leave
+read-only preflight checks, setup commands, Codex app-server commands, and next run command in one
+focused view. Use `make github-issue-preflight` when you want Catalyst to run the read-only checks
+but leave
 repository-target bootstrap as an explicit setup step. Use `make github-issue-preflight-strict`
 before handing the planned issue package to an agent so a dirty local checkout fails fast. For real
 runs, also pass `GITHUB_ISSUE_REQUIRE_CLEAN_CHECKOUT=1` so the workflow blocks before issue claim or
@@ -323,8 +324,8 @@ script needs the recommended command.
 
 Use `make dev-session-review` before handing a generated package to Codex, Cursor, or OpenHands. It
 prints the selected session manifest, checkout state, brief, runbook, prompt paths, prompt commands,
-validation commands, and the exact `make dev-run-brief ...` command for keeping the later run tied
-to the same input.
+Codex app-server commands with the selected session `REPO_PATH`, validation commands, and the exact
+`make dev-run-brief ...` command for keeping the later run tied to the same input.
 
 Use `make dev-agent-prompt AGENT=codex`, `AGENT=cursor`, or `AGENT=openhands` when you want the
 latest generated session prompt without opening `.continuum/dev-sessions/` manually. Use

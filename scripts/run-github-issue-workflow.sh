@@ -504,6 +504,7 @@ write_workflow_summary() {
   WORKFLOW_SUMMARY="$WORKFLOW_SUMMARY" \
   REPOSITORY="$REPOSITORY" \
   PR_STRATEGY="$PR_STRATEGY" \
+  REPO_PATH="$REPO_PATH" \
   REQUIRE_CLEAN_CHECKOUT="$REQUIRE_CLEAN_CHECKOUT" \
   EXECUTION_GUARD_BLOCKED="$EXECUTION_GUARD_BLOCKED" \
   SESSION_OUTPUT="$SESSION_OUTPUT" \
@@ -558,6 +559,7 @@ payload = {
     "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
     "repository_full_name": os.environ["REPOSITORY"],
     "pr_strategy": os.environ["PR_STRATEGY"],
+    "repo_path": os.environ["REPO_PATH"],
     "workflow_output_dir": os.environ["WORKFLOW_OUTPUT_DIR"],
     "execution_guard": {
         "require_clean_checkout": os.environ["REQUIRE_CLEAN_CHECKOUT"] == "1",
@@ -716,6 +718,18 @@ def agent_prompt_commands(workflow_dir: Any, prompts: dict[str, str]) -> dict[st
     }
 
 
+def codex_app_server_commands(workflow_dir: Any, repo_path: Any, prompts: dict[str, str]) -> dict[str, str]:
+    if not workflow_dir or "codex" not in prompts:
+        return {}
+    command = "make github-issue-codex-ui " f"{make_assignment('GITHUB_ISSUE_WORKFLOW_DIR', workflow_dir)}"
+    if repo_path:
+        command += " " f"{make_assignment('REPO_PATH', repo_path)}"
+    return {
+        "spawn": command,
+        "proxy": f"{command} CODEX_APP_SERVER_MODE=proxy",
+    }
+
+
 def label_names(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
@@ -867,6 +881,7 @@ issue_sync = summary.get("issue_sync") or {}
 issues = load_session_issues(session.get("dir"))
 agent_prompts = load_agent_prompts(session.get("dir"))
 prompt_commands = agent_prompt_commands(summary.get("workflow_output_dir"), agent_prompts)
+codex_commands = codex_app_server_commands(summary.get("workflow_output_dir"), summary.get("repo_path"), agent_prompts)
 commands = review_commands(summary.get("workflow_output_dir"), summary_path, issue_sync)
 
 next_steps: list[str]
@@ -915,6 +930,24 @@ if prompt_commands:
     markdown.append("```bash")
     markdown.extend(prompt_commands.values())
     markdown.append("```")
+else:
+    markdown.append("- `not recorded`")
+markdown.extend([
+    "",
+    "## Codex App-Server Commands",
+    "",
+])
+if codex_commands:
+    markdown.append("```bash")
+    if codex_commands.get("spawn"):
+        markdown.append(codex_commands["spawn"])
+    if codex_commands.get("proxy"):
+        markdown.append(codex_commands["proxy"])
+    markdown.append("```")
+    markdown.append("")
+    markdown.append(
+        "Use `proxy` mode only when a Codex Desktop or IDE app-server control socket is already running."
+    )
 else:
     markdown.append("- `not recorded`")
 markdown.extend([
@@ -1231,6 +1264,18 @@ def agent_prompt_commands(workflow_dir: str, prompts: dict[str, str]) -> dict[st
     }
 
 
+def codex_app_server_commands(workflow_dir: str, repo_path: str, prompts: dict[str, str]) -> dict[str, str]:
+    if not workflow_dir or "codex" not in prompts:
+        return {}
+    command = "make github-issue-codex-ui " f"{make_assignment('GITHUB_ISSUE_WORKFLOW_DIR', workflow_dir)}"
+    if repo_path:
+        command += " " f"{make_assignment('REPO_PATH', repo_path)}"
+    return {
+        "spawn": command,
+        "proxy": f"{command} CODEX_APP_SERVER_MODE=proxy",
+    }
+
+
 def agent_handoff(session_dir: pathlib.Path, manifest_path: pathlib.Path, manifest: dict[str, Any]) -> dict[str, Any]:
     prompts: dict[str, str] = {}
     prompt_files = manifest.get("agent_prompts")
@@ -1298,6 +1343,19 @@ def handoff_markdown(handoff: dict[str, Any]) -> list[str]:
         lines.extend(["", "Prompt commands:", "```bash"])
         lines.extend(str(command) for _, command in sorted(prompt_commands.items()))
         lines.append("```")
+
+    codex_commands = handoff.get("codex_app_server_commands")
+    if isinstance(codex_commands, dict) and codex_commands:
+        lines.extend(["", "Codex app-server commands:", "```bash"])
+        if codex_commands.get("spawn"):
+            lines.append(str(codex_commands["spawn"]))
+        if codex_commands.get("proxy"):
+            lines.append(str(codex_commands["proxy"]))
+        lines.extend([
+            "```",
+            "",
+            "Use proxy mode only when a Codex Desktop or IDE app-server control socket is already running.",
+        ])
 
     context_files = handoff.get("context_files")
     if isinstance(context_files, list) and context_files:
@@ -1408,6 +1466,11 @@ issue_sync_skipped = os.environ["SKIP_ISSUE_SYNC"] == "1"
 issue_sync_apply_requested = os.environ["APPLY_ISSUE_SYNC"] == "1"
 default_branch = str(manifest.get("default_branch") or os.environ["DEFAULT_BRANCH"] or "").strip() or None
 repo_path = resolve_path(os.environ["REPO_PATH"])
+handoff["codex_app_server_commands"] = codex_app_server_commands(
+    os.environ["WORKFLOW_OUTPUT_DIR"],
+    repo_path,
+    handoff["prompts"],
+)
 publication_policy = {
     "repository_target_id": os.environ["REPOSITORY_TARGET_ID"] or None,
     "repository_targets_file": os.environ["REPOSITORY_TARGETS_FILE"] or None,
