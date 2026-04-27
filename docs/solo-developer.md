@@ -355,9 +355,9 @@ make developer-handoff RUN_ID=<RUN_ID>
 In the operator UI, the same action is available from the selected run under `Run controls` as
 `Generate developer handoff`. After it exists, the UI Developer tab also shows the ready-to-run
 portable review prompt, a copy button for sending that prompt to Cursor, Codex, OpenHands, or
-another review agent, and ready-to-run Codex app-server commands for the persisted review prompt,
-including the default standalone mode and the optional proxy mode for an already-running Codex
-Desktop or IDE app-server.
+another review agent, key artifact paths for that reviewer to inspect, and ready-to-run Codex
+app-server commands for the persisted review prompt. The Codex commands include the default
+standalone mode and the optional proxy mode for an already-running Codex Desktop or IDE app-server.
 
 See [Developer Workflows](developer-workflows.md) for the available recipes and the real-repository
 path.

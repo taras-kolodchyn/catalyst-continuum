@@ -227,7 +227,9 @@ turn to the active Codex UI.
 
 Generated `developer_handoff` artifacts also persist ready-to-run Codex app-server commands for the
 review prompt. The operator UI shows those commands in the Developer tab once the handoff artifact
-exists, so a developer can move from run evidence to Codex without hunting for the prompt path.
+exists, and the copy-ready review prompt includes the key artifact paths a second agent should
+inspect. That lets a developer move from run evidence to Codex without hunting for prompt or evidence
+locations.
 
 `dev-review` is the shortest review-stage command after a local run. It prints the latest
 `review.md`, reusable agent review prompt, local PR export paths, and suggested `git`/`sed` commands

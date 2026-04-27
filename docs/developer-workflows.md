@@ -552,7 +552,9 @@ interactive coding UX, sandbox behavior, and any human approval UI.
 When a run reaches the review stage, `generate-developer-handoff` writes a stable
 `agent-review-prompt.md` plus `codex_app_server_commands` into the handoff manifest and artifact
 metadata. The operator UI Developer tab renders those commands next to the review prompt so the
-handoff can continue in Codex from the same evidence package.
+handoff can continue in Codex from the same evidence package. The UI copy action also includes the
+key artifact paths in the prompt, so a second agent can open the quality report, PR handoff, runtime
+logs, and agent reports without reconstructing them from the artifact table.
 
 After a local run, use `dev-review` when you want the review surface without the full artifact
 index. It prints the latest run summary, `review.md`, reusable agent review prompt, local PR export
@@ -615,7 +617,8 @@ The command persists a `developer_handoff` artifact containing:
 - `manifest.json` with task counts, artifact groups, recent events, and review checklist state.
 
 The operator UI Developer tab renders the review prompt with a copy action so a solo developer can
-hand the same evidence package to another agent without manually selecting the prompt text.
+hand the same evidence package to another agent without manually selecting the prompt text. The
+copied prompt includes the key artifact paths that reviewer should inspect first.
 
 The same command layer is exposed as:
 

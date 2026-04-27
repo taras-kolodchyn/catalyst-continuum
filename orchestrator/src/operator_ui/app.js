@@ -40,6 +40,23 @@ const QUALITY_REPORT_ARTIFACT_TYPE = "quality_report";
 const DEVELOPER_HANDOFF_ARTIFACT_TYPE = "developer_handoff";
 const PR_PUBLICATION_ARTIFACT_TYPE = "pr_publication";
 const GITHUB_PULL_REQUEST_ARTIFACT_TYPE = "github_pull_request";
+const DEVELOPER_REVIEW_ARTIFACT_PATH_LIMIT = 8;
+const DEVELOPER_REVIEW_ARTIFACT_PRIORITY = [
+  DEVELOPER_HANDOFF_ARTIFACT_TYPE,
+  GITHUB_PULL_REQUEST_ARTIFACT_TYPE,
+  PR_PUBLICATION_ARTIFACT_TYPE,
+  PR_EXPORT_ARTIFACT_TYPE,
+  PR_CANDIDATE_ARTIFACT_TYPE,
+  QUALITY_REPORT_ARTIFACT_TYPE,
+  "agent_task_report",
+  "log",
+  "workspace_snapshot",
+  "workspace_patch",
+  "task_workspace_input",
+  DISPATCH_PLAN_ARTIFACT_TYPE,
+  POLICY_REPORT_ARTIFACT_TYPE,
+  BACKLOG_ARTIFACT_TYPE,
+];
 const RUN_SUBMITTED_EVENT_TYPE = "run_submitted";
 const RUN_STATUS_CHANGED_EVENT_TYPE = "run_status_changed";
 const RUN_POLICY_EVALUATED_EVENT_TYPE = "run_policy_evaluated";
@@ -3636,6 +3653,7 @@ function buildDeveloperReviewPrompt(
     (item) =>
       `- ${item.kicker}: ${item.count} artifact(s) across ${item.types.length} evidence type(s) (${item.types.join(", ")})`
   );
+  const artifactPathLines = developerReviewArtifactPathLines(artifacts);
   const reviewLines = reviewItems.map(
     (item) => `- ${item.status}: ${item.title} - ${item.detail}`
   );
@@ -3666,11 +3684,63 @@ function buildDeveloperReviewPrompt(
     "Evidence map:",
     ...evidenceLines,
     "",
+    "Key artifact paths:",
+    ...artifactPathLines,
+    "",
     "Agent lanes:",
     ...agentLines,
     "",
     "Do not assume the code is correct just because the run succeeded. Use the Continuum evidence as the source of truth.",
   ].join("\n");
+}
+
+function developerReviewArtifactPathLines(artifacts) {
+  const priorityIndex = (artifactType) => {
+    const index = DEVELOPER_REVIEW_ARTIFACT_PRIORITY.indexOf(artifactType);
+    return index === -1 ? DEVELOPER_REVIEW_ARTIFACT_PRIORITY.length : index;
+  };
+  const lines = [];
+  const seen = new Set();
+
+  for (const artifact of [...artifacts].sort((left, right) => {
+    const priorityDelta =
+      priorityIndex(left.artifact_type) - priorityIndex(right.artifact_type);
+    if (priorityDelta !== 0) {
+      return priorityDelta;
+    }
+    return sortableTimestamp(right.created_at) - sortableTimestamp(left.created_at);
+  })) {
+    const artifactRef = developerReviewArtifactRef(artifact);
+    if (!artifactRef) {
+      continue;
+    }
+    const artifactType = nonEmptyString(artifact?.artifact_type) ?? "artifact";
+    const key = `${artifactType}:${artifactRef}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    lines.push(`- ${artifactType}: ${artifactRef}`);
+    if (lines.length >= DEVELOPER_REVIEW_ARTIFACT_PATH_LIMIT) {
+      break;
+    }
+  }
+
+  return lines.length
+    ? lines
+    : ["- No artifact paths are recorded yet; use the UI artifact table and run events first."];
+}
+
+function developerReviewArtifactRef(artifact) {
+  const artifactRef = nonEmptyString(artifact?.location_value);
+  if (!artifactRef) {
+    return null;
+  }
+  const kind = nonEmptyString(artifact?.location_kind);
+  if (!kind || kind === "path") {
+    return artifactRef;
+  }
+  return `${kind}: ${artifactRef}`;
 }
 
 function renderDeveloperReviewPromptPanel(reviewPrompt) {

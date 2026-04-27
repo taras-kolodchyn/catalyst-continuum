@@ -622,6 +622,13 @@ async function main() {
   ) {
     problems.push("developer review prompt evidence map should use valid artifact/type wording");
   }
+  if (
+    !copiedReviewPrompt.includes("Key artifact paths:") ||
+    !copiedReviewPrompt.includes("developer_handoff:") ||
+    !copiedReviewPrompt.includes("quality_report:")
+  ) {
+    problems.push("developer review prompt should include key artifact paths for native agent review");
+  }
   if (summary.developerCodexPanelCount !== 1) {
     problems.push(`expected one developer Codex app-server panel, got ${summary.developerCodexPanelCount}`);
   }
