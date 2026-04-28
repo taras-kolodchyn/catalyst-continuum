@@ -2376,6 +2376,7 @@ function renderGithubIssueSelectedPackage(workflow) {
   const workflowPath = nonEmptyString(workflow.path);
   const sessionDir = nonEmptyString(workflow.session_dir);
   const sessionManifest = nonEmptyString(workflow.session_manifest);
+  const evidencePacket = githubIssueEvidencePacket(workflow);
   return `
     <article class="github-issue-command-card github-issue-command-card-neutral" data-github-issue-selected-package="true">
       <div class="mission-feed-head">
@@ -2441,12 +2442,85 @@ function renderGithubIssueSelectedPackage(workflow) {
                       </button>`
                    : ""
                }
+               ${
+                 evidencePacket
+                   ? `<button
+                        class="button button-primary"
+                        type="button"
+                        data-copy-text-selector="[data-github-issue-evidence-packet-text='true']"
+                        data-copy-success-label="Evidence copied"
+                        data-github-issue-evidence-packet-copy="true"
+                      >
+                        Copy evidence packet
+                      </button>`
+                   : ""
+               }
              </div>`
+          : ""
+      }
+      ${
+        evidencePacket
+          ? `<pre class="hidden" data-github-issue-evidence-packet-text="true">${escapeHtml(evidencePacket)}</pre>`
           : ""
       }
       ${renderGithubIssueActionPath(sessionDir || sessionManifest || workflowPath, "Session evidence")}
     </article>
   `;
+}
+
+function githubIssueEvidencePacket(workflow) {
+  if (!workflow) {
+    return "";
+  }
+
+  const lines = [
+    "# Catalyst GitHub issue workflow evidence",
+    "",
+    `Repository: ${nonEmptyString(workflow.repository_full_name) || "unresolved"}`,
+    `Issues: ${nonEmptyString(workflow.issue_refs) || "not recorded"}`,
+    `Status: ${nonEmptyString(workflow.status) || "unknown"}`,
+    `PR strategy: ${nonEmptyString(workflow.pr_strategy) || "unknown"}`,
+  ];
+  const paths = [
+    ["Workflow dir", workflow.path],
+    ["Session dir", workflow.session_dir],
+    ["Session manifest", workflow.session_manifest],
+    ["Plan report", workflow.plan_report_path],
+    ["Workflow report", workflow.report_path],
+    ["Run summary", workflow.run_summary],
+    ["Issue sync plan", workflow.issue_sync_plan],
+    ["Issue sync comment", workflow.issue_sync_comment],
+  ]
+    .map(([label, value]) => [label, nonEmptyString(value)])
+    .filter(([, value]) => value);
+  if (paths.length) {
+    lines.push("", "Evidence paths:");
+    for (const [label, value] of paths) {
+      lines.push(`- ${label}: ${value}`);
+    }
+  }
+
+  const commands = [
+    ["Terminal review command", workflow.review_action?.command],
+    ["Strict preflight command", workflow.preflight_action?.command],
+    ["Next command", workflow.recommended_next_action?.command],
+    ["Issue sync apply command", workflow.issue_sync_apply_action?.command],
+  ]
+    .map(([label, value]) => [label, nonEmptyString(value)])
+    .filter(([, value]) => value);
+  if (commands.length) {
+    lines.push("", "Commands:");
+    for (const [label, value] of commands) {
+      lines.push(`- ${label}: ${value}`);
+    }
+  }
+
+  const draftPrUrl = nonEmptyString(workflow.draft_pr_url);
+  if (draftPrUrl) {
+    lines.push("", `Draft PR: ${draftPrUrl}`);
+  }
+
+  return lines.join("\n");
 }
 
 function renderGithubIssueItem(issue) {

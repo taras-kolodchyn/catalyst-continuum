@@ -593,6 +593,12 @@ async function main() {
     return button && button.textContent.includes("Path copied");
   }, { timeout: 5000 });
   const copiedIssueSessionManifest = await page.evaluate(() => navigator.clipboard.readText());
+  await page.locator('[data-github-issue-evidence-packet-copy="true"]').first().click();
+  await page.waitForFunction(() => {
+    const button = document.querySelector('[data-github-issue-evidence-packet-copy="true"]');
+    return button && button.textContent.includes("Evidence copied");
+  }, { timeout: 5000 });
+  const copiedIssueEvidencePacket = await page.evaluate(() => navigator.clipboard.readText());
   await page.locator('[data-github-issue-next-command-copy="true"]').first().click();
   await page.waitForFunction(() => {
     const button = document.querySelector('[data-github-issue-next-command-copy="true"]');
@@ -716,6 +722,7 @@ async function main() {
       githubIssueSelectedPackageMetaCount: count('[data-github-issue-selected-package-meta="true"]'),
       githubIssueWorkflowPathCopyButtonCount: count('[data-github-issue-workflow-path-copy="true"]'),
       githubIssueSessionManifestCopyButtonCount: count('[data-github-issue-session-manifest-copy="true"]'),
+      githubIssueEvidencePacketCopyButtonCount: count('[data-github-issue-evidence-packet-copy="true"]'),
       githubIssueProgressStepCount: count('[data-github-issue-progress-step="true"]'),
       githubIssuePreflightCardCount: count('[data-github-issue-preflight-action="true"]'),
       githubIssuePreflightCommandCopyButtonCount: count('[data-github-issue-preflight-command-copy="true"]'),
@@ -892,6 +899,7 @@ async function main() {
     copiedIssueReviewCommand,
     copiedIssueWorkflowPath,
     copiedIssueSessionManifest,
+    copiedIssueEvidencePacket,
     copiedIssueNextCommand,
     copiedIssuePreflightCommand,
     copiedIssueSyncCommand,
@@ -975,6 +983,9 @@ async function main() {
   }
   if (summary.githubIssueSessionManifestCopyButtonCount !== 1) {
     problems.push(`expected one session-manifest copy button, got ${summary.githubIssueSessionManifestCopyButtonCount}`);
+  }
+  if (summary.githubIssueEvidencePacketCopyButtonCount !== 1) {
+    problems.push(`expected one GitHub issue evidence packet copy button, got ${summary.githubIssueEvidencePacketCopyButtonCount}`);
   }
   if (summary.githubIssueProgressStepCount !== 4) {
     problems.push(`expected four GitHub issue workflow readiness steps, got ${summary.githubIssueProgressStepCount}`);
@@ -1191,6 +1202,15 @@ async function main() {
     !copiedIssueSessionManifest.includes("operator-ui-issue-workflow/session")
   ) {
     problems.push("GitHub issue workbench session manifest copy should write the selected manifest path");
+  }
+  if (
+    !copiedIssueEvidencePacket.includes("Catalyst GitHub issue workflow evidence") ||
+    !copiedIssueEvidencePacket.includes("Workflow dir:") ||
+    !copiedIssueEvidencePacket.includes("Session manifest:") ||
+    !copiedIssueEvidencePacket.includes("Strict preflight command:") ||
+    !copiedIssueEvidencePacket.includes("Draft PR:")
+  ) {
+    problems.push("GitHub issue workbench evidence packet should include paths, commands, and PR evidence");
   }
   if (
     !copiedIssueReviewCommand.includes("make github-issue-review") ||

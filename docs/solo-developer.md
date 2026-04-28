@@ -178,7 +178,9 @@ when you want the exact apply command without rebuilding it by hand.
 The `GitHub Issue Workbench` panel in the Operator UI shows the same workflow history, selected
 issues, labels, recipes, readiness steps, native-agent handoff commands, and copy buttons for those
 commands, terminal review, strict preflight, workflow/session evidence paths, prompt text, and
-prompt paths, which is easier than manually opening files under `.continuum/github-issue-workflows/`.
+prompt paths. It can also copy one compact issue-workflow evidence packet with the selected
+workflow paths, review commands, preflight command, issue-sync command, and draft PR evidence, which
+is easier than manually opening files under `.continuum/github-issue-workflows/`.
 Use `make github-issue-agent-prompt AGENT=codex`, `AGENT=cursor`, or `AGENT=openhands` when you want
 to paste the generated workflow prompt directly into the agent's native UI. Use
 `make github-issue-agent-prompt-path AGENT=codex` when a script only needs the file path. Use
