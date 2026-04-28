@@ -182,9 +182,11 @@ prompt paths. It can also copy one compact issue-workflow evidence packet with t
 workflow paths, review commands, preflight command, issue-sync command, issue-sync comment text,
 draft PR evidence. It also copies a smaller issue-context packet with issue refs, labels, URLs,
 session manifest, and native-agent prompt commands when you only need to move the selected source
-work into Codex, Cursor, or OpenHands. The same panel opens the recorded source issue or draft PR
-directly when that evidence exists. This is easier than manually opening files under
-`.continuum/github-issue-workflows/` or searching GitHub for the selected issue again.
+work into Codex, Cursor, or OpenHands. When you need to tell GitHub, Slack, or your notes where the
+workflow stands, copy the short status update instead of pasting the full evidence packet. The same
+panel opens the recorded source issue or draft PR directly when that evidence exists. This is easier
+than manually opening files under `.continuum/github-issue-workflows/` or searching GitHub for the
+selected issue again.
 Use `make github-issue-agent-prompt AGENT=codex`, `AGENT=cursor`, or `AGENT=openhands` when you want
 to paste the generated workflow prompt directly into the agent's native UI. Use
 `make github-issue-agent-prompt-path AGENT=codex` when a script only needs the file path. Use

@@ -2379,6 +2379,7 @@ function renderGithubIssueSelectedPackage(workflow) {
   const sessionManifest = nonEmptyString(workflow.session_manifest);
   const evidencePacket = githubIssueEvidencePacket(workflow);
   const issueContextPacket = githubIssueContextPacket(workflow);
+  const statusUpdate = githubIssueStatusUpdate(workflow);
   const draftPrUrl = safeExternalUrl(workflow.draft_pr_url);
   return `
     <article class="github-issue-command-card github-issue-command-card-neutral" data-github-issue-selected-package="true">
@@ -2472,6 +2473,19 @@ function renderGithubIssueSelectedPackage(workflow) {
                    : ""
                }
                ${
+                 statusUpdate
+                   ? `<button
+                        class="button button-secondary"
+                        type="button"
+                        data-copy-text-selector="[data-github-issue-status-update-text='true']"
+                        data-copy-success-label="Status update copied"
+                        data-github-issue-status-update-copy="true"
+                      >
+                        Copy status update
+                      </button>`
+                   : ""
+               }
+               ${
                  draftPrUrl
                    ? `<a
                         class="button button-secondary button-link"
@@ -2495,6 +2509,11 @@ function renderGithubIssueSelectedPackage(workflow) {
       ${
         issueContextPacket
           ? `<pre class="hidden" data-github-issue-context-packet-text="true">${escapeHtml(issueContextPacket)}</pre>`
+          : ""
+      }
+      ${
+        statusUpdate
+          ? `<pre class="hidden" data-github-issue-status-update-text="true">${escapeHtml(statusUpdate)}</pre>`
           : ""
       }
       ${renderGithubIssueActionPath(sessionDir || sessionManifest || workflowPath, "Session evidence")}
@@ -2553,6 +2572,73 @@ function githubIssueEvidencePacket(workflow) {
   if (draftPrUrl) {
     lines.push("", `Draft PR: ${draftPrUrl}`);
   }
+
+  return lines.join("\n");
+}
+
+function githubIssueStatusUpdate(workflow) {
+  if (!workflow) {
+    return "";
+  }
+
+  const status = nonEmptyString(workflow.status) || "unknown";
+  const nextCommand = nonEmptyString(workflow.recommended_next_action?.command);
+  const reviewCommand = nonEmptyString(workflow.review_action?.command);
+  const preflightCommand = nonEmptyString(workflow.preflight_action?.command);
+  const syncCommand = nonEmptyString(workflow.issue_sync_apply_action?.command);
+  const issueSyncStatus = nonEmptyString(workflow.issue_sync_status);
+  const issueSyncState = workflow.issue_sync_applied
+    ? "applied"
+    : workflow.issue_sync_skipped
+      ? "skipped"
+      : issueSyncStatus
+        ? `${issueSyncStatus} pending`
+        : "not planned";
+
+  const lines = [
+    "## Catalyst issue workflow update",
+    "",
+    `Repository: ${nonEmptyString(workflow.repository_full_name) || "unresolved"}`,
+    `Issues: ${nonEmptyString(workflow.issue_refs) || "not recorded"}`,
+    `Workflow status: ${displayIssueWorkflowStatus(status)}`,
+    `PR strategy: ${nonEmptyString(workflow.pr_strategy) || "unknown"}`,
+    `Issue sync: ${issueSyncState}`,
+  ];
+
+  const draftPrUrl = safeExternalUrl(workflow.draft_pr_url);
+  if (draftPrUrl) {
+    lines.push(`Draft PR: ${draftPrUrl}`);
+  }
+
+  const seenCommands = new Set();
+  const commands = [
+    ["Next command", nextCommand],
+    ["Review command", reviewCommand],
+    ["Strict preflight", preflightCommand],
+    ["Issue sync apply", syncCommand],
+  ].filter(([, command]) => {
+    if (!command || seenCommands.has(command)) {
+      return false;
+    }
+    seenCommands.add(command);
+    return true;
+  });
+  if (commands.length) {
+    lines.push("", "Useful commands:");
+    for (const [label, command] of commands) {
+      lines.push(`- ${label}: ${command}`);
+    }
+  }
+
+  const workflowPath = nonEmptyString(workflow.path);
+  if (workflowPath) {
+    lines.push("", `Workflow evidence: ${workflowPath}`);
+  }
+
+  lines.push(
+    "",
+    "Human review and merge approval still happen in GitHub; Catalyst only prepares evidence and safe next commands."
+  );
 
   return lines.join("\n");
 }
