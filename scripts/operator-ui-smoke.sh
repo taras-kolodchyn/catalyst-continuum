@@ -703,6 +703,16 @@ async function main() {
     .first()
     .textContent();
   const plannedWorkflowUrl = page.url();
+  const plannedRecommendedHandoffText = await page
+    .locator('[data-github-issue-recommended-handoff="true"]')
+    .first()
+    .textContent();
+  await page.locator('[data-github-issue-recommended-handoff-copy="true"]').first().click();
+  await page.waitForFunction(() => {
+    const button = document.querySelector('[data-github-issue-recommended-handoff-copy="true"]');
+    return button && button.textContent.includes("Recommended command copied");
+  }, { timeout: 5000 });
+  const copiedIssuePlannedRecommendedCommand = await page.evaluate(() => navigator.clipboard.readText());
   await page.locator('[data-github-issue-preflight-command-copy="true"]').first().click();
   await page.waitForFunction(() => {
     const button = document.querySelector('[data-github-issue-preflight-command-copy="true"]');
@@ -783,10 +793,10 @@ async function main() {
         count('[data-github-issue-recommended-handoff-copy="true"]'),
       githubIssueRecommendedHandoffCommandText: text('[data-github-issue-recommended-handoff-command="true"]'),
       githubIssueRecommendedHandoffIncludesCodex:
-        document.body.textContent.includes("Recommended handoff") &&
+        document.body.textContent.includes("Recommended next action") &&
         document.body.textContent.includes("Continue in Codex UI") &&
         document.body.textContent.includes("Codex UI bridge") &&
-        document.body.textContent.includes("Best next click"),
+        document.body.textContent.includes("Best handoff"),
       githubIssueRunbookCardCount: count('[data-github-issue-runbook-card="true"]'),
       githubIssueRunbookPreviewCount: count('[data-github-issue-runbook-preview="true"]'),
       githubIssueRunbookCopyButtonCount: count('[data-github-issue-runbook-copy="true"]'),
@@ -1003,9 +1013,11 @@ async function main() {
     copiedIssueAgentClipboardCommand,
     copiedIssueCodexUiCommand,
     copiedIssuePlannedCommand,
+    copiedIssuePlannedRecommendedCommand,
     copiedIssuePlannedPreflightCommand,
     copiedIssuePlannedReviewCommand,
     selectedPlannedWorkflowText,
+    plannedRecommendedHandoffText,
     plannedWorkflowUrl,
     latestWorkflowUrl,
     ok: false,
@@ -1122,7 +1134,7 @@ async function main() {
     );
   }
   if (!summary.githubIssueRecommendedHandoffIncludesCodex) {
-    problems.push("recommended handoff should explain the Codex UI bridge as the best next click");
+    problems.push("recommended action should explain the Codex UI bridge as the best handoff");
   }
   if (
     !summary.githubIssueRecommendedHandoffCommandText.includes("make github-issue-codex-ui") ||
@@ -1290,6 +1302,13 @@ async function main() {
     !(plannedWorkflowUrl || "").includes("operator-ui-planned-workflow")
   ) {
     problems.push("selecting a planned GitHub issue workflow should persist URL state in place");
+  }
+  if (
+    !(plannedRecommendedHandoffText || "").includes("Review the plan before execution") ||
+    !(plannedRecommendedHandoffText || "").includes("plan review") ||
+    !(plannedRecommendedHandoffText || "").includes("Review first")
+  ) {
+    problems.push("selecting a planned GitHub issue workflow should show plan review as the recommended next action");
   }
   if (
     !(latestWorkflowUrl || "").includes("issue_workflow=") ||
@@ -1543,6 +1562,12 @@ async function main() {
     !copiedIssuePlannedCommand.includes("operator-ui-planned-workflow")
   ) {
     problems.push("selecting a planned GitHub issue workflow should update the next command in place");
+  }
+  if (
+    !copiedIssuePlannedRecommendedCommand.includes("make github-issue-plan-review") ||
+    !copiedIssuePlannedRecommendedCommand.includes("operator-ui-planned-workflow")
+  ) {
+    problems.push("planned workflow recommended action should copy the plan-review command");
   }
   if (
     !copiedIssuePlannedPreflightCommand.includes("make github-issue-preflight-strict") ||

@@ -188,8 +188,9 @@ It also exposes one ordered runbook that combines review, strict preflight, nati
 next workflow command, issue sync, evidence paths, and the safety boundary into a single clipboard
 packet for notes or agent handoff. The same runbook is available as a top-level shortcut on the
 selected package so you do not have to scroll before handing the issue to another tool.
-The selected package also highlights one recommended handoff command, preferring the Codex UI bridge
-when it is available so the next click is obvious even when multiple agent prompts exist.
+The selected package also highlights one recommended next action, preferring the Codex UI bridge
+when it is available and falling back to plan review, strict preflight, or the next safe workflow
+command so the next click stays obvious across both plan-only and executed packages.
 It also copies a smaller issue-context packet with issue refs, labels, URLs, session manifest, and
 native-agent prompt commands when you only need to move the selected source work into Codex, Cursor,
 or OpenHands. When you need to tell GitHub, Slack, or your notes where the workflow stands, copy the
