@@ -186,7 +186,8 @@ issue. It can copy one compact issue-workflow evidence packet with the selected 
 review commands, preflight command, issue-sync command, issue-sync comment text, draft PR evidence.
 It also exposes one ordered runbook that combines review, strict preflight, native-agent handoff,
 next workflow command, issue sync, evidence paths, and the safety boundary into a single clipboard
-packet for notes or agent handoff.
+packet for notes or agent handoff. The same runbook is available as a top-level shortcut on the
+selected package so you do not have to scroll before handing the issue to another tool.
 It also copies a smaller issue-context packet with issue refs, labels, URLs, session manifest, and
 native-agent prompt commands when you only need to move the selected source work into Codex, Cursor,
 or OpenHands. When you need to tell GitHub, Slack, or your notes where the workflow stands, copy the

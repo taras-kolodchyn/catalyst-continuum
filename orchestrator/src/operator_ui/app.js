@@ -2382,6 +2382,7 @@ function renderGithubIssueSelectedPackage(workflow) {
   const evidencePacket = githubIssueEvidencePacket(workflow);
   const issueContextPacket = githubIssueContextPacket(workflow);
   const statusUpdate = githubIssueStatusUpdate(workflow);
+  const runbook = githubIssueWorkflowRunbook(workflow);
   const draftPrUrl = safeExternalUrl(workflow.draft_pr_url);
   return `
     <article class="github-issue-command-card github-issue-command-card-neutral" data-github-issue-selected-package="true">
@@ -2484,6 +2485,19 @@ function renderGithubIssueSelectedPackage(workflow) {
                         data-github-issue-status-update-copy="true"
                       >
                         Copy status update
+                      </button>`
+                   : ""
+               }
+               ${
+                 runbook
+                   ? `<button
+                        class="button button-primary"
+                        type="button"
+                        data-copy-text-selector="[data-github-issue-runbook-text='true']"
+                        data-copy-success-label="Runbook copied"
+                        data-github-issue-selected-package-runbook-copy="true"
+                      >
+                        Copy runbook
                       </button>`
                    : ""
                }

@@ -611,6 +611,12 @@ async function main() {
     return button && button.textContent.includes("Status update copied");
   }, { timeout: 5000 });
   const copiedIssueStatusUpdate = await page.evaluate(() => navigator.clipboard.readText());
+  await page.locator('[data-github-issue-selected-package-runbook-copy="true"]').first().click();
+  await page.waitForFunction(() => {
+    const button = document.querySelector('[data-github-issue-selected-package-runbook-copy="true"]');
+    return button && button.textContent.includes("Runbook copied");
+  }, { timeout: 5000 });
+  const copiedIssueSelectedPackageRunbook = await page.evaluate(() => navigator.clipboard.readText());
   await page.locator('[data-github-issue-runbook-copy="true"]').first().click();
   await page.waitForFunction(() => {
     const button = document.querySelector('[data-github-issue-runbook-copy="true"]');
@@ -763,6 +769,8 @@ async function main() {
       githubIssueEvidencePacketCopyButtonCount: count('[data-github-issue-evidence-packet-copy="true"]'),
       githubIssueContextPacketCopyButtonCount: count('[data-github-issue-context-packet-copy="true"]'),
       githubIssueStatusUpdateCopyButtonCount: count('[data-github-issue-status-update-copy="true"]'),
+      githubIssueSelectedPackageRunbookCopyButtonCount:
+        count('[data-github-issue-selected-package-runbook-copy="true"]'),
       githubIssueRunbookCardCount: count('[data-github-issue-runbook-card="true"]'),
       githubIssueRunbookPreviewCount: count('[data-github-issue-runbook-preview="true"]'),
       githubIssueRunbookCopyButtonCount: count('[data-github-issue-runbook-copy="true"]'),
@@ -965,6 +973,7 @@ async function main() {
     copiedIssueEvidencePacket,
     copiedIssueContextPacket,
     copiedIssueStatusUpdate,
+    copiedIssueSelectedPackageRunbook,
     copiedIssueRunbook,
     copiedIssueNextCommand,
     copiedIssuePreflightCommand,
@@ -1079,6 +1088,11 @@ async function main() {
   if (summary.githubIssueStatusUpdateCopyButtonCount !== 1) {
     problems.push(`expected one GitHub issue status-update copy button, got ${summary.githubIssueStatusUpdateCopyButtonCount}`);
   }
+  if (summary.githubIssueSelectedPackageRunbookCopyButtonCount !== 1) {
+    problems.push(
+      `expected one selected-package runbook shortcut, got ${summary.githubIssueSelectedPackageRunbookCopyButtonCount}`
+    );
+  }
   if (summary.githubIssueRunbookCardCount !== 1) {
     problems.push(`expected one GitHub issue runbook card, got ${summary.githubIssueRunbookCardCount}`);
   }
@@ -1185,6 +1199,9 @@ async function main() {
     !copiedIssueRunbook.includes("GitHub human review still wins")
   ) {
     problems.push("copied GitHub issue runbook should include the ordered commands, PR evidence, and safety boundary");
+  }
+  if (copiedIssueSelectedPackageRunbook !== copiedIssueRunbook) {
+    problems.push("selected package runbook shortcut should copy the same ordered runbook as the runbook card");
   }
   if (summary.githubIssueAgentHandoffPanelCount !== 1) {
     problems.push(`expected one GitHub issue agent handoff panel, got ${summary.githubIssueAgentHandoffPanelCount}`);
