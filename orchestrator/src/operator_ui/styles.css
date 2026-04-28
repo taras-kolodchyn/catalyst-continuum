@@ -798,6 +798,12 @@ textarea,
     rgba(255, 255, 255, 0.78);
 }
 
+.github-issue-runbook-card {
+  background:
+    linear-gradient(135deg, rgba(217, 154, 43, 0.12), rgba(255, 251, 244, 0.84)),
+    rgba(255, 255, 255, 0.78);
+}
+
 .github-issue-agent-prompt-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
