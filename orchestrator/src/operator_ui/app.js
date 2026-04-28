@@ -2285,6 +2285,7 @@ function renderGithubIssueWorkbench(envelope) {
       <div class="github-issue-workbench-grid">
         <section class="github-issue-action-stack">
           ${renderGithubIssueSelectedPackage(selectedWorkflow)}
+          ${renderGithubIssueRecommendedHandoff(selectedWorkflow)}
           ${renderGithubIssueDeveloperPath(selectedWorkflow)}
           ${renderGithubIssueWorkflowRunbook(selectedWorkflow)}
           ${renderGithubIssueWorkflowProgress(selectedWorkflow)}
@@ -2535,6 +2536,108 @@ function renderGithubIssueSelectedPackage(workflow) {
       ${renderGithubIssueActionPath(sessionDir || sessionManifest || workflowPath, "Session evidence")}
     </article>
   `;
+}
+
+function renderGithubIssueRecommendedHandoff(workflow) {
+  const recommendation = githubIssueRecommendedHandoff(workflow);
+  if (!recommendation) {
+    return "";
+  }
+
+  const preflightCommand = nonEmptyString(workflow.preflight_action?.command);
+  const nextCommand = nonEmptyString(workflow.recommended_next_action?.command);
+  const metaItems = [
+    recommendation.agentLabel,
+    recommendation.sourceLabel,
+    preflightCommand ? "strict preflight ready" : "preflight missing",
+    nextCommand ? "next command ready" : "next command missing",
+  ];
+
+  return `
+    <article class="github-issue-command-card github-issue-recommended-handoff-card" data-github-issue-recommended-handoff="true">
+      <div class="mission-feed-head">
+        <div>
+          <p class="panel-kicker">Recommended handoff</p>
+          <h3>${escapeHtml(recommendation.heading)}</h3>
+        </div>
+        <span class="badge badge-success">Best next click</span>
+      </div>
+      <p>${escapeHtml(recommendation.description)}</p>
+      <div class="github-issue-agent-prompt-meta" data-github-issue-recommended-handoff-meta="true">
+        ${metaItems.map((item) => `<span>${escapeHtml(item)}</span>`).join("")}
+      </div>
+      <code data-github-issue-recommended-handoff-command="true">${escapeHtml(recommendation.command)}</code>
+      <button
+        class="button button-primary"
+        type="button"
+        data-copy-command="${escapeHtml(recommendation.command)}"
+        data-copy-success-label="Recommended command copied"
+        data-github-issue-recommended-handoff-copy="true"
+      >
+        Copy recommended command
+      </button>
+      ${renderGithubIssueActionPath(recommendation.promptPath, "Prompt evidence")}
+    </article>
+  `;
+}
+
+function githubIssueRecommendedHandoff(workflow) {
+  const prompts = Array.isArray(workflow?.agent_prompts) ? workflow.agent_prompts : [];
+  if (!prompts.length) {
+    return null;
+  }
+
+  const prompt =
+    prompts.find(
+      (candidate) =>
+        nonEmptyString(candidate.agent) === "codex" &&
+        nonEmptyString(candidate.codex_app_server_command)
+    ) ??
+    prompts.find((candidate) => nonEmptyString(candidate.agent) === "codex") ??
+    prompts[0];
+  const codexCommand = nonEmptyString(prompt.codex_app_server_command);
+  const clipboardCommand = nonEmptyString(prompt.clipboard_command);
+  const promptCommand = nonEmptyString(prompt.prompt_command);
+  const command = codexCommand || clipboardCommand || promptCommand;
+  if (!command) {
+    return null;
+  }
+
+  const agent = nonEmptyString(prompt.agent) || "agent";
+  const agentLabel = displayGithubIssueAgent(agent);
+  if (codexCommand) {
+    return {
+      agentLabel,
+      command,
+      description:
+        "Start the generated issue prompt through the Codex app-server bridge so the developer can keep using the native Codex UI while Catalyst keeps workflow evidence and issue sync together.",
+      heading: `Continue in ${agentLabel} UI`,
+      promptPath: nonEmptyString(prompt.path),
+      sourceLabel: "Codex UI bridge",
+    };
+  }
+
+  if (clipboardCommand) {
+    return {
+      agentLabel,
+      command,
+      description:
+        "Copy the generated issue prompt into the selected native agent UI while Catalyst keeps the repository policy, evidence paths, and issue workflow state in one place.",
+      heading: `Copy ${agentLabel} prompt`,
+      promptPath: nonEmptyString(prompt.path),
+      sourceLabel: "clipboard handoff",
+    };
+  }
+
+  return {
+    agentLabel,
+    command,
+    description:
+      "Open the generated prompt command for the selected native agent and continue from the recorded issue workflow state.",
+    heading: `Open ${agentLabel} prompt command`,
+    promptPath: nonEmptyString(prompt.path),
+    sourceLabel: "prompt command",
+  };
 }
 
 function githubIssueEvidencePacket(workflow) {

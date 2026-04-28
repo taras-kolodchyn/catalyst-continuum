@@ -611,6 +611,12 @@ async function main() {
     return button && button.textContent.includes("Status update copied");
   }, { timeout: 5000 });
   const copiedIssueStatusUpdate = await page.evaluate(() => navigator.clipboard.readText());
+  await page.locator('[data-github-issue-recommended-handoff-copy="true"]').first().click();
+  await page.waitForFunction(() => {
+    const button = document.querySelector('[data-github-issue-recommended-handoff-copy="true"]');
+    return button && button.textContent.includes("Recommended command copied");
+  }, { timeout: 5000 });
+  const copiedIssueRecommendedHandoffCommand = await page.evaluate(() => navigator.clipboard.readText());
   await page.locator('[data-github-issue-selected-package-runbook-copy="true"]').first().click();
   await page.waitForFunction(() => {
     const button = document.querySelector('[data-github-issue-selected-package-runbook-copy="true"]');
@@ -771,6 +777,16 @@ async function main() {
       githubIssueStatusUpdateCopyButtonCount: count('[data-github-issue-status-update-copy="true"]'),
       githubIssueSelectedPackageRunbookCopyButtonCount:
         count('[data-github-issue-selected-package-runbook-copy="true"]'),
+      githubIssueRecommendedHandoffCount: count('[data-github-issue-recommended-handoff="true"]'),
+      githubIssueRecommendedHandoffMetaCount: count('[data-github-issue-recommended-handoff-meta="true"]'),
+      githubIssueRecommendedHandoffCopyButtonCount:
+        count('[data-github-issue-recommended-handoff-copy="true"]'),
+      githubIssueRecommendedHandoffCommandText: text('[data-github-issue-recommended-handoff-command="true"]'),
+      githubIssueRecommendedHandoffIncludesCodex:
+        document.body.textContent.includes("Recommended handoff") &&
+        document.body.textContent.includes("Continue in Codex UI") &&
+        document.body.textContent.includes("Codex UI bridge") &&
+        document.body.textContent.includes("Best next click"),
       githubIssueRunbookCardCount: count('[data-github-issue-runbook-card="true"]'),
       githubIssueRunbookPreviewCount: count('[data-github-issue-runbook-preview="true"]'),
       githubIssueRunbookCopyButtonCount: count('[data-github-issue-runbook-copy="true"]'),
@@ -973,6 +989,7 @@ async function main() {
     copiedIssueEvidencePacket,
     copiedIssueContextPacket,
     copiedIssueStatusUpdate,
+    copiedIssueRecommendedHandoffCommand,
     copiedIssueSelectedPackageRunbook,
     copiedIssueRunbook,
     copiedIssueNextCommand,
@@ -1093,6 +1110,26 @@ async function main() {
       `expected one selected-package runbook shortcut, got ${summary.githubIssueSelectedPackageRunbookCopyButtonCount}`
     );
   }
+  if (summary.githubIssueRecommendedHandoffCount !== 1) {
+    problems.push(`expected one recommended handoff card, got ${summary.githubIssueRecommendedHandoffCount}`);
+  }
+  if (summary.githubIssueRecommendedHandoffMetaCount !== 1) {
+    problems.push(`expected one recommended handoff metadata row, got ${summary.githubIssueRecommendedHandoffMetaCount}`);
+  }
+  if (summary.githubIssueRecommendedHandoffCopyButtonCount !== 1) {
+    problems.push(
+      `expected one recommended handoff copy button, got ${summary.githubIssueRecommendedHandoffCopyButtonCount}`
+    );
+  }
+  if (!summary.githubIssueRecommendedHandoffIncludesCodex) {
+    problems.push("recommended handoff should explain the Codex UI bridge as the best next click");
+  }
+  if (
+    !summary.githubIssueRecommendedHandoffCommandText.includes("make github-issue-codex-ui") ||
+    !summary.githubIssueRecommendedHandoffCommandText.includes("GITHUB_ISSUE_WORKFLOW_DIR=")
+  ) {
+    problems.push("recommended handoff should show the Codex UI continuation command");
+  }
   if (summary.githubIssueRunbookCardCount !== 1) {
     problems.push(`expected one GitHub issue runbook card, got ${summary.githubIssueRunbookCardCount}`);
   }
@@ -1202,6 +1239,13 @@ async function main() {
   }
   if (copiedIssueSelectedPackageRunbook !== copiedIssueRunbook) {
     problems.push("selected package runbook shortcut should copy the same ordered runbook as the runbook card");
+  }
+  if (
+    !copiedIssueRecommendedHandoffCommand.includes("make github-issue-codex-ui") ||
+    !copiedIssueRecommendedHandoffCommand.includes("GITHUB_ISSUE_WORKFLOW_DIR=") ||
+    !copiedIssueRecommendedHandoffCommand.includes("REPO_PATH=")
+  ) {
+    problems.push("recommended handoff copy should write the Codex app-server continuation command");
   }
   if (summary.githubIssueAgentHandoffPanelCount !== 1) {
     problems.push(`expected one GitHub issue agent handoff panel, got ${summary.githubIssueAgentHandoffPanelCount}`);

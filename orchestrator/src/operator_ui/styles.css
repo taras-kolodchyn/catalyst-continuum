@@ -804,6 +804,14 @@ textarea,
     rgba(255, 255, 255, 0.78);
 }
 
+.github-issue-recommended-handoff-card {
+  border-color: rgba(23, 79, 67, 0.18);
+  background:
+    radial-gradient(circle at 5% 0%, rgba(23, 79, 67, 0.16), transparent 26%),
+    linear-gradient(135deg, rgba(226, 241, 235, 0.86), rgba(255, 251, 244, 0.9)),
+    rgba(255, 255, 255, 0.82);
+}
+
 .github-issue-agent-prompt-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
