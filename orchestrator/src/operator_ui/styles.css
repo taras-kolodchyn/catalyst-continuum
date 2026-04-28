@@ -779,6 +779,49 @@ textarea,
   font-size: 0.82rem;
 }
 
+.github-issue-agent-handoff-card {
+  background:
+    linear-gradient(135deg, rgba(30, 70, 118, 0.08), rgba(255, 251, 244, 0.84)),
+    rgba(255, 255, 255, 0.78);
+}
+
+.github-issue-agent-prompt-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.github-issue-agent-prompt {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  border: 1px solid rgba(24, 35, 29, 0.08);
+  border-radius: var(--radius-md);
+  background: rgba(255, 251, 244, 0.68);
+  padding: 12px;
+}
+
+.github-issue-agent-prompt strong {
+  display: block;
+  font-family: var(--serif);
+  font-size: 1.02rem;
+  letter-spacing: -0.02em;
+}
+
+.github-issue-agent-prompt p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.76rem;
+}
+
+.github-issue-agent-prompt-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .github-issue-workflow-evidence {
   display: flex;
   flex-direction: column;

@@ -3,6 +3,7 @@ use serde::Serialize;
 use serde_json::Value;
 use std::{
     cmp::Ordering,
+    collections::HashMap,
     fs,
     path::{Path, PathBuf},
 };
@@ -32,6 +33,7 @@ pub struct OperatorUiGithubIssueWorkflowItem {
     pub pr_strategy: Option<String>,
     pub session_dir: Option<String>,
     pub session_manifest: Option<String>,
+    pub agent_prompts: Vec<OperatorUiGithubIssueAgentPrompt>,
     pub issues: Vec<OperatorUiGithubIssueItem>,
     pub issue_refs: Option<String>,
     pub report_path: Option<String>,
@@ -63,6 +65,16 @@ pub struct OperatorUiGithubIssueItem {
     pub labels: Vec<String>,
     pub rank: Option<i64>,
     pub selected_recipe: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct OperatorUiGithubIssueAgentPrompt {
+    pub agent: String,
+    pub path: String,
+    pub prompt_command: String,
+    pub prompt_path_command: String,
+    pub clipboard_command: String,
+    pub codex_app_server_command: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -185,6 +197,10 @@ fn workflow_item(summary_path: &Path) -> Result<Option<OperatorUiGithubIssueWork
         Some(path) => load_manifest_issues(Path::new(path))?,
         None => Vec::new(),
     };
+    let agent_prompts = match session_manifest.as_deref() {
+        Some(path) => load_manifest_agent_prompts(Path::new(path), summary_dir)?,
+        None => Vec::new(),
+    };
     let issue_refs = issue_refs(&issues);
 
     let mut item = OperatorUiGithubIssueWorkflowItem {
@@ -197,6 +213,7 @@ fn workflow_item(summary_path: &Path) -> Result<Option<OperatorUiGithubIssueWork
         pr_strategy: string_field(&summary, "pr_strategy"),
         session_dir,
         session_manifest,
+        agent_prompts,
         issues,
         issue_refs,
         report_path,
@@ -258,6 +275,76 @@ fn read_json(path: &Path) -> Result<Option<Value>> {
     let payload = serde_json::from_str(&content)
         .with_context(|| format!("failed to parse {}", path.display()))?;
     Ok(Some(payload))
+}
+
+fn load_manifest_agent_prompts(
+    manifest_path: &Path,
+    workflow_dir: &Path,
+) -> Result<Vec<OperatorUiGithubIssueAgentPrompt>> {
+    let Some(manifest) = read_json(manifest_path)? else {
+        return Ok(Vec::new());
+    };
+    let Some(prompts) = manifest.get("agent_prompts").and_then(Value::as_object) else {
+        return Ok(Vec::new());
+    };
+
+    let session_dir = manifest_path.parent().unwrap_or_else(|| Path::new("."));
+    let workflow_dir = path_string(workflow_dir);
+    let repo_path = string_field(&manifest, "repo_path")
+        .or_else(|| string_path(manifest.pointer("/repository_context/repo_path")));
+    let mut agent_paths = prompts
+        .iter()
+        .filter_map(|(agent, value)| {
+            let path = optional_existing_file(Some(value), session_dir)?;
+            Some((agent.clone(), path))
+        })
+        .collect::<HashMap<_, _>>();
+
+    let mut agents = agent_paths.keys().cloned().collect::<Vec<_>>();
+    agents.sort_by(|left, right| agent_sort_key(left).cmp(&agent_sort_key(right)));
+
+    let handoffs = agents
+        .into_iter()
+        .filter_map(|agent| {
+            let path = agent_paths.remove(&agent)?;
+            let workflow_assignment = make_assignment("GITHUB_ISSUE_WORKFLOW_DIR", &workflow_dir);
+            let agent_assignment = make_assignment("AGENT", &agent);
+            let codex_app_server_command = if agent == "codex" {
+                let mut command = format!("make github-issue-codex-ui {workflow_assignment}");
+                if let Some(repo_path) = repo_path.as_ref() {
+                    command.push(' ');
+                    command.push_str(&make_assignment("REPO_PATH", repo_path));
+                }
+                Some(command)
+            } else {
+                None
+            };
+            Some(OperatorUiGithubIssueAgentPrompt {
+                agent: agent.clone(),
+                path,
+                prompt_command: format!(
+                    "make github-issue-agent-prompt {workflow_assignment} {agent_assignment}"
+                ),
+                prompt_path_command: format!(
+                    "make github-issue-agent-prompt-path {workflow_assignment} {agent_assignment}"
+                ),
+                clipboard_command: format!(
+                    "make github-issue-agent-prompt-copy {workflow_assignment} {agent_assignment}"
+                ),
+                codex_app_server_command,
+            })
+        })
+        .collect();
+    Ok(handoffs)
+}
+
+fn agent_sort_key(agent: &str) -> (usize, &str) {
+    match agent {
+        "codex" => (0, agent),
+        "cursor" => (1, agent),
+        "openhands" => (2, agent),
+        _ => (3, agent),
+    }
 }
 
 fn load_manifest_issues(manifest_path: &Path) -> Result<Vec<OperatorUiGithubIssueItem>> {
@@ -839,9 +926,21 @@ mod tests {
         fs::create_dir_all(&artifact_root).expect("artifact root should be created");
         fs::create_dir_all(&session_dir).expect("session dir should be created");
         fs::create_dir_all(&sync_dir).expect("sync dir should be created");
+        fs::write(session_dir.join("codex-prompt.md"), "Codex prompt")
+            .expect("codex prompt should be written");
+        fs::write(session_dir.join("cursor-prompt.md"), "Cursor prompt")
+            .expect("cursor prompt should be written");
+        fs::write(session_dir.join("openhands-prompt.md"), "OpenHands prompt")
+            .expect("openhands prompt should be written");
         write_json(
             &session_dir.join("manifest.json"),
             r##"{
+              "repo_path": "/tmp/operator-ui",
+              "agent_prompts": {
+                "openhands": "openhands-prompt.md",
+                "codex": "codex-prompt.md",
+                "cursor": "cursor-prompt.md"
+              },
               "github_issue": {
                 "number": 42,
                 "title": "Polish issue workbench",
@@ -901,6 +1000,25 @@ mod tests {
         assert_eq!(
             snapshot.workflows[0].issue_refs.as_deref(),
             Some("#42 Polish issue workbench")
+        );
+        assert_eq!(snapshot.workflows[0].agent_prompts.len(), 3);
+        assert_eq!(snapshot.workflows[0].agent_prompts[0].agent, "codex");
+        assert!(
+            snapshot.workflows[0].agent_prompts[0]
+                .prompt_command
+                .contains("make github-issue-agent-prompt")
+        );
+        assert!(
+            snapshot.workflows[0].agent_prompts[0]
+                .clipboard_command
+                .contains("make github-issue-agent-prompt-copy")
+        );
+        assert!(
+            snapshot.workflows[0].agent_prompts[0]
+                .codex_app_server_command
+                .as_deref()
+                .is_some_and(|command| command.contains("make github-issue-codex-ui")
+                    && command.contains("REPO_PATH=/tmp/operator-ui"))
         );
         assert_eq!(snapshot.workflows[0].progress_steps.len(), 4);
         assert_eq!(snapshot.workflows[0].progress_steps[0].status, "done");

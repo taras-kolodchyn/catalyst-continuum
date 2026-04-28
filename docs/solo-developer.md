@@ -82,8 +82,10 @@ agent lanes, and exact checklist in one repeatable package.
 When work starts from GitHub issues, also open `GitHub Issue Workbench` in the same UI. It shows
 recent issue workflows, lets you switch between packages without a page refresh, and explains
 whether the selected package is still at planning, agent execution, PR handoff, or issue sync. The
-browser does not apply labels, comments, or state changes; you review the generated plan and run the
-copied terminal command when you are ready.
+same panel exposes Codex, Cursor, and OpenHands handoff commands for the selected package, plus the
+Codex app-server command when a Codex prompt is attached. The browser does not apply labels,
+comments, or state changes; you review the generated plan and run the copied terminal command when
+you are ready.
 
 For real daily work, start from a GitHub issue or use a task recipe instead of hand-writing a full
 brief:
@@ -172,8 +174,8 @@ agent execution if the target checkout is dirty. Use
 plan-only preview. Use `make github-issue-sync-command` after reviewing an unapplied issue-sync plan
 when you want the exact apply command without rebuilding it by hand.
 The `GitHub Issue Workbench` panel in the Operator UI shows the same workflow history, selected
-issues, labels, recipes, readiness steps, and copy buttons for those commands, which is easier than
-manually opening files under `.continuum/github-issue-workflows/`.
+issues, labels, recipes, readiness steps, native-agent handoff commands, and copy buttons for those
+commands, which is easier than manually opening files under `.continuum/github-issue-workflows/`.
 Use `make github-issue-agent-prompt AGENT=codex`, `AGENT=cursor`, or `AGENT=openhands` when you want
 to paste the generated workflow prompt directly into the agent's native UI. Use
 `make github-issue-agent-prompt-path AGENT=codex` when a script only needs the file path. Use

@@ -48,8 +48,10 @@ next actions without needing to configure a real GitHub repository first.
 The same UI also has a `GitHub Issue Workbench`. After you run `github-issue-plan` or
 `github-issue-run`, it shows recent issue workflows, lets you select the package you want to inspect
 without a page refresh, and explains the readiness path from plan to agent run, PR handoff, and
-issue sync. The workbench is read-only: it helps you copy the right terminal command, but it does
-not mutate GitHub from the browser.
+issue sync. It also shows the Codex, Cursor, and OpenHands handoff commands for the selected
+package, including the Codex app-server launch command when a Codex prompt is attached. The
+workbench is read-only: it helps you copy the right terminal command, but it does not mutate GitHub
+from the browser.
 
 For real work, start with a safe GitHub issue preview:
 
@@ -160,7 +162,8 @@ directories.
 `github-issue-sync-command` prints the reviewed apply command for the latest unapplied issue-sync
 plan; it does not mutate GitHub by itself.
 The Operator UI shows the same latest workflow in `GitHub Issue Workbench`, so you can inspect
-issue refs and copy the next review or issue-sync command without hunting through
+issue refs, copy Codex/Cursor/OpenHands handoff commands, launch the Codex app-server path, and
+copy the next review or issue-sync command without hunting through
 `.continuum/github-issue-workflows/`.
 `github-issue-agent-prompt` prints the generated prompt for `AGENT=codex`, `AGENT=cursor`, or
 `AGENT=openhands` from the latest or selected workflow, and `github-issue-agent-prompt-path` prints

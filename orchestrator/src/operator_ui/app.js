@@ -2276,6 +2276,7 @@ function renderGithubIssueWorkbench(envelope) {
         <section class="github-issue-action-stack">
           ${renderGithubIssueSelectedPackage(selectedWorkflow)}
           ${renderGithubIssueWorkflowProgress(selectedWorkflow)}
+          ${renderGithubIssueAgentHandoff(selectedWorkflow)}
           ${renderGithubIssueWorkflowAction(action, "next")}
           ${renderGithubIssueSyncAction(syncAction)}
         </section>
@@ -2413,6 +2414,104 @@ function renderGithubIssueWorkflowProgress(workflow) {
       </ol>
     </article>
   `;
+}
+
+function renderGithubIssueAgentHandoff(workflow) {
+  if (!workflow) {
+    return "";
+  }
+
+  const prompts = Array.isArray(workflow.agent_prompts)
+    ? workflow.agent_prompts
+    : [];
+  const badge = prompts.length ? `${prompts.length} prompt(s)` : "No prompts";
+  return `
+    <article class="github-issue-command-card github-issue-agent-handoff-card" data-github-issue-agent-handoff="true">
+      <div class="mission-feed-head">
+        <div>
+          <p class="panel-kicker">Agent handoff</p>
+          <h3>Continue in the native agent UI</h3>
+        </div>
+        <span class="badge badge-${escapeHtml(prompts.length ? "success" : "neutral")}">${escapeHtml(badge)}</span>
+      </div>
+      <p>Copy the exact continuation command for Codex, Cursor, or OpenHands while Catalyst keeps the package, policy, and issue-sync evidence in one place.</p>
+      ${
+        prompts.length
+          ? `<div class="github-issue-agent-prompt-grid">${prompts.map(renderGithubIssueAgentPrompt).join("")}</div>`
+          : '<p class="microcopy">No generated agent prompts are attached to this workflow yet.</p>'
+      }
+    </article>
+  `;
+}
+
+function renderGithubIssueAgentPrompt(prompt) {
+  const agent = nonEmptyString(prompt.agent) || "agent";
+  const promptCommand = nonEmptyString(prompt.prompt_command);
+  const clipboardCommand = nonEmptyString(prompt.clipboard_command);
+  const codexCommand = nonEmptyString(prompt.codex_app_server_command);
+  return `
+    <div class="github-issue-agent-prompt" data-github-issue-agent-prompt="true">
+      <div>
+        <strong>${escapeHtml(displayGithubIssueAgent(agent))}</strong>
+        <p>${escapeHtml(nonEmptyString(prompt.path) || "Prompt path unavailable")}</p>
+      </div>
+      ${promptCommand ? `<code>${escapeHtml(promptCommand)}</code>` : ""}
+      <div class="github-issue-agent-prompt-actions">
+        ${
+          promptCommand
+            ? `<button
+                 class="button button-secondary"
+                 type="button"
+                 data-copy-command="${escapeHtml(promptCommand)}"
+                 data-copy-success-label="Command copied"
+                 data-github-issue-agent-prompt-copy="true"
+               >
+                 Copy prompt command
+               </button>`
+            : ""
+        }
+        ${
+          clipboardCommand
+            ? `<button
+                 class="button button-secondary"
+                 type="button"
+                 data-copy-command="${escapeHtml(clipboardCommand)}"
+                 data-copy-success-label="Command copied"
+                 data-github-issue-agent-clipboard-copy="true"
+               >
+                 Copy clipboard command
+               </button>`
+            : ""
+        }
+        ${
+          codexCommand
+            ? `<button
+                 class="button button-primary"
+                 type="button"
+                 data-copy-command="${escapeHtml(codexCommand)}"
+                 data-copy-success-label="Command copied"
+                 data-github-issue-codex-ui-copy="true"
+               >
+                 Copy Codex UI command
+               </button>`
+            : ""
+        }
+      </div>
+    </div>
+  `;
+}
+
+function displayGithubIssueAgent(agent) {
+  switch (agent) {
+    case "codex":
+      return "Codex";
+    case "cursor":
+      return "Cursor";
+    case "openhands":
+      return "OpenHands";
+    default:
+      return agent;
+  }
 }
 
 function renderGithubIssueWorkflowStep(step) {

@@ -225,10 +225,23 @@ summary_file = workflow_dir / "workflow-summary.json"
 planned_report = planned_workflow_dir / "workflow-plan.md"
 planned_summary_file = planned_workflow_dir / "workflow-summary.json"
 
+for prompt_name, prompt_text in {
+    "codex-prompt.md": "Codex should implement issue #42 with Catalyst evidence.\n",
+    "cursor-prompt.md": "Cursor should implement issue #42 with Catalyst evidence.\n",
+    "openhands-prompt.md": "OpenHands should implement issue #42 with Catalyst evidence.\n",
+}.items():
+    (session_dir / prompt_name).write_text(prompt_text, encoding="utf-8")
+
 (session_dir / "manifest.json").write_text(
     json.dumps(
         {
             "session_type": "github_issue_session",
+            "repo_path": str(output_dir / "target-repo"),
+            "agent_prompts": {
+                "codex": "codex-prompt.md",
+                "cursor": "cursor-prompt.md",
+                "openhands": "openhands-prompt.md",
+            },
             "github_issue": {
                 "repository_full_name": "smartit/operator-ui-issue-smoke",
                 "number": 42,
@@ -568,6 +581,24 @@ async function main() {
     return button && button.textContent.includes("Command copied");
   }, { timeout: 5000 });
   const copiedIssueSyncCommand = await page.evaluate(() => navigator.clipboard.readText());
+  await page.locator('[data-github-issue-agent-prompt-copy="true"]').first().click();
+  await page.waitForFunction(() => {
+    const button = document.querySelector('[data-github-issue-agent-prompt-copy="true"]');
+    return button && button.textContent.includes("Command copied");
+  }, { timeout: 5000 });
+  const copiedIssueAgentPromptCommand = await page.evaluate(() => navigator.clipboard.readText());
+  await page.locator('[data-github-issue-agent-clipboard-copy="true"]').first().click();
+  await page.waitForFunction(() => {
+    const button = document.querySelector('[data-github-issue-agent-clipboard-copy="true"]');
+    return button && button.textContent.includes("Command copied");
+  }, { timeout: 5000 });
+  const copiedIssueAgentClipboardCommand = await page.evaluate(() => navigator.clipboard.readText());
+  await page.locator('[data-github-issue-codex-ui-copy="true"]').first().click();
+  await page.waitForFunction(() => {
+    const button = document.querySelector('[data-github-issue-codex-ui-copy="true"]');
+    return button && button.textContent.includes("Command copied");
+  }, { timeout: 5000 });
+  const copiedIssueCodexUiCommand = await page.evaluate(() => navigator.clipboard.readText());
   await page
     .locator('[data-github-issue-workflow-select]')
     .filter({ hasText: "#43 Plan selected workbench" })
@@ -632,6 +663,11 @@ async function main() {
       githubIssueSelectedPackageCount: count('[data-github-issue-selected-package="true"]'),
       githubIssueProgressStepCount: count('[data-github-issue-progress-step="true"]'),
       githubIssueItemCount: count('[data-github-issue-item="true"]'),
+      githubIssueAgentHandoffPanelCount: count('[data-github-issue-agent-handoff="true"]'),
+      githubIssueAgentPromptCardCount: count('[data-github-issue-agent-prompt="true"]'),
+      githubIssueAgentPromptCopyButtonCount: count('[data-github-issue-agent-prompt-copy="true"]'),
+      githubIssueAgentClipboardCopyButtonCount: count('[data-github-issue-agent-clipboard-copy="true"]'),
+      githubIssueCodexUiCopyButtonCount: count('[data-github-issue-codex-ui-copy="true"]'),
       githubIssueNextCommandCopyButtonCount: count('[data-github-issue-next-command-copy="true"]'),
       githubIssueSyncCommandCopyButtonCount: count('[data-github-issue-sync-command-copy="true"]'),
       githubIssueSelectedWorkflowText: text('[data-github-issue-workflow-selected="true"]'),
@@ -640,6 +676,12 @@ async function main() {
         document.body.textContent.includes("#42 Polish issue workbench") &&
         document.body.textContent.includes("#43 Plan selected workbench") &&
         document.body.textContent.includes("smartit/operator-ui-issue-smoke"),
+      githubIssueWorkbenchIncludesAgentHandoff:
+        document.body.textContent.includes("Continue in the native agent UI") &&
+        document.body.textContent.includes("Codex") &&
+        document.body.textContent.includes("Cursor") &&
+        document.body.textContent.includes("OpenHands") &&
+        document.body.textContent.includes("make github-issue-agent-prompt"),
       missionContextCardCount: count('[data-mission-context-card="true"]'),
       missionContextIncludesApprovalBoundary:
         document.body.textContent.includes("GitHub remains the human approval boundary"),
@@ -785,6 +827,9 @@ async function main() {
     copiedCodexCommand,
     copiedIssueNextCommand,
     copiedIssueSyncCommand,
+    copiedIssueAgentPromptCommand,
+    copiedIssueAgentClipboardCommand,
+    copiedIssueCodexUiCommand,
     copiedIssuePlannedCommand,
     selectedPlannedWorkflowText,
     ok: false,
@@ -854,6 +899,25 @@ async function main() {
   if (summary.githubIssueItemCount < 1) {
     problems.push("selected GitHub issue package should show at least one issue");
   }
+  if (summary.githubIssueAgentHandoffPanelCount !== 1) {
+    problems.push(`expected one GitHub issue agent handoff panel, got ${summary.githubIssueAgentHandoffPanelCount}`);
+  }
+  if (summary.githubIssueAgentPromptCardCount !== 3) {
+    problems.push(`expected three GitHub issue agent prompt cards, got ${summary.githubIssueAgentPromptCardCount}`);
+  }
+  if (summary.githubIssueAgentPromptCopyButtonCount !== 3) {
+    problems.push(
+      `expected three GitHub issue agent prompt copy buttons, got ${summary.githubIssueAgentPromptCopyButtonCount}`
+    );
+  }
+  if (summary.githubIssueAgentClipboardCopyButtonCount !== 3) {
+    problems.push(
+      `expected three GitHub issue agent clipboard command buttons, got ${summary.githubIssueAgentClipboardCopyButtonCount}`
+    );
+  }
+  if (summary.githubIssueCodexUiCopyButtonCount !== 1) {
+    problems.push(`expected one GitHub issue Codex UI copy button, got ${summary.githubIssueCodexUiCopyButtonCount}`);
+  }
   if (!(selectedPlannedWorkflowText || "").includes("#43 Plan selected workbench")) {
     problems.push("clicking a GitHub issue workflow should select it without navigating");
   }
@@ -869,6 +933,9 @@ async function main() {
   }
   if (!summary.githubIssueWorkbenchIncludesIssue) {
     problems.push("GitHub issue workbench should expose latest issue refs and repository context");
+  }
+  if (!summary.githubIssueWorkbenchIncludesAgentHandoff) {
+    problems.push("GitHub issue workbench should expose native-agent handoff commands");
   }
   if (summary.missionContextCardCount !== 4) {
     problems.push(`expected four mission context cards, got ${summary.missionContextCardCount}`);
@@ -1001,6 +1068,26 @@ async function main() {
     !copiedIssueSyncCommand.includes("GITHUB_ISSUE_SYNC_PR_URL=")
   ) {
     problems.push("GitHub issue workbench sync command should include apply, run summary, and PR URL inputs");
+  }
+  if (
+    !copiedIssueAgentPromptCommand.includes("make github-issue-agent-prompt") ||
+    !copiedIssueAgentPromptCommand.includes("GITHUB_ISSUE_WORKFLOW_DIR=") ||
+    !copiedIssueAgentPromptCommand.includes("AGENT=codex")
+  ) {
+    problems.push("GitHub issue workbench agent prompt copy should write the selected Codex prompt command");
+  }
+  if (
+    !copiedIssueAgentClipboardCommand.includes("make github-issue-agent-prompt-copy") ||
+    !copiedIssueAgentClipboardCommand.includes("AGENT=codex")
+  ) {
+    problems.push("GitHub issue workbench agent clipboard copy should write the selected prompt-to-clipboard command");
+  }
+  if (
+    !copiedIssueCodexUiCommand.includes("make github-issue-codex-ui") ||
+    !copiedIssueCodexUiCommand.includes("GITHUB_ISSUE_WORKFLOW_DIR=") ||
+    !copiedIssueCodexUiCommand.includes("REPO_PATH=")
+  ) {
+    problems.push("GitHub issue workbench Codex UI copy should write the app-server continuation command");
   }
   if (
     !copiedIssuePlannedCommand.includes("make github-issue-run") ||
