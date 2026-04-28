@@ -230,7 +230,10 @@ review prompt. The operator UI shows those commands in the Developer tab once th
 exists, and the copy-ready review prompt includes the key artifact paths a second agent should
 inspect. That lets a developer move from run evidence to Codex without hunting for prompt or evidence
 locations. When you only need the evidence references, the Developer tab also exposes a smaller
-`Evidence packet` copy action with the prioritized artifact paths.
+`Evidence packet` copy action with the prioritized artifact paths. The same tab also shows a
+run-scoped `Next terminal command`, so you can continue the exact run through the currently open
+local UI service without rebuilding context from `.continuum/` files. Matching `make` targets are
+available when your shell already has the same `DATABASE_URL` or `CATALYST_DATABASE_URL`.
 
 `dev-review` is the shortest review-stage command after a local run. It prints the latest
 `review.md`, reusable agent review prompt, local PR export paths, and suggested `git`/`sed` commands

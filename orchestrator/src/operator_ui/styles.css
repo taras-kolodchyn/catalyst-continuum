@@ -1008,6 +1008,7 @@ textarea,
 }
 
 .developer-handoff-layout,
+.developer-next-command-shell,
 .developer-review-prompt-shell,
 .developer-evidence-packet-shell,
 .developer-codex-shell,
@@ -1021,6 +1022,7 @@ textarea,
 }
 
 .developer-handoff-hero,
+.developer-next-command-shell,
 .developer-review-prompt-shell,
 .developer-evidence-packet-shell,
 .developer-codex-shell,
@@ -1063,6 +1065,7 @@ textarea,
 }
 
 .developer-handoff-copy h3,
+.developer-next-command-shell h3,
 .developer-review-prompt-shell h3,
 .developer-evidence-packet-shell h3,
 .developer-value-card h4,
@@ -1079,6 +1082,7 @@ textarea,
 }
 
 .developer-handoff-copy p,
+.developer-next-command-card p,
 .developer-review-prompt-card p,
 .developer-evidence-packet-card p,
 .developer-value-card p,
@@ -1127,6 +1131,13 @@ textarea,
     linear-gradient(135deg, rgba(255, 251, 244, 0.96), rgba(232, 242, 237, 0.72));
 }
 
+.developer-next-command-shell {
+  background:
+    radial-gradient(circle at 18% 12%, rgba(63, 111, 87, 0.16), transparent 26%),
+    radial-gradient(circle at 90% 4%, rgba(30, 70, 118, 0.12), transparent 24%),
+    linear-gradient(135deg, rgba(255, 251, 244, 0.96), rgba(234, 242, 235, 0.72));
+}
+
 .developer-evidence-packet-shell {
   background:
     radial-gradient(circle at 14% 18%, rgba(30, 70, 118, 0.12), transparent 28%),
@@ -1143,6 +1154,31 @@ textarea,
   background: rgba(255, 255, 255, 0.72);
   padding: 14px;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.48);
+}
+
+.developer-next-command-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border: 1px solid rgba(24, 35, 29, 0.1);
+  border-radius: var(--radius-lg);
+  background: rgba(255, 255, 255, 0.74);
+  padding: 14px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.48);
+}
+
+.developer-next-command-card code {
+  display: block;
+  overflow-x: auto;
+  border: 1px solid rgba(24, 35, 29, 0.09);
+  border-radius: var(--radius-md);
+  background: rgba(10, 16, 13, 0.9);
+  color: #f8f1df;
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  padding: 12px;
+  white-space: nowrap;
 }
 
 .developer-evidence-packet-card {

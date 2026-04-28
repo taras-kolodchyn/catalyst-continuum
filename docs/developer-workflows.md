@@ -557,6 +557,10 @@ key artifact paths in the prompt, so a second agent can open the quality report,
 logs, and agent reports without reconstructing them from the artifact table.
 The adjacent `Evidence packet` copy action provides the same prioritized artifact path list without
 the full prompt when you want a compact terminal or agent handoff.
+The `Next terminal command` copy action provides a run-scoped `curl` command against the currently
+open local UI service, so you can continue the orchestrator-recommended action outside the browser
+without exposing database credentials. Matching run-action `make` targets are available when your
+shell already has the same database environment.
 
 After a local run, use `dev-review` when you want the review surface without the full artifact
 index. It prints the latest run summary, `review.md`, reusable agent review prompt, local PR export
@@ -621,7 +625,8 @@ The command persists a `developer_handoff` artifact containing:
 The operator UI Developer tab renders the review prompt with a copy action so a solo developer can
 hand the same evidence package to another agent without manually selecting the prompt text. The
 copied prompt includes the key artifact paths that reviewer should inspect first. Use `Evidence
-packet` in the same tab when you only need the artifact path list.
+packet` in the same tab when you only need the artifact path list. Use `Next terminal command` when
+you want a local-service command for the selected run guide action.
 
 The same command layer is exposed as:
 

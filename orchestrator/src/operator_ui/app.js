@@ -3361,6 +3361,7 @@ function renderMissionDeveloperPanel() {
     `
       <div class="developer-handoff-layout" data-developer-handoff-panel="true">
         ${renderDeveloperHandoffHero(runDetail, summary)}
+        ${renderDeveloperNextCommandPanel(runDetail, guide)}
         ${renderDeveloperReviewPromptPanel(reviewPrompt)}
         ${renderDeveloperEvidencePacketPanel(runDetail)}
         ${renderDeveloperCodexAppServerPanel(runDetail)}
@@ -3627,6 +3628,78 @@ function renderDeveloperHandoffHero(runDetail, summary) {
       </div>
     </section>
   `;
+}
+
+function renderDeveloperNextCommandPanel(runDetail, guide) {
+  const nextCommand = developerNextTerminalCommand(runDetail, guide);
+  if (!nextCommand) {
+    return "";
+  }
+
+  return `
+    <section class="developer-next-command-shell" data-developer-next-command-panel="true">
+      <div class="detail-section-head">
+        <div>
+          <p class="panel-kicker">Next terminal command</p>
+          <h3>Continue from the same run without rebuilding context</h3>
+        </div>
+        <span class="badge badge-${escapeHtml(nextCommand.tone)}">${escapeHtml(nextCommand.label)}</span>
+      </div>
+      <div class="developer-next-command-card">
+        <p>${escapeHtml(nextCommand.detail)}</p>
+        <code data-developer-next-command-text="true">${escapeHtml(nextCommand.command)}</code>
+        <div class="developer-review-prompt-actions">
+          <button
+            class="button button-secondary"
+            type="button"
+            data-developer-next-command-copy="true"
+            data-copy-command="${escapeHtml(nextCommand.command)}"
+            data-copy-success-label="Command copied"
+          >
+            Copy next command
+          </button>
+          <a class="button button-ghost button-link" href="#run-guide">Open run guide</a>
+          <a class="button button-ghost button-link" href="#run-controls">Open controls</a>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function developerNextTerminalCommand(runDetail, guide) {
+  const runId = nonEmptyString(runDetail?.run_id);
+  if (!runId) {
+    return null;
+  }
+
+  const actionId = guide.nextActionControlId;
+  const label = actionId ? "Action" : "Inspect";
+  const actionLabel = actionId ? displayRunActionLabel(actionId) : "Run guide";
+
+  return {
+    command: developerNextHttpCommand(runId, actionId),
+    detail: `${actionLabel} is the safest terminal entrypoint for this run. The copied command targets the currently open UI service, so it uses the same orchestrator state without exposing database credentials.`,
+    label,
+    tone: normalizePulseTone(guide.badgeTone),
+  };
+}
+
+function developerNextHttpCommand(runId, actionId) {
+  const encodedRunId = encodeURIComponent(runId);
+  const endpointByAction = {
+    "tasks-next": `/runs/${encodedRunId}/tasks/next`,
+    "worker-once": `/runs/${encodedRunId}/worker/once`,
+    "evaluate-quality": `/runs/${encodedRunId}/evaluate-quality`,
+    "developer-handoff": `/runs/${encodedRunId}/developer-handoff`,
+    "export-pr": `/runs/${encodedRunId}/export-pr-candidate`,
+    "publish-pr": `/runs/${encodedRunId}/publish-pr-export`,
+    "draft-pr": `/runs/${encodedRunId}/draft-pr`,
+  };
+  const path = endpointByAction[actionId] ?? `/runs/${encodedRunId}/guide`;
+  const url = `${window.location.origin}${path}`;
+  const method = endpointByAction[actionId] ? "-X POST " : "";
+
+  return `curl -fsS ${method}${shellQuote(url)}`;
 }
 
 function buildDeveloperReviewPrompt(

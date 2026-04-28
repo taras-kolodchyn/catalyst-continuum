@@ -384,6 +384,12 @@ async function main() {
     return button && button.textContent.includes("Paths copied");
   }, { timeout: 5000 });
   const copiedEvidencePaths = await page.evaluate(() => navigator.clipboard.readText());
+  await page.locator('[data-developer-next-command-copy="true"]').first().click();
+  await page.waitForFunction(() => {
+    const button = document.querySelector('[data-developer-next-command-copy="true"]');
+    return button && button.textContent.includes("Command copied");
+  }, { timeout: 5000 });
+  const copiedNextCommand = await page.evaluate(() => navigator.clipboard.readText());
   await page
     .locator('[data-developer-codex-command-card="true"] [data-copy-command]')
     .first()
@@ -434,6 +440,11 @@ async function main() {
       missionContextIncludesApprovalBoundary:
         document.body.textContent.includes("GitHub remains the human approval boundary"),
       developerHandoffPanelCount: count('[data-developer-handoff-panel="true"]'),
+      developerNextCommandPanelCount: count('[data-developer-next-command-panel="true"]'),
+      developerNextCommandCopyButtonCount: count('[data-developer-next-command-copy="true"]'),
+      developerNextCommandIncludesRunId:
+        document.body.textContent.includes("Next terminal command") &&
+        document.querySelector('[data-developer-next-command-text="true"]')?.textContent.includes("/runs/"),
       developerReviewPromptPanelCount: count('[data-developer-review-prompt-panel="true"]'),
       developerReviewPromptCopyButtonCount: count('[data-developer-review-prompt-copy="true"]'),
       developerReviewPromptIncludesAgent:
@@ -552,6 +563,7 @@ async function main() {
     eventFilterCheck,
     copiedReviewPrompt,
     copiedEvidencePaths,
+    copiedNextCommand,
     copiedCodexCommand,
     ok: false,
   };
@@ -614,6 +626,15 @@ async function main() {
   if (summary.developerHandoffPanelCount !== 1) {
     problems.push(`expected one developer handoff panel, got ${summary.developerHandoffPanelCount}`);
   }
+  if (summary.developerNextCommandPanelCount !== 1) {
+    problems.push(`expected one developer next command panel, got ${summary.developerNextCommandPanelCount}`);
+  }
+  if (summary.developerNextCommandCopyButtonCount !== 1) {
+    problems.push(`expected one developer next command copy button, got ${summary.developerNextCommandCopyButtonCount}`);
+  }
+  if (!summary.developerNextCommandIncludesRunId) {
+    problems.push("developer next command panel should expose a run-scoped terminal command");
+  }
   if (summary.developerReviewPromptPanelCount !== 1) {
     problems.push(`expected one developer review prompt panel, got ${summary.developerReviewPromptPanelCount}`);
   }
@@ -658,6 +679,9 @@ async function main() {
     !copiedEvidencePaths.includes("log:")
   ) {
     problems.push("developer evidence paths copy action should write the prioritized artifact path packet");
+  }
+  if (!copiedNextCommand.includes("curl -fsS") || !copiedNextCommand.includes("/runs/")) {
+    problems.push("developer next command copy action should write a run-scoped local UI command");
   }
   if (summary.developerCodexPanelCount !== 1) {
     problems.push(`expected one developer Codex app-server panel, got ${summary.developerCodexPanelCount}`);

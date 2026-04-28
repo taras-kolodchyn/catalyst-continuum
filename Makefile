@@ -71,6 +71,7 @@ REPOSITORY_TARGETS_FILE ?= config/repository-targets.local.yaml
 REPOSITORY_TARGETS_FORCE ?=
 REPOSITORY_BRANCH_PREFIX ?= continuum/
 RUN_ID ?=
+RUN_ACTION_ARGS ?=
 TASK ?=
 TASK_BRIEF_ARGS ?=
 TASK_RECIPE ?= fix-bug
@@ -194,6 +195,36 @@ developer-handoff: ## Generate a review.md + agent prompt package for RUN_ID=<uu
 run-guide: ## Show the orchestrator-owned next safe action for RUN_ID=<uuid>.
 	@test -n "$(RUN_ID)" || { echo "RUN_ID is required"; exit 2; }
 	cargo run --quiet --package catalyst-continuum-orchestrator -- describe-run-guide --run-id "$(RUN_ID)" $(if $(DATABASE_URL),--database-url "$(DATABASE_URL)")
+
+.PHONY: run-next-task
+run-next-task: ## Execute one queued task for RUN_ID=<uuid>.
+	@test -n "$(RUN_ID)" || { echo "RUN_ID is required"; exit 2; }
+	cargo run --quiet --package catalyst-continuum-orchestrator -- run-next-task --run-id "$(RUN_ID)" --pretty $(if $(DATABASE_URL),--database-url "$(DATABASE_URL)") $(if $(ARTIFACT_ROOT),--artifact-root "$(ARTIFACT_ROOT)") $(RUN_ACTION_ARGS)
+
+.PHONY: worker-once
+worker-once: ## Run one worker cycle for RUN_ID=<uuid>.
+	@test -n "$(RUN_ID)" || { echo "RUN_ID is required"; exit 2; }
+	cargo run --quiet --package catalyst-continuum-orchestrator -- worker --once --run-id "$(RUN_ID)" --pretty $(if $(DATABASE_URL),--database-url "$(DATABASE_URL)") $(if $(ARTIFACT_ROOT),--artifact-root "$(ARTIFACT_ROOT)") $(RUN_ACTION_ARGS)
+
+.PHONY: evaluate-quality
+evaluate-quality: ## Evaluate quality for RUN_ID=<uuid>.
+	@test -n "$(RUN_ID)" || { echo "RUN_ID is required"; exit 2; }
+	cargo run --quiet --package catalyst-continuum-orchestrator -- evaluate-run-quality --run-id "$(RUN_ID)" --pretty $(if $(DATABASE_URL),--database-url "$(DATABASE_URL)") $(if $(ARTIFACT_ROOT),--artifact-root "$(ARTIFACT_ROOT)") $(RUN_ACTION_ARGS)
+
+.PHONY: export-pr
+export-pr: ## Export the PR candidate for RUN_ID=<uuid>.
+	@test -n "$(RUN_ID)" || { echo "RUN_ID is required"; exit 2; }
+	cargo run --quiet --package catalyst-continuum-orchestrator -- export-pr-candidate --run-id "$(RUN_ID)" --pretty $(if $(DATABASE_URL),--database-url "$(DATABASE_URL)") $(if $(ARTIFACT_ROOT),--artifact-root "$(ARTIFACT_ROOT)") $(if $(REPOSITORY_TARGET_ID),--repository-target-id "$(REPOSITORY_TARGET_ID)") $(REPOSITORY_TARGETS_FILE_RUN_ARG) $(RUN_ACTION_ARGS)
+
+.PHONY: publish-pr
+publish-pr: ## Publish the PR export for RUN_ID=<uuid>.
+	@test -n "$(RUN_ID)" || { echo "RUN_ID is required"; exit 2; }
+	cargo run --quiet --package catalyst-continuum-orchestrator -- publish-pr-export --run-id "$(RUN_ID)" --push --pretty $(if $(DATABASE_URL),--database-url "$(DATABASE_URL)") $(if $(ARTIFACT_ROOT),--artifact-root "$(ARTIFACT_ROOT)") $(if $(REPOSITORY_TARGET_ID),--repository-target-id "$(REPOSITORY_TARGET_ID)") $(REPOSITORY_TARGETS_FILE_RUN_ARG) $(RUN_ACTION_ARGS)
+
+.PHONY: draft-pr
+draft-pr: ## Create or reuse the GitHub draft PR for RUN_ID=<uuid>.
+	@test -n "$(RUN_ID)" || { echo "RUN_ID is required"; exit 2; }
+	cargo run --quiet --package catalyst-continuum-orchestrator -- create-draft-pr --run-id "$(RUN_ID)" --pretty $(if $(DATABASE_URL),--database-url "$(DATABASE_URL)") $(if $(ARTIFACT_ROOT),--artifact-root "$(ARTIFACT_ROOT)") $(if $(REPOSITORY_TARGET_ID),--repository-target-id "$(REPOSITORY_TARGET_ID)") $(REPOSITORY_TARGETS_FILE_RUN_ARG) $(RUN_ACTION_ARGS)
 
 .PHONY: dev-task-brief
 dev-task-brief: ## Create a structured brief from TASK="..." and TASK_RECIPE=fix-bug.
