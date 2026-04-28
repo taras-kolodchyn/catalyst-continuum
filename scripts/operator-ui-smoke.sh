@@ -372,12 +372,18 @@ async function main() {
 
   await page.click('[data-mission-tab="developer"]');
   await page.waitForSelector('[data-developer-codex-command-card="true"]', { timeout: 10000 });
-  await page.locator('[data-copy-text-selector]').first().click();
+  await page.locator('[data-developer-review-prompt-copy="true"]').first().click();
   await page.waitForFunction(() => {
-    const button = document.querySelector('[data-copy-text-selector]');
+    const button = document.querySelector('[data-developer-review-prompt-copy="true"]');
     return button && button.textContent.includes("Prompt copied");
   }, { timeout: 5000 });
   const copiedReviewPrompt = await page.evaluate(() => navigator.clipboard.readText());
+  await page.locator('[data-developer-evidence-paths-copy="true"]').first().click();
+  await page.waitForFunction(() => {
+    const button = document.querySelector('[data-developer-evidence-paths-copy="true"]');
+    return button && button.textContent.includes("Paths copied");
+  }, { timeout: 5000 });
+  const copiedEvidencePaths = await page.evaluate(() => navigator.clipboard.readText());
   await page
     .locator('[data-developer-codex-command-card="true"] [data-copy-command]')
     .first()
@@ -429,10 +435,16 @@ async function main() {
         document.body.textContent.includes("GitHub remains the human approval boundary"),
       developerHandoffPanelCount: count('[data-developer-handoff-panel="true"]'),
       developerReviewPromptPanelCount: count('[data-developer-review-prompt-panel="true"]'),
-      developerReviewPromptCopyButtonCount: count('[data-copy-text-selector]'),
+      developerReviewPromptCopyButtonCount: count('[data-developer-review-prompt-copy="true"]'),
       developerReviewPromptIncludesAgent:
         document.body.textContent.includes("Bring Continuum evidence into Cursor, Codex, or OpenHands") &&
         document.body.textContent.includes("Review this Catalyst Continuum run before I trust or merge"),
+      developerEvidencePacketPanelCount: count('[data-developer-evidence-packet-panel="true"]'),
+      developerEvidencePathsCopyButtonCount: count('[data-developer-evidence-paths-copy="true"]'),
+      developerEvidencePacketIncludesPaths:
+        document.body.textContent.includes("Evidence packet") &&
+        document.body.textContent.includes("Copy the exact files a reviewer should open first") &&
+        document.body.textContent.includes("developer_handoff:"),
       developerCodexPanelCount: count('[data-developer-codex-panel="true"]'),
       developerCodexCommandCardCount: count('[data-developer-codex-command-card="true"]'),
       developerCodexIncludesCommand:
@@ -539,6 +551,7 @@ async function main() {
     screenshotPath,
     eventFilterCheck,
     copiedReviewPrompt,
+    copiedEvidencePaths,
     copiedCodexCommand,
     ok: false,
   };
@@ -610,6 +623,15 @@ async function main() {
   if (summary.developerReviewPromptCopyButtonCount !== 1) {
     problems.push(`expected one developer review prompt copy button, got ${summary.developerReviewPromptCopyButtonCount}`);
   }
+  if (summary.developerEvidencePacketPanelCount !== 1) {
+    problems.push(`expected one developer evidence packet panel, got ${summary.developerEvidencePacketPanelCount}`);
+  }
+  if (summary.developerEvidencePathsCopyButtonCount !== 1) {
+    problems.push(`expected one developer evidence paths copy button, got ${summary.developerEvidencePathsCopyButtonCount}`);
+  }
+  if (!summary.developerEvidencePacketIncludesPaths) {
+    problems.push("developer evidence packet should expose the key artifact path list");
+  }
   if (
     !copiedReviewPrompt.includes("Review this Catalyst Continuum run") ||
     !copiedReviewPrompt.includes("Continuum review checklist")
@@ -628,6 +650,14 @@ async function main() {
     !copiedReviewPrompt.includes("quality_report:")
   ) {
     problems.push("developer review prompt should include key artifact paths for native agent review");
+  }
+  if (
+    !copiedEvidencePaths.includes("developer_handoff:") ||
+    !copiedEvidencePaths.includes("quality_report:") ||
+    !copiedEvidencePaths.includes("agent_task_report:") ||
+    !copiedEvidencePaths.includes("log:")
+  ) {
+    problems.push("developer evidence paths copy action should write the prioritized artifact path packet");
   }
   if (summary.developerCodexPanelCount !== 1) {
     problems.push(`expected one developer Codex app-server panel, got ${summary.developerCodexPanelCount}`);

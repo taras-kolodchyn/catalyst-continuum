@@ -358,6 +358,8 @@ portable review prompt, a copy button for sending that prompt to Cursor, Codex, 
 another review agent, key artifact paths for that reviewer to inspect, and ready-to-run Codex
 app-server commands for the persisted review prompt. The Codex commands include the default
 standalone mode and the optional proxy mode for an already-running Codex Desktop or IDE app-server.
+If you only need file references, use the Developer tab `Evidence packet` copy action instead of the
+full prompt.
 
 See [Developer Workflows](developer-workflows.md) for the available recipes and the real-repository
 path.

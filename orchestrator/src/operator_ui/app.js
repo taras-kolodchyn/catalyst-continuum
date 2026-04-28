@@ -3362,6 +3362,7 @@ function renderMissionDeveloperPanel() {
       <div class="developer-handoff-layout" data-developer-handoff-panel="true">
         ${renderDeveloperHandoffHero(runDetail, summary)}
         ${renderDeveloperReviewPromptPanel(reviewPrompt)}
+        ${renderDeveloperEvidencePacketPanel(runDetail)}
         ${renderDeveloperCodexAppServerPanel(runDetail)}
         <section class="developer-value-shell">
           <div class="detail-section-head">
@@ -3764,6 +3765,7 @@ function renderDeveloperReviewPromptPanel(reviewPrompt) {
           <button
             class="button button-secondary"
             type="button"
+            data-developer-review-prompt-copy="true"
             data-copy-text-selector="[data-developer-review-prompt-text='true']"
             data-copy-success-label="Prompt copied"
           >
@@ -3772,6 +3774,47 @@ function renderDeveloperReviewPromptPanel(reviewPrompt) {
           <a class="button button-ghost button-link" href="#run-tasks">Open tasks</a>
           <a class="button button-ghost button-link" href="#run-artifacts">Open artifacts</a>
           <a class="button button-ghost button-link" href="#mission-agents">Open agents</a>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function renderDeveloperEvidencePacketPanel(runDetail) {
+  const artifactPathLines = developerReviewArtifactPathLines(runArtifacts(runDetail));
+  const pathCount = artifactPathLines.filter(
+    (line) => !line.includes("No artifact paths are recorded yet")
+  ).length;
+  const packetText = artifactPathLines.join("\n");
+
+  return `
+    <section class="developer-evidence-packet-shell" data-developer-evidence-packet-panel="true">
+      <div class="detail-section-head">
+        <div>
+          <p class="panel-kicker">Evidence packet</p>
+          <h3>Copy the exact files a reviewer should open first</h3>
+        </div>
+        <span class="badge badge-${escapeHtml(pathCount ? "success" : "neutral")}">${escapeHtml(`${pathCount} path(s)`)}</span>
+      </div>
+      <div class="developer-evidence-packet-card">
+        <p>
+          Use this smaller packet when you want to send only the artifact references to Codex,
+          Cursor, OpenHands, or your own terminal review. The full review prompt still carries the
+          checklist and recommendation.
+        </p>
+        <pre data-developer-evidence-paths-text="true">${escapeHtml(packetText)}</pre>
+        <div class="developer-review-prompt-actions">
+          <button
+            class="button button-secondary"
+            type="button"
+            data-developer-evidence-paths-copy="true"
+            data-copy-text-selector="[data-developer-evidence-paths-text='true']"
+            data-copy-success-label="Paths copied"
+          >
+            Copy evidence paths
+          </button>
+          <a class="button button-ghost button-link" href="#run-artifacts">Open artifacts</a>
+          <a class="button button-ghost button-link" href="#run-tasks">Open task logs</a>
         </div>
       </div>
     </section>
