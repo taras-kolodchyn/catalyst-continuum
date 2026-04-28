@@ -54,6 +54,7 @@ pub struct OperatorUiGithubIssueWorkflowItem {
     pub issue_sync_comment: Option<String>,
     pub next_command: Option<String>,
     pub progress_steps: Vec<OperatorUiGithubIssueWorkflowStep>,
+    pub review_action: OperatorUiGithubIssueWorkflowAction,
     pub preflight_action: OperatorUiGithubIssueWorkflowAction,
     pub recommended_next_action: OperatorUiGithubIssueWorkflowAction,
     pub issue_sync_apply_action: OperatorUiGithubIssueSyncAction,
@@ -240,11 +241,13 @@ fn workflow_item(summary_path: &Path) -> Result<Option<OperatorUiGithubIssueWork
         issue_sync_comment: optional_path(issue_sync.and_then(|value| value.get("comment"))),
         next_command: optional_path(plan.and_then(|value| value.get("next_command"))),
         progress_steps: Vec::new(),
+        review_action: review_action(None),
         preflight_action: preflight_action(None),
         recommended_next_action: recommended_next_action(None),
         issue_sync_apply_action: issue_sync_apply_action(None),
     };
     item.progress_steps = workflow_progress_steps(&item);
+    item.review_action = review_action(Some(&item));
     item.preflight_action = preflight_action(Some(&item));
     item.recommended_next_action = recommended_next_action(Some(&item));
     item.issue_sync_apply_action = issue_sync_apply_action(Some(&item));
@@ -606,6 +609,56 @@ fn preflight_action(
             .plan_report_path
             .clone()
             .or_else(|| item.report_path.clone())
+            .or_else(|| Some(item.summary_path.clone())),
+    }
+}
+
+fn review_action(
+    selected: Option<&OperatorUiGithubIssueWorkflowItem>,
+) -> OperatorUiGithubIssueWorkflowAction {
+    let Some(item) = selected else {
+        return OperatorUiGithubIssueWorkflowAction {
+            label: "Create a workflow before review".to_string(),
+            description: "Terminal review needs a selected GitHub issue workflow package."
+                .to_string(),
+            command: String::new(),
+            artifact_path: None,
+            primary_path: None,
+        };
+    };
+
+    if item.plan_only {
+        return OperatorUiGithubIssueWorkflowAction {
+            label: "Re-open the plan package in terminal".to_string(),
+            description:
+                "Print the selected issue package, prompt commands, preflight checks, and next run command again without opening JSON by hand."
+                    .to_string(),
+            command: format!(
+                "make github-issue-plan-review {}",
+                make_assignment("GITHUB_ISSUE_WORKFLOW_DIR", &item.path)
+            ),
+            artifact_path: Some(item.path.clone()),
+            primary_path: item
+                .plan_report_path
+                .clone()
+                .or_else(|| Some(item.summary_path.clone())),
+        };
+    }
+
+    OperatorUiGithubIssueWorkflowAction {
+        label: "Re-open the workflow review in terminal".to_string(),
+        description:
+            "Print the readable workflow report again so you can re-check outcome, PR handoff, and issue-sync posture from the shell."
+                .to_string(),
+        command: format!(
+            "make github-issue-review {}",
+            make_assignment("GITHUB_ISSUE_WORKFLOW_DIR", &item.path)
+        ),
+        artifact_path: Some(item.path.clone()),
+        primary_path: item
+            .report_path
+            .clone()
+            .or_else(|| item.run_summary.clone())
             .or_else(|| Some(item.summary_path.clone())),
     }
 }
@@ -1148,6 +1201,18 @@ mod tests {
         assert_eq!(snapshot.workflows[0].progress_steps.len(), 4);
         assert_eq!(snapshot.workflows[0].progress_steps[0].status, "done");
         assert_eq!(snapshot.workflows[0].progress_steps[3].status, "ready");
+        assert!(
+            snapshot.workflows[0]
+                .review_action
+                .command
+                .contains("make github-issue-review")
+        );
+        assert!(
+            snapshot.workflows[0]
+                .review_action
+                .command
+                .contains("GITHUB_ISSUE_WORKFLOW_DIR=")
+        );
         assert!(
             snapshot.workflows[0]
                 .preflight_action

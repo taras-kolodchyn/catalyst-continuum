@@ -2276,6 +2276,7 @@ function renderGithubIssueWorkbench(envelope) {
         <section class="github-issue-action-stack">
           ${renderGithubIssueSelectedPackage(selectedWorkflow)}
           ${renderGithubIssueWorkflowProgress(selectedWorkflow)}
+          ${renderGithubIssueWorkflowAction(selectedWorkflow?.review_action, "review")}
           ${renderGithubIssuePreflightAction(selectedWorkflow?.preflight_action)}
           ${renderGithubIssueAgentHandoff(selectedWorkflow)}
           ${renderGithubIssueWorkflowAction(action, "next")}
@@ -2652,12 +2653,19 @@ function renderGithubIssueWorkflowAction(action, kind) {
   const copyHook =
     kind === "next"
       ? ' data-github-issue-next-command-copy="true"'
+      : kind === "review"
+        ? ' data-github-issue-review-command-copy="true"'
       : ' data-github-issue-command-copy="true"';
+  const kicker = kind === "review" ? "Terminal review" : "Next safe command";
+  const commandHook =
+    kind === "review"
+      ? ' data-github-issue-review-command="true"'
+      : ' data-github-issue-next-command="true"';
   return `
     <article class="github-issue-command-card github-issue-command-card-${escapeHtml(tone)}">
       <div class="mission-feed-head">
         <div>
-          <p class="panel-kicker">Next safe command</p>
+          <p class="panel-kicker">${escapeHtml(kicker)}</p>
           <h3>${escapeHtml(nonEmptyString(action.label) || "No command available")}</h3>
         </div>
         <span class="badge badge-${escapeHtml(tone)}">${escapeHtml(command ? "Ready" : "Wait")}</span>
@@ -2665,7 +2673,7 @@ function renderGithubIssueWorkflowAction(action, kind) {
       <p>${escapeHtml(nonEmptyString(action.description) || "Create or select a GitHub issue workflow first.")}</p>
       ${
         command
-          ? `<code data-github-issue-next-command="true">${escapeHtml(command)}</code>
+          ? `<code${commandHook}>${escapeHtml(command)}</code>
              <button
                class="button button-secondary"
                type="button"

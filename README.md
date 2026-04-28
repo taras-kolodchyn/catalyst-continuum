@@ -165,7 +165,8 @@ plan; it does not mutate GitHub by itself.
 The Operator UI shows the same latest workflow in `GitHub Issue Workbench`, so you can inspect
 issue refs, copy the strict preflight command before handing work to an agent, preview and copy
 Codex/Cursor/OpenHands prompts, copy prompt paths for native launchers, launch the Codex app-server
-path, and copy the next review or issue-sync command without hunting through
+path, re-open the selected plan or workflow review in a terminal, and copy the next review or
+issue-sync command without hunting through
 `.continuum/github-issue-workflows/`.
 `github-issue-agent-prompt` prints the generated prompt for `AGENT=codex`, `AGENT=cursor`, or
 `AGENT=openhands` from the latest or selected workflow, and `github-issue-agent-prompt-path` prints

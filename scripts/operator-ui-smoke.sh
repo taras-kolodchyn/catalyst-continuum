@@ -569,6 +569,12 @@ async function main() {
   }, { timeout: 5000 });
   const copiedCodexCommand = await page.evaluate(() => navigator.clipboard.readText());
   await page.waitForSelector('[data-github-issue-workflow-card="true"]', { timeout: 10000 });
+  await page.locator('[data-github-issue-review-command-copy="true"]').first().click();
+  await page.waitForFunction(() => {
+    const button = document.querySelector('[data-github-issue-review-command-copy="true"]');
+    return button && button.textContent.includes("Command copied");
+  }, { timeout: 5000 });
+  const copiedIssueReviewCommand = await page.evaluate(() => navigator.clipboard.readText());
   await page.locator('[data-github-issue-next-command-copy="true"]').first().click();
   await page.waitForFunction(() => {
     const button = document.querySelector('[data-github-issue-next-command-copy="true"]');
@@ -636,6 +642,8 @@ async function main() {
     return button && button.textContent.includes("Command copied");
   }, { timeout: 5000 });
   const copiedIssuePlannedPreflightCommand = await page.evaluate(() => navigator.clipboard.readText());
+  await page.locator('[data-github-issue-review-command-copy="true"]').first().click();
+  const copiedIssuePlannedReviewCommand = await page.evaluate(() => navigator.clipboard.readText());
   await page.locator('[data-github-issue-next-command-copy="true"]').first().click();
   const copiedIssuePlannedCommand = await page.evaluate(() => navigator.clipboard.readText());
   await page
@@ -688,6 +696,7 @@ async function main() {
       githubIssueProgressStepCount: count('[data-github-issue-progress-step="true"]'),
       githubIssuePreflightCardCount: count('[data-github-issue-preflight-action="true"]'),
       githubIssuePreflightCommandCopyButtonCount: count('[data-github-issue-preflight-command-copy="true"]'),
+      githubIssueReviewCommandCopyButtonCount: count('[data-github-issue-review-command-copy="true"]'),
       githubIssueItemCount: count('[data-github-issue-item="true"]'),
       githubIssueAgentHandoffPanelCount: count('[data-github-issue-agent-handoff="true"]'),
       githubIssueAgentPromptCardCount: count('[data-github-issue-agent-prompt="true"]'),
@@ -857,6 +866,7 @@ async function main() {
     copiedLiveBrief,
     copiedGithubUpdate,
     copiedCodexCommand,
+    copiedIssueReviewCommand,
     copiedIssueNextCommand,
     copiedIssuePreflightCommand,
     copiedIssueSyncCommand,
@@ -867,6 +877,7 @@ async function main() {
     copiedIssueCodexUiCommand,
     copiedIssuePlannedCommand,
     copiedIssuePlannedPreflightCommand,
+    copiedIssuePlannedReviewCommand,
     selectedPlannedWorkflowText,
     ok: false,
   };
@@ -938,6 +949,11 @@ async function main() {
   if (summary.githubIssuePreflightCommandCopyButtonCount !== 1) {
     problems.push(
       `expected one GitHub issue preflight command copy button, got ${summary.githubIssuePreflightCommandCopyButtonCount}`
+    );
+  }
+  if (summary.githubIssueReviewCommandCopyButtonCount !== 1) {
+    problems.push(
+      `expected one GitHub issue review command copy button, got ${summary.githubIssueReviewCommandCopyButtonCount}`
     );
   }
   if (summary.githubIssueItemCount < 1) {
@@ -1117,6 +1133,12 @@ async function main() {
     problems.push("developer Codex command copy action should write the runnable command to clipboard");
   }
   if (
+    !copiedIssueReviewCommand.includes("make github-issue-review") ||
+    !copiedIssueReviewCommand.includes("operator-ui-issue-workflow")
+  ) {
+    problems.push("GitHub issue workbench review command should reopen the selected workflow report");
+  }
+  if (
     !copiedIssueNextCommand.includes("make github-issue-review") ||
     !copiedIssueNextCommand.includes("GITHUB_ISSUE_WORKFLOW_DIR=")
   ) {
@@ -1178,6 +1200,12 @@ async function main() {
     !copiedIssuePlannedPreflightCommand.includes("operator-ui-planned-workflow")
   ) {
     problems.push("selecting a planned GitHub issue workflow should update the preflight command in place");
+  }
+  if (
+    !copiedIssuePlannedReviewCommand.includes("make github-issue-plan-review") ||
+    !copiedIssuePlannedReviewCommand.includes("operator-ui-planned-workflow")
+  ) {
+    problems.push("selecting a planned GitHub issue workflow should update the review command in place");
   }
   if (summary.developerValueCardCount < 5) {
     problems.push(`expected developer value cards, got ${summary.developerValueCardCount}`);
