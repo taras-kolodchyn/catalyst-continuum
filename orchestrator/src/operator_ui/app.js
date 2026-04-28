@@ -2290,6 +2290,7 @@ function renderGithubIssueWorkbench(envelope) {
           ${renderGithubIssuePreflightAction(selectedWorkflow?.preflight_action)}
           ${renderGithubIssueAgentHandoff(selectedWorkflow)}
           ${renderGithubIssueWorkflowAction(action, "next")}
+          ${renderGithubIssueSyncComment(selectedWorkflow)}
           ${renderGithubIssueSyncAction(syncAction)}
         </section>
         <section class="github-issue-workflow-stack">
@@ -2643,6 +2644,99 @@ function renderGithubIssueAgentHandoff(workflow) {
           ? `<div class="github-issue-agent-prompt-grid">${prompts.map(renderGithubIssueAgentPrompt).join("")}</div>`
           : '<p class="microcopy">No generated agent prompts are attached to this workflow yet.</p>'
       }
+    </article>
+  `;
+}
+
+function renderGithubIssueSyncComment(workflow) {
+  if (!workflow) {
+    return "";
+  }
+
+  const commentPath = nonEmptyString(workflow.issue_sync_comment);
+  const commentText = nonEmptyString(workflow.issue_sync_comment_text);
+  const commentPreview = nonEmptyString(workflow.issue_sync_comment_preview);
+  if (!commentPath && !commentPreview) {
+    return "";
+  }
+
+  const lineCount = Number(workflow.issue_sync_comment_line_count);
+  const charCount = Number(workflow.issue_sync_comment_char_count);
+  const metaItems = [
+    Number.isFinite(lineCount)
+      ? `${lineCount.toLocaleString()} ${lineCount === 1 ? "line" : "lines"}`
+      : null,
+    Number.isFinite(charCount)
+      ? `${charCount.toLocaleString()} ${charCount === 1 ? "char" : "chars"}`
+      : null,
+    workflow.issue_sync_comment_truncated
+      ? "path copy required"
+      : commentText
+        ? "browser copy ready"
+        : "path only",
+  ].filter(Boolean);
+
+  return `
+    <article class="github-issue-command-card github-issue-command-card-success" data-github-issue-sync-comment-card="true">
+      <div class="mission-feed-head">
+        <div>
+          <p class="panel-kicker">Issue update preview</p>
+          <h3>Review the GitHub comment before applying sync</h3>
+        </div>
+        <span class="badge badge-success">${escapeHtml(commentText ? "Copy ready" : "Path ready")}</span>
+      </div>
+      <p>Use this generated comment to manually update GitHub or to review exactly what the apply command will post.</p>
+      ${
+        metaItems.length
+          ? `<div class="github-issue-agent-prompt-meta" data-github-issue-sync-comment-meta="true">${metaItems
+              .map((item) => `<span>${escapeHtml(item)}</span>`)
+              .join("")}</div>`
+          : ""
+      }
+      ${
+        commentPreview
+          ? `<pre class="github-issue-agent-prompt-preview" data-github-issue-sync-comment-preview="true">${escapeHtml(commentPreview)}</pre>`
+          : '<p class="microcopy">Comment preview unavailable; copy the path and inspect it locally.</p>'
+      }
+      ${
+        commentText
+          ? `<pre class="hidden" data-github-issue-sync-comment-text="true">${escapeHtml(commentText)}</pre>`
+          : ""
+      }
+      ${
+        workflow.issue_sync_comment_truncated
+          ? '<p class="microcopy">Comment is too large for direct browser copy; use the path below.</p>'
+          : ""
+      }
+      <div class="github-issue-agent-prompt-actions">
+        ${
+          commentText
+            ? `<button
+                 class="button button-primary"
+                 type="button"
+                 data-copy-text-selector="[data-github-issue-sync-comment-text='true']"
+                 data-copy-success-label="Comment copied"
+                 data-github-issue-sync-comment-text-copy="true"
+               >
+                 Copy issue comment
+               </button>`
+            : ""
+        }
+        ${
+          commentPath
+            ? `<button
+                 class="button button-secondary"
+                 type="button"
+                 data-copy-command="${escapeHtml(commentPath)}"
+                 data-copy-success-label="Path copied"
+                 data-github-issue-sync-comment-path-copy="true"
+               >
+                 Copy comment path
+               </button>`
+            : ""
+        }
+      </div>
+      ${renderGithubIssueActionPath(commentPath, "Comment evidence")}
     </article>
   `;
 }

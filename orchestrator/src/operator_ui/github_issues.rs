@@ -11,6 +11,8 @@ use std::{
 const DEFAULT_WORKFLOW_LIMIT: usize = 3;
 const AGENT_PROMPT_TEXT_LIMIT: usize = 64 * 1024;
 const AGENT_PROMPT_PREVIEW_LIMIT: usize = 420;
+const ISSUE_SYNC_COMMENT_TEXT_LIMIT: usize = 64 * 1024;
+const ISSUE_SYNC_COMMENT_PREVIEW_LIMIT: usize = 640;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct OperatorUiGithubIssueWorkflowSnapshot {
@@ -52,6 +54,11 @@ pub struct OperatorUiGithubIssueWorkflowItem {
     pub issue_sync_pr_url: Option<String>,
     pub issue_sync_plan: Option<String>,
     pub issue_sync_comment: Option<String>,
+    pub issue_sync_comment_preview: Option<String>,
+    pub issue_sync_comment_text: Option<String>,
+    pub issue_sync_comment_truncated: bool,
+    pub issue_sync_comment_line_count: Option<usize>,
+    pub issue_sync_comment_char_count: Option<usize>,
     pub next_command: Option<String>,
     pub progress_steps: Vec<OperatorUiGithubIssueWorkflowStep>,
     pub review_action: OperatorUiGithubIssueWorkflowAction,
@@ -211,6 +218,10 @@ fn workflow_item(summary_path: &Path) -> Result<Option<OperatorUiGithubIssueWork
         None => Vec::new(),
     };
     let issue_refs = issue_refs(&issues);
+    let issue_sync_comment = optional_path(issue_sync.and_then(|value| value.get("comment")));
+    let issue_sync_comment_text = issue_sync_comment
+        .as_deref()
+        .and_then(|path| read_issue_sync_comment_text(Path::new(path)));
 
     let mut item = OperatorUiGithubIssueWorkflowItem {
         path: path_string(summary_dir),
@@ -238,7 +249,18 @@ fn workflow_item(summary_path: &Path) -> Result<Option<OperatorUiGithubIssueWork
         issue_sync_exit_code: int_path(issue_sync.and_then(|value| value.get("exit_code"))),
         issue_sync_pr_url: optional_path(issue_sync.and_then(|value| value.get("pr_url"))),
         issue_sync_plan: optional_path(issue_sync.and_then(|value| value.get("plan"))),
-        issue_sync_comment: optional_path(issue_sync.and_then(|value| value.get("comment"))),
+        issue_sync_comment,
+        issue_sync_comment_preview: issue_sync_comment_text
+            .as_ref()
+            .map(|text| text.preview.clone()),
+        issue_sync_comment_text: issue_sync_comment_text
+            .as_ref()
+            .and_then(|text| text.full.clone()),
+        issue_sync_comment_truncated: issue_sync_comment_text
+            .as_ref()
+            .is_some_and(|text| text.truncated),
+        issue_sync_comment_line_count: issue_sync_comment_text.as_ref().map(|text| text.line_count),
+        issue_sync_comment_char_count: issue_sync_comment_text.as_ref().map(|text| text.char_count),
         next_command: optional_path(plan.and_then(|value| value.get("next_command"))),
         progress_steps: Vec::new(),
         review_action: review_action(None),
@@ -367,6 +389,22 @@ struct LoadedPromptText {
 }
 
 fn read_prompt_text(path: &Path) -> Option<LoadedPromptText> {
+    read_limited_text(path, AGENT_PROMPT_TEXT_LIMIT, AGENT_PROMPT_PREVIEW_LIMIT)
+}
+
+fn read_issue_sync_comment_text(path: &Path) -> Option<LoadedPromptText> {
+    read_limited_text(
+        path,
+        ISSUE_SYNC_COMMENT_TEXT_LIMIT,
+        ISSUE_SYNC_COMMENT_PREVIEW_LIMIT,
+    )
+}
+
+fn read_limited_text(
+    path: &Path,
+    text_limit: usize,
+    preview_limit: usize,
+) -> Option<LoadedPromptText> {
     let content = fs::read_to_string(path).ok()?;
     let char_count = content.chars().count();
     let line_count = if content.is_empty() {
@@ -374,10 +412,10 @@ fn read_prompt_text(path: &Path) -> Option<LoadedPromptText> {
     } else {
         content.lines().count()
     };
-    let truncated = content.len() > AGENT_PROMPT_TEXT_LIMIT;
+    let truncated = content.len() > text_limit;
     let full = (!truncated).then(|| content.clone());
     Some(LoadedPromptText {
-        preview: truncate_chars(&content, AGENT_PROMPT_PREVIEW_LIMIT),
+        preview: truncate_chars(&content, preview_limit),
         full,
         truncated,
         line_count,
@@ -1231,6 +1269,17 @@ mod tests {
                 .command
                 .contains("make github-issue-review")
         );
+        assert_eq!(
+            snapshot.workflows[0].issue_sync_comment_preview.as_deref(),
+            Some("Comment")
+        );
+        assert_eq!(
+            snapshot.workflows[0].issue_sync_comment_text.as_deref(),
+            Some("Comment")
+        );
+        assert_eq!(snapshot.workflows[0].issue_sync_comment_line_count, Some(1));
+        assert_eq!(snapshot.workflows[0].issue_sync_comment_char_count, Some(7));
+        assert!(!snapshot.workflows[0].issue_sync_comment_truncated);
         assert!(snapshot.issue_sync_apply_action.available);
         assert!(snapshot.workflows[0].issue_sync_apply_action.available);
         let command = snapshot

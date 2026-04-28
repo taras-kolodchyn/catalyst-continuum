@@ -617,6 +617,18 @@ async function main() {
     return button && button.textContent.includes("Command copied");
   }, { timeout: 5000 });
   const copiedIssueSyncCommand = await page.evaluate(() => navigator.clipboard.readText());
+  await page.locator('[data-github-issue-sync-comment-text-copy="true"]').first().click();
+  await page.waitForFunction(() => {
+    const button = document.querySelector('[data-github-issue-sync-comment-text-copy="true"]');
+    return button && button.textContent.includes("Comment copied");
+  }, { timeout: 5000 });
+  const copiedIssueSyncComment = await page.evaluate(() => navigator.clipboard.readText());
+  await page.locator('[data-github-issue-sync-comment-path-copy="true"]').first().click();
+  await page.waitForFunction(() => {
+    const button = document.querySelector('[data-github-issue-sync-comment-path-copy="true"]');
+    return button && button.textContent.includes("Path copied");
+  }, { timeout: 5000 });
+  const copiedIssueSyncCommentPath = await page.evaluate(() => navigator.clipboard.readText());
   await page.locator('[data-github-issue-agent-prompt-text-copy="true"]').first().click();
   await page.waitForFunction(() => {
     const button = document.querySelector('[data-github-issue-agent-prompt-text-copy="true"]');
@@ -744,6 +756,11 @@ async function main() {
       githubIssueCodexUiCopyButtonCount: count('[data-github-issue-codex-ui-copy="true"]'),
       githubIssueNextCommandCopyButtonCount: count('[data-github-issue-next-command-copy="true"]'),
       githubIssueSyncCommandCopyButtonCount: count('[data-github-issue-sync-command-copy="true"]'),
+      githubIssueSyncCommentCardCount: count('[data-github-issue-sync-comment-card="true"]'),
+      githubIssueSyncCommentMetaCount: count('[data-github-issue-sync-comment-meta="true"]'),
+      githubIssueSyncCommentPreviewCount: count('[data-github-issue-sync-comment-preview="true"]'),
+      githubIssueSyncCommentTextCopyButtonCount: count('[data-github-issue-sync-comment-text-copy="true"]'),
+      githubIssueSyncCommentPathCopyButtonCount: count('[data-github-issue-sync-comment-path-copy="true"]'),
       githubIssueSelectedWorkflowText: text('[data-github-issue-workflow-selected="true"]'),
       githubIssueWorkbenchIncludesIssue:
         document.body.textContent.includes("GitHub Issue Workbench") &&
@@ -908,6 +925,8 @@ async function main() {
     copiedIssueNextCommand,
     copiedIssuePreflightCommand,
     copiedIssueSyncCommand,
+    copiedIssueSyncComment,
+    copiedIssueSyncCommentPath,
     copiedIssueAgentPromptText,
     copiedIssueAgentPromptCommand,
     copiedIssueAgentPromptPath,
@@ -1086,6 +1105,25 @@ async function main() {
       `expected one GitHub issue sync-command copy button, got ${summary.githubIssueSyncCommandCopyButtonCount}`
     );
   }
+  if (summary.githubIssueSyncCommentCardCount !== 1) {
+    problems.push(`expected one GitHub issue sync comment card, got ${summary.githubIssueSyncCommentCardCount}`);
+  }
+  if (summary.githubIssueSyncCommentMetaCount !== 1) {
+    problems.push(`expected one GitHub issue sync comment metadata row, got ${summary.githubIssueSyncCommentMetaCount}`);
+  }
+  if (summary.githubIssueSyncCommentPreviewCount !== 1) {
+    problems.push(`expected one GitHub issue sync comment preview, got ${summary.githubIssueSyncCommentPreviewCount}`);
+  }
+  if (summary.githubIssueSyncCommentTextCopyButtonCount !== 1) {
+    problems.push(
+      `expected one GitHub issue sync comment text copy button, got ${summary.githubIssueSyncCommentTextCopyButtonCount}`
+    );
+  }
+  if (summary.githubIssueSyncCommentPathCopyButtonCount !== 1) {
+    problems.push(
+      `expected one GitHub issue sync comment path copy button, got ${summary.githubIssueSyncCommentPathCopyButtonCount}`
+    );
+  }
   if (!summary.githubIssueWorkbenchIncludesIssue) {
     problems.push("GitHub issue workbench should expose latest issue refs and repository context");
   }
@@ -1256,6 +1294,15 @@ async function main() {
     !copiedIssueSyncCommand.includes("GITHUB_ISSUE_SYNC_PR_URL=")
   ) {
     problems.push("GitHub issue workbench sync command should include apply, run summary, and PR URL inputs");
+  }
+  if (!copiedIssueSyncComment.includes("Catalyst Continuum prepared a draft PR and issue update.")) {
+    problems.push("GitHub issue workbench sync comment copy should write the generated comment");
+  }
+  if (
+    !copiedIssueSyncCommentPath.endsWith("/comment.md") ||
+    !copiedIssueSyncCommentPath.includes("operator-ui-issue-workflow/issue-sync")
+  ) {
+    problems.push("GitHub issue workbench sync comment path copy should write the comment artifact path");
   }
   if (
     !copiedIssueAgentPromptText.includes("Codex should implement issue #42") ||
