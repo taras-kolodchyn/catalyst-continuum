@@ -204,6 +204,7 @@ const state = {
   selectedAgentActivityId: "all",
   selectedAgentReportArtifactId: null,
   selectedAgentLogArtifactId: null,
+  selectedGithubIssueWorkflowPath: null,
   agentReportDetails: {},
   agentReportLoadsInFlight: {},
   agentLogDetails: {},
@@ -449,6 +450,12 @@ function bindEvents() {
 
   if (elements.githubIssueWorkbench) {
     elements.githubIssueWorkbench.addEventListener("click", (event) => {
+      const workflowButton = event.target.closest("[data-github-issue-workflow-select]");
+      if (workflowButton) {
+        setSelectedGithubIssueWorkflow(workflowButton.dataset.githubIssueWorkflowSelect);
+        return;
+      }
+
       const copyTextButton = event.target.closest("[data-copy-command]");
       if (!copyTextButton) {
         return;
@@ -2255,15 +2262,20 @@ function renderGithubIssueWorkbench(envelope) {
 
   const snapshot = githubIssueWorkflowsData(envelope);
   const workflows = Array.isArray(snapshot.workflows) ? snapshot.workflows : [];
-  const selectedPath = workflows[0]?.path ?? "";
-  const action = snapshot.recommended_next_action ?? {};
-  const syncAction = snapshot.issue_sync_apply_action ?? {};
+  const selectedWorkflow = selectedGithubIssueWorkflow(workflows);
+  const selectedPath = selectedWorkflow?.path ?? "";
+  const action =
+    selectedWorkflow?.recommended_next_action ?? snapshot.recommended_next_action ?? {};
+  const syncAction =
+    selectedWorkflow?.issue_sync_apply_action ?? snapshot.issue_sync_apply_action ?? {};
 
   setRenderedHtml(
     elements.githubIssueWorkbench,
     `
       <div class="github-issue-workbench-grid">
         <section class="github-issue-action-stack">
+          ${renderGithubIssueSelectedPackage(selectedWorkflow)}
+          ${renderGithubIssueWorkflowProgress(selectedWorkflow)}
           ${renderGithubIssueWorkflowAction(action, "next")}
           ${renderGithubIssueSyncAction(syncAction)}
         </section>
@@ -2293,6 +2305,146 @@ function renderGithubIssueWorkbench(envelope) {
 
 function githubIssueWorkflowsData(envelope) {
   return envelope?.data && typeof envelope.data === "object" ? envelope.data : {};
+}
+
+function selectedGithubIssueWorkflow(workflows) {
+  if (!workflows.length) {
+    return null;
+  }
+
+  return (
+    workflows.find(
+      (workflow) =>
+        workflow.path &&
+        workflow.path === state.selectedGithubIssueWorkflowPath
+    ) ?? workflows[0]
+  );
+}
+
+function setSelectedGithubIssueWorkflow(path) {
+  const value = nonEmptyString(path);
+  if (!value || value === state.selectedGithubIssueWorkflowPath) {
+    return;
+  }
+
+  state.selectedGithubIssueWorkflowPath = value;
+  renderGithubIssueWorkbench(state.dashboardSnapshot.githubIssueWorkflows);
+}
+
+function renderGithubIssueSelectedPackage(workflow) {
+  if (!workflow) {
+    return `
+      <article class="github-issue-command-card github-issue-command-card-neutral">
+        <p class="panel-kicker">Selected work package</p>
+        <h3>No issue workflow selected</h3>
+        <p>Create a GitHub issue workflow to see the repository, strategy, issues, labels, and selected recipes here.</p>
+      </article>
+    `;
+  }
+
+  const repository =
+    nonEmptyString(workflow.repository_full_name) || "Repository unresolved";
+  const strategy = nonEmptyString(workflow.pr_strategy) || "strategy unknown";
+  const issues = Array.isArray(workflow.issues) ? workflow.issues : [];
+  return `
+    <article class="github-issue-command-card github-issue-command-card-neutral" data-github-issue-selected-package="true">
+      <div class="mission-feed-head">
+        <div>
+          <p class="panel-kicker">Selected work package</p>
+          <h3>${escapeHtml(repository)}</h3>
+        </div>
+        <span class="badge badge-neutral">${escapeHtml(strategy)}</span>
+      </div>
+      <p>${escapeHtml(nonEmptyString(workflow.issue_refs) || "No issue refs recorded")}</p>
+      ${
+        issues.length
+          ? `<div class="github-issue-list">${issues.map(renderGithubIssueItem).join("")}</div>`
+          : '<p class="microcopy">No issue manifest is attached to this workflow.</p>'
+      }
+    </article>
+  `;
+}
+
+function renderGithubIssueItem(issue) {
+  const number = Number.isFinite(Number(issue.number)) ? `#${Number(issue.number)}` : "#?";
+  const title = nonEmptyString(issue.title) || "Untitled issue";
+  const labels = Array.isArray(issue.labels) ? issue.labels : [];
+  const recipe = nonEmptyString(issue.selected_recipe);
+  return `
+    <div class="github-issue-item" data-github-issue-item="true">
+      <div>
+        <strong>${escapeHtml(number)} ${escapeHtml(title)}</strong>
+        <p>${escapeHtml(nonEmptyString(issue.state) || "state unknown")}${recipe ? ` · ${escapeHtml(recipe)}` : ""}</p>
+      </div>
+      ${
+        labels.length
+          ? `<div class="github-issue-labels">${labels
+              .map((label) => `<span>${escapeHtml(label)}</span>`)
+              .join("")}</div>`
+          : ""
+      }
+    </div>
+  `;
+}
+
+function renderGithubIssueWorkflowProgress(workflow) {
+  if (!workflow) {
+    return "";
+  }
+
+  const steps = Array.isArray(workflow.progress_steps)
+    ? workflow.progress_steps
+    : [];
+  if (!steps.length) {
+    return "";
+  }
+
+  return `
+    <article class="github-issue-command-card github-issue-progress-card" data-github-issue-progress-card="true">
+      <div class="mission-feed-head">
+        <div>
+          <p class="panel-kicker">Workflow readiness</p>
+          <h3>What is safe now</h3>
+        </div>
+        <span class="badge badge-${escapeHtml(githubIssueWorkflowTone(workflow.status))}">${escapeHtml(displayIssueWorkflowStatus(workflow.status))}</span>
+      </div>
+      <ol class="github-issue-progress-steps">
+        ${steps.map(renderGithubIssueWorkflowStep).join("")}
+      </ol>
+    </article>
+  `;
+}
+
+function renderGithubIssueWorkflowStep(step) {
+  const status = nonEmptyString(step.status) || "waiting";
+  return `
+    <li class="github-issue-progress-step github-issue-progress-step-${escapeHtml(status)}" data-github-issue-progress-step="true">
+      <span class="github-issue-progress-marker" aria-hidden="true"></span>
+      <div>
+        <div class="github-issue-progress-head">
+          <strong>${escapeHtml(nonEmptyString(step.label) || "Step")}</strong>
+          <span>${escapeHtml(displayGithubIssueStepStatus(status))}</span>
+        </div>
+        <p>${escapeHtml(nonEmptyString(step.description) || "No step description available.")}</p>
+        ${renderGithubIssueActionPath(step.primary_path, "Evidence")}
+      </div>
+    </li>
+  `;
+}
+
+function displayGithubIssueStepStatus(status) {
+  switch (status) {
+    case "done":
+      return "Done";
+    case "ready":
+      return "Ready";
+    case "error":
+      return "Needs fix";
+    case "skipped":
+      return "Skipped";
+    default:
+      return "Waiting";
+  }
 }
 
 function renderGithubIssueWorkflowAction(action, kind) {
@@ -2389,9 +2541,13 @@ function renderGithubIssueWorkflowCard(workflow, selected) {
   const draftPr = nonEmptyString(workflow.draft_pr_url);
 
   return `
-    <article
+    <button
       class="github-issue-workflow-card github-issue-workflow-card-${escapeHtml(tone)}${selected ? " is-selected" : ""}"
+      type="button"
       data-github-issue-workflow-card="true"
+      data-github-issue-workflow-select="${escapeHtml(workflow.path ?? "")}"
+      data-github-issue-workflow-selected="${selected ? "true" : "false"}"
+      aria-pressed="${selected ? "true" : "false"}"
     >
       <div class="mission-feed-head">
         <div>
@@ -2411,7 +2567,7 @@ function renderGithubIssueWorkflowCard(workflow, selected) {
         ${syncPlan ? `<span>Sync plan: <strong>${escapeHtml(syncPlan)}</strong></span>` : ""}
         ${draftPr ? `<span>Draft PR: <strong>${escapeHtml(draftPr)}</strong></span>` : ""}
       </div>
-    </article>
+    </button>
   `;
 }
 

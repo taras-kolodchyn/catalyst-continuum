@@ -590,6 +590,29 @@ textarea,
   box-shadow: 0 14px 28px rgba(24, 35, 29, 0.05);
 }
 
+.github-issue-workflow-card {
+  width: 100%;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  transition:
+    transform var(--transition-soft),
+    border-color var(--transition-soft),
+    box-shadow var(--transition-soft);
+}
+
+.github-issue-workflow-card:hover {
+  transform: translateY(-1px);
+  border-color: rgba(23, 79, 67, 0.24);
+  box-shadow: 0 16px 30px rgba(24, 35, 29, 0.08);
+}
+
+.github-issue-workflow-card:focus-visible {
+  outline: 3px solid rgba(217, 154, 43, 0.42);
+  outline-offset: 3px;
+}
+
 .github-issue-command-card-success,
 .github-issue-workflow-card-success {
   box-shadow: inset 0 0 0 1px rgba(23, 79, 67, 0.08);
@@ -640,6 +663,120 @@ textarea,
 
 .github-issue-path {
   overflow-wrap: anywhere;
+}
+
+.github-issue-list,
+.github-issue-progress-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.github-issue-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+  border: 1px solid rgba(24, 35, 29, 0.08);
+  border-radius: var(--radius-md);
+  background: rgba(255, 251, 244, 0.66);
+  padding: 10px;
+}
+
+.github-issue-item strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.github-issue-item p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.github-issue-labels {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.github-issue-labels span {
+  border: 1px solid rgba(24, 35, 29, 0.1);
+  border-radius: 999px;
+  background: rgba(23, 79, 67, 0.08);
+  color: var(--spruce);
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 4px 7px;
+}
+
+.github-issue-progress-card {
+  background:
+    linear-gradient(135deg, rgba(23, 79, 67, 0.07), rgba(255, 251, 244, 0.82)),
+    rgba(255, 255, 255, 0.78);
+}
+
+.github-issue-progress-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.github-issue-progress-step {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  position: relative;
+}
+
+.github-issue-progress-marker {
+  width: 12px;
+  height: 12px;
+  margin-top: 5px;
+  border: 2px solid rgba(24, 35, 29, 0.18);
+  border-radius: 999px;
+  background: rgba(255, 251, 244, 0.9);
+}
+
+.github-issue-progress-step-done .github-issue-progress-marker {
+  border-color: rgba(23, 79, 67, 0.8);
+  background: var(--spruce);
+}
+
+.github-issue-progress-step-ready .github-issue-progress-marker {
+  border-color: rgba(217, 154, 43, 0.9);
+  background: var(--amber);
+}
+
+.github-issue-progress-step-error .github-issue-progress-marker {
+  border-color: rgba(141, 48, 48, 0.9);
+  background: #8d3030;
+}
+
+.github-issue-progress-step-skipped .github-issue-progress-marker {
+  background: rgba(24, 35, 29, 0.18);
+}
+
+.github-issue-progress-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.github-issue-progress-head span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.github-issue-progress-step p {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
 }
 
 .github-issue-workflow-evidence {
@@ -3859,6 +3996,14 @@ textarea {
 
   .run-card-phase-rail {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .github-issue-item {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .github-issue-labels {
+    justify-content: flex-start;
   }
 
   .run-outcome-action .button {

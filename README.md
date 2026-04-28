@@ -46,9 +46,10 @@ review package, portable Cursor/Codex/OpenHands review prompt, agent handoff, ar
 next actions without needing to configure a real GitHub repository first.
 
 The same UI also has a `GitHub Issue Workbench`. After you run `github-issue-plan` or
-`github-issue-run`, it shows the latest issue workflow, selected issue refs, the next safe review
-command, and the reviewed issue-sync apply command. The workbench is read-only: it helps you copy
-the right terminal command, but it does not mutate GitHub from the browser.
+`github-issue-run`, it shows recent issue workflows, lets you select the package you want to inspect
+without a page refresh, and explains the readiness path from plan to agent run, PR handoff, and
+issue sync. The workbench is read-only: it helps you copy the right terminal command, but it does
+not mutate GitHub from the browser.
 
 For real work, start with a safe GitHub issue preview:
 

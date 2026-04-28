@@ -49,6 +49,9 @@ pub struct OperatorUiGithubIssueWorkflowItem {
     pub issue_sync_plan: Option<String>,
     pub issue_sync_comment: Option<String>,
     pub next_command: Option<String>,
+    pub progress_steps: Vec<OperatorUiGithubIssueWorkflowStep>,
+    pub recommended_next_action: OperatorUiGithubIssueWorkflowAction,
+    pub issue_sync_apply_action: OperatorUiGithubIssueSyncAction,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -60,6 +63,15 @@ pub struct OperatorUiGithubIssueItem {
     pub labels: Vec<String>,
     pub rank: Option<i64>,
     pub selected_recipe: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct OperatorUiGithubIssueWorkflowStep {
+    pub id: String,
+    pub label: String,
+    pub status: String,
+    pub description: String,
+    pub primary_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -103,8 +115,12 @@ pub(crate) fn github_issue_workflow_snapshot(
     workflows.truncate(limit);
 
     let selected = workflows.first();
-    let recommended_next_action = recommended_next_action(selected);
-    let issue_sync_apply_action = issue_sync_apply_action(selected);
+    let recommended_next_action = selected
+        .map(|item| item.recommended_next_action.clone())
+        .unwrap_or_else(|| recommended_next_action(None));
+    let issue_sync_apply_action = selected
+        .map(|item| item.issue_sync_apply_action.clone())
+        .unwrap_or_else(|| issue_sync_apply_action(None));
 
     Ok(OperatorUiGithubIssueWorkflowSnapshot {
         schema_version: "v0.1".to_string(),
@@ -171,7 +187,7 @@ fn workflow_item(summary_path: &Path) -> Result<Option<OperatorUiGithubIssueWork
     };
     let issue_refs = issue_refs(&issues);
 
-    Ok(Some(OperatorUiGithubIssueWorkflowItem {
+    let mut item = OperatorUiGithubIssueWorkflowItem {
         path: path_string(summary_dir),
         summary_path: path_string(summary_path),
         mtime: file_mtime(summary_path),
@@ -198,7 +214,15 @@ fn workflow_item(summary_path: &Path) -> Result<Option<OperatorUiGithubIssueWork
         issue_sync_plan: optional_path(issue_sync.and_then(|value| value.get("plan"))),
         issue_sync_comment: optional_path(issue_sync.and_then(|value| value.get("comment"))),
         next_command: optional_path(plan.and_then(|value| value.get("next_command"))),
-    }))
+        progress_steps: Vec::new(),
+        recommended_next_action: recommended_next_action(None),
+        issue_sync_apply_action: issue_sync_apply_action(None),
+    };
+    item.progress_steps = workflow_progress_steps(&item);
+    item.recommended_next_action = recommended_next_action(Some(&item));
+    item.issue_sync_apply_action = issue_sync_apply_action(Some(&item));
+
+    Ok(Some(item))
 }
 
 fn continuum_root_from_artifact_root(artifact_root: &Path) -> Result<PathBuf> {
@@ -484,6 +508,194 @@ fn unavailable_sync_action(
     }
 }
 
+fn workflow_progress_steps(
+    item: &OperatorUiGithubIssueWorkflowItem,
+) -> Vec<OperatorUiGithubIssueWorkflowStep> {
+    vec![
+        workflow_step(
+            "plan",
+            "Plan",
+            if item.report_path.is_some()
+                || item.plan_report_path.is_some()
+                || item.next_command.is_some()
+            {
+                "done"
+            } else {
+                "waiting"
+            },
+            if item.plan_only {
+                "Plan-only workflow is ready for review before execution."
+            } else {
+                "Issue package and workflow evidence were created."
+            },
+            item.plan_report_path
+                .as_deref()
+                .or(item.report_path.as_deref())
+                .or(Some(item.summary_path.as_str())),
+        ),
+        run_progress_step(item),
+        draft_pr_progress_step(item),
+        issue_sync_progress_step(item),
+    ]
+}
+
+fn run_progress_step(
+    item: &OperatorUiGithubIssueWorkflowItem,
+) -> OperatorUiGithubIssueWorkflowStep {
+    if item.plan_only {
+        return workflow_step(
+            "run",
+            "Agent run",
+            "waiting",
+            "Execution has not started yet; run the planned command after reviewing the plan.",
+            item.plan_report_path
+                .as_deref()
+                .or(Some(item.summary_path.as_str())),
+        );
+    }
+    if item.run_exit_code.unwrap_or(0) != 0 {
+        return workflow_step(
+            "run",
+            "Agent run",
+            "error",
+            "Agent execution failed; inspect the run summary before continuing.",
+            item.run_summary
+                .as_deref()
+                .or(Some(item.summary_path.as_str())),
+        );
+    }
+    if item.run_summary.is_some() {
+        return workflow_step(
+            "run",
+            "Agent run",
+            "done",
+            "Local evidence was produced for this issue package.",
+            item.run_summary.as_deref(),
+        );
+    }
+
+    workflow_step(
+        "run",
+        "Agent run",
+        "waiting",
+        "No run summary is attached yet.",
+        Some(item.summary_path.as_str()),
+    )
+}
+
+fn draft_pr_progress_step(
+    item: &OperatorUiGithubIssueWorkflowItem,
+) -> OperatorUiGithubIssueWorkflowStep {
+    if item.draft_pr_exit_code.unwrap_or(0) != 0 {
+        return workflow_step(
+            "draft-pr",
+            "PR handoff",
+            "error",
+            "Draft PR publication failed; inspect the workflow report and publication output.",
+            item.report_path
+                .as_deref()
+                .or(Some(item.summary_path.as_str())),
+        );
+    }
+    if item.draft_pr_url.is_some() {
+        return workflow_step(
+            "draft-pr",
+            "PR handoff",
+            "done",
+            "A draft PR URL is attached for human review.",
+            item.draft_pr_url.as_deref(),
+        );
+    }
+    if item.draft_pr_requested {
+        return workflow_step(
+            "draft-pr",
+            "PR handoff",
+            "waiting",
+            "Draft PR was requested but no URL is attached yet.",
+            item.report_path
+                .as_deref()
+                .or(Some(item.summary_path.as_str())),
+        );
+    }
+
+    workflow_step(
+        "draft-pr",
+        "PR handoff",
+        "skipped",
+        "This workflow did not request remote draft PR publication.",
+        item.report_path
+            .as_deref()
+            .or(Some(item.summary_path.as_str())),
+    )
+}
+
+fn issue_sync_progress_step(
+    item: &OperatorUiGithubIssueWorkflowItem,
+) -> OperatorUiGithubIssueWorkflowStep {
+    if item.issue_sync_exit_code.unwrap_or(0) != 0 {
+        return workflow_step(
+            "issue-sync",
+            "Issue sync",
+            "error",
+            "Issue sync failed or produced an invalid plan.",
+            item.issue_sync_plan
+                .as_deref()
+                .or(Some(item.summary_path.as_str())),
+        );
+    }
+    if item.issue_sync_applied {
+        return workflow_step(
+            "issue-sync",
+            "Issue sync",
+            "done",
+            "GitHub issue comments, labels, or status updates were already applied.",
+            item.issue_sync_plan.as_deref(),
+        );
+    }
+    if item.issue_sync_skipped {
+        return workflow_step(
+            "issue-sync",
+            "Issue sync",
+            "skipped",
+            "Issue sync was skipped for this workflow.",
+            Some(item.summary_path.as_str()),
+        );
+    }
+    if item.issue_sync_plan.is_some() {
+        return workflow_step(
+            "issue-sync",
+            "Issue sync",
+            "ready",
+            "A dry-run sync plan exists; review it before applying the GitHub update.",
+            item.issue_sync_plan.as_deref(),
+        );
+    }
+
+    workflow_step(
+        "issue-sync",
+        "Issue sync",
+        "waiting",
+        "No issue-sync plan is attached yet.",
+        Some(item.summary_path.as_str()),
+    )
+}
+
+fn workflow_step(
+    id: &str,
+    label: &str,
+    status: &str,
+    description: &str,
+    primary_path: Option<&str>,
+) -> OperatorUiGithubIssueWorkflowStep {
+    OperatorUiGithubIssueWorkflowStep {
+        id: id.to_string(),
+        label: label.to_string(),
+        status: status.to_string(),
+        description: description.to_string(),
+        primary_path: primary_path.map(str::to_string),
+    }
+}
+
 fn issue_refs(issues: &[OperatorUiGithubIssueItem]) -> Option<String> {
     if issues.is_empty() {
         return None;
@@ -690,7 +902,17 @@ mod tests {
             snapshot.workflows[0].issue_refs.as_deref(),
             Some("#42 Polish issue workbench")
         );
+        assert_eq!(snapshot.workflows[0].progress_steps.len(), 4);
+        assert_eq!(snapshot.workflows[0].progress_steps[0].status, "done");
+        assert_eq!(snapshot.workflows[0].progress_steps[3].status, "ready");
+        assert!(
+            snapshot.workflows[0]
+                .recommended_next_action
+                .command
+                .contains("make github-issue-review")
+        );
         assert!(snapshot.issue_sync_apply_action.available);
+        assert!(snapshot.workflows[0].issue_sync_apply_action.available);
         let command = snapshot
             .issue_sync_apply_action
             .command

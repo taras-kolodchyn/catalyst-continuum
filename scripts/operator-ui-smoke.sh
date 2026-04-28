@@ -202,20 +202,28 @@ PY
 seed_github_issue_workbench_fixture() {
   python3 - "$OUTPUT_DIR" <<'PY'
 import json
+import os
 import pathlib
 import sys
+import time
 
 output_dir = pathlib.Path(sys.argv[1]).resolve()
 workflow_dir = output_dir / "github-issue-workflows" / "operator-ui-issue-workflow"
+planned_workflow_dir = output_dir / "github-issue-workflows" / "operator-ui-planned-workflow"
 session_dir = workflow_dir / "session"
 sync_dir = workflow_dir / "issue-sync"
+planned_session_dir = planned_workflow_dir / "session"
 session_dir.mkdir(parents=True, exist_ok=True)
 sync_dir.mkdir(parents=True, exist_ok=True)
+planned_session_dir.mkdir(parents=True, exist_ok=True)
 
 run_summary = workflow_dir / "run-summary.json"
 sync_plan = sync_dir / "github-issue-sync-plan.json"
 sync_comment = sync_dir / "comment.md"
 report = workflow_dir / "workflow-report.md"
+summary_file = workflow_dir / "workflow-summary.json"
+planned_report = planned_workflow_dir / "workflow-plan.md"
+planned_summary_file = planned_workflow_dir / "workflow-summary.json"
 
 (session_dir / "manifest.json").write_text(
     json.dumps(
@@ -243,7 +251,7 @@ sync_plan.write_text(json.dumps({"actions": [{"kind": "comment"}, {"kind": "labe
 sync_comment.write_text("Catalyst Continuum prepared a draft PR and issue update.\n", encoding="utf-8")
 report.write_text("# Workflow report\n\nThe issue workflow is ready for review.\n", encoding="utf-8")
 
-(workflow_dir / "workflow-summary.json").write_text(
+summary_file.write_text(
     json.dumps(
         {
             "repository_full_name": "smartit/operator-ui-issue-smoke",
@@ -278,7 +286,58 @@ report.write_text("# Workflow report\n\nThe issue workflow is ready for review.\
     encoding="utf-8",
 )
 
+(planned_session_dir / "manifest.json").write_text(
+    json.dumps(
+        {
+            "session_type": "github_issue_session",
+            "github_issue": {
+                "repository_full_name": "smartit/operator-ui-issue-smoke",
+                "number": 43,
+                "title": "Plan selected workbench",
+                "url": "https://github.com/smartit/operator-ui-issue-smoke/issues/43",
+                "state": "open",
+                "labels": [{"name": "planning"}, {"name": "agent"}],
+            },
+            "repository_context": {
+                "repo_path": str(output_dir / "target-repo"),
+            },
+        },
+        indent=2,
+    )
+    + "\n",
+    encoding="utf-8",
+)
+planned_report.write_text("# Planned workflow\n\nReview this plan before execution.\n", encoding="utf-8")
+planned_summary_file.write_text(
+    json.dumps(
+        {
+            "repository_full_name": "smartit/operator-ui-issue-smoke",
+            "pr_strategy": "per-issue",
+            "plan_only": True,
+            "workflow_output_dir": str(planned_workflow_dir),
+            "repo_path": str(output_dir / "target-repo"),
+            "session": {
+                "dir": str(planned_session_dir),
+                "brief_file": str(planned_session_dir / "brief.yaml"),
+            },
+            "plan": {
+                "markdown": str(planned_report),
+                "next_command": "make github-issue-run GITHUB_ISSUE_WORKFLOW_DIR=" + str(planned_workflow_dir),
+            },
+            "issue_sync": {"skipped": True, "applied": False, "exit_code": 0},
+        },
+        indent=2,
+    )
+    + "\n",
+    encoding="utf-8",
+)
+
+now = time.time()
+os.utime(summary_file, (now, now))
+os.utime(planned_summary_file, (now - 120, now - 120))
+
 print(f"github_issue_workflow_fixture={workflow_dir}")
+print(f"github_issue_planned_workflow_fixture={planned_workflow_dir}")
 PY
 }
 
@@ -509,6 +568,30 @@ async function main() {
     return button && button.textContent.includes("Command copied");
   }, { timeout: 5000 });
   const copiedIssueSyncCommand = await page.evaluate(() => navigator.clipboard.readText());
+  await page
+    .locator('[data-github-issue-workflow-select]')
+    .filter({ hasText: "#43 Plan selected workbench" })
+    .first()
+    .click();
+  await page.waitForFunction(() => {
+    const selected = document.querySelector('[data-github-issue-workflow-selected="true"]');
+    return selected && selected.textContent.includes("#43 Plan selected workbench");
+  }, { timeout: 5000 });
+  const selectedPlannedWorkflowText = await page
+    .locator('[data-github-issue-workflow-selected="true"]')
+    .first()
+    .textContent();
+  await page.locator('[data-github-issue-next-command-copy="true"]').first().click();
+  const copiedIssuePlannedCommand = await page.evaluate(() => navigator.clipboard.readText());
+  await page
+    .locator('[data-github-issue-workflow-select]')
+    .filter({ hasText: "#42 Polish issue workbench" })
+    .first()
+    .click();
+  await page.waitForFunction(() => {
+    const selected = document.querySelector('[data-github-issue-workflow-selected="true"]');
+    return selected && selected.textContent.includes("#42 Polish issue workbench");
+  }, { timeout: 5000 });
 
   const summary = await page.evaluate(() => {
     const text = (selector) => document.querySelector(selector)?.textContent?.trim() || "";
@@ -546,11 +629,16 @@ async function main() {
         document.body.textContent.includes("Next step"),
       githubIssueWorkbenchCount: count('[data-github-issue-workbench="true"]'),
       githubIssueWorkflowCardCount: count('[data-github-issue-workflow-card="true"]'),
+      githubIssueSelectedPackageCount: count('[data-github-issue-selected-package="true"]'),
+      githubIssueProgressStepCount: count('[data-github-issue-progress-step="true"]'),
+      githubIssueItemCount: count('[data-github-issue-item="true"]'),
       githubIssueNextCommandCopyButtonCount: count('[data-github-issue-next-command-copy="true"]'),
       githubIssueSyncCommandCopyButtonCount: count('[data-github-issue-sync-command-copy="true"]'),
+      githubIssueSelectedWorkflowText: text('[data-github-issue-workflow-selected="true"]'),
       githubIssueWorkbenchIncludesIssue:
         document.body.textContent.includes("GitHub Issue Workbench") &&
         document.body.textContent.includes("#42 Polish issue workbench") &&
+        document.body.textContent.includes("#43 Plan selected workbench") &&
         document.body.textContent.includes("smartit/operator-ui-issue-smoke"),
       missionContextCardCount: count('[data-mission-context-card="true"]'),
       missionContextIncludesApprovalBoundary:
@@ -697,6 +785,8 @@ async function main() {
     copiedCodexCommand,
     copiedIssueNextCommand,
     copiedIssueSyncCommand,
+    copiedIssuePlannedCommand,
+    selectedPlannedWorkflowText,
     ok: false,
   };
 
@@ -752,8 +842,20 @@ async function main() {
   if (summary.githubIssueWorkbenchCount !== 1) {
     problems.push(`expected one GitHub issue workbench, got ${summary.githubIssueWorkbenchCount}`);
   }
-  if (summary.githubIssueWorkflowCardCount < 1) {
-    problems.push("GitHub issue workbench should show at least one workflow card");
+  if (summary.githubIssueWorkflowCardCount < 2) {
+    problems.push("GitHub issue workbench should show at least two workflow cards");
+  }
+  if (summary.githubIssueSelectedPackageCount !== 1) {
+    problems.push(`expected one selected GitHub issue package, got ${summary.githubIssueSelectedPackageCount}`);
+  }
+  if (summary.githubIssueProgressStepCount !== 4) {
+    problems.push(`expected four GitHub issue workflow readiness steps, got ${summary.githubIssueProgressStepCount}`);
+  }
+  if (summary.githubIssueItemCount < 1) {
+    problems.push("selected GitHub issue package should show at least one issue");
+  }
+  if (!(selectedPlannedWorkflowText || "").includes("#43 Plan selected workbench")) {
+    problems.push("clicking a GitHub issue workflow should select it without navigating");
   }
   if (summary.githubIssueNextCommandCopyButtonCount !== 1) {
     problems.push(
@@ -899,6 +1001,12 @@ async function main() {
     !copiedIssueSyncCommand.includes("GITHUB_ISSUE_SYNC_PR_URL=")
   ) {
     problems.push("GitHub issue workbench sync command should include apply, run summary, and PR URL inputs");
+  }
+  if (
+    !copiedIssuePlannedCommand.includes("make github-issue-run") ||
+    !copiedIssuePlannedCommand.includes("operator-ui-planned-workflow")
+  ) {
+    problems.push("selecting a planned GitHub issue workflow should update the next command in place");
   }
   if (summary.developerValueCardCount < 5) {
     problems.push(`expected developer value cards, got ${summary.developerValueCardCount}`);
