@@ -708,6 +708,7 @@ async function main() {
       };
     };
     const issueDraftPrLink = document.querySelector('[data-github-issue-draft-pr-link="true"]');
+    const issueLink = document.querySelector('[data-github-issue-link="true"]');
 
     return {
       title: document.title,
@@ -745,6 +746,10 @@ async function main() {
       githubIssuePreflightCommandCopyButtonCount: count('[data-github-issue-preflight-command-copy="true"]'),
       githubIssueReviewCommandCopyButtonCount: count('[data-github-issue-review-command-copy="true"]'),
       githubIssueItemCount: count('[data-github-issue-item="true"]'),
+      githubIssueLinkCount: count('[data-github-issue-link="true"]'),
+      githubIssueLinkHref: issueLink?.getAttribute("href") || "",
+      githubIssueLinkTarget: issueLink?.getAttribute("target") || "",
+      githubIssueLinkRel: issueLink?.getAttribute("rel") || "",
       githubIssueAgentHandoffPanelCount: count('[data-github-issue-agent-handoff="true"]'),
       githubIssueAgentPromptCardCount: count('[data-github-issue-agent-prompt="true"]'),
       githubIssueAgentPromptMetaCount: count('[data-github-issue-agent-prompt-meta="true"]'),
@@ -1044,6 +1049,21 @@ async function main() {
   }
   if (summary.githubIssueItemCount < 1) {
     problems.push("selected GitHub issue package should show at least one issue");
+  }
+  if (summary.githubIssueLinkCount !== 1) {
+    problems.push(`expected one selected GitHub issue link, got ${summary.githubIssueLinkCount}`);
+  }
+  if (summary.githubIssueLinkHref !== "https://github.com/smartit/operator-ui-issue-smoke/issues/42") {
+    problems.push(`unexpected selected GitHub issue link href ${summary.githubIssueLinkHref}`);
+  }
+  if (summary.githubIssueLinkTarget !== "_blank") {
+    problems.push(`selected GitHub issue link should open a new tab, got ${summary.githubIssueLinkTarget}`);
+  }
+  if (
+    !summary.githubIssueLinkRel.includes("noreferrer") ||
+    !summary.githubIssueLinkRel.includes("noopener")
+  ) {
+    problems.push(`selected GitHub issue link should use noopener/noreferrer, got ${summary.githubIssueLinkRel}`);
   }
   if (summary.githubIssueAgentHandoffPanelCount !== 1) {
     problems.push(`expected one GitHub issue agent handoff panel, got ${summary.githubIssueAgentHandoffPanelCount}`);

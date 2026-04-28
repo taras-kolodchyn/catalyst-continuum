@@ -2543,6 +2543,7 @@ function renderGithubIssueItem(issue) {
   const title = nonEmptyString(issue.title) || "Untitled issue";
   const labels = Array.isArray(issue.labels) ? issue.labels : [];
   const recipe = nonEmptyString(issue.selected_recipe);
+  const issueUrl = safeExternalUrl(issue.url);
   return `
     <div class="github-issue-item" data-github-issue-item="true">
       <div>
@@ -2550,10 +2551,29 @@ function renderGithubIssueItem(issue) {
         <p>${escapeHtml(nonEmptyString(issue.state) || "state unknown")}${recipe ? ` · ${escapeHtml(recipe)}` : ""}</p>
       </div>
       ${
-        labels.length
-          ? `<div class="github-issue-labels">${labels
-              .map((label) => `<span>${escapeHtml(label)}</span>`)
-              .join("")}</div>`
+        issueUrl || labels.length
+          ? `<div class="github-issue-side">
+               ${
+                 issueUrl
+                   ? `<a
+                        class="button button-ghost button-link github-issue-open-link"
+                        href="${escapeHtml(issueUrl)}"
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        data-github-issue-link="true"
+                      >
+                        Open issue
+                      </a>`
+                   : ""
+               }
+               ${
+                 labels.length
+                   ? `<div class="github-issue-labels">${labels
+                       .map((label) => `<span>${escapeHtml(label)}</span>`)
+                       .join("")}</div>`
+                   : ""
+               }
+             </div>`
           : ""
       }
     </div>

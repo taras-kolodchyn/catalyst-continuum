@@ -694,6 +694,19 @@ textarea,
   font-size: 0.82rem;
 }
 
+.github-issue-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.github-issue-open-link {
+  min-height: 30px;
+  padding: 8px 10px;
+  white-space: nowrap;
+}
+
 .github-issue-labels {
   display: flex;
   flex-wrap: wrap;
@@ -4078,6 +4091,10 @@ textarea {
 
   .github-issue-labels {
     justify-content: flex-start;
+  }
+
+  .github-issue-side {
+    align-items: flex-start;
   }
 
   .run-outcome-action .button {
