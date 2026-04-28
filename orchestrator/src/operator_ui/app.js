@@ -2284,6 +2284,7 @@ function renderGithubIssueWorkbench(envelope) {
     `
       <div class="github-issue-workbench-grid">
         <section class="github-issue-action-stack">
+          ${renderGithubIssueValueSnapshot(selectedWorkflow, workflows.length)}
           ${renderGithubIssueSelectedPackage(selectedWorkflow)}
           ${renderGithubIssueRecommendedAction(selectedWorkflow)}
           ${renderGithubIssueDeveloperPath(selectedWorkflow)}
@@ -2688,6 +2689,98 @@ function githubIssueRecommendedAction(workflow) {
   }
 
   return null;
+}
+
+function renderGithubIssueValueSnapshot(workflow, workflowCount) {
+  const recommendation = githubIssueRecommendedAction(workflow);
+  const issues = Array.isArray(workflow?.issues) ? workflow.issues : [];
+  const prompts = Array.isArray(workflow?.agent_prompts) ? workflow.agent_prompts : [];
+  const promptAgents = prompts
+    .map((prompt) => displayGithubIssueAgent(nonEmptyString(prompt.agent) || "agent"))
+    .filter(Boolean);
+  const repository =
+    nonEmptyString(workflow?.repository_full_name) || "Select or create an issue workflow";
+  const strategy = nonEmptyString(workflow?.pr_strategy);
+  const issueRefs = nonEmptyString(workflow?.issue_refs);
+  const issueCountLabel =
+    issues.length === 1 ? "1 issue" : `${issues.length || "No"} issues`;
+  const workflowCountLabel =
+    workflowCount === 1 ? "1 recent workflow" : `${workflowCount} recent workflows`;
+  const draftPrUrl = safeExternalUrl(workflow?.draft_pr_url);
+  const issueSyncReady = Boolean(nonEmptyString(workflow?.issue_sync_apply_action?.command));
+  const issueSyncState = workflow?.issue_sync_applied
+    ? "issue update applied"
+    : issueSyncReady
+      ? "issue update ready after review"
+      : "issue update waits for PR evidence";
+  const items = workflow
+    ? [
+        {
+          label: "Issue scope is fixed",
+          value: `${issueCountLabel} · ${issueRefs || "refs not recorded"}${strategy ? ` · ${strategy}` : ""}`,
+        },
+        {
+          label: "Native agent stays native",
+          value: recommendation
+            ? `${recommendation.heading} · ${recommendation.sourceLabel}`
+            : promptAgents.length
+              ? `${promptAgents.join(", ")} prompts ready`
+              : "generate a session package before handoff",
+        },
+        {
+          label: "Review trail is preserved",
+          value: `${draftPrUrl ? "draft PR linked" : "draft PR pending"} · ${issueSyncState}`,
+        },
+      ]
+    : [
+        {
+          label: "Package issues before coding",
+          value: "import or plan GitHub issues so the agent starts from a recorded scope",
+        },
+        {
+          label: "Keep using your agent UI",
+          value: "Catalyst prepares prompts and evidence; Codex, Cursor, or OpenHands still do the coding",
+        },
+        {
+          label: "Publish only after review",
+          value: "GitHub remains the approval boundary for PR review, issue updates, and merge",
+        },
+      ];
+
+  return `
+    <article class="github-issue-command-card github-issue-value-snapshot" data-github-issue-value-snapshot="true">
+      <div class="mission-feed-head">
+        <div>
+          <p class="panel-kicker">Solo developer value</p>
+          <h3>${escapeHtml(repository)}</h3>
+        </div>
+        <span class="badge badge-success">${escapeHtml(workflow ? "Ready to guide" : "Start here")}</span>
+      </div>
+      <p>
+        Catalyst adds the control plane around native coding agents: issue selection, safety checks,
+        prompt handoff, PR evidence, and GitHub issue-sync stay tied to one workflow bundle.
+      </p>
+      <div class="github-issue-value-grid">
+        ${items
+          .map(
+            (item) => `
+              <div class="github-issue-value-item" data-github-issue-value-item="true">
+                <strong>${escapeHtml(item.label)}</strong>
+                <span>${escapeHtml(item.value)}</span>
+              </div>
+            `
+          )
+          .join("")}
+      </div>
+      <p class="microcopy">
+        ${escapeHtml(
+          workflow
+            ? `${workflowCountLabel} available; select a card on the right to change the active package without reloading the page.`
+            : "No workflow evidence yet; start with a plan or import command and this panel will become the live handoff surface."
+        )}
+      </p>
+    </article>
+  `;
 }
 
 function githubIssueEvidencePacket(workflow) {

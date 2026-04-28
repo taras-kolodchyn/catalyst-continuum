@@ -180,7 +180,9 @@ issues, labels, recipes, readiness steps, native-agent handoff commands, and cop
 commands, terminal review, strict preflight, workflow/session evidence paths, prompt text, and
 prompt paths. Recent workflow cards include posture badges for preflight, generated agent prompts,
 draft PR evidence, issue sync, and plan-only packages, so you can choose the right package without
-opening every artifact first. It also shows the developer operating path: select the issue package,
+opening every artifact first. The top value snapshot explains what Catalyst adds for a solo
+developer before the command details: fixed issue scope, native-agent handoff, and preserved PR or
+issue-sync evidence in one workflow bundle. It also shows the developer operating path: select the issue package,
 run strict preflight, continue in Codex, Cursor, or OpenHands, then review PR evidence and sync the
 issue. It can copy one compact issue-workflow evidence packet with the selected workflow paths,
 review commands, preflight command, issue-sync command, issue-sync comment text, draft PR evidence.

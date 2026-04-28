@@ -812,6 +812,44 @@ textarea,
     rgba(255, 255, 255, 0.82);
 }
 
+.github-issue-value-snapshot {
+  border-color: rgba(30, 70, 118, 0.16);
+  background:
+    radial-gradient(circle at 98% 0%, rgba(30, 70, 118, 0.14), transparent 28%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.88), rgba(236, 243, 239, 0.82));
+}
+
+.github-issue-value-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.github-issue-value-item {
+  min-width: 0;
+  border: 1px solid rgba(24, 35, 29, 0.08);
+  border-radius: var(--radius-md);
+  background: rgba(255, 251, 244, 0.68);
+  padding: 10px;
+}
+
+.github-issue-value-item strong {
+  display: block;
+  color: var(--ink);
+  font-size: 0.78rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.github-issue-value-item span {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
 .github-issue-agent-prompt-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -4013,6 +4051,7 @@ textarea {
   .mission-action-strip,
   .mission-freshness-grid,
   .mission-evidence-grid,
+  .github-issue-value-grid,
   .developer-handoff-hero,
   .developer-value-grid,
   .developer-review-grid,

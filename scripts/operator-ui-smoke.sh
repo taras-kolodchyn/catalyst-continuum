@@ -771,6 +771,14 @@ async function main() {
       operatorDockIncludesNextStep:
         document.body.textContent.includes("Next step"),
       githubIssueWorkbenchCount: count('[data-github-issue-workbench="true"]'),
+      githubIssueValueSnapshotCount: count('[data-github-issue-value-snapshot="true"]'),
+      githubIssueValueItemCount: count('[data-github-issue-value-item="true"]'),
+      githubIssueValueSnapshotIncludesValue:
+        document.body.textContent.includes("Solo developer value") &&
+        document.body.textContent.includes("Issue scope is fixed") &&
+        document.body.textContent.includes("Native agent stays native") &&
+        document.body.textContent.includes("Review trail is preserved") &&
+        document.body.textContent.includes("without reloading the page"),
       githubIssueWorkflowCardCount: count('[data-github-issue-workflow-card="true"]'),
       githubIssueWorkflowPostureRowCount: count('[data-github-issue-workflow-posture-row="true"]'),
       githubIssueWorkflowPosturePillCount: count('[data-github-issue-workflow-posture-pill="true"]'),
@@ -1074,6 +1082,15 @@ async function main() {
   }
   if (summary.githubIssueWorkbenchCount !== 1) {
     problems.push(`expected one GitHub issue workbench, got ${summary.githubIssueWorkbenchCount}`);
+  }
+  if (summary.githubIssueValueSnapshotCount !== 1) {
+    problems.push(`expected one GitHub issue value snapshot, got ${summary.githubIssueValueSnapshotCount}`);
+  }
+  if (summary.githubIssueValueItemCount !== 3) {
+    problems.push(`expected three GitHub issue value items, got ${summary.githubIssueValueItemCount}`);
+  }
+  if (!summary.githubIssueValueSnapshotIncludesValue) {
+    problems.push("GitHub issue workbench should explain the solo-developer value before the command details");
   }
   if (summary.githubIssueWorkflowCardCount < 2) {
     problems.push("GitHub issue workbench should show at least two workflow cards");
