@@ -1,8 +1,9 @@
+mod github_issues;
 mod websocket;
 
 use reqwest::{StatusCode as HttpStatusCode, blocking::Client, redirect::Policy};
 use serde::Serialize;
-use std::time::Duration;
+use std::{path::Path, time::Duration};
 use tiny_http::{Header, Response, StatusCode};
 
 use crate::{
@@ -11,6 +12,8 @@ use crate::{
     planning::pack_catalog::{PackCatalogDocument, build_pack_catalog},
     storage::postgres::DatabaseReadiness,
 };
+
+use github_issues::{OperatorUiGithubIssueWorkflowSnapshot, github_issue_workflow_snapshot};
 
 const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; connect-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self'; frame-src 'self' http://127.0.0.1:3000 http://localhost:3000 http://127.0.0.1:4000 http://localhost:4000; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'";
 const INDEX_HTML: &str = include_str!("operator_ui/index.html");
@@ -62,6 +65,7 @@ pub fn response(path: &str) -> Option<Response<std::io::Cursor<Vec<u8>>>> {
 pub fn dashboard_snapshot(
     readiness_probe: anyhow::Result<DatabaseReadiness>,
     instance_config: &InstanceConfigReport,
+    artifact_root: &Path,
 ) -> OperatorUiDashboardSnapshotResponse {
     let api_key = describe_ai_gateway_status::gateway_api_key_from_env();
     let probe_base_url = describe_ai_gateway_status::gateway_probe_base_url_from_env();
@@ -84,6 +88,10 @@ pub fn dashboard_snapshot(
         Ok(document) => OperatorUiDataEnvelope::success(StatusCode(200).0, document),
         Err(error) => OperatorUiDataEnvelope::error(StatusCode(500).0, error.to_string()),
     };
+    let github_issue_workflows = match github_issue_workflow_snapshot(artifact_root, 3) {
+        Ok(snapshot) => OperatorUiDataEnvelope::success(StatusCode(200).0, snapshot),
+        Err(error) => OperatorUiDataEnvelope::error(StatusCode(500).0, error.to_string()),
+    };
 
     OperatorUiDashboardSnapshotResponse {
         readyz,
@@ -91,6 +99,7 @@ pub fn dashboard_snapshot(
         surfaces,
         config,
         packs,
+        github_issue_workflows,
     }
 }
 
@@ -379,6 +388,7 @@ pub struct OperatorUiDashboardSnapshotResponse {
     pub surfaces: OperatorUiDataEnvelope<OperatorUiLocalSurfaceSnapshot>,
     pub config: OperatorUiDataEnvelope<InstanceConfigReport>,
     pub packs: OperatorUiDataEnvelope<PackCatalogDocument>,
+    pub github_issue_workflows: OperatorUiDataEnvelope<OperatorUiGithubIssueWorkflowSnapshot>,
 }
 
 #[derive(Debug, Serialize)]
@@ -474,7 +484,7 @@ mod tests {
         storage::postgres::DatabaseReadiness,
     };
     use reqwest::{StatusCode as HttpStatusCode, blocking::Client, redirect::Policy};
-    use std::{thread, time::Duration};
+    use std::{path::Path, thread, time::Duration};
     use tiny_http::{ListenAddr, Response, Server, StatusCode};
 
     #[test]
@@ -496,6 +506,7 @@ mod tests {
                 missing_tables: Vec::new(),
             }),
             &sample_instance_config(),
+            Path::new(".continuum/artifacts"),
         );
 
         assert_eq!(DASHBOARD_PATH, "/ui/dashboard");
@@ -504,6 +515,7 @@ mod tests {
         assert!(snapshot.surfaces.ok);
         assert!(snapshot.config.ok);
         assert!(snapshot.packs.ok);
+        assert!(snapshot.github_issue_workflows.ok);
         assert_eq!(
             snapshot
                 .config

@@ -535,6 +535,128 @@ textarea,
   box-shadow: inset 0 0 0 1px rgba(24, 35, 29, 0.05);
 }
 
+.github-issue-workbench {
+  margin-bottom: 18px;
+  background:
+    radial-gradient(circle at 10% 12%, rgba(30, 70, 118, 0.12), transparent 30%),
+    radial-gradient(circle at 92% 10%, rgba(217, 154, 43, 0.14), transparent 26%),
+    linear-gradient(135deg, rgba(255, 251, 244, 0.94), rgba(236, 243, 239, 0.78));
+}
+
+.github-issue-workbench-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.9fr) minmax(0, 1.4fr);
+  gap: 14px;
+}
+
+.github-issue-action-stack,
+.github-issue-workflow-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.github-issue-workflow-stack {
+  border: 1px solid rgba(24, 35, 29, 0.1);
+  border-radius: var(--radius-lg);
+  background: rgba(255, 251, 244, 0.72);
+  padding: 14px;
+}
+
+.github-issue-workflow-stack-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.github-issue-workflow-stack-head h3 {
+  margin: 0;
+  font-family: var(--serif);
+  letter-spacing: -0.02em;
+}
+
+.github-issue-command-card,
+.github-issue-workflow-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  border: 1px solid rgba(24, 35, 29, 0.1);
+  border-radius: var(--radius-lg);
+  background: rgba(255, 255, 255, 0.76);
+  padding: 16px;
+  box-shadow: 0 14px 28px rgba(24, 35, 29, 0.05);
+}
+
+.github-issue-command-card-success,
+.github-issue-workflow-card-success {
+  box-shadow: inset 0 0 0 1px rgba(23, 79, 67, 0.08);
+}
+
+.github-issue-command-card-warning,
+.github-issue-workflow-card-warning {
+  box-shadow: inset 0 0 0 1px rgba(180, 95, 47, 0.1);
+}
+
+.github-issue-workflow-card-error {
+  box-shadow: inset 0 0 0 1px rgba(141, 48, 48, 0.12);
+}
+
+.github-issue-workflow-card.is-selected {
+  border-color: rgba(23, 79, 67, 0.26);
+  background:
+    linear-gradient(135deg, rgba(226, 241, 235, 0.72), rgba(255, 251, 244, 0.9)),
+    rgba(255, 255, 255, 0.82);
+}
+
+.github-issue-command-card h3,
+.github-issue-workflow-card h4 {
+  margin: 0;
+  font-family: var(--serif);
+  letter-spacing: -0.02em;
+  overflow-wrap: anywhere;
+}
+
+.github-issue-command-card p,
+.github-issue-workflow-card p {
+  overflow-wrap: anywhere;
+}
+
+.github-issue-command-card code {
+  display: block;
+  overflow-x: auto;
+  border: 1px solid rgba(24, 35, 29, 0.09);
+  border-radius: var(--radius-md);
+  background: rgba(10, 16, 13, 0.9);
+  color: #f8f1df;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  padding: 12px;
+  white-space: nowrap;
+}
+
+.github-issue-path {
+  overflow-wrap: anywhere;
+}
+
+.github-issue-workflow-evidence {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.github-issue-workflow-evidence strong {
+  color: var(--ink);
+  font-family: var(--mono);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
 .mission-panel {
   margin-bottom: 18px;
   background:
@@ -3545,6 +3667,10 @@ textarea {
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .github-issue-workbench-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .status-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -3643,6 +3769,7 @@ textarea {
   .dashboard-grid,
   .operator-dock-grid,
   .mission-context-ribbon,
+  .github-issue-workbench-grid,
   .mission-stage-strip,
   .mission-mini-grid,
   .mission-action-strip,

@@ -79,6 +79,11 @@ The review prompt is the practical difference from running a coding agent direct
 Continuum gives the reviewer the run ID, task state, artifacts, quality posture, repository guard,
 agent lanes, and exact checklist in one repeatable package.
 
+When work starts from GitHub issues, also open `GitHub Issue Workbench` in the same UI. It shows the
+latest issue workflow, selected issue refs, workflow status, next safe command, and issue-sync apply
+command. The browser does not apply labels, comments, or state changes; you review the generated
+plan and run the copied terminal command when you are ready.
+
 For real daily work, start from a GitHub issue or use a task recipe instead of hand-writing a full
 brief:
 
@@ -165,6 +170,9 @@ agent execution if the target checkout is dirty. Use
 `make github-issue-next-command` when you only want the next shell command, especially after a
 plan-only preview. Use `make github-issue-sync-command` after reviewing an unapplied issue-sync plan
 when you want the exact apply command without rebuilding it by hand.
+The `GitHub Issue Workbench` panel in the Operator UI shows the same latest workflow and exposes
+copy buttons for those commands, which is easier than manually opening files under
+`.continuum/github-issue-workflows/`.
 Use `make github-issue-agent-prompt AGENT=codex`, `AGENT=cursor`, or `AGENT=openhands` when you want
 to paste the generated workflow prompt directly into the agent's native UI. Use
 `make github-issue-agent-prompt-path AGENT=codex` when a script only needs the file path. Use

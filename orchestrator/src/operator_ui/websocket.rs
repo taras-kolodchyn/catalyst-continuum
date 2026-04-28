@@ -4,6 +4,7 @@ use serde::Serialize;
 use sha1::{Digest, Sha1};
 use std::{
     io::Cursor,
+    path::Path,
     thread,
     time::{Duration, Instant},
 };
@@ -129,6 +130,7 @@ pub(crate) fn handle_websocket_request(
     query: Option<&str>,
     database_url: &str,
     instance_config: &InstanceConfigReport,
+    artifact_root: &Path,
 ) -> Result<u16> {
     if !is_websocket_upgrade_request(&request) {
         request
@@ -171,8 +173,15 @@ pub(crate) fn handle_websocket_request(
     let stream = request.upgrade("websocket", switching_protocols);
     let database_url = database_url.to_string();
     let instance_config = instance_config.clone();
+    let artifact_root = artifact_root.to_path_buf();
     thread::spawn(move || {
-        if let Err(error) = run_websocket_session(stream, watch, &database_url, &instance_config) {
+        if let Err(error) = run_websocket_session(
+            stream,
+            watch,
+            &database_url,
+            &instance_config,
+            &artifact_root,
+        ) {
             tracing::warn!(error = %error, "operator UI websocket session terminated");
         }
     });
@@ -185,6 +194,7 @@ fn run_websocket_session(
     watch: OperatorUiWebsocketWatch,
     database_url: &str,
     instance_config: &InstanceConfigReport,
+    artifact_root: &Path,
 ) -> Result<()> {
     let mut websocket = WebSocket::from_raw_socket(stream, Role::Server, None);
     let mut store = PostgresRunStore::connect(database_url)?;
@@ -206,7 +216,8 @@ fn run_websocket_session(
         let mut sent = false;
 
         if now >= next_dashboard_publish {
-            let snapshot = dashboard_snapshot(store.probe_readiness(), instance_config);
+            let snapshot =
+                dashboard_snapshot(store.probe_readiness(), instance_config, artifact_root);
             sent |= maybe_send_snapshot(
                 &mut websocket,
                 &mut last.dashboard,

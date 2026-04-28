@@ -167,6 +167,7 @@ const state = {
     surfaces: null,
     config: null,
     packs: null,
+    githubIssueWorkflows: null,
   },
   briefExamples: [],
   activeBriefExampleId: null,
@@ -249,8 +250,10 @@ function reportBootstrapRefreshFailure(error) {
   renderStatusGrid({
     readyz: failedEnvelope(error),
     aiGateway: failedEnvelope(error),
+    surfaces: failedEnvelope(error),
     config: failedEnvelope(error),
     packs: failedEnvelope(error),
+    githubIssueWorkflows: failedEnvelope(error),
   });
   writeConsole(
     elements.briefConsole,
@@ -303,6 +306,7 @@ function cacheElements() {
     "eventFilterBar",
     "eventHeadline",
     "eventTimeline",
+    "githubIssueWorkbench",
     "lastRefresh",
     "missionAgentsPanel",
     "missionDeveloperPanel",
@@ -442,6 +446,19 @@ function bindEvents() {
       setSelectedAgentLog(logButton.dataset.agentLogArtifactId);
     }
   });
+
+  if (elements.githubIssueWorkbench) {
+    elements.githubIssueWorkbench.addEventListener("click", (event) => {
+      const copyTextButton = event.target.closest("[data-copy-command]");
+      if (!copyTextButton) {
+        return;
+      }
+
+      copyTextToClipboard(copyTextButton).catch((error) => {
+        console.error("copy GitHub issue workbench command failed", error);
+      });
+    });
+  }
 
   elements.operatorDockSummary.addEventListener("click", (event) => {
     const actionButton = event.target.closest("[data-run-action]");
@@ -965,6 +982,9 @@ function applyRealtimeDashboardSnapshot(snapshot = {}) {
       snapshot.surfaces ?? failedEnvelope(new Error("missing surface snapshot")),
     config: snapshot.config ?? failedEnvelope(new Error("missing config snapshot")),
     packs: snapshot.packs ?? failedEnvelope(new Error("missing packs snapshot")),
+    githubIssueWorkflows:
+      snapshot.github_issue_workflows ??
+      failedEnvelope(new Error("missing GitHub issue workflow snapshot")),
   });
   renderPackChips(snapshot.packs?.data);
 }
@@ -1107,6 +1127,15 @@ async function refreshDashboard() {
             : formatEnvelopeError(dashboardEnvelope)
         )
       );
+    const githubIssueWorkflowsEnvelope =
+      dashboardEnvelope.data?.github_issue_workflows ??
+      failedEnvelope(
+        new Error(
+          dashboardEnvelope.ok
+            ? "missing GitHub issue workflow snapshot"
+            : formatEnvelopeError(dashboardEnvelope)
+        )
+      );
 
     renderStatusGrid({
       readyz: readyzEnvelope,
@@ -1114,6 +1143,7 @@ async function refreshDashboard() {
       surfaces: surfacesEnvelope,
       config: configEnvelope,
       packs: packsEnvelope,
+      githubIssueWorkflows: githubIssueWorkflowsEnvelope,
     });
     renderPackChips(packsEnvelope.data);
 
@@ -2080,6 +2110,7 @@ function renderStatusGrid(payload) {
     surfaces: payload.surfaces ?? null,
     config: payload.config ?? null,
     packs: payload.packs ?? null,
+    githubIssueWorkflows: payload.githubIssueWorkflows ?? null,
   };
   const readyz = payload.readyz?.data ?? {};
   const gateway = payload.aiGateway?.data ?? {};
@@ -2191,12 +2222,263 @@ function renderStatusGrid(payload) {
     }),
   ].join(""));
 
+  renderGithubIssueWorkbench(payload.githubIssueWorkflows);
+
   if (state.selectedRunDetail?.run_id) {
     renderRunDetail(state.selectedRunDetail, { events: state.selectedRunEvents });
     return;
   }
 
   renderMissionControl();
+}
+
+function renderGithubIssueWorkbench(envelope) {
+  if (!elements.githubIssueWorkbench) {
+    return;
+  }
+
+  if (!envelope?.ok) {
+    setRenderedHtml(
+      elements.githubIssueWorkbench,
+      renderSectionEmptyState(
+        "GitHub issue workflow",
+        "Workflow snapshot unavailable",
+        formatEnvelopeError(envelope ?? failedEnvelope(new Error("missing snapshot"))),
+        {
+          compact: true,
+        }
+      ),
+      { markUpdated: false }
+    );
+    return;
+  }
+
+  const snapshot = githubIssueWorkflowsData(envelope);
+  const workflows = Array.isArray(snapshot.workflows) ? snapshot.workflows : [];
+  const selectedPath = workflows[0]?.path ?? "";
+  const action = snapshot.recommended_next_action ?? {};
+  const syncAction = snapshot.issue_sync_apply_action ?? {};
+
+  setRenderedHtml(
+    elements.githubIssueWorkbench,
+    `
+      <div class="github-issue-workbench-grid">
+        <section class="github-issue-action-stack">
+          ${renderGithubIssueWorkflowAction(action, "next")}
+          ${renderGithubIssueSyncAction(syncAction)}
+        </section>
+        <section class="github-issue-workflow-stack">
+          <div class="github-issue-workflow-stack-head">
+            <div>
+              <p class="panel-kicker">Latest workflows</p>
+              <h3>${escapeHtml(workflows.length ? "Recent issue-driven work" : "No issue workflows yet")}</h3>
+            </div>
+            <span class="badge badge-neutral">${escapeHtml(`${workflows.length}/${snapshot.limit ?? 0}`)}</span>
+          </div>
+          ${
+            workflows.length
+              ? workflows
+                  .map((workflow) =>
+                    renderGithubIssueWorkflowCard(workflow, workflow.path === selectedPath)
+                  )
+                  .join("")
+              : renderGithubIssueEmptyState(action)
+          }
+        </section>
+      </div>
+    `,
+    { markUpdated: false }
+  );
+}
+
+function githubIssueWorkflowsData(envelope) {
+  return envelope?.data && typeof envelope.data === "object" ? envelope.data : {};
+}
+
+function renderGithubIssueWorkflowAction(action, kind) {
+  const command = nonEmptyString(action.command);
+  const tone = command ? "success" : "warning";
+  const copyHook =
+    kind === "next"
+      ? ' data-github-issue-next-command-copy="true"'
+      : ' data-github-issue-command-copy="true"';
+  return `
+    <article class="github-issue-command-card github-issue-command-card-${escapeHtml(tone)}">
+      <div class="mission-feed-head">
+        <div>
+          <p class="panel-kicker">Next safe command</p>
+          <h3>${escapeHtml(nonEmptyString(action.label) || "No command available")}</h3>
+        </div>
+        <span class="badge badge-${escapeHtml(tone)}">${escapeHtml(command ? "Ready" : "Wait")}</span>
+      </div>
+      <p>${escapeHtml(nonEmptyString(action.description) || "Create or select a GitHub issue workflow first.")}</p>
+      ${
+        command
+          ? `<code data-github-issue-next-command="true">${escapeHtml(command)}</code>
+             <button
+               class="button button-secondary"
+               type="button"
+               data-copy-command="${escapeHtml(command)}"
+               data-copy-success-label="Command copied"
+               ${copyHook}
+             >
+               Copy command
+             </button>`
+          : ""
+      }
+      ${renderGithubIssueActionPath(action.primary_path, "Primary evidence")}
+    </article>
+  `;
+}
+
+function renderGithubIssueSyncAction(action) {
+  const command = nonEmptyString(action.command);
+  const tone = action.available && command ? "warning" : "neutral";
+  return `
+    <article class="github-issue-command-card github-issue-command-card-${escapeHtml(tone)}">
+      <div class="mission-feed-head">
+        <div>
+          <p class="panel-kicker">Issue sync</p>
+          <h3>${escapeHtml(action.available ? "Apply GitHub issue update" : "No apply command yet")}</h3>
+        </div>
+        <span class="badge badge-${escapeHtml(tone)}">${escapeHtml(action.available ? "Review first" : "Dry run")}</span>
+      </div>
+      <p>${escapeHtml(nonEmptyString(action.reason) || "Issue-sync evidence is not available yet.")}</p>
+      ${
+        command
+          ? `<code data-github-issue-sync-command="true">${escapeHtml(command)}</code>
+             <button
+               class="button button-primary"
+               type="button"
+               data-copy-command="${escapeHtml(command)}"
+               data-copy-success-label="Command copied"
+               data-github-issue-sync-command-copy="true"
+             >
+               Copy apply command
+             </button>`
+          : ""
+      }
+      ${renderGithubIssueActionPath(action.primary_path, "Sync evidence")}
+    </article>
+  `;
+}
+
+function renderGithubIssueActionPath(path, label) {
+  const value = nonEmptyString(path);
+  if (!value) {
+    return "";
+  }
+
+  return `
+    <p class="microcopy github-issue-path">
+      ${escapeHtml(label)}:
+      <span class="mono">${escapeHtml(value)}</span>
+    </p>
+  `;
+}
+
+function renderGithubIssueWorkflowCard(workflow, selected) {
+  const status = nonEmptyString(workflow.status) || "unknown";
+  const tone = githubIssueWorkflowTone(status);
+  const refs = nonEmptyString(workflow.issue_refs) || "No issue refs recorded";
+  const repository =
+    nonEmptyString(workflow.repository_full_name) || "Repository unresolved";
+  const prStrategy = nonEmptyString(workflow.pr_strategy) || "strategy unknown";
+  const reportPath = nonEmptyString(workflow.report_path);
+  const syncPlan = nonEmptyString(workflow.issue_sync_plan);
+  const draftPr = nonEmptyString(workflow.draft_pr_url);
+
+  return `
+    <article
+      class="github-issue-workflow-card github-issue-workflow-card-${escapeHtml(tone)}${selected ? " is-selected" : ""}"
+      data-github-issue-workflow-card="true"
+    >
+      <div class="mission-feed-head">
+        <div>
+          <p class="panel-kicker">${escapeHtml(repository)}</p>
+          <h4>${escapeHtml(refs)}</h4>
+        </div>
+        <span class="badge badge-${escapeHtml(tone)}">${escapeHtml(displayIssueWorkflowStatus(status))}</span>
+      </div>
+      <p>${escapeHtml(githubIssueWorkflowSummary(workflow))}</p>
+      <div class="mission-feed-meta">
+        <span>${escapeHtml(prStrategy)}</span>
+        <span>${escapeHtml(formatWorkflowMtime(workflow.mtime))}</span>
+        <span>${escapeHtml(workflow.plan_only ? "plan only" : "run workflow")}</span>
+      </div>
+      <div class="github-issue-workflow-evidence">
+        ${reportPath ? `<span>Report: <strong>${escapeHtml(reportPath)}</strong></span>` : ""}
+        ${syncPlan ? `<span>Sync plan: <strong>${escapeHtml(syncPlan)}</strong></span>` : ""}
+        ${draftPr ? `<span>Draft PR: <strong>${escapeHtml(draftPr)}</strong></span>` : ""}
+      </div>
+    </article>
+  `;
+}
+
+function githubIssueWorkflowSummary(workflow) {
+  if (workflow.status === "failed") {
+    return "The workflow recorded a failed run, draft PR, or issue-sync step. Inspect the report before continuing.";
+  }
+  if (workflow.status === "planned") {
+    return "A plan exists, but agent execution has not been run yet. Review the plan before claiming work.";
+  }
+  if (workflow.status === "incomplete") {
+    return "The workflow is missing a run summary. Inspect the JSON summary before trusting the state.";
+  }
+  if (workflow.issue_sync_applied) {
+    return "Issue sync was already applied to GitHub. Continue review from the linked branch or PR evidence.";
+  }
+  if (workflow.issue_sync_skipped) {
+    return "The workflow skipped issue sync, so GitHub issue state was not prepared from this run.";
+  }
+  return "Workflow evidence is ready. Review the report, then apply issue-sync only when the generated comment is correct.";
+}
+
+function renderGithubIssueEmptyState(action) {
+  return `
+    <div class="empty-state compact">
+      <p>No GitHub issue workflows found in the current artifact root.</p>
+      <p>Start with <span class="mono">${escapeHtml(nonEmptyString(action.command) || "make github-issue-plan")}</span>.</p>
+    </div>
+  `;
+}
+
+function githubIssueWorkflowTone(status) {
+  switch (status) {
+    case "succeeded":
+      return "success";
+    case "failed":
+      return "error";
+    case "planned":
+    case "incomplete":
+      return "warning";
+    default:
+      return "neutral";
+  }
+}
+
+function displayIssueWorkflowStatus(status) {
+  switch (status) {
+    case "succeeded":
+      return "Succeeded";
+    case "failed":
+      return "Failed";
+    case "planned":
+      return "Planned";
+    case "incomplete":
+      return "Incomplete";
+    default:
+      return "Unknown";
+  }
+}
+
+function formatWorkflowMtime(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return "mtime unknown";
+  }
+
+  return formatTimestamp(new Date(numeric * 1000).toISOString());
 }
 
 function renderOperatorDock() {

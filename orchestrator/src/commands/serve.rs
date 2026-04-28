@@ -83,6 +83,7 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
                 query,
                 &args.database_url,
                 &instance_config,
+                &args.artifact_root,
             ) {
                 Ok(status_code) => status_code,
                 Err(error) => {
@@ -161,7 +162,11 @@ pub fn execute(args: ServeArgs) -> anyhow::Result<()> {
             ),
             ("GET", operator_ui::DASHBOARD_PATH) => json_response(
                 StatusCode(200),
-                &operator_ui::dashboard_snapshot(store.probe_readiness(), &instance_config),
+                &operator_ui::dashboard_snapshot(
+                    store.probe_readiness(),
+                    &instance_config,
+                    &args.artifact_root,
+                ),
             ),
             ("GET", operator_ui::BRIEF_EXAMPLES_PATH) => {
                 json_response(StatusCode(200), &operator_ui::brief_examples_document())

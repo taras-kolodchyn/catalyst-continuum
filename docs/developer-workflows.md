@@ -214,6 +214,10 @@ the target checkout is dirty.
 latest plan or report without parsing the full human-readable output.
 `github-issue-sync-command` prints only the apply command for the latest unapplied issue-sync plan,
 after you have reviewed the generated plan and comment.
+The Operator UI mirrors this discovery path in `GitHub Issue Workbench`: it reads the latest
+`.continuum/github-issue-workflows/` evidence, shows the selected issue refs, and provides copy
+buttons for the next review command and the issue-sync apply command. It is intentionally read-only,
+so GitHub still changes only when you run the copied command from a terminal.
 `github-issue-agent-prompt` prints the generated Codex, Cursor, or OpenHands prompt for the latest
 or selected workflow. `github-issue-agent-prompt-path` prints only the prompt path, which is better
 for shell aliases and native agent launchers. `github-issue-agent-prompt-command` prints the

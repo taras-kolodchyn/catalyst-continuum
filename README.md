@@ -45,6 +45,11 @@ Open the printed `/ui` URL and start with `Mission Control` -> `Developer`. That
 review package, portable Cursor/Codex/OpenHands review prompt, agent handoff, artifacts, logs, and
 next actions without needing to configure a real GitHub repository first.
 
+The same UI also has a `GitHub Issue Workbench`. After you run `github-issue-plan` or
+`github-issue-run`, it shows the latest issue workflow, selected issue refs, the next safe review
+command, and the reviewed issue-sync apply command. The workbench is read-only: it helps you copy
+the right terminal command, but it does not mutate GitHub from the browser.
+
 For real work, start with a safe GitHub issue preview:
 
 ```bash
@@ -153,6 +158,9 @@ directories.
 `github-issue-plan` or inside small local automations.
 `github-issue-sync-command` prints the reviewed apply command for the latest unapplied issue-sync
 plan; it does not mutate GitHub by itself.
+The Operator UI shows the same latest workflow in `GitHub Issue Workbench`, so you can inspect
+issue refs and copy the next review or issue-sync command without hunting through
+`.continuum/github-issue-workflows/`.
 `github-issue-agent-prompt` prints the generated prompt for `AGENT=codex`, `AGENT=cursor`, or
 `AGENT=openhands` from the latest or selected workflow, and `github-issue-agent-prompt-path` prints
 only that prompt path for shell automation. `github-issue-agent-prompt-command` prints the

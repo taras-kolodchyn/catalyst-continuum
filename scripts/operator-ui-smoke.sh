@@ -199,6 +199,89 @@ print(f"first_repository_target={targets[0]['target_id']}")
 PY
 }
 
+seed_github_issue_workbench_fixture() {
+  python3 - "$OUTPUT_DIR" <<'PY'
+import json
+import pathlib
+import sys
+
+output_dir = pathlib.Path(sys.argv[1]).resolve()
+workflow_dir = output_dir / "github-issue-workflows" / "operator-ui-issue-workflow"
+session_dir = workflow_dir / "session"
+sync_dir = workflow_dir / "issue-sync"
+session_dir.mkdir(parents=True, exist_ok=True)
+sync_dir.mkdir(parents=True, exist_ok=True)
+
+run_summary = workflow_dir / "run-summary.json"
+sync_plan = sync_dir / "github-issue-sync-plan.json"
+sync_comment = sync_dir / "comment.md"
+report = workflow_dir / "workflow-report.md"
+
+(session_dir / "manifest.json").write_text(
+    json.dumps(
+        {
+            "session_type": "github_issue_session",
+            "github_issue": {
+                "repository_full_name": "smartit/operator-ui-issue-smoke",
+                "number": 42,
+                "title": "Polish issue workbench",
+                "url": "https://github.com/smartit/operator-ui-issue-smoke/issues/42",
+                "state": "open",
+                "labels": [{"name": "ui"}, {"name": "alpha"}],
+            },
+            "repository_context": {
+                "repo_path": str(output_dir / "target-repo"),
+            },
+        },
+        indent=2,
+    )
+    + "\n",
+    encoding="utf-8",
+)
+run_summary.write_text(json.dumps({"run_id": "operator-ui-smoke", "run_status": "succeeded"}, indent=2) + "\n", encoding="utf-8")
+sync_plan.write_text(json.dumps({"actions": [{"kind": "comment"}, {"kind": "label"}]}, indent=2) + "\n", encoding="utf-8")
+sync_comment.write_text("Catalyst Continuum prepared a draft PR and issue update.\n", encoding="utf-8")
+report.write_text("# Workflow report\n\nThe issue workflow is ready for review.\n", encoding="utf-8")
+
+(workflow_dir / "workflow-summary.json").write_text(
+    json.dumps(
+        {
+            "repository_full_name": "smartit/operator-ui-issue-smoke",
+            "pr_strategy": "per-issue",
+            "workflow_output_dir": str(workflow_dir),
+            "repo_path": str(output_dir / "target-repo"),
+            "session": {
+                "dir": str(session_dir),
+                "brief_file": str(session_dir / "brief.yaml"),
+            },
+            "report": {"markdown": str(report)},
+            "run": {"summary_file": str(run_summary), "exit_code": 0},
+            "draft_pr": {
+                "requested": True,
+                "exit_code": 0,
+                "pr_url": "https://github.com/smartit/operator-ui-issue-smoke/pull/42",
+            },
+            "issue_sync": {
+                "skipped": False,
+                "applied": False,
+                "status": "ready-for-review",
+                "pr_url": "https://github.com/smartit/operator-ui-issue-smoke/pull/42",
+                "plan": str(sync_plan),
+                "comment": str(sync_comment),
+                "exit_code": 0,
+            },
+            "plan": {"next_command": "make github-issue-run GITHUB_ISSUE_WORKFLOW_DIR=" + str(workflow_dir)},
+        },
+        indent=2,
+    )
+    + "\n",
+    encoding="utf-8",
+)
+
+print(f"github_issue_workflow_fixture={workflow_dir}")
+PY
+}
+
 write_browser_check() {
   cat >"$BROWSER_CHECK_FILE" <<'NODE'
 const fs = require("fs");
@@ -413,6 +496,19 @@ async function main() {
     return button && button.textContent.includes("Copied");
   }, { timeout: 5000 });
   const copiedCodexCommand = await page.evaluate(() => navigator.clipboard.readText());
+  await page.waitForSelector('[data-github-issue-workflow-card="true"]', { timeout: 10000 });
+  await page.locator('[data-github-issue-next-command-copy="true"]').first().click();
+  await page.waitForFunction(() => {
+    const button = document.querySelector('[data-github-issue-next-command-copy="true"]');
+    return button && button.textContent.includes("Command copied");
+  }, { timeout: 5000 });
+  const copiedIssueNextCommand = await page.evaluate(() => navigator.clipboard.readText());
+  await page.locator('[data-github-issue-sync-command-copy="true"]').first().click();
+  await page.waitForFunction(() => {
+    const button = document.querySelector('[data-github-issue-sync-command-copy="true"]');
+    return button && button.textContent.includes("Command copied");
+  }, { timeout: 5000 });
+  const copiedIssueSyncCommand = await page.evaluate(() => navigator.clipboard.readText());
 
   const summary = await page.evaluate(() => {
     const text = (selector) => document.querySelector(selector)?.textContent?.trim() || "";
@@ -448,6 +544,14 @@ async function main() {
         document.body.textContent.includes("Selected run"),
       operatorDockIncludesNextStep:
         document.body.textContent.includes("Next step"),
+      githubIssueWorkbenchCount: count('[data-github-issue-workbench="true"]'),
+      githubIssueWorkflowCardCount: count('[data-github-issue-workflow-card="true"]'),
+      githubIssueNextCommandCopyButtonCount: count('[data-github-issue-next-command-copy="true"]'),
+      githubIssueSyncCommandCopyButtonCount: count('[data-github-issue-sync-command-copy="true"]'),
+      githubIssueWorkbenchIncludesIssue:
+        document.body.textContent.includes("GitHub Issue Workbench") &&
+        document.body.textContent.includes("#42 Polish issue workbench") &&
+        document.body.textContent.includes("smartit/operator-ui-issue-smoke"),
       missionContextCardCount: count('[data-mission-context-card="true"]'),
       missionContextIncludesApprovalBoundary:
         document.body.textContent.includes("GitHub remains the human approval boundary"),
@@ -591,6 +695,8 @@ async function main() {
     copiedLiveBrief,
     copiedGithubUpdate,
     copiedCodexCommand,
+    copiedIssueNextCommand,
+    copiedIssueSyncCommand,
     ok: false,
   };
 
@@ -642,6 +748,25 @@ async function main() {
   }
   if (!summary.operatorDockIncludesNextStep) {
     problems.push("operator dock should keep the next operator step visible");
+  }
+  if (summary.githubIssueWorkbenchCount !== 1) {
+    problems.push(`expected one GitHub issue workbench, got ${summary.githubIssueWorkbenchCount}`);
+  }
+  if (summary.githubIssueWorkflowCardCount < 1) {
+    problems.push("GitHub issue workbench should show at least one workflow card");
+  }
+  if (summary.githubIssueNextCommandCopyButtonCount !== 1) {
+    problems.push(
+      `expected one GitHub issue next-command copy button, got ${summary.githubIssueNextCommandCopyButtonCount}`
+    );
+  }
+  if (summary.githubIssueSyncCommandCopyButtonCount !== 1) {
+    problems.push(
+      `expected one GitHub issue sync-command copy button, got ${summary.githubIssueSyncCommandCopyButtonCount}`
+    );
+  }
+  if (!summary.githubIssueWorkbenchIncludesIssue) {
+    problems.push("GitHub issue workbench should expose latest issue refs and repository context");
   }
   if (summary.missionContextCardCount !== 4) {
     problems.push(`expected four mission context cards, got ${summary.missionContextCardCount}`);
@@ -761,6 +886,19 @@ async function main() {
     !copiedCodexCommand.includes("CODEX_APP_SERVER_PROMPT_FILE=")
   ) {
     problems.push("developer Codex command copy action should write the runnable command to clipboard");
+  }
+  if (
+    !copiedIssueNextCommand.includes("make github-issue-review") ||
+    !copiedIssueNextCommand.includes("GITHUB_ISSUE_WORKFLOW_DIR=")
+  ) {
+    problems.push("GitHub issue workbench next command should point at the selected workflow review");
+  }
+  if (
+    !copiedIssueSyncCommand.includes("make github-issue-sync") ||
+    !copiedIssueSyncCommand.includes("GITHUB_ISSUE_SYNC_APPLY=1") ||
+    !copiedIssueSyncCommand.includes("GITHUB_ISSUE_SYNC_PR_URL=")
+  ) {
+    problems.push("GitHub issue workbench sync command should include apply, run summary, and PR URL inputs");
   }
   if (summary.developerValueCardCount < 5) {
     problems.push(`expected developer value cards, got ${summary.developerValueCardCount}`);
@@ -1151,6 +1289,9 @@ CATALYST_DATABASE_URL="$DATABASE_URL" \
 CATALYST_ARTIFACT_ROOT="$ARTIFACT_ROOT" \
 CATALYST_SKIP_WORKSPACE_BUILD=1 \
   "$ROOT_DIR/scripts/ci-smoke.sh" >"$SEED_LOG_FILE" 2>&1
+
+log_phase "seeding GitHub issue workbench fixture"
+seed_github_issue_workbench_fixture >"$OUTPUT_DIR/github-issue-workbench-fixture.txt"
 
 log_phase "starting operator UI on http://127.0.0.1:${HTTP_PORT}/ui"
 CATALYST_DATABASE_URL="$DATABASE_URL" \
