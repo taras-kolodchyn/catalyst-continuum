@@ -508,6 +508,14 @@ function bindEvents() {
   });
 
   elements.runsList.addEventListener("click", (event) => {
+    const copyTextButton = event.target.closest("[data-copy-command], [data-copy-text-selector]");
+    if (copyTextButton) {
+      copyTextToClipboard(copyTextButton).catch((error) => {
+        console.error("copy run ledger command failed", error);
+      });
+      return;
+    }
+
     const runButton = event.target.closest("[data-run-id]");
     if (!runButton) {
       return;
@@ -9564,6 +9572,7 @@ function renderRuns(response) {
             "No runs materialized yet",
             "A durable run appears here only after brief submission materializes backlog, routing, and artifacts.",
             {
+              stateHook: "run-ledger-empty-state",
               steps: [
                 "Load a starter brief or paste product-brief YAML in the left column.",
                 "Validate first so pack resolution, routing, and policy are explicit.",
@@ -9574,6 +9583,13 @@ function renderRuns(response) {
                   href: "#brief-intake",
                   label: "Jump to brief intake",
                   variant: "primary",
+                },
+                {
+                  command: "make solo-demo",
+                  copyHook: "run-ledger-empty-command-copy",
+                  copySuccessLabel: "Demo command copied",
+                  label: "Copy demo command",
+                  variant: "secondary",
                 },
               ],
             }
@@ -11762,6 +11778,7 @@ function renderSectionEmptyState(kicker, title, message, options = {}) {
     compact: true,
     steps: options.steps,
     actions: options.actions,
+    stateHook: options.stateHook,
   });
 }
 
@@ -11773,6 +11790,8 @@ function renderEmptyStateMarkup(options = {}) {
   const includeContainer = options.includeContainer !== false;
   const steps = Array.isArray(options.steps) ? options.steps : [];
   const actions = Array.isArray(options.actions) ? options.actions : [];
+  const stateHook = nonEmptyString(options.stateHook);
+  const stateHookAttribute = stateHook ? ` data-${escapeHtml(stateHook)}="true"` : "";
 
   const body = `
     ${kicker ? `<p class="panel-kicker">${escapeHtml(kicker)}</p>` : ""}
@@ -11799,6 +11818,23 @@ function renderEmptyStateMarkup(options = {}) {
                     : action.variant === "secondary"
                       ? "button-secondary"
                       : "button-ghost";
+                const command = nonEmptyString(action.command);
+                if (command) {
+                  const copyHook = nonEmptyString(action.copyHook);
+                  const copyHookAttribute = copyHook ? ` data-${escapeHtml(copyHook)}="true"` : "";
+                  const successLabel = nonEmptyString(action.copySuccessLabel) || "Command copied";
+                  return `
+                    <button
+                      class="button ${variant}"
+                      type="button"
+                      data-copy-command="${escapeHtml(command)}"
+                      data-copy-success-label="${escapeHtml(successLabel)}"
+                      ${copyHookAttribute}
+                    >
+                      ${escapeHtml(action.label ?? "Copy command")}
+                    </button>
+                  `;
+                }
                 return `
                   <a class="button ${variant} button-link" href="${escapeHtml(action.href ?? "#")}">
                     ${escapeHtml(action.label ?? "Open")}
@@ -11813,7 +11849,7 @@ function renderEmptyStateMarkup(options = {}) {
   `;
 
   return includeContainer
-    ? `<div class="empty-state${compact ? " compact" : ""}">${body}</div>`
+    ? `<div class="empty-state${compact ? " compact" : ""}"${stateHookAttribute}>${body}</div>`
     : body;
 }
 

@@ -79,6 +79,10 @@ The review prompt is the practical difference from running a coding agent direct
 Continuum gives the reviewer the run ID, task state, artifacts, quality posture, repository guard,
 agent lanes, and exact checklist in one repeatable package.
 
+If the UI opens before any run exists, the `Recent orchestrator runs` panel stays actionable: it
+links back to brief intake and can copy `make solo-demo` so the first demo run is one terminal
+command away.
+
 When work starts from GitHub issues, also open `GitHub Issue Workbench` in the same UI. It shows
 recent issue workflows, lets you switch between packages without a page refresh, and explains
 whether the selected package is still at planning, agent execution, PR handoff, or issue sync. The

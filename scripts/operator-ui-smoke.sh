@@ -1007,6 +1007,21 @@ async function main() {
   await page.locator('[data-github-issue-empty-command-copy="true"]').first().click();
   const copiedIssueEmptyStartCommand = await page.evaluate(() => navigator.clipboard.readText());
 
+  await page.evaluate(() => {
+    renderRuns({ runs: [] });
+  });
+  await page.waitForSelector('[data-run-ledger-empty-state="true"]', { timeout: 10000 });
+  const emptyRunLedgerCheck = await page.evaluate(() => ({
+    emptyStateCount: document.querySelectorAll('[data-run-ledger-empty-state="true"]').length,
+    copyButtonCount: document.querySelectorAll('[data-run-ledger-empty-command-copy="true"]').length,
+    bodyIncludesFirstRunSteps:
+      document.body.textContent.includes("No runs materialized yet") &&
+      document.body.textContent.includes("Jump to brief intake") &&
+      document.body.textContent.includes("Copy demo command"),
+  }));
+  await page.locator('[data-run-ledger-empty-command-copy="true"]').first().click();
+  const copiedRunLedgerEmptyCommand = await page.evaluate(() => navigator.clipboard.readText());
+
   await page.screenshot({ path: screenshotPath, fullPage: true });
   await browser.close();
 
@@ -1060,6 +1075,8 @@ async function main() {
     latestWorkflowUrl,
     emptyIssueWorkbenchCheck,
     copiedIssueEmptyStartCommand,
+    emptyRunLedgerCheck,
+    copiedRunLedgerEmptyCommand,
     ok: false,
   };
 
@@ -1383,6 +1400,24 @@ async function main() {
   }
   if (!copiedIssueEmptyStartCommand.includes("make github-issue-plan")) {
     problems.push("empty GitHub issue workbench copy button should copy the plan command");
+  }
+  if (emptyRunLedgerCheck.emptyStateCount !== 1) {
+    problems.push(
+      `expected one rendered run-ledger empty state, got ${emptyRunLedgerCheck.emptyStateCount}`
+    );
+  }
+  if (emptyRunLedgerCheck.copyButtonCount !== 1) {
+    problems.push(
+      `expected one run-ledger empty-state copy button, got ${emptyRunLedgerCheck.copyButtonCount}`
+    );
+  }
+  if (!emptyRunLedgerCheck.bodyIncludesFirstRunSteps) {
+    problems.push("empty run ledger should explain the first run path and expose a copy action");
+  }
+  if (copiedRunLedgerEmptyCommand !== "make solo-demo") {
+    problems.push(
+      `empty run ledger copy button should copy make solo-demo, got ${copiedRunLedgerEmptyCommand}`
+    );
   }
   if (summary.githubIssueNextCommandCopyButtonCount !== 1) {
     problems.push(
