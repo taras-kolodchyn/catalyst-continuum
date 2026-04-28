@@ -599,6 +599,12 @@ async function main() {
     return button && button.textContent.includes("Evidence copied");
   }, { timeout: 5000 });
   const copiedIssueEvidencePacket = await page.evaluate(() => navigator.clipboard.readText());
+  await page.locator('[data-github-issue-context-packet-copy="true"]').first().click();
+  await page.waitForFunction(() => {
+    const button = document.querySelector('[data-github-issue-context-packet-copy="true"]');
+    return button && button.textContent.includes("Issue context copied");
+  }, { timeout: 5000 });
+  const copiedIssueContextPacket = await page.evaluate(() => navigator.clipboard.readText());
   await page.locator('[data-github-issue-next-command-copy="true"]').first().click();
   await page.waitForFunction(() => {
     const button = document.querySelector('[data-github-issue-next-command-copy="true"]');
@@ -737,6 +743,7 @@ async function main() {
       githubIssueWorkflowPathCopyButtonCount: count('[data-github-issue-workflow-path-copy="true"]'),
       githubIssueSessionManifestCopyButtonCount: count('[data-github-issue-session-manifest-copy="true"]'),
       githubIssueEvidencePacketCopyButtonCount: count('[data-github-issue-evidence-packet-copy="true"]'),
+      githubIssueContextPacketCopyButtonCount: count('[data-github-issue-context-packet-copy="true"]'),
       githubIssueDraftPrLinkCount: count('[data-github-issue-draft-pr-link="true"]'),
       githubIssueDraftPrLinkHref: issueDraftPrLink?.getAttribute("href") || "",
       githubIssueDraftPrLinkTarget: issueDraftPrLink?.getAttribute("target") || "",
@@ -927,6 +934,7 @@ async function main() {
     copiedIssueWorkflowPath,
     copiedIssueSessionManifest,
     copiedIssueEvidencePacket,
+    copiedIssueContextPacket,
     copiedIssueNextCommand,
     copiedIssuePreflightCommand,
     copiedIssueSyncCommand,
@@ -1016,6 +1024,9 @@ async function main() {
   if (summary.githubIssueEvidencePacketCopyButtonCount !== 1) {
     problems.push(`expected one GitHub issue evidence packet copy button, got ${summary.githubIssueEvidencePacketCopyButtonCount}`);
   }
+  if (summary.githubIssueContextPacketCopyButtonCount !== 1) {
+    problems.push(`expected one GitHub issue context packet copy button, got ${summary.githubIssueContextPacketCopyButtonCount}`);
+  }
   if (summary.githubIssueDraftPrLinkCount !== 1) {
     problems.push(`expected one GitHub issue draft PR link, got ${summary.githubIssueDraftPrLinkCount}`);
   }
@@ -1064,6 +1075,20 @@ async function main() {
     !summary.githubIssueLinkRel.includes("noopener")
   ) {
     problems.push(`selected GitHub issue link should use noopener/noreferrer, got ${summary.githubIssueLinkRel}`);
+  }
+  if (!copiedIssueContextPacket.includes("#42 Polish issue workbench")) {
+    problems.push("copied GitHub issue context packet should include the selected issue");
+  }
+  if (
+    !copiedIssueContextPacket.includes("https://github.com/smartit/operator-ui-issue-smoke/issues/42")
+  ) {
+    problems.push("copied GitHub issue context packet should include the source issue URL");
+  }
+  if (!copiedIssueContextPacket.includes("make github-issue-agent-prompt")) {
+    problems.push("copied GitHub issue context packet should include native-agent prompt commands");
+  }
+  if (!copiedIssueContextPacket.includes("untrusted context")) {
+    problems.push("copied GitHub issue context packet should preserve the untrusted-context warning");
   }
   if (summary.githubIssueAgentHandoffPanelCount !== 1) {
     problems.push(`expected one GitHub issue agent handoff panel, got ${summary.githubIssueAgentHandoffPanelCount}`);
