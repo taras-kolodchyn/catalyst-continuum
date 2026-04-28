@@ -755,6 +755,13 @@ async function main() {
       githubIssueDraftPrLinkHref: issueDraftPrLink?.getAttribute("href") || "",
       githubIssueDraftPrLinkTarget: issueDraftPrLink?.getAttribute("target") || "",
       githubIssueDraftPrLinkRel: issueDraftPrLink?.getAttribute("rel") || "",
+      githubIssueDeveloperPathCount: count('[data-github-issue-developer-path="true"]'),
+      githubIssueDeveloperPathStepCount: count('[data-github-issue-developer-path-step="true"]'),
+      githubIssueDeveloperPathIncludesNativeAgent:
+        document.body.textContent.includes("How this becomes useful work") &&
+        document.body.textContent.includes("Run strict preflight") &&
+        document.body.textContent.includes("Continue in Codex, Cursor, or OpenHands") &&
+        document.body.textContent.includes("Review PR evidence and sync the issue"),
       githubIssueProgressStepCount: count('[data-github-issue-progress-step="true"]'),
       githubIssuePreflightCardCount: count('[data-github-issue-preflight-action="true"]'),
       githubIssuePreflightCommandCopyButtonCount: count('[data-github-issue-preflight-command-copy="true"]'),
@@ -1052,6 +1059,15 @@ async function main() {
     !summary.githubIssueDraftPrLinkRel.includes("noopener")
   ) {
     problems.push(`GitHub issue draft PR link should use noopener/noreferrer, got ${summary.githubIssueDraftPrLinkRel}`);
+  }
+  if (summary.githubIssueDeveloperPathCount !== 1) {
+    problems.push(`expected one GitHub issue developer path card, got ${summary.githubIssueDeveloperPathCount}`);
+  }
+  if (summary.githubIssueDeveloperPathStepCount !== 4) {
+    problems.push(`expected four GitHub issue developer path steps, got ${summary.githubIssueDeveloperPathStepCount}`);
+  }
+  if (!summary.githubIssueDeveloperPathIncludesNativeAgent) {
+    problems.push("GitHub issue developer path should explain preflight, native-agent handoff, and PR/issue sync order");
   }
   if (summary.githubIssueProgressStepCount !== 4) {
     problems.push(`expected four GitHub issue workflow readiness steps, got ${summary.githubIssueProgressStepCount}`);

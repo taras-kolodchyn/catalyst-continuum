@@ -2285,6 +2285,7 @@ function renderGithubIssueWorkbench(envelope) {
       <div class="github-issue-workbench-grid">
         <section class="github-issue-action-stack">
           ${renderGithubIssueSelectedPackage(selectedWorkflow)}
+          ${renderGithubIssueDeveloperPath(selectedWorkflow)}
           ${renderGithubIssueWorkflowProgress(selectedWorkflow)}
           ${renderGithubIssueWorkflowAction(selectedWorkflow?.review_action, "review")}
           ${renderGithubIssuePreflightAction(selectedWorkflow?.preflight_action)}
@@ -2784,6 +2785,92 @@ function renderGithubIssueWorkflowProgress(workflow) {
         ${steps.map(renderGithubIssueWorkflowStep).join("")}
       </ol>
     </article>
+  `;
+}
+
+function renderGithubIssueDeveloperPath(workflow) {
+  if (!workflow) {
+    return "";
+  }
+
+  const steps = githubIssueDeveloperPathSteps(workflow);
+  return `
+    <article class="github-issue-command-card github-issue-progress-card" data-github-issue-developer-path="true">
+      <div class="mission-feed-head">
+        <div>
+          <p class="panel-kicker">Developer operating path</p>
+          <h3>How this becomes useful work</h3>
+        </div>
+        <span class="badge badge-neutral">${escapeHtml(`${steps.length} steps`)}</span>
+      </div>
+      <p>Use this order when you want Catalyst to coordinate the issue package while the coding agent keeps its native UI.</p>
+      <ol class="github-issue-progress-steps">
+        ${steps.map(renderGithubIssueDeveloperPathStep).join("")}
+      </ol>
+    </article>
+  `;
+}
+
+function githubIssueDeveloperPathSteps(workflow) {
+  const status = nonEmptyString(workflow.status);
+  const prompts = Array.isArray(workflow.agent_prompts) ? workflow.agent_prompts : [];
+  const hasPreflight = Boolean(nonEmptyString(workflow.preflight_action?.command));
+  const hasDraftPr = Boolean(safeExternalUrl(workflow.draft_pr_url));
+  const hasIssueSync = Boolean(nonEmptyString(workflow.issue_sync_apply_action?.command));
+  const completedRun = status === "succeeded";
+  const failedRun = status === "failed";
+
+  return [
+    {
+      status: "done",
+      label: "Select the issue package",
+      description:
+        "Catalyst records source issues, labels, PR strategy, recipe choice, and local workflow evidence before an agent starts.",
+    },
+    {
+      status: hasPreflight ? "ready" : "waiting",
+      label: "Run strict preflight",
+      description: hasPreflight
+        ? "Copy the preflight command before handing work to Codex, Cursor, or OpenHands."
+        : "Create or select a workflow with preflight evidence before claiming real repository work.",
+    },
+    {
+      status: failedRun ? "error" : prompts.length ? (completedRun ? "done" : "ready") : "waiting",
+      label: "Continue in Codex, Cursor, or OpenHands",
+      description: prompts.length
+        ? "Use the generated native-agent prompt so the agent gets the same issue context, policy guardrails, and evidence paths."
+        : "Generate the session package before starting a native-agent handoff.",
+    },
+    {
+      status: workflow.issue_sync_applied
+        ? "done"
+        : failedRun
+          ? "error"
+          : hasDraftPr || hasIssueSync
+            ? "ready"
+            : "waiting",
+      label: "Review PR evidence and sync the issue",
+      description: workflow.issue_sync_applied
+        ? "The issue update was applied; continue normal human review and merge in GitHub."
+        : hasDraftPr || hasIssueSync
+          ? "Review the draft PR and generated issue comment before applying the GitHub mutation."
+          : "Finish the run and export PR evidence before updating GitHub.",
+    },
+  ];
+}
+
+function renderGithubIssueDeveloperPathStep(step) {
+  return `
+    <li class="github-issue-progress-step github-issue-progress-step-${escapeHtml(step.status)}" data-github-issue-developer-path-step="true">
+      <span class="github-issue-progress-marker" aria-hidden="true"></span>
+      <div>
+        <div class="github-issue-progress-head">
+          <strong>${escapeHtml(step.label)}</strong>
+          <span>${escapeHtml(displayGithubIssueStepStatus(step.status))}</span>
+        </div>
+        <p>${escapeHtml(step.description)}</p>
+      </div>
+    </li>
   `;
 }
 
