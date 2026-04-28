@@ -593,6 +593,12 @@ async function main() {
     return button && button.textContent.includes("Command copied");
   }, { timeout: 5000 });
   const copiedIssueAgentPromptCommand = await page.evaluate(() => navigator.clipboard.readText());
+  await page.locator('[data-github-issue-agent-prompt-path-copy="true"]').first().click();
+  await page.waitForFunction(() => {
+    const button = document.querySelector('[data-github-issue-agent-prompt-path-copy="true"]');
+    return button && button.textContent.includes("Path copied");
+  }, { timeout: 5000 });
+  const copiedIssueAgentPromptPath = await page.evaluate(() => navigator.clipboard.readText());
   await page.locator('[data-github-issue-agent-clipboard-copy="true"]').first().click();
   await page.waitForFunction(() => {
     const button = document.querySelector('[data-github-issue-agent-clipboard-copy="true"]');
@@ -675,6 +681,7 @@ async function main() {
       githubIssueAgentPromptPreviewCount: count('[data-github-issue-agent-prompt-preview="true"]'),
       githubIssueAgentPromptTextCopyButtonCount: count('[data-github-issue-agent-prompt-text-copy="true"]'),
       githubIssueAgentPromptCopyButtonCount: count('[data-github-issue-agent-prompt-copy="true"]'),
+      githubIssueAgentPromptPathCopyButtonCount: count('[data-github-issue-agent-prompt-path-copy="true"]'),
       githubIssueAgentClipboardCopyButtonCount: count('[data-github-issue-agent-clipboard-copy="true"]'),
       githubIssueCodexUiCopyButtonCount: count('[data-github-issue-codex-ui-copy="true"]'),
       githubIssueNextCommandCopyButtonCount: count('[data-github-issue-next-command-copy="true"]'),
@@ -840,6 +847,7 @@ async function main() {
     copiedIssueSyncCommand,
     copiedIssueAgentPromptText,
     copiedIssueAgentPromptCommand,
+    copiedIssueAgentPromptPath,
     copiedIssueAgentClipboardCommand,
     copiedIssueCodexUiCommand,
     copiedIssuePlannedCommand,
@@ -931,6 +939,11 @@ async function main() {
   if (summary.githubIssueAgentPromptCopyButtonCount !== 3) {
     problems.push(
       `expected three GitHub issue agent prompt copy buttons, got ${summary.githubIssueAgentPromptCopyButtonCount}`
+    );
+  }
+  if (summary.githubIssueAgentPromptPathCopyButtonCount !== 3) {
+    problems.push(
+      `expected three GitHub issue agent prompt path copy buttons, got ${summary.githubIssueAgentPromptPathCopyButtonCount}`
     );
   }
   if (summary.githubIssueAgentClipboardCopyButtonCount !== 3) {
@@ -1104,6 +1117,12 @@ async function main() {
     !copiedIssueAgentPromptCommand.includes("AGENT=codex")
   ) {
     problems.push("GitHub issue workbench agent prompt copy should write the selected Codex prompt command");
+  }
+  if (
+    !copiedIssueAgentPromptPath.endsWith("/codex-prompt.md") ||
+    copiedIssueAgentPromptPath.includes("make github-issue-agent-prompt")
+  ) {
+    problems.push("GitHub issue workbench prompt path copy should write the generated prompt path, not a command");
   }
   if (
     !copiedIssueAgentClipboardCommand.includes("make github-issue-agent-prompt-copy") ||

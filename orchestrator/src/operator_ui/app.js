@@ -2446,6 +2446,7 @@ function renderGithubIssueAgentHandoff(workflow) {
 
 function renderGithubIssueAgentPrompt(prompt, index) {
   const agent = nonEmptyString(prompt.agent) || "agent";
+  const promptPath = nonEmptyString(prompt.path);
   const promptCommand = nonEmptyString(prompt.prompt_command);
   const clipboardCommand = nonEmptyString(prompt.clipboard_command);
   const codexCommand = nonEmptyString(prompt.codex_app_server_command);
@@ -2471,7 +2472,7 @@ function renderGithubIssueAgentPrompt(prompt, index) {
     <div class="github-issue-agent-prompt" data-github-issue-agent-prompt="true">
       <div>
         <strong>${escapeHtml(displayGithubIssueAgent(agent))}</strong>
-        <p>${escapeHtml(nonEmptyString(prompt.path) || "Prompt path unavailable")}</p>
+        <p>${escapeHtml(promptPath || "Prompt path unavailable")}</p>
       </div>
       ${
         promptMetaItems.length
@@ -2520,6 +2521,19 @@ function renderGithubIssueAgentPrompt(prompt, index) {
                  data-github-issue-agent-prompt-copy="true"
                >
                  Copy prompt command
+               </button>`
+            : ""
+        }
+        ${
+          promptPath
+            ? `<button
+                 class="button button-secondary"
+                 type="button"
+                 data-copy-command="${escapeHtml(promptPath)}"
+                 data-copy-success-label="Path copied"
+                 data-github-issue-agent-prompt-path-copy="true"
+               >
+                 Copy prompt path
                </button>`
             : ""
         }
