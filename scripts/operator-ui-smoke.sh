@@ -384,6 +384,7 @@ async function main() {
   const requestFailures = [];
   let loadEvents = 0;
   let mainFrameNavigations = 0;
+  let lastMainFrameLocation = "";
   const focusChecks = [];
 
   page.on("console", (message) => {
@@ -401,7 +402,12 @@ async function main() {
   });
   page.on("framenavigated", (frame) => {
     if (frame === page.mainFrame()) {
-      mainFrameNavigations += 1;
+      const currentUrl = new URL(frame.url());
+      const locationKey = `${currentUrl.origin}${currentUrl.pathname}`;
+      if (!lastMainFrameLocation || locationKey !== lastMainFrameLocation) {
+        mainFrameNavigations += 1;
+      }
+      lastMainFrameLocation = locationKey;
     }
   });
 
@@ -636,6 +642,7 @@ async function main() {
     .locator('[data-github-issue-workflow-selected="true"]')
     .first()
     .textContent();
+  const plannedWorkflowUrl = page.url();
   await page.locator('[data-github-issue-preflight-command-copy="true"]').first().click();
   await page.waitForFunction(() => {
     const button = document.querySelector('[data-github-issue-preflight-command-copy="true"]');
@@ -655,6 +662,7 @@ async function main() {
     const selected = document.querySelector('[data-github-issue-workflow-selected="true"]');
     return selected && selected.textContent.includes("#42 Polish issue workbench");
   }, { timeout: 5000 });
+  const latestWorkflowUrl = page.url();
 
   const summary = await page.evaluate(() => {
     const text = (selector) => document.querySelector(selector)?.textContent?.trim() || "";
@@ -879,6 +887,8 @@ async function main() {
     copiedIssuePlannedPreflightCommand,
     copiedIssuePlannedReviewCommand,
     selectedPlannedWorkflowText,
+    plannedWorkflowUrl,
+    latestWorkflowUrl,
     ok: false,
   };
 
@@ -996,6 +1006,18 @@ async function main() {
   }
   if (!(selectedPlannedWorkflowText || "").includes("#43 Plan selected workbench")) {
     problems.push("clicking a GitHub issue workflow should select it without navigating");
+  }
+  if (
+    !(plannedWorkflowUrl || "").includes("issue_workflow=") ||
+    !(plannedWorkflowUrl || "").includes("operator-ui-planned-workflow")
+  ) {
+    problems.push("selecting a planned GitHub issue workflow should persist URL state in place");
+  }
+  if (
+    !(latestWorkflowUrl || "").includes("issue_workflow=") ||
+    !(latestWorkflowUrl || "").includes("operator-ui-issue-workflow")
+  ) {
+    problems.push("reselecting the latest GitHub issue workflow should refresh URL state in place");
   }
   if (summary.githubIssueNextCommandCopyButtonCount !== 1) {
     problems.push(

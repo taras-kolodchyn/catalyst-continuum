@@ -204,7 +204,9 @@ const state = {
   selectedAgentActivityId: "all",
   selectedAgentReportArtifactId: null,
   selectedAgentLogArtifactId: null,
-  selectedGithubIssueWorkflowPath: null,
+  selectedGithubIssueWorkflowPath: normalizeGithubIssueWorkflowQueryParam(
+    initialUiUrl.searchParams.get("issue_workflow")
+  ),
   agentReportDetails: {},
   agentReportLoadsInFlight: {},
   agentLogDetails: {},
@@ -1248,6 +1250,14 @@ function syncUiUrlState() {
     nextUrl.searchParams.set("run_query", state.runSearchQuery);
   } else {
     nextUrl.searchParams.delete("run_query");
+  }
+  if (state.selectedGithubIssueWorkflowPath) {
+    nextUrl.searchParams.set(
+      "issue_workflow",
+      state.selectedGithubIssueWorkflowPath
+    );
+  } else {
+    nextUrl.searchParams.delete("issue_workflow");
   }
 
   if (nextUrl.toString() === window.location.href) {
@@ -2312,16 +2322,25 @@ function githubIssueWorkflowsData(envelope) {
 
 function selectedGithubIssueWorkflow(workflows) {
   if (!workflows.length) {
+    if (state.selectedGithubIssueWorkflowPath) {
+      state.selectedGithubIssueWorkflowPath = null;
+      syncUiUrlState();
+    }
     return null;
   }
 
-  return (
+  const selected =
     workflows.find(
       (workflow) =>
         workflow.path &&
         workflow.path === state.selectedGithubIssueWorkflowPath
-    ) ?? workflows[0]
-  );
+    ) ?? workflows[0];
+  const selectedPath = nonEmptyString(selected?.path);
+  if (selectedPath !== state.selectedGithubIssueWorkflowPath) {
+    state.selectedGithubIssueWorkflowPath = selectedPath;
+    syncUiUrlState();
+  }
+  return selected;
 }
 
 function setSelectedGithubIssueWorkflow(path) {
@@ -2331,7 +2350,12 @@ function setSelectedGithubIssueWorkflow(path) {
   }
 
   state.selectedGithubIssueWorkflowPath = value;
+  syncUiUrlState();
   renderGithubIssueWorkbench(state.dashboardSnapshot.githubIssueWorkflows);
+}
+
+function normalizeGithubIssueWorkflowQueryParam(value) {
+  return nonEmptyString(value);
 }
 
 function renderGithubIssueSelectedPackage(workflow) {
