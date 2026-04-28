@@ -744,6 +744,12 @@ async function main() {
         document.body.textContent.includes("Next step"),
       githubIssueWorkbenchCount: count('[data-github-issue-workbench="true"]'),
       githubIssueWorkflowCardCount: count('[data-github-issue-workflow-card="true"]'),
+      githubIssueWorkflowPostureRowCount: count('[data-github-issue-workflow-posture-row="true"]'),
+      githubIssueWorkflowPosturePillCount: count('[data-github-issue-workflow-posture-pill="true"]'),
+      githubIssueWorkflowPostureText:
+        Array.from(document.querySelectorAll('[data-github-issue-workflow-posture-pill="true"]'))
+          .map((element) => element.textContent.trim())
+          .join(" | "),
       githubIssueSelectedPackageCount: count('[data-github-issue-selected-package="true"]'),
       githubIssueSelectedPackageMetaCount: count('[data-github-issue-selected-package-meta="true"]'),
       githubIssueWorkflowPathCopyButtonCount: count('[data-github-issue-workflow-path-copy="true"]'),
@@ -1023,6 +1029,24 @@ async function main() {
   }
   if (summary.githubIssueWorkflowCardCount < 2) {
     problems.push("GitHub issue workbench should show at least two workflow cards");
+  }
+  if (summary.githubIssueWorkflowPostureRowCount !== summary.githubIssueWorkflowCardCount) {
+    problems.push(
+      `expected one posture row per GitHub issue workflow card, got ${summary.githubIssueWorkflowPostureRowCount} for ${summary.githubIssueWorkflowCardCount} cards`
+    );
+  }
+  if (summary.githubIssueWorkflowPosturePillCount < summary.githubIssueWorkflowCardCount * 5) {
+    problems.push(
+      `expected five posture pills per GitHub issue workflow card, got ${summary.githubIssueWorkflowPosturePillCount}`
+    );
+  }
+  if (
+    !summary.githubIssueWorkflowPostureText.includes("draft PR ready") ||
+    !summary.githubIssueWorkflowPostureText.includes("sync ready") ||
+    !summary.githubIssueWorkflowPostureText.includes("agent prompts ready") ||
+    !summary.githubIssueWorkflowPostureText.includes("plan only")
+  ) {
+    problems.push("GitHub issue workflow cards should expose draft PR, issue-sync, agent-prompt, and plan-only posture badges");
   }
   if (summary.githubIssueSelectedPackageCount !== 1) {
     problems.push(`expected one selected GitHub issue package, got ${summary.githubIssueSelectedPackageCount}`);

@@ -178,11 +178,13 @@ when you want the exact apply command without rebuilding it by hand.
 The `GitHub Issue Workbench` panel in the Operator UI shows the same workflow history, selected
 issues, labels, recipes, readiness steps, native-agent handoff commands, and copy buttons for those
 commands, terminal review, strict preflight, workflow/session evidence paths, prompt text, and
-prompt paths. It also shows the developer operating path: select the issue package, run strict
-preflight, continue in Codex, Cursor, or OpenHands, then review PR evidence and sync the issue. It
-can copy one compact issue-workflow evidence packet with the selected workflow paths, review
-commands, preflight command, issue-sync command, issue-sync comment text, draft PR evidence. It also
-copies a smaller issue-context packet with issue refs, labels, URLs, session manifest, and
+prompt paths. Recent workflow cards include posture badges for preflight, generated agent prompts,
+draft PR evidence, issue sync, and plan-only packages, so you can choose the right package without
+opening every artifact first. It also shows the developer operating path: select the issue package,
+run strict preflight, continue in Codex, Cursor, or OpenHands, then review PR evidence and sync the
+issue. It can copy one compact issue-workflow evidence packet with the selected workflow paths,
+review commands, preflight command, issue-sync command, issue-sync comment text, draft PR evidence.
+It also copies a smaller issue-context packet with issue refs, labels, URLs, session manifest, and
 native-agent prompt commands when you only need to move the selected source work into Codex, Cursor,
 or OpenHands. When you need to tell GitHub, Slack, or your notes where the workflow stands, copy the
 short status update instead of pasting the full evidence packet. The same panel opens the recorded

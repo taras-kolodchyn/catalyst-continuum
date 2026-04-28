@@ -3318,12 +3318,45 @@ function renderGithubIssueWorkflowCard(workflow, selected) {
         <span>${escapeHtml(formatWorkflowMtime(workflow.mtime))}</span>
         <span>${escapeHtml(workflow.plan_only ? "plan only" : "run workflow")}</span>
       </div>
+      ${renderGithubIssueWorkflowPosturePills(workflow)}
       <div class="github-issue-workflow-evidence">
         ${reportPath ? `<span>Report: <strong>${escapeHtml(reportPath)}</strong></span>` : ""}
         ${syncPlan ? `<span>Sync plan: <strong>${escapeHtml(syncPlan)}</strong></span>` : ""}
         ${draftPr ? `<span>Draft PR: <strong>${escapeHtml(draftPr)}</strong></span>` : ""}
       </div>
     </button>
+  `;
+}
+
+function renderGithubIssueWorkflowPosturePills(workflow) {
+  const prompts = Array.isArray(workflow.agent_prompts) ? workflow.agent_prompts : [];
+  const hasPreflight = Boolean(nonEmptyString(workflow.preflight_action?.command));
+  const hasDraftPr = Boolean(safeExternalUrl(workflow.draft_pr_url));
+  const hasIssueSyncCommand = Boolean(nonEmptyString(workflow.issue_sync_apply_action?.command));
+  const hasIssueSyncPlan = Boolean(nonEmptyString(workflow.issue_sync_plan));
+  const issueSyncLabel = workflow.issue_sync_applied
+    ? "issue sync applied"
+    : workflow.issue_sync_skipped
+      ? "issue sync skipped"
+      : hasIssueSyncCommand
+        ? "sync ready"
+        : hasIssueSyncPlan
+          ? "sync planned"
+          : "sync pending";
+  const pills = [
+    workflow.plan_only ? "plan only" : "run recorded",
+    hasPreflight ? "preflight ready" : "preflight pending",
+    prompts.length ? "agent prompts ready" : "agent prompts pending",
+    hasDraftPr ? "draft PR ready" : "draft PR pending",
+    issueSyncLabel,
+  ];
+
+  return `
+    <div class="github-issue-agent-prompt-meta" data-github-issue-workflow-posture-row="true">
+      ${pills
+        .map((pill) => `<span data-github-issue-workflow-posture-pill="true">${escapeHtml(pill)}</span>`)
+        .join("\n")}
+    </div>
   `;
 }
 
