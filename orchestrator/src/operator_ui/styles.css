@@ -816,6 +816,22 @@ textarea,
   font-size: 0.76rem;
 }
 
+.github-issue-agent-prompt-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.github-issue-agent-prompt-meta span {
+  border: 1px solid rgba(24, 35, 29, 0.08);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.58);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  padding: 4px 8px;
+}
+
 .github-issue-agent-prompt-preview {
   max-height: 150px;
   margin: 0;

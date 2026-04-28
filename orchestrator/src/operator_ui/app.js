@@ -2452,12 +2452,34 @@ function renderGithubIssueAgentPrompt(prompt, index) {
   const promptText = nonEmptyString(prompt.prompt_text);
   const promptPreview = nonEmptyString(prompt.prompt_preview);
   const promptCopySelector = `[data-github-issue-agent-prompt-copy-text='${index}']`;
+  const promptLineCount = Number(prompt.prompt_line_count);
+  const promptCharCount = Number(prompt.prompt_char_count);
+  const promptMetaItems = [
+    Number.isFinite(promptLineCount)
+      ? `${promptLineCount.toLocaleString()} ${promptLineCount === 1 ? "line" : "lines"}`
+      : null,
+    Number.isFinite(promptCharCount)
+      ? `${promptCharCount.toLocaleString()} ${promptCharCount === 1 ? "char" : "chars"}`
+      : null,
+    prompt.prompt_truncated
+      ? "terminal copy required"
+      : promptText
+        ? "browser copy ready"
+        : "path only",
+  ].filter(Boolean);
   return `
     <div class="github-issue-agent-prompt" data-github-issue-agent-prompt="true">
       <div>
         <strong>${escapeHtml(displayGithubIssueAgent(agent))}</strong>
         <p>${escapeHtml(nonEmptyString(prompt.path) || "Prompt path unavailable")}</p>
       </div>
+      ${
+        promptMetaItems.length
+          ? `<div class="github-issue-agent-prompt-meta" data-github-issue-agent-prompt-meta="true">${promptMetaItems
+              .map((item) => `<span>${escapeHtml(item)}</span>`)
+              .join("")}</div>`
+          : ""
+      }
       ${
         promptPreview
           ? `<pre class="github-issue-agent-prompt-preview" data-github-issue-agent-prompt-preview="true">${escapeHtml(promptPreview)}</pre>`

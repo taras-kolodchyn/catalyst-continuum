@@ -49,9 +49,9 @@ The same UI also has a `GitHub Issue Workbench`. After you run `github-issue-pla
 `github-issue-run`, it shows recent issue workflows, lets you select the package you want to inspect
 without a page refresh, and explains the readiness path from plan to agent run, PR handoff, and
 issue sync. It also shows the Codex, Cursor, and OpenHands handoff commands for the selected
-package, includes a prompt preview with direct prompt-text copy, and includes the Codex app-server
-launch command when a Codex prompt is attached. The workbench is read-only: it helps you copy the
-right terminal command or prompt, but it does not mutate GitHub from the browser.
+package, includes prompt preview, size/status metadata, and direct prompt-text copy, and includes
+the Codex app-server launch command when a Codex prompt is attached. The workbench is read-only: it
+helps you copy the right terminal command or prompt, but it does not mutate GitHub from the browser.
 
 For real work, start with a safe GitHub issue preview:
 

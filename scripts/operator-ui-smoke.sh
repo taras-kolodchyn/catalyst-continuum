@@ -671,6 +671,7 @@ async function main() {
       githubIssueItemCount: count('[data-github-issue-item="true"]'),
       githubIssueAgentHandoffPanelCount: count('[data-github-issue-agent-handoff="true"]'),
       githubIssueAgentPromptCardCount: count('[data-github-issue-agent-prompt="true"]'),
+      githubIssueAgentPromptMetaCount: count('[data-github-issue-agent-prompt-meta="true"]'),
       githubIssueAgentPromptPreviewCount: count('[data-github-issue-agent-prompt-preview="true"]'),
       githubIssueAgentPromptTextCopyButtonCount: count('[data-github-issue-agent-prompt-text-copy="true"]'),
       githubIssueAgentPromptCopyButtonCount: count('[data-github-issue-agent-prompt-copy="true"]'),
@@ -690,6 +691,7 @@ async function main() {
         document.body.textContent.includes("Cursor") &&
         document.body.textContent.includes("OpenHands") &&
         document.body.textContent.includes("Codex should implement issue #42") &&
+        document.body.textContent.includes("browser copy ready") &&
         document.body.textContent.includes("make github-issue-agent-prompt"),
       missionContextCardCount: count('[data-mission-context-card="true"]'),
       missionContextIncludesApprovalBoundary:
@@ -914,6 +916,9 @@ async function main() {
   }
   if (summary.githubIssueAgentPromptCardCount !== 3) {
     problems.push(`expected three GitHub issue agent prompt cards, got ${summary.githubIssueAgentPromptCardCount}`);
+  }
+  if (summary.githubIssueAgentPromptMetaCount !== 3) {
+    problems.push(`expected three GitHub issue agent prompt metadata rows, got ${summary.githubIssueAgentPromptMetaCount}`);
   }
   if (summary.githubIssueAgentPromptPreviewCount !== 3) {
     problems.push(`expected three GitHub issue agent prompt previews, got ${summary.githubIssueAgentPromptPreviewCount}`);

@@ -76,6 +76,8 @@ pub struct OperatorUiGithubIssueAgentPrompt {
     pub prompt_preview: Option<String>,
     pub prompt_text: Option<String>,
     pub prompt_truncated: bool,
+    pub prompt_line_count: Option<usize>,
+    pub prompt_char_count: Option<usize>,
     pub prompt_command: String,
     pub prompt_path_command: String,
     pub clipboard_command: String,
@@ -330,6 +332,8 @@ fn load_manifest_agent_prompts(
                 path,
                 prompt_preview: prompt_text.as_ref().map(|text| text.preview.clone()),
                 prompt_text: prompt_text.as_ref().and_then(|text| text.full.clone()),
+                prompt_line_count: prompt_text.as_ref().map(|text| text.line_count),
+                prompt_char_count: prompt_text.as_ref().map(|text| text.char_count),
                 prompt_truncated: prompt_text.is_some_and(|text| text.truncated),
                 prompt_command: format!(
                     "make github-issue-agent-prompt {workflow_assignment} {agent_assignment}"
@@ -352,16 +356,26 @@ struct LoadedPromptText {
     preview: String,
     full: Option<String>,
     truncated: bool,
+    line_count: usize,
+    char_count: usize,
 }
 
 fn read_prompt_text(path: &Path) -> Option<LoadedPromptText> {
     let content = fs::read_to_string(path).ok()?;
+    let char_count = content.chars().count();
+    let line_count = if content.is_empty() {
+        0
+    } else {
+        content.lines().count()
+    };
     let truncated = content.len() > AGENT_PROMPT_TEXT_LIMIT;
     let full = (!truncated).then(|| content.clone());
     Some(LoadedPromptText {
         preview: truncate_chars(&content, AGENT_PROMPT_PREVIEW_LIMIT),
         full,
         truncated,
+        line_count,
+        char_count,
     })
 }
 
@@ -1054,6 +1068,14 @@ mod tests {
                 .prompt_text
                 .as_deref(),
             Some("Codex prompt for issue #42")
+        );
+        assert_eq!(
+            snapshot.workflows[0].agent_prompts[0].prompt_line_count,
+            Some(1)
+        );
+        assert_eq!(
+            snapshot.workflows[0].agent_prompts[0].prompt_char_count,
+            Some(26)
         );
         assert!(!snapshot.workflows[0].agent_prompts[0].prompt_truncated);
         assert!(

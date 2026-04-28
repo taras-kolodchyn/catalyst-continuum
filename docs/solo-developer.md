@@ -83,9 +83,9 @@ When work starts from GitHub issues, also open `GitHub Issue Workbench` in the s
 recent issue workflows, lets you switch between packages without a page refresh, and explains
 whether the selected package is still at planning, agent execution, PR handoff, or issue sync. The
 same panel exposes Codex, Cursor, and OpenHands handoff commands for the selected package, plus the
-prompt preview, direct prompt-text copy, and the Codex app-server command when a Codex prompt is
-attached. The browser does not apply labels, comments, or state changes; you review the generated
-plan and run the copied terminal command when you are ready.
+prompt preview, prompt size/status metadata, direct prompt-text copy, and the Codex app-server
+command when a Codex prompt is attached. The browser does not apply labels, comments, or state
+changes; you review the generated plan and run the copied terminal command when you are ready.
 
 For real daily work, start from a GitHub issue or use a task recipe instead of hand-writing a full
 brief:
