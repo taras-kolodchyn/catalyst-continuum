@@ -3617,7 +3617,7 @@ function displayGithubIssueStepStatus(status) {
 }
 
 function renderGithubIssueWorkflowAction(action, kind) {
-  const command = nonEmptyString(action.command);
+  const command = nonEmptyString(action?.command);
   const tone = command ? "success" : "warning";
   const copyHook =
     kind === "next"
@@ -3635,11 +3635,11 @@ function renderGithubIssueWorkflowAction(action, kind) {
       <div class="mission-feed-head">
         <div>
           <p class="panel-kicker">${escapeHtml(kicker)}</p>
-          <h3>${escapeHtml(nonEmptyString(action.label) || "No command available")}</h3>
+          <h3>${escapeHtml(nonEmptyString(action?.label) || "No command available")}</h3>
         </div>
         <span class="badge badge-${escapeHtml(tone)}">${escapeHtml(command ? "Ready" : "Wait")}</span>
       </div>
-      <p>${escapeHtml(nonEmptyString(action.description) || "Create or select a GitHub issue workflow first.")}</p>
+      <p>${escapeHtml(nonEmptyString(action?.description) || "Create or select a GitHub issue workflow first.")}</p>
       ${
         command
           ? `<code${commandHook}>${escapeHtml(command)}</code>
@@ -3654,24 +3654,25 @@ function renderGithubIssueWorkflowAction(action, kind) {
              </button>`
           : ""
       }
-      ${renderGithubIssueActionPath(action.primary_path, "Primary evidence")}
+      ${renderGithubIssueActionPath(action?.primary_path, "Primary evidence")}
     </article>
   `;
 }
 
 function renderGithubIssueSyncAction(action) {
-  const command = nonEmptyString(action.command);
-  const tone = action.available && command ? "warning" : "neutral";
+  const command = nonEmptyString(action?.command);
+  const available = action?.available === true;
+  const tone = available && command ? "warning" : "neutral";
   return `
     <article class="github-issue-command-card github-issue-command-card-${escapeHtml(tone)}">
       <div class="mission-feed-head">
         <div>
           <p class="panel-kicker">Issue sync</p>
-          <h3>${escapeHtml(action.available ? "Apply GitHub issue update" : "No apply command yet")}</h3>
+          <h3>${escapeHtml(available ? "Apply GitHub issue update" : "No apply command yet")}</h3>
         </div>
-        <span class="badge badge-${escapeHtml(tone)}">${escapeHtml(action.available ? "Review first" : "Dry run")}</span>
+        <span class="badge badge-${escapeHtml(tone)}">${escapeHtml(available ? "Review first" : "Dry run")}</span>
       </div>
-      <p>${escapeHtml(nonEmptyString(action.reason) || "Issue-sync evidence is not available yet.")}</p>
+      <p>${escapeHtml(nonEmptyString(action?.reason) || "Issue-sync evidence is not available yet.")}</p>
       ${
         command
           ? `<code data-github-issue-sync-command="true">${escapeHtml(command)}</code>
@@ -3686,7 +3687,7 @@ function renderGithubIssueSyncAction(action) {
              </button>`
           : ""
       }
-      ${renderGithubIssueActionPath(action.primary_path, "Sync evidence")}
+      ${renderGithubIssueActionPath(action?.primary_path, "Sync evidence")}
     </article>
   `;
 }
@@ -3800,10 +3801,20 @@ function githubIssueWorkflowSummary(workflow) {
 }
 
 function renderGithubIssueEmptyState(action) {
+  const command = nonEmptyString(action?.command) || "make github-issue-plan";
   return `
-    <div class="empty-state compact">
+    <div class="empty-state compact" data-github-issue-empty-state="true">
       <p>No GitHub issue workflows found in the current artifact root.</p>
-      <p>Start with <span class="mono">${escapeHtml(nonEmptyString(action.command) || "make github-issue-plan")}</span>.</p>
+      <p>Start with <span class="mono" data-github-issue-empty-command="true">${escapeHtml(command)}</span>.</p>
+      <button
+        class="button button-primary"
+        type="button"
+        data-copy-command="${escapeHtml(command)}"
+        data-copy-success-label="Start command copied"
+        data-github-issue-empty-command-copy="true"
+      >
+        Copy start command
+      </button>
     </div>
   `;
 }

@@ -193,6 +193,8 @@ selected package so you do not have to scroll before handing the issue to anothe
 The selected package also highlights one recommended next action, preferring the Codex UI bridge
 when it is available and falling back to plan review, strict preflight, or the next safe workflow
 command so the next click stays obvious across both plan-only and executed packages.
+When no issue workflow exists yet, the same panel shows the first `make github-issue-plan` command
+with a copy button so the empty state is still actionable.
 It also copies a smaller issue-context packet with issue refs, labels, URLs, session manifest, and
 native-agent prompt commands when you only need to move the selected source work into Codex, Cursor,
 or OpenHands. When you need to tell GitHub, Slack, or your notes where the workflow stands, copy the

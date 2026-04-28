@@ -977,6 +977,36 @@ async function main() {
     };
   });
 
+  await page.evaluate(() => {
+    renderGithubIssueWorkbench({
+      ok: true,
+      data: {
+        workflows: [],
+        limit: 3,
+        recommended_next_action: {
+          command:
+            "make github-issue-plan REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout",
+        },
+        issue_sync_apply_action: {
+          available: false,
+          reason: "No workflow exists yet.",
+        },
+      },
+    });
+  });
+  await page.waitForSelector('[data-github-issue-empty-state="true"]', { timeout: 10000 });
+  const emptyIssueWorkbenchCheck = await page.evaluate(() => ({
+    emptyStateCount: document.querySelectorAll('[data-github-issue-empty-state="true"]').length,
+    copyButtonCount: document.querySelectorAll('[data-github-issue-empty-command-copy="true"]').length,
+    commandText:
+      document.querySelector('[data-github-issue-empty-command="true"]')?.textContent?.trim() || "",
+    bodyIncludesStartCopy:
+      document.body.textContent.includes("No GitHub issue workflows found") &&
+      document.body.textContent.includes("Copy start command"),
+  }));
+  await page.locator('[data-github-issue-empty-command-copy="true"]').first().click();
+  const copiedIssueEmptyStartCommand = await page.evaluate(() => navigator.clipboard.readText());
+
   await page.screenshot({ path: screenshotPath, fullPage: true });
   await browser.close();
 
@@ -1028,6 +1058,8 @@ async function main() {
     plannedRecommendedHandoffText,
     plannedWorkflowUrl,
     latestWorkflowUrl,
+    emptyIssueWorkbenchCheck,
+    copiedIssueEmptyStartCommand,
     ok: false,
   };
 
@@ -1332,6 +1364,25 @@ async function main() {
     !(latestWorkflowUrl || "").includes("operator-ui-issue-workflow")
   ) {
     problems.push("reselecting the latest GitHub issue workflow should refresh URL state in place");
+  }
+  if (emptyIssueWorkbenchCheck.emptyStateCount !== 1) {
+    problems.push(
+      `expected one rendered GitHub issue empty state, got ${emptyIssueWorkbenchCheck.emptyStateCount}`
+    );
+  }
+  if (emptyIssueWorkbenchCheck.copyButtonCount !== 1) {
+    problems.push(
+      `expected one GitHub issue empty-state copy button, got ${emptyIssueWorkbenchCheck.copyButtonCount}`
+    );
+  }
+  if (!emptyIssueWorkbenchCheck.commandText.includes("make github-issue-plan")) {
+    problems.push(`empty GitHub issue workbench should show the plan command, got ${emptyIssueWorkbenchCheck.commandText}`);
+  }
+  if (!emptyIssueWorkbenchCheck.bodyIncludesStartCopy) {
+    problems.push("empty GitHub issue workbench should explain the first command and expose a copy action");
+  }
+  if (!copiedIssueEmptyStartCommand.includes("make github-issue-plan")) {
+    problems.push("empty GitHub issue workbench copy button should copy the plan command");
   }
   if (summary.githubIssueNextCommandCopyButtonCount !== 1) {
     problems.push(
