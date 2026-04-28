@@ -581,6 +581,18 @@ async function main() {
     return button && button.textContent.includes("Command copied");
   }, { timeout: 5000 });
   const copiedIssueReviewCommand = await page.evaluate(() => navigator.clipboard.readText());
+  await page.locator('[data-github-issue-workflow-path-copy="true"]').first().click();
+  await page.waitForFunction(() => {
+    const button = document.querySelector('[data-github-issue-workflow-path-copy="true"]');
+    return button && button.textContent.includes("Path copied");
+  }, { timeout: 5000 });
+  const copiedIssueWorkflowPath = await page.evaluate(() => navigator.clipboard.readText());
+  await page.locator('[data-github-issue-session-manifest-copy="true"]').first().click();
+  await page.waitForFunction(() => {
+    const button = document.querySelector('[data-github-issue-session-manifest-copy="true"]');
+    return button && button.textContent.includes("Path copied");
+  }, { timeout: 5000 });
+  const copiedIssueSessionManifest = await page.evaluate(() => navigator.clipboard.readText());
   await page.locator('[data-github-issue-next-command-copy="true"]').first().click();
   await page.waitForFunction(() => {
     const button = document.querySelector('[data-github-issue-next-command-copy="true"]');
@@ -701,6 +713,9 @@ async function main() {
       githubIssueWorkbenchCount: count('[data-github-issue-workbench="true"]'),
       githubIssueWorkflowCardCount: count('[data-github-issue-workflow-card="true"]'),
       githubIssueSelectedPackageCount: count('[data-github-issue-selected-package="true"]'),
+      githubIssueSelectedPackageMetaCount: count('[data-github-issue-selected-package-meta="true"]'),
+      githubIssueWorkflowPathCopyButtonCount: count('[data-github-issue-workflow-path-copy="true"]'),
+      githubIssueSessionManifestCopyButtonCount: count('[data-github-issue-session-manifest-copy="true"]'),
       githubIssueProgressStepCount: count('[data-github-issue-progress-step="true"]'),
       githubIssuePreflightCardCount: count('[data-github-issue-preflight-action="true"]'),
       githubIssuePreflightCommandCopyButtonCount: count('[data-github-issue-preflight-command-copy="true"]'),
@@ -875,6 +890,8 @@ async function main() {
     copiedGithubUpdate,
     copiedCodexCommand,
     copiedIssueReviewCommand,
+    copiedIssueWorkflowPath,
+    copiedIssueSessionManifest,
     copiedIssueNextCommand,
     copiedIssuePreflightCommand,
     copiedIssueSyncCommand,
@@ -949,6 +966,15 @@ async function main() {
   }
   if (summary.githubIssueSelectedPackageCount !== 1) {
     problems.push(`expected one selected GitHub issue package, got ${summary.githubIssueSelectedPackageCount}`);
+  }
+  if (summary.githubIssueSelectedPackageMetaCount !== 1) {
+    problems.push(`expected selected package evidence metadata, got ${summary.githubIssueSelectedPackageMetaCount}`);
+  }
+  if (summary.githubIssueWorkflowPathCopyButtonCount !== 1) {
+    problems.push(`expected one workflow-dir copy button, got ${summary.githubIssueWorkflowPathCopyButtonCount}`);
+  }
+  if (summary.githubIssueSessionManifestCopyButtonCount !== 1) {
+    problems.push(`expected one session-manifest copy button, got ${summary.githubIssueSessionManifestCopyButtonCount}`);
   }
   if (summary.githubIssueProgressStepCount !== 4) {
     problems.push(`expected four GitHub issue workflow readiness steps, got ${summary.githubIssueProgressStepCount}`);
@@ -1153,6 +1179,18 @@ async function main() {
     !copiedCodexCommand.includes("CODEX_APP_SERVER_PROMPT_FILE=")
   ) {
     problems.push("developer Codex command copy action should write the runnable command to clipboard");
+  }
+  if (
+    !copiedIssueWorkflowPath.includes("operator-ui-issue-workflow") ||
+    copiedIssueWorkflowPath.endsWith("manifest.json")
+  ) {
+    problems.push("GitHub issue workbench workflow path copy should write the selected workflow directory");
+  }
+  if (
+    !copiedIssueSessionManifest.endsWith("/manifest.json") ||
+    !copiedIssueSessionManifest.includes("operator-ui-issue-workflow/session")
+  ) {
+    problems.push("GitHub issue workbench session manifest copy should write the selected manifest path");
   }
   if (
     !copiedIssueReviewCommand.includes("make github-issue-review") ||

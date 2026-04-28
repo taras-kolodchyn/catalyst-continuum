@@ -2373,6 +2373,9 @@ function renderGithubIssueSelectedPackage(workflow) {
     nonEmptyString(workflow.repository_full_name) || "Repository unresolved";
   const strategy = nonEmptyString(workflow.pr_strategy) || "strategy unknown";
   const issues = Array.isArray(workflow.issues) ? workflow.issues : [];
+  const workflowPath = nonEmptyString(workflow.path);
+  const sessionDir = nonEmptyString(workflow.session_dir);
+  const sessionManifest = nonEmptyString(workflow.session_manifest);
   return `
     <article class="github-issue-command-card github-issue-command-card-neutral" data-github-issue-selected-package="true">
       <div class="mission-feed-head">
@@ -2384,10 +2387,64 @@ function renderGithubIssueSelectedPackage(workflow) {
       </div>
       <p>${escapeHtml(nonEmptyString(workflow.issue_refs) || "No issue refs recorded")}</p>
       ${
+        workflowPath || sessionDir || sessionManifest
+          ? `<div class="github-issue-agent-prompt-meta" data-github-issue-selected-package-meta="true">
+               ${
+                 workflowPath
+                   ? `<span>${escapeHtml("workflow bundle ready")}</span>`
+                   : ""
+               }
+               ${
+                 sessionDir
+                   ? `<span>${escapeHtml("session directory ready")}</span>`
+                   : ""
+               }
+               ${
+                 sessionManifest
+                   ? `<span>${escapeHtml("session manifest ready")}</span>`
+                   : ""
+               }
+             </div>`
+          : ""
+      }
+      ${
         issues.length
           ? `<div class="github-issue-list">${issues.map(renderGithubIssueItem).join("")}</div>`
           : '<p class="microcopy">No issue manifest is attached to this workflow.</p>'
       }
+      ${
+        workflowPath || sessionManifest
+          ? `<div class="github-issue-agent-prompt-actions">
+               ${
+                 workflowPath
+                   ? `<button
+                        class="button button-secondary"
+                        type="button"
+                        data-copy-command="${escapeHtml(workflowPath)}"
+                        data-copy-success-label="Path copied"
+                        data-github-issue-workflow-path-copy="true"
+                      >
+                        Copy workflow dir
+                      </button>`
+                   : ""
+               }
+               ${
+                 sessionManifest
+                   ? `<button
+                        class="button button-secondary"
+                        type="button"
+                        data-copy-command="${escapeHtml(sessionManifest)}"
+                        data-copy-success-label="Path copied"
+                        data-github-issue-session-manifest-copy="true"
+                      >
+                        Copy session manifest
+                      </button>`
+                   : ""
+               }
+             </div>`
+          : ""
+      }
+      ${renderGithubIssueActionPath(sessionDir || sessionManifest || workflowPath, "Session evidence")}
     </article>
   `;
 }
