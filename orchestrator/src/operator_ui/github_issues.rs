@@ -54,6 +54,7 @@ pub struct OperatorUiGithubIssueWorkflowItem {
     pub issue_sync_comment: Option<String>,
     pub next_command: Option<String>,
     pub progress_steps: Vec<OperatorUiGithubIssueWorkflowStep>,
+    pub preflight_action: OperatorUiGithubIssueWorkflowAction,
     pub recommended_next_action: OperatorUiGithubIssueWorkflowAction,
     pub issue_sync_apply_action: OperatorUiGithubIssueSyncAction,
 }
@@ -239,10 +240,12 @@ fn workflow_item(summary_path: &Path) -> Result<Option<OperatorUiGithubIssueWork
         issue_sync_comment: optional_path(issue_sync.and_then(|value| value.get("comment"))),
         next_command: optional_path(plan.and_then(|value| value.get("next_command"))),
         progress_steps: Vec::new(),
+        preflight_action: preflight_action(None),
         recommended_next_action: recommended_next_action(None),
         issue_sync_apply_action: issue_sync_apply_action(None),
     };
     item.progress_steps = workflow_progress_steps(&item);
+    item.preflight_action = preflight_action(Some(&item));
     item.recommended_next_action = recommended_next_action(Some(&item));
     item.issue_sync_apply_action = issue_sync_apply_action(Some(&item));
 
@@ -557,6 +560,53 @@ fn recommended_next_action(
             artifact_path: Some(item.path.clone()),
             primary_path: Some(item.summary_path.clone()),
         },
+    }
+}
+
+fn preflight_action(
+    selected: Option<&OperatorUiGithubIssueWorkflowItem>,
+) -> OperatorUiGithubIssueWorkflowAction {
+    let Some(item) = selected else {
+        return OperatorUiGithubIssueWorkflowAction {
+            label: "Create a plan before preflight".to_string(),
+            description: "Strict preflight needs a selected GitHub issue workflow package."
+                .to_string(),
+            command: String::new(),
+            artifact_path: None,
+            primary_path: None,
+        };
+    };
+
+    let (label, description) = if item.plan_only {
+        (
+            "Run strict preflight before the agent",
+            "Check the target checkout, repository policy, and read-only setup before handing this package to Codex, Cursor, or OpenHands.",
+        )
+    } else if item.status == "failed" {
+        (
+            "Re-run strict preflight before retry",
+            "Confirm the target checkout and repository policy are still safe before retrying this failed package.",
+        )
+    } else {
+        (
+            "Re-run strict preflight before another pass",
+            "Use this before a follow-up native-agent pass so local checkout state does not leak into the next branch or PR evidence.",
+        )
+    };
+
+    OperatorUiGithubIssueWorkflowAction {
+        label: label.to_string(),
+        description: description.to_string(),
+        command: format!(
+            "make github-issue-preflight-strict {}",
+            make_assignment("GITHUB_ISSUE_WORKFLOW_DIR", &item.path)
+        ),
+        artifact_path: Some(item.path.clone()),
+        primary_path: item
+            .plan_report_path
+            .clone()
+            .or_else(|| item.report_path.clone())
+            .or_else(|| Some(item.summary_path.clone())),
     }
 }
 
@@ -1098,6 +1148,18 @@ mod tests {
         assert_eq!(snapshot.workflows[0].progress_steps.len(), 4);
         assert_eq!(snapshot.workflows[0].progress_steps[0].status, "done");
         assert_eq!(snapshot.workflows[0].progress_steps[3].status, "ready");
+        assert!(
+            snapshot.workflows[0]
+                .preflight_action
+                .command
+                .contains("make github-issue-preflight-strict")
+        );
+        assert!(
+            snapshot.workflows[0]
+                .preflight_action
+                .command
+                .contains("GITHUB_ISSUE_WORKFLOW_DIR=")
+        );
         assert!(
             snapshot.workflows[0]
                 .recommended_next_action

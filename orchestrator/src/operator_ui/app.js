@@ -2276,6 +2276,7 @@ function renderGithubIssueWorkbench(envelope) {
         <section class="github-issue-action-stack">
           ${renderGithubIssueSelectedPackage(selectedWorkflow)}
           ${renderGithubIssueWorkflowProgress(selectedWorkflow)}
+          ${renderGithubIssuePreflightAction(selectedWorkflow?.preflight_action)}
           ${renderGithubIssueAgentHandoff(selectedWorkflow)}
           ${renderGithubIssueWorkflowAction(action, "next")}
           ${renderGithubIssueSyncAction(syncAction)}
@@ -2412,6 +2413,38 @@ function renderGithubIssueWorkflowProgress(workflow) {
       <ol class="github-issue-progress-steps">
         ${steps.map(renderGithubIssueWorkflowStep).join("")}
       </ol>
+    </article>
+  `;
+}
+
+function renderGithubIssuePreflightAction(action) {
+  const command = nonEmptyString(action?.command);
+  const tone = command ? "success" : "neutral";
+  return `
+    <article class="github-issue-command-card github-issue-command-card-${escapeHtml(tone)}" data-github-issue-preflight-action="true">
+      <div class="mission-feed-head">
+        <div>
+          <p class="panel-kicker">Strict preflight</p>
+          <h3>${escapeHtml(nonEmptyString(action?.label) || "No preflight command yet")}</h3>
+        </div>
+        <span class="badge badge-${escapeHtml(tone)}">${escapeHtml(command ? "Before agent" : "Plan first")}</span>
+      </div>
+      <p>${escapeHtml(nonEmptyString(action?.description) || "Create or select a GitHub issue workflow before running preflight.")}</p>
+      ${
+        command
+          ? `<code data-github-issue-preflight-command="true">${escapeHtml(command)}</code>
+             <button
+               class="button button-secondary"
+               type="button"
+               data-copy-command="${escapeHtml(command)}"
+               data-copy-success-label="Command copied"
+               data-github-issue-preflight-command-copy="true"
+             >
+               Copy preflight command
+             </button>`
+          : ""
+      }
+      ${renderGithubIssueActionPath(action?.primary_path, "Preflight evidence")}
     </article>
   `;
 }

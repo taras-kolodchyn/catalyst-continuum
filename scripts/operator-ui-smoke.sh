@@ -575,6 +575,12 @@ async function main() {
     return button && button.textContent.includes("Command copied");
   }, { timeout: 5000 });
   const copiedIssueNextCommand = await page.evaluate(() => navigator.clipboard.readText());
+  await page.locator('[data-github-issue-preflight-command-copy="true"]').first().click();
+  await page.waitForFunction(() => {
+    const button = document.querySelector('[data-github-issue-preflight-command-copy="true"]');
+    return button && button.textContent.includes("Command copied");
+  }, { timeout: 5000 });
+  const copiedIssuePreflightCommand = await page.evaluate(() => navigator.clipboard.readText());
   await page.locator('[data-github-issue-sync-command-copy="true"]').first().click();
   await page.waitForFunction(() => {
     const button = document.querySelector('[data-github-issue-sync-command-copy="true"]');
@@ -624,6 +630,12 @@ async function main() {
     .locator('[data-github-issue-workflow-selected="true"]')
     .first()
     .textContent();
+  await page.locator('[data-github-issue-preflight-command-copy="true"]').first().click();
+  await page.waitForFunction(() => {
+    const button = document.querySelector('[data-github-issue-preflight-command-copy="true"]');
+    return button && button.textContent.includes("Command copied");
+  }, { timeout: 5000 });
+  const copiedIssuePlannedPreflightCommand = await page.evaluate(() => navigator.clipboard.readText());
   await page.locator('[data-github-issue-next-command-copy="true"]').first().click();
   const copiedIssuePlannedCommand = await page.evaluate(() => navigator.clipboard.readText());
   await page
@@ -674,6 +686,8 @@ async function main() {
       githubIssueWorkflowCardCount: count('[data-github-issue-workflow-card="true"]'),
       githubIssueSelectedPackageCount: count('[data-github-issue-selected-package="true"]'),
       githubIssueProgressStepCount: count('[data-github-issue-progress-step="true"]'),
+      githubIssuePreflightCardCount: count('[data-github-issue-preflight-action="true"]'),
+      githubIssuePreflightCommandCopyButtonCount: count('[data-github-issue-preflight-command-copy="true"]'),
       githubIssueItemCount: count('[data-github-issue-item="true"]'),
       githubIssueAgentHandoffPanelCount: count('[data-github-issue-agent-handoff="true"]'),
       githubIssueAgentPromptCardCount: count('[data-github-issue-agent-prompt="true"]'),
@@ -844,6 +858,7 @@ async function main() {
     copiedGithubUpdate,
     copiedCodexCommand,
     copiedIssueNextCommand,
+    copiedIssuePreflightCommand,
     copiedIssueSyncCommand,
     copiedIssueAgentPromptText,
     copiedIssueAgentPromptCommand,
@@ -851,6 +866,7 @@ async function main() {
     copiedIssueAgentClipboardCommand,
     copiedIssueCodexUiCommand,
     copiedIssuePlannedCommand,
+    copiedIssuePlannedPreflightCommand,
     selectedPlannedWorkflowText,
     ok: false,
   };
@@ -915,6 +931,14 @@ async function main() {
   }
   if (summary.githubIssueProgressStepCount !== 4) {
     problems.push(`expected four GitHub issue workflow readiness steps, got ${summary.githubIssueProgressStepCount}`);
+  }
+  if (summary.githubIssuePreflightCardCount !== 1) {
+    problems.push(`expected one GitHub issue preflight card, got ${summary.githubIssuePreflightCardCount}`);
+  }
+  if (summary.githubIssuePreflightCommandCopyButtonCount !== 1) {
+    problems.push(
+      `expected one GitHub issue preflight command copy button, got ${summary.githubIssuePreflightCommandCopyButtonCount}`
+    );
   }
   if (summary.githubIssueItemCount < 1) {
     problems.push("selected GitHub issue package should show at least one issue");
@@ -1099,6 +1123,12 @@ async function main() {
     problems.push("GitHub issue workbench next command should point at the selected workflow review");
   }
   if (
+    !copiedIssuePreflightCommand.includes("make github-issue-preflight-strict") ||
+    !copiedIssuePreflightCommand.includes("operator-ui-issue-workflow")
+  ) {
+    problems.push("GitHub issue workbench preflight command should point at the selected workflow");
+  }
+  if (
     !copiedIssueSyncCommand.includes("make github-issue-sync") ||
     !copiedIssueSyncCommand.includes("GITHUB_ISSUE_SYNC_APPLY=1") ||
     !copiedIssueSyncCommand.includes("GITHUB_ISSUE_SYNC_PR_URL=")
@@ -1142,6 +1172,12 @@ async function main() {
     !copiedIssuePlannedCommand.includes("operator-ui-planned-workflow")
   ) {
     problems.push("selecting a planned GitHub issue workflow should update the next command in place");
+  }
+  if (
+    !copiedIssuePlannedPreflightCommand.includes("make github-issue-preflight-strict") ||
+    !copiedIssuePlannedPreflightCommand.includes("operator-ui-planned-workflow")
+  ) {
+    problems.push("selecting a planned GitHub issue workflow should update the preflight command in place");
   }
   if (summary.developerValueCardCount < 5) {
     problems.push(`expected developer value cards, got ${summary.developerValueCardCount}`);
