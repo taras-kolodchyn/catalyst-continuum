@@ -695,6 +695,7 @@ async function main() {
         disabledCount: buttons.filter((button) => button.disabled).length,
       };
     };
+    const issueDraftPrLink = document.querySelector('[data-github-issue-draft-pr-link="true"]');
 
     return {
       title: document.title,
@@ -723,6 +724,10 @@ async function main() {
       githubIssueWorkflowPathCopyButtonCount: count('[data-github-issue-workflow-path-copy="true"]'),
       githubIssueSessionManifestCopyButtonCount: count('[data-github-issue-session-manifest-copy="true"]'),
       githubIssueEvidencePacketCopyButtonCount: count('[data-github-issue-evidence-packet-copy="true"]'),
+      githubIssueDraftPrLinkCount: count('[data-github-issue-draft-pr-link="true"]'),
+      githubIssueDraftPrLinkHref: issueDraftPrLink?.getAttribute("href") || "",
+      githubIssueDraftPrLinkTarget: issueDraftPrLink?.getAttribute("target") || "",
+      githubIssueDraftPrLinkRel: issueDraftPrLink?.getAttribute("rel") || "",
       githubIssueProgressStepCount: count('[data-github-issue-progress-step="true"]'),
       githubIssuePreflightCardCount: count('[data-github-issue-preflight-action="true"]'),
       githubIssuePreflightCommandCopyButtonCount: count('[data-github-issue-preflight-command-copy="true"]'),
@@ -986,6 +991,21 @@ async function main() {
   }
   if (summary.githubIssueEvidencePacketCopyButtonCount !== 1) {
     problems.push(`expected one GitHub issue evidence packet copy button, got ${summary.githubIssueEvidencePacketCopyButtonCount}`);
+  }
+  if (summary.githubIssueDraftPrLinkCount !== 1) {
+    problems.push(`expected one GitHub issue draft PR link, got ${summary.githubIssueDraftPrLinkCount}`);
+  }
+  if (summary.githubIssueDraftPrLinkHref !== "https://github.com/smartit/operator-ui-issue-smoke/pull/42") {
+    problems.push(`unexpected GitHub issue draft PR link href ${summary.githubIssueDraftPrLinkHref}`);
+  }
+  if (summary.githubIssueDraftPrLinkTarget !== "_blank") {
+    problems.push(`GitHub issue draft PR link should open a new tab, got ${summary.githubIssueDraftPrLinkTarget}`);
+  }
+  if (
+    !summary.githubIssueDraftPrLinkRel.includes("noreferrer") ||
+    !summary.githubIssueDraftPrLinkRel.includes("noopener")
+  ) {
+    problems.push(`GitHub issue draft PR link should use noopener/noreferrer, got ${summary.githubIssueDraftPrLinkRel}`);
   }
   if (summary.githubIssueProgressStepCount !== 4) {
     problems.push(`expected four GitHub issue workflow readiness steps, got ${summary.githubIssueProgressStepCount}`);

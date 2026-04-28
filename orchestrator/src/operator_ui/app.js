@@ -2377,6 +2377,7 @@ function renderGithubIssueSelectedPackage(workflow) {
   const sessionDir = nonEmptyString(workflow.session_dir);
   const sessionManifest = nonEmptyString(workflow.session_manifest);
   const evidencePacket = githubIssueEvidencePacket(workflow);
+  const draftPrUrl = safeExternalUrl(workflow.draft_pr_url);
   return `
     <article class="github-issue-command-card github-issue-command-card-neutral" data-github-issue-selected-package="true">
       <div class="mission-feed-head">
@@ -2453,6 +2454,19 @@ function renderGithubIssueSelectedPackage(workflow) {
                       >
                         Copy evidence packet
                       </button>`
+                   : ""
+               }
+               ${
+                 draftPrUrl
+                   ? `<a
+                        class="button button-secondary button-link"
+                        href="${escapeHtml(draftPrUrl)}"
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        data-github-issue-draft-pr-link="true"
+                      >
+                        Open draft PR
+                      </a>`
                    : ""
                }
              </div>`
