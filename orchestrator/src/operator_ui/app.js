@@ -3354,6 +3354,14 @@ function renderMissionDeveloperPanel() {
     evidenceCards,
     agentDigestItems
   );
+  const liveBrief = buildDeveloperLiveBrief(
+    runDetail,
+    guide,
+    summary,
+    reviewItems,
+    evidenceCards,
+    agentDigestItems
+  );
   const readyReviewItems = reviewItems.filter((item) => item.ready).length;
 
   setRenderedHtml(
@@ -3362,6 +3370,7 @@ function renderMissionDeveloperPanel() {
       <div class="developer-handoff-layout" data-developer-handoff-panel="true">
         ${renderDeveloperHandoffHero(runDetail, summary)}
         ${renderDeveloperNextCommandPanel(runDetail, guide)}
+        ${renderDeveloperLiveBriefPanel(liveBrief, summary)}
         ${renderDeveloperReviewPromptPanel(reviewPrompt)}
         ${renderDeveloperEvidencePacketPanel(runDetail)}
         ${renderDeveloperCodexAppServerPanel(runDetail)}
@@ -3700,6 +3709,98 @@ function developerNextHttpCommand(runId, actionId) {
   const method = endpointByAction[actionId] ? "-X POST " : "";
 
   return `curl -fsS ${method}${shellQuote(url)}`;
+}
+
+function buildDeveloperLiveBrief(
+  runDetail,
+  guide,
+  summary,
+  reviewItems,
+  evidenceCards,
+  agentDigestItems
+) {
+  const taskCounts = normalizedTaskCounts(runDetail.task_counts);
+  const readyReviewCount = reviewItems.filter((item) => item.ready).length;
+  const nextCommand = developerNextTerminalCommand(runDetail, guide);
+  const evidenceLines = evidenceCards.map(
+    (item) =>
+      `- ${item.kicker}: ${item.count} artifact(s), latest ${item.latest ? formatTimestamp(item.latest) : "not recorded"}`
+  );
+  const reviewLines = reviewItems.map(
+    (item) => `- ${item.status}: ${item.title} - ${item.detail}`
+  );
+  const agentLines = agentDigestItems.length
+    ? agentDigestItems.map(
+        (item) =>
+          `- ${item.agent}: ${item.counts.succeeded}/${item.counts.total} succeeded, ${item.counts.running} running, ${item.counts.failed} failed`
+      )
+    : ["- No assigned agent lanes yet."];
+
+  return [
+    "# Catalyst Continuum live run brief",
+    "",
+    `Run: ${runDetail.title ?? "Untitled run"} (${shortId(runDetail.run_id)})`,
+    `Repository: ${repositoryLabel(runDetail) || "no repository target"}`,
+    `Pack: ${runDetail.target_pack ?? "unassigned"}`,
+    `Status: ${displayRunStatus(runDetail.status)}`,
+    "",
+    `Next safe action: ${summary.title}`,
+    summary.detail,
+    "",
+    "Task state:",
+    `- ${taskCounts.succeeded}/${taskCounts.total} succeeded`,
+    `- ${taskCounts.running} running`,
+    `- ${taskCounts.queued} queued`,
+    `- ${taskCounts.failed} failed`,
+    "",
+    `Review readiness: ${readyReviewCount}/${reviewItems.length} checks ready`,
+    ...reviewLines,
+    "",
+    "Evidence groups:",
+    ...evidenceLines,
+    "",
+    "Agent lanes:",
+    ...agentLines,
+    "",
+    "Next terminal command:",
+    nextCommand ? nextCommand.command : "Open the selected-run guide in the operator UI.",
+    "",
+    "Use this as a short status brief. Use the full review prompt when asking another agent to verify the generated change.",
+  ].join("\n");
+}
+
+function renderDeveloperLiveBriefPanel(liveBrief, summary) {
+  return `
+    <section class="developer-live-brief-shell" data-developer-live-brief-panel="true">
+      <div class="detail-section-head">
+        <div>
+          <p class="panel-kicker">Live run brief</p>
+          <h3>Share the current run state without sending the full prompt</h3>
+        </div>
+        <span class="badge badge-${escapeHtml(summary.tone)}">${escapeHtml(summary.badge)}</span>
+      </div>
+      <div class="developer-live-brief-card">
+        <p>
+          Copy this compact Markdown brief into Codex, Cursor, OpenHands, a GitHub issue, or a
+          personal note when you only need the current state, next action, and evidence summary.
+        </p>
+        <pre data-developer-live-brief-text="true">${escapeHtml(liveBrief)}</pre>
+        <div class="developer-review-prompt-actions">
+          <button
+            class="button button-secondary"
+            type="button"
+            data-developer-live-brief-copy="true"
+            data-copy-text-selector="[data-developer-live-brief-text='true']"
+            data-copy-success-label="Brief copied"
+          >
+            Copy live brief
+          </button>
+          <a class="button button-ghost button-link" href="#run-guide">Open guide</a>
+          <a class="button button-ghost button-link" href="#run-events">Open events</a>
+        </div>
+      </div>
+    </section>
+  `;
 }
 
 function buildDeveloperReviewPrompt(

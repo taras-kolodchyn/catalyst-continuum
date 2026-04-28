@@ -359,8 +359,11 @@ another review agent, key artifact paths for that reviewer to inspect, and ready
 app-server commands for the persisted review prompt. The Codex commands include the default
 standalone mode and the optional proxy mode for an already-running Codex Desktop or IDE app-server.
 If you only need file references, use the Developer tab `Evidence packet` copy action instead of the
-full prompt. If you want to leave the browser and continue the same run in a terminal, use `Next
-terminal command`; it copies a run-scoped command against the currently open local UI service.
+full prompt. If you need a short status note for yourself, GitHub, or another agent, use `Live run
+brief`; it copies the current stage, next safe action, evidence groups, agent lanes, and next
+terminal command as Markdown. If you want to leave the browser and continue the same run in a
+terminal, use `Next terminal command`; it copies a run-scoped command against the currently open
+local UI service.
 
 See [Developer Workflows](developer-workflows.md) for the available recipes and the real-repository
 path.

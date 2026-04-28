@@ -557,6 +557,10 @@ key artifact paths in the prompt, so a second agent can open the quality report,
 logs, and agent reports without reconstructing them from the artifact table.
 The adjacent `Evidence packet` copy action provides the same prioritized artifact path list without
 the full prompt when you want a compact terminal or agent handoff.
+The adjacent `Live run brief` copy action provides a short Markdown status note with the current
+stage, next safe action, evidence groups, agent lanes, and next terminal command. Use it for GitHub
+issue updates, personal notes, or a quick Codex/Cursor/OpenHands continuation where the full review
+prompt would be too heavy.
 The `Next terminal command` copy action provides a run-scoped `curl` command against the currently
 open local UI service, so you can continue the orchestrator-recommended action outside the browser
 without exposing database credentials. Matching run-action `make` targets are available when your

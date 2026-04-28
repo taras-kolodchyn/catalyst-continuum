@@ -390,6 +390,12 @@ async function main() {
     return button && button.textContent.includes("Command copied");
   }, { timeout: 5000 });
   const copiedNextCommand = await page.evaluate(() => navigator.clipboard.readText());
+  await page.locator('[data-developer-live-brief-copy="true"]').first().click();
+  await page.waitForFunction(() => {
+    const button = document.querySelector('[data-developer-live-brief-copy="true"]');
+    return button && button.textContent.includes("Brief copied");
+  }, { timeout: 5000 });
+  const copiedLiveBrief = await page.evaluate(() => navigator.clipboard.readText());
   await page
     .locator('[data-developer-codex-command-card="true"] [data-copy-command]')
     .first()
@@ -445,6 +451,12 @@ async function main() {
       developerNextCommandIncludesRunId:
         document.body.textContent.includes("Next terminal command") &&
         document.querySelector('[data-developer-next-command-text="true"]')?.textContent.includes("/runs/"),
+      developerLiveBriefPanelCount: count('[data-developer-live-brief-panel="true"]'),
+      developerLiveBriefCopyButtonCount: count('[data-developer-live-brief-copy="true"]'),
+      developerLiveBriefIncludesSummary:
+        document.body.textContent.includes("Live run brief") &&
+        document.body.textContent.includes("Share the current run state") &&
+        document.querySelector('[data-developer-live-brief-text="true"]')?.textContent.includes("Next safe action:"),
       developerReviewPromptPanelCount: count('[data-developer-review-prompt-panel="true"]'),
       developerReviewPromptCopyButtonCount: count('[data-developer-review-prompt-copy="true"]'),
       developerReviewPromptIncludesAgent:
@@ -564,6 +576,7 @@ async function main() {
     copiedReviewPrompt,
     copiedEvidencePaths,
     copiedNextCommand,
+    copiedLiveBrief,
     copiedCodexCommand,
     ok: false,
   };
@@ -635,6 +648,15 @@ async function main() {
   if (!summary.developerNextCommandIncludesRunId) {
     problems.push("developer next command panel should expose a run-scoped terminal command");
   }
+  if (summary.developerLiveBriefPanelCount !== 1) {
+    problems.push(`expected one developer live brief panel, got ${summary.developerLiveBriefPanelCount}`);
+  }
+  if (summary.developerLiveBriefCopyButtonCount !== 1) {
+    problems.push(`expected one developer live brief copy button, got ${summary.developerLiveBriefCopyButtonCount}`);
+  }
+  if (!summary.developerLiveBriefIncludesSummary) {
+    problems.push("developer live brief should summarize current run state and next action");
+  }
   if (summary.developerReviewPromptPanelCount !== 1) {
     problems.push(`expected one developer review prompt panel, got ${summary.developerReviewPromptPanelCount}`);
   }
@@ -682,6 +704,14 @@ async function main() {
   }
   if (!copiedNextCommand.includes("curl -fsS") || !copiedNextCommand.includes("/runs/")) {
     problems.push("developer next command copy action should write a run-scoped local UI command");
+  }
+  if (
+    !copiedLiveBrief.includes("Catalyst Continuum live run brief") ||
+    !copiedLiveBrief.includes("Next safe action:") ||
+    !copiedLiveBrief.includes("Evidence groups:") ||
+    !copiedLiveBrief.includes("Next terminal command:")
+  ) {
+    problems.push("developer live brief copy action should write the compact run brief to clipboard");
   }
   if (summary.developerCodexPanelCount !== 1) {
     problems.push(`expected one developer Codex app-server panel, got ${summary.developerCodexPanelCount}`);
