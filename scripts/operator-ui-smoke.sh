@@ -396,6 +396,12 @@ async function main() {
     return button && button.textContent.includes("Brief copied");
   }, { timeout: 5000 });
   const copiedLiveBrief = await page.evaluate(() => navigator.clipboard.readText());
+  await page.locator('[data-developer-github-update-copy="true"]').first().click();
+  await page.waitForFunction(() => {
+    const button = document.querySelector('[data-developer-github-update-copy="true"]');
+    return button && button.textContent.includes("Update copied");
+  }, { timeout: 5000 });
+  const copiedGithubUpdate = await page.evaluate(() => navigator.clipboard.readText());
   await page
     .locator('[data-developer-codex-command-card="true"] [data-copy-command]')
     .first()
@@ -457,6 +463,12 @@ async function main() {
         document.body.textContent.includes("Live run brief") &&
         document.body.textContent.includes("Share the current run state") &&
         document.querySelector('[data-developer-live-brief-text="true"]')?.textContent.includes("Next safe action:"),
+      developerGithubUpdatePanelCount: count('[data-developer-github-update-panel="true"]'),
+      developerGithubUpdateCopyButtonCount: count('[data-developer-github-update-copy="true"]'),
+      developerGithubUpdateIncludesSummary:
+        document.body.textContent.includes("GitHub update") &&
+        document.body.textContent.includes("Copy a concise issue or PR status comment") &&
+        document.querySelector('[data-developer-github-update-text="true"]')?.textContent.includes("PR handoff:"),
       developerReviewPromptPanelCount: count('[data-developer-review-prompt-panel="true"]'),
       developerReviewPromptCopyButtonCount: count('[data-developer-review-prompt-copy="true"]'),
       developerReviewPromptIncludesAgent:
@@ -577,6 +589,7 @@ async function main() {
     copiedEvidencePaths,
     copiedNextCommand,
     copiedLiveBrief,
+    copiedGithubUpdate,
     copiedCodexCommand,
     ok: false,
   };
@@ -657,6 +670,15 @@ async function main() {
   if (!summary.developerLiveBriefIncludesSummary) {
     problems.push("developer live brief should summarize current run state and next action");
   }
+  if (summary.developerGithubUpdatePanelCount !== 1) {
+    problems.push(`expected one developer GitHub update panel, got ${summary.developerGithubUpdatePanelCount}`);
+  }
+  if (summary.developerGithubUpdateCopyButtonCount !== 1) {
+    problems.push(`expected one developer GitHub update copy button, got ${summary.developerGithubUpdateCopyButtonCount}`);
+  }
+  if (!summary.developerGithubUpdateIncludesSummary) {
+    problems.push("developer GitHub update should summarize PR handoff state");
+  }
   if (summary.developerReviewPromptPanelCount !== 1) {
     problems.push(`expected one developer review prompt panel, got ${summary.developerReviewPromptPanelCount}`);
   }
@@ -712,6 +734,18 @@ async function main() {
     !copiedLiveBrief.includes("Next terminal command:")
   ) {
     problems.push("developer live brief copy action should write the compact run brief to clipboard");
+  }
+  if (
+    !copiedGithubUpdate.includes("Catalyst Continuum update") ||
+    !copiedGithubUpdate.includes("Delivery evidence:") ||
+    !copiedGithubUpdate.includes("PR handoff:") ||
+    !copiedGithubUpdate.includes("Draft PR:") ||
+    !copiedGithubUpdate.includes("Human review remains in GitHub")
+  ) {
+    problems.push("developer GitHub update copy action should write the compact issue/PR comment");
+  }
+  if (summary.bodyTextIncludesDraftPr && copiedGithubUpdate.includes("Draft PR: not opened yet")) {
+    problems.push("developer GitHub update should not say the draft PR is missing when PR evidence exists");
   }
   if (summary.developerCodexPanelCount !== 1) {
     problems.push(`expected one developer Codex app-server panel, got ${summary.developerCodexPanelCount}`);

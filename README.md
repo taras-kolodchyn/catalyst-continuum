@@ -232,10 +232,12 @@ inspect. That lets a developer move from run evidence to Codex without hunting f
 locations. When you only need the evidence references, the Developer tab also exposes a smaller
 `Evidence packet` copy action with the prioritized artifact paths. Use `Live run brief` when you
 need a compact Markdown status update with the current stage, next safe action, evidence summary,
-agent lanes, and terminal command without sending the full review prompt. The same tab also shows a
-run-scoped `Next terminal command`, so you can continue the exact run through the currently open
-local UI service without rebuilding context from `.continuum/` files. Matching `make` targets are
-available when your shell already has the same `DATABASE_URL` or `CATALYST_DATABASE_URL`.
+agent lanes, and terminal command without sending the full review prompt. Use `GitHub update` when
+you want a concise issue or PR comment that reports delivery evidence, branch/commit/PR state, and
+the human review boundary. The same tab also shows a run-scoped `Next terminal command`, so you can
+continue the exact run through the currently open local UI service without rebuilding context from
+`.continuum/` files. Matching `make` targets are available when your shell already has the same
+`DATABASE_URL` or `CATALYST_DATABASE_URL`.
 
 `dev-review` is the shortest review-stage command after a local run. It prints the latest
 `review.md`, reusable agent review prompt, local PR export paths, and suggested `git`/`sed` commands

@@ -561,6 +561,9 @@ The adjacent `Live run brief` copy action provides a short Markdown status note 
 stage, next safe action, evidence groups, agent lanes, and next terminal command. Use it for GitHub
 issue updates, personal notes, or a quick Codex/Cursor/OpenHands continuation where the full review
 prompt would be too heavy.
+The adjacent `GitHub update` copy action is shaped as an issue or PR status comment. It includes
+delivery evidence, branch/commit/remote/PR state when available, repository guard status, reviewer
+starting points, and a reminder that human approval remains in GitHub.
 The `Next terminal command` copy action provides a run-scoped `curl` command against the currently
 open local UI service, so you can continue the orchestrator-recommended action outside the browser
 without exposing database credentials. Matching run-action `make` targets are available when your

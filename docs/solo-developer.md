@@ -361,9 +361,11 @@ standalone mode and the optional proxy mode for an already-running Codex Desktop
 If you only need file references, use the Developer tab `Evidence packet` copy action instead of the
 full prompt. If you need a short status note for yourself, GitHub, or another agent, use `Live run
 brief`; it copies the current stage, next safe action, evidence groups, agent lanes, and next
-terminal command as Markdown. If you want to leave the browser and continue the same run in a
-terminal, use `Next terminal command`; it copies a run-scoped command against the currently open
-local UI service.
+terminal command as Markdown. If you need to update a source issue or PR conversation, use `GitHub
+update`; it copies delivery evidence, branch/commit/PR state, repository guard status, and the
+human-review boundary as a concise Markdown comment. If you want to leave the browser and continue
+the same run in a terminal, use `Next terminal command`; it copies a run-scoped command against the
+currently open local UI service.
 
 See [Developer Workflows](developer-workflows.md) for the available recipes and the real-repository
 path.

@@ -3362,6 +3362,12 @@ function renderMissionDeveloperPanel() {
     evidenceCards,
     agentDigestItems
   );
+  const githubUpdate = buildDeveloperGithubUpdate(
+    runDetail,
+    summary,
+    reviewItems,
+    evidenceCards
+  );
   const readyReviewItems = reviewItems.filter((item) => item.ready).length;
 
   setRenderedHtml(
@@ -3371,6 +3377,7 @@ function renderMissionDeveloperPanel() {
         ${renderDeveloperHandoffHero(runDetail, summary)}
         ${renderDeveloperNextCommandPanel(runDetail, guide)}
         ${renderDeveloperLiveBriefPanel(liveBrief, summary)}
+        ${renderDeveloperGithubUpdatePanel(githubUpdate)}
         ${renderDeveloperReviewPromptPanel(reviewPrompt)}
         ${renderDeveloperEvidencePacketPanel(runDetail)}
         ${renderDeveloperCodexAppServerPanel(runDetail)}
@@ -3797,6 +3804,128 @@ function renderDeveloperLiveBriefPanel(liveBrief, summary) {
           </button>
           <a class="button button-ghost button-link" href="#run-guide">Open guide</a>
           <a class="button button-ghost button-link" href="#run-events">Open events</a>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function buildDeveloperGithubUpdate(runDetail, summary, reviewItems, evidenceCards) {
+  const taskCounts = normalizedTaskCounts(runDetail.task_counts);
+  const readyReviewCount = reviewItems.filter((item) => item.ready).length;
+  const repositoryGuard = reviewItems.find((item) => item.title === "Repository guard");
+  const githubPrArtifact = latestRunArtifact(runDetail, GITHUB_PULL_REQUEST_ARTIFACT_TYPE);
+  const publicationArtifact = latestRunArtifact(runDetail, PR_PUBLICATION_ARTIFACT_TYPE);
+  const exportArtifact = latestRunArtifact(runDetail, PR_EXPORT_ARTIFACT_TYPE);
+  const qualityArtifact = latestRunArtifact(runDetail, QUALITY_REPORT_ARTIFACT_TYPE);
+  const handoffArtifact = latestDeveloperHandoffArtifact(runDetail);
+  const prUrl = artifactMetadataString(githubPrArtifact, "pr_url", "prUrl");
+  const prNumber = artifactMetadataString(githubPrArtifact, "pr_number", "prNumber");
+  const prResolution = artifactMetadataString(githubPrArtifact, "resolution");
+  const branchName =
+    artifactMetadataString(githubPrArtifact, "head_branch", "headBranch") ??
+    artifactMetadataString(publicationArtifact, "head_branch", "headBranch") ??
+    artifactMetadataString(exportArtifact, "branch_name", "branchName");
+  const baseBranch =
+    artifactMetadataString(githubPrArtifact, "base_branch", "baseBranch") ??
+    artifactMetadataString(publicationArtifact, "base_branch", "baseBranch") ??
+    runDetail.repository?.default_branch ??
+    "not recorded";
+  const commitSha =
+    artifactMetadataString(publicationArtifact, "commit_sha", "commitSha") ??
+    artifactMetadataString(exportArtifact, "commit_sha", "commitSha");
+  const remoteUrl = artifactMetadataString(publicationArtifact, "remote_url", "remoteUrl");
+  const handoffPath = developerHandoffAgentPromptPath(handoffArtifact);
+  const headBranchLabel =
+    branchName ??
+    (publicationArtifact
+      ? `recorded in pr_publication artifact ${shortId(publicationArtifact.artifact_id)}`
+      : exportArtifact
+        ? `recorded in pr_export artifact ${shortId(exportArtifact.artifact_id)}`
+        : "not exported yet");
+  const commitLabel =
+    commitSha ??
+    (publicationArtifact || exportArtifact
+      ? "recorded in the PR export artifact"
+      : "not exported yet");
+  const remoteLabel =
+    remoteUrl ??
+    (publicationArtifact
+      ? `recorded in pr_publication artifact ${shortId(publicationArtifact.artifact_id)}`
+      : "not published yet");
+  const draftPrLabel = prUrl
+    ? `#${prNumber ?? "?"} ${prUrl}${prResolution ? ` (${prResolution})` : ""}`
+    : githubPrArtifact
+      ? `recorded in github_pull_request artifact ${shortId(githubPrArtifact.artifact_id)}`
+      : "not opened yet";
+  const evidenceLines = evidenceCards.map(
+    (item) =>
+      `- ${item.kicker}: ${item.count} artifact(s), latest ${item.latest ? formatTimestamp(item.latest) : "not recorded"}`
+  );
+
+  return [
+    "## Catalyst Continuum update",
+    "",
+    `Run **${runDetail.title ?? "Untitled run"}** is **${displayRunStatus(runDetail.status)}**.`,
+    "",
+    `Next safe action: **${summary.title}**`,
+    summary.detail,
+    "",
+    "Delivery evidence:",
+    `- Tasks: ${taskCounts.succeeded}/${taskCounts.total} succeeded, ${taskCounts.failed} failed, ${taskCounts.running} running, ${taskCounts.queued} queued.`,
+    `- Review readiness: ${readyReviewCount}/${reviewItems.length} checks ready.`,
+    `- Quality report: ${qualityArtifact ? "ready" : "not recorded yet"}.`,
+    `- Developer handoff: ${handoffArtifact ? "ready" : "not recorded yet"}.`,
+    `- Repository guard: ${repositoryGuard?.status ?? "not evaluated"} - ${repositoryGuard?.detail ?? "No repository guard detail recorded."}`,
+    "",
+    "PR handoff:",
+    `- Repository: ${repositoryLabel(runDetail) || "not recorded"}.`,
+    `- Base branch: ${baseBranch}.`,
+    `- Head branch: ${headBranchLabel}.`,
+    `- Commit: ${commitLabel}.`,
+    `- Remote: ${remoteLabel}.`,
+    `- Draft PR: ${draftPrLabel}.`,
+    "",
+    "Evidence groups:",
+    ...evidenceLines,
+    "",
+    "Reviewer starting points:",
+    `- Handoff prompt: ${handoffPath ?? "generate developer handoff first"}.`,
+    `- Quality report: ${developerReviewArtifactRef(qualityArtifact) ?? "not recorded yet"}.`,
+    `- PR export: ${developerReviewArtifactRef(exportArtifact) ?? "not recorded yet"}.`,
+    "",
+    "Human review remains in GitHub. Do not merge until the normal repository review rules pass.",
+  ].join("\n");
+}
+
+function renderDeveloperGithubUpdatePanel(githubUpdate) {
+  return `
+    <section class="developer-github-update-shell" data-developer-github-update-panel="true">
+      <div class="detail-section-head">
+        <div>
+          <p class="panel-kicker">GitHub update</p>
+          <h3>Copy a concise issue or PR status comment</h3>
+        </div>
+        <span class="badge badge-neutral">Markdown</span>
+      </div>
+      <div class="developer-github-update-card">
+        <p>
+          Use this when you want to update a GitHub issue, PR conversation, or team note with what
+          Continuum did, which evidence exists, and where human review continues.
+        </p>
+        <pre data-developer-github-update-text="true">${escapeHtml(githubUpdate)}</pre>
+        <div class="developer-review-prompt-actions">
+          <button
+            class="button button-secondary"
+            type="button"
+            data-developer-github-update-copy="true"
+            data-copy-text-selector="[data-developer-github-update-text='true']"
+            data-copy-success-label="Update copied"
+          >
+            Copy GitHub update
+          </button>
+          <a class="button button-ghost button-link" href="#run-artifacts">Open artifacts</a>
+          <a class="button button-ghost button-link" href="#run-controls">Open controls</a>
         </div>
       </div>
     </section>
@@ -11379,10 +11508,28 @@ function runArtifacts(runDetail) {
   return artifacts;
 }
 
-function latestDeveloperHandoffArtifact(runDetail) {
+function latestRunArtifact(runDetail, artifactType) {
   return runArtifacts(runDetail)
-    .filter((artifact) => artifact.artifact_type === DEVELOPER_HANDOFF_ARTIFACT_TYPE)
+    .filter((artifact) => artifact.artifact_type === artifactType)
     .sort((left, right) => sortableTimestamp(right.created_at) - sortableTimestamp(left.created_at))[0] ?? null;
+}
+
+function latestDeveloperHandoffArtifact(runDetail) {
+  return latestRunArtifact(runDetail, DEVELOPER_HANDOFF_ARTIFACT_TYPE);
+}
+
+function artifactMetadataString(artifact, ...keys) {
+  for (const key of keys) {
+    const value = artifact?.metadata?.[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return String(value);
+    }
+    const stringValue = nonEmptyString(value);
+    if (stringValue) {
+      return stringValue;
+    }
+  }
+  return null;
 }
 
 function developerHandoffAgentPromptPath(handoffArtifact) {
