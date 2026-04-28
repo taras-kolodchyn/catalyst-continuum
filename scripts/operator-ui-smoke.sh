@@ -581,6 +581,12 @@ async function main() {
     return button && button.textContent.includes("Command copied");
   }, { timeout: 5000 });
   const copiedIssueSyncCommand = await page.evaluate(() => navigator.clipboard.readText());
+  await page.locator('[data-github-issue-agent-prompt-text-copy="true"]').first().click();
+  await page.waitForFunction(() => {
+    const button = document.querySelector('[data-github-issue-agent-prompt-text-copy="true"]');
+    return button && button.textContent.includes("Prompt copied");
+  }, { timeout: 5000 });
+  const copiedIssueAgentPromptText = await page.evaluate(() => navigator.clipboard.readText());
   await page.locator('[data-github-issue-agent-prompt-copy="true"]').first().click();
   await page.waitForFunction(() => {
     const button = document.querySelector('[data-github-issue-agent-prompt-copy="true"]');
@@ -665,6 +671,8 @@ async function main() {
       githubIssueItemCount: count('[data-github-issue-item="true"]'),
       githubIssueAgentHandoffPanelCount: count('[data-github-issue-agent-handoff="true"]'),
       githubIssueAgentPromptCardCount: count('[data-github-issue-agent-prompt="true"]'),
+      githubIssueAgentPromptPreviewCount: count('[data-github-issue-agent-prompt-preview="true"]'),
+      githubIssueAgentPromptTextCopyButtonCount: count('[data-github-issue-agent-prompt-text-copy="true"]'),
       githubIssueAgentPromptCopyButtonCount: count('[data-github-issue-agent-prompt-copy="true"]'),
       githubIssueAgentClipboardCopyButtonCount: count('[data-github-issue-agent-clipboard-copy="true"]'),
       githubIssueCodexUiCopyButtonCount: count('[data-github-issue-codex-ui-copy="true"]'),
@@ -681,6 +689,7 @@ async function main() {
         document.body.textContent.includes("Codex") &&
         document.body.textContent.includes("Cursor") &&
         document.body.textContent.includes("OpenHands") &&
+        document.body.textContent.includes("Codex should implement issue #42") &&
         document.body.textContent.includes("make github-issue-agent-prompt"),
       missionContextCardCount: count('[data-mission-context-card="true"]'),
       missionContextIncludesApprovalBoundary:
@@ -827,6 +836,7 @@ async function main() {
     copiedCodexCommand,
     copiedIssueNextCommand,
     copiedIssueSyncCommand,
+    copiedIssueAgentPromptText,
     copiedIssueAgentPromptCommand,
     copiedIssueAgentClipboardCommand,
     copiedIssueCodexUiCommand,
@@ -904,6 +914,14 @@ async function main() {
   }
   if (summary.githubIssueAgentPromptCardCount !== 3) {
     problems.push(`expected three GitHub issue agent prompt cards, got ${summary.githubIssueAgentPromptCardCount}`);
+  }
+  if (summary.githubIssueAgentPromptPreviewCount !== 3) {
+    problems.push(`expected three GitHub issue agent prompt previews, got ${summary.githubIssueAgentPromptPreviewCount}`);
+  }
+  if (summary.githubIssueAgentPromptTextCopyButtonCount !== 3) {
+    problems.push(
+      `expected three GitHub issue agent prompt text copy buttons, got ${summary.githubIssueAgentPromptTextCopyButtonCount}`
+    );
   }
   if (summary.githubIssueAgentPromptCopyButtonCount !== 3) {
     problems.push(
@@ -1068,6 +1086,12 @@ async function main() {
     !copiedIssueSyncCommand.includes("GITHUB_ISSUE_SYNC_PR_URL=")
   ) {
     problems.push("GitHub issue workbench sync command should include apply, run summary, and PR URL inputs");
+  }
+  if (
+    !copiedIssueAgentPromptText.includes("Codex should implement issue #42") ||
+    copiedIssueAgentPromptText.includes("make github-issue-agent-prompt")
+  ) {
+    problems.push("GitHub issue workbench prompt text copy should write the generated prompt, not the command");
   }
   if (
     !copiedIssueAgentPromptCommand.includes("make github-issue-agent-prompt") ||

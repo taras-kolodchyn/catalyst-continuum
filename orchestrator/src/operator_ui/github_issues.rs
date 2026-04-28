@@ -9,6 +9,8 @@ use std::{
 };
 
 const DEFAULT_WORKFLOW_LIMIT: usize = 3;
+const AGENT_PROMPT_TEXT_LIMIT: usize = 64 * 1024;
+const AGENT_PROMPT_PREVIEW_LIMIT: usize = 420;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct OperatorUiGithubIssueWorkflowSnapshot {
@@ -71,6 +73,9 @@ pub struct OperatorUiGithubIssueItem {
 pub struct OperatorUiGithubIssueAgentPrompt {
     pub agent: String,
     pub path: String,
+    pub prompt_preview: Option<String>,
+    pub prompt_text: Option<String>,
+    pub prompt_truncated: bool,
     pub prompt_command: String,
     pub prompt_path_command: String,
     pub clipboard_command: String,
@@ -307,6 +312,7 @@ fn load_manifest_agent_prompts(
         .into_iter()
         .filter_map(|agent| {
             let path = agent_paths.remove(&agent)?;
+            let prompt_text = read_prompt_text(Path::new(&path));
             let workflow_assignment = make_assignment("GITHUB_ISSUE_WORKFLOW_DIR", &workflow_dir);
             let agent_assignment = make_assignment("AGENT", &agent);
             let codex_app_server_command = if agent == "codex" {
@@ -322,6 +328,9 @@ fn load_manifest_agent_prompts(
             Some(OperatorUiGithubIssueAgentPrompt {
                 agent: agent.clone(),
                 path,
+                prompt_preview: prompt_text.as_ref().map(|text| text.preview.clone()),
+                prompt_text: prompt_text.as_ref().and_then(|text| text.full.clone()),
+                prompt_truncated: prompt_text.is_some_and(|text| text.truncated),
                 prompt_command: format!(
                     "make github-issue-agent-prompt {workflow_assignment} {agent_assignment}"
                 ),
@@ -336,6 +345,34 @@ fn load_manifest_agent_prompts(
         })
         .collect();
     Ok(handoffs)
+}
+
+#[derive(Debug)]
+struct LoadedPromptText {
+    preview: String,
+    full: Option<String>,
+    truncated: bool,
+}
+
+fn read_prompt_text(path: &Path) -> Option<LoadedPromptText> {
+    let content = fs::read_to_string(path).ok()?;
+    let truncated = content.len() > AGENT_PROMPT_TEXT_LIMIT;
+    let full = (!truncated).then(|| content.clone());
+    Some(LoadedPromptText {
+        preview: truncate_chars(&content, AGENT_PROMPT_PREVIEW_LIMIT),
+        full,
+        truncated,
+    })
+}
+
+fn truncate_chars(value: &str, limit: usize) -> String {
+    let mut iter = value.chars();
+    let preview = iter.by_ref().take(limit).collect::<String>();
+    if iter.next().is_some() {
+        format!("{preview}\n...")
+    } else {
+        preview
+    }
 }
 
 fn agent_sort_key(agent: &str) -> (usize, &str) {
@@ -926,8 +963,11 @@ mod tests {
         fs::create_dir_all(&artifact_root).expect("artifact root should be created");
         fs::create_dir_all(&session_dir).expect("session dir should be created");
         fs::create_dir_all(&sync_dir).expect("sync dir should be created");
-        fs::write(session_dir.join("codex-prompt.md"), "Codex prompt")
-            .expect("codex prompt should be written");
+        fs::write(
+            session_dir.join("codex-prompt.md"),
+            "Codex prompt for issue #42",
+        )
+        .expect("codex prompt should be written");
         fs::write(session_dir.join("cursor-prompt.md"), "Cursor prompt")
             .expect("cursor prompt should be written");
         fs::write(session_dir.join("openhands-prompt.md"), "OpenHands prompt")
@@ -1003,6 +1043,19 @@ mod tests {
         );
         assert_eq!(snapshot.workflows[0].agent_prompts.len(), 3);
         assert_eq!(snapshot.workflows[0].agent_prompts[0].agent, "codex");
+        assert_eq!(
+            snapshot.workflows[0].agent_prompts[0]
+                .prompt_preview
+                .as_deref(),
+            Some("Codex prompt for issue #42")
+        );
+        assert_eq!(
+            snapshot.workflows[0].agent_prompts[0]
+                .prompt_text
+                .as_deref(),
+            Some("Codex prompt for issue #42")
+        );
+        assert!(!snapshot.workflows[0].agent_prompts[0].prompt_truncated);
         assert!(
             snapshot.workflows[0].agent_prompts[0]
                 .prompt_command

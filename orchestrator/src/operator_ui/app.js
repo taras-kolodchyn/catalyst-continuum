@@ -456,7 +456,7 @@ function bindEvents() {
         return;
       }
 
-      const copyTextButton = event.target.closest("[data-copy-command]");
+      const copyTextButton = event.target.closest("[data-copy-command], [data-copy-text-selector]");
       if (!copyTextButton) {
         return;
       }
@@ -2444,19 +2444,50 @@ function renderGithubIssueAgentHandoff(workflow) {
   `;
 }
 
-function renderGithubIssueAgentPrompt(prompt) {
+function renderGithubIssueAgentPrompt(prompt, index) {
   const agent = nonEmptyString(prompt.agent) || "agent";
   const promptCommand = nonEmptyString(prompt.prompt_command);
   const clipboardCommand = nonEmptyString(prompt.clipboard_command);
   const codexCommand = nonEmptyString(prompt.codex_app_server_command);
+  const promptText = nonEmptyString(prompt.prompt_text);
+  const promptPreview = nonEmptyString(prompt.prompt_preview);
+  const promptCopySelector = `[data-github-issue-agent-prompt-copy-text='${index}']`;
   return `
     <div class="github-issue-agent-prompt" data-github-issue-agent-prompt="true">
       <div>
         <strong>${escapeHtml(displayGithubIssueAgent(agent))}</strong>
         <p>${escapeHtml(nonEmptyString(prompt.path) || "Prompt path unavailable")}</p>
       </div>
+      ${
+        promptPreview
+          ? `<pre class="github-issue-agent-prompt-preview" data-github-issue-agent-prompt-preview="true">${escapeHtml(promptPreview)}</pre>`
+          : '<p class="microcopy">Prompt preview unavailable; use the terminal command to inspect this prompt.</p>'
+      }
+      ${
+        promptText
+          ? `<pre class="hidden" data-github-issue-agent-prompt-copy-text="${escapeHtml(String(index))}">${escapeHtml(promptText)}</pre>`
+          : ""
+      }
+      ${
+        prompt.prompt_truncated
+          ? '<p class="microcopy">Prompt is too large for direct browser copy; use the clipboard command below.</p>'
+          : ""
+      }
       ${promptCommand ? `<code>${escapeHtml(promptCommand)}</code>` : ""}
       <div class="github-issue-agent-prompt-actions">
+        ${
+          promptText
+            ? `<button
+                 class="button button-primary"
+                 type="button"
+                 data-copy-text-selector="${escapeHtml(promptCopySelector)}"
+                 data-copy-success-label="Prompt copied"
+                 data-github-issue-agent-prompt-text-copy="true"
+               >
+                 Copy prompt text
+               </button>`
+            : ""
+        }
         ${
           promptCommand
             ? `<button
