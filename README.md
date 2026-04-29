@@ -665,7 +665,7 @@ The workflow has these check groups:
 | `rust`     | Run format, clippy, build, tests, MCP smoke, and MCP reference smoke.                 |
 | `compose`  | Validate Compose and run runtime/observability stack checks.                          |
 | `eval`     | Validate shipped briefs and one representative release-evaluation baseline.           |
-| `ui`       | Run default and repository-policy operator UI browser smokes.                         |
+| `ui`       | Run default and repository-policy operator UI browser smokes sequentially.            |
 | `smoke`    | Run long end-to-end scenarios as an isolated matrix.                                  |
 
 Local workflow-shape checks use `act` through the pinned wrapper:
@@ -680,6 +680,11 @@ Local workflow-shape checks use `act` through the pinned wrapper:
 
 When `smoke` or `ui` is selected without an explicit `--matrix`, the wrapper runs one matrix slice
 at a time so local Docker helpers and browser smokes stay deterministic.
+
+GitHub Actions also runs the `ui` matrix one browser posture at a time. The UI smoke installs the
+pinned Playwright runner and Chromium browser inside the job, with a bounded install timeout, so
+browser dependency contention fails with useful logs instead of silently consuming the whole job
+timeout.
 
 On Apple Silicon, full `act` Rust execution can still hit upstream `qemu`/`rustc` faults. When that
 happens, use the nearest native repository validation plus `./scripts/ci-act.sh -n` and report the
