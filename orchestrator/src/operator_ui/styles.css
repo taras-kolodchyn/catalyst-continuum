@@ -1760,11 +1760,14 @@ textarea,
 
 .developer-review-item,
 .developer-evidence-card {
+  appearance: none;
   display: flex;
   flex-direction: column;
   gap: 8px;
   color: inherit;
+  cursor: pointer;
   text-decoration: none;
+  text-align: left;
   transition:
     transform var(--transition-soft),
     border-color var(--transition-soft),

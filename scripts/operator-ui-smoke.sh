@@ -524,6 +524,7 @@ async function main() {
 
   await page.click("#runsList [data-run-id]");
   await page.waitForSelector("#runDetailShell");
+  await page.locator('[data-pulse-card="current-focus"] [data-ui-scroll-target]').first().click();
   await page.click('[data-mission-tab="developer"]');
   await page.waitForSelector('[data-developer-handoff-panel="true"]', { timeout: 10000 });
   await page.locator('[data-developer-review-open="agents"]').first().click();
@@ -901,6 +902,9 @@ async function main() {
     };
     const issueDraftPrLink = document.querySelector('[data-github-issue-draft-pr-link="true"]');
     const issueLink = document.querySelector('[data-github-issue-link="true"]');
+    const currentFocusAction = document.querySelector(
+      '[data-pulse-card="current-focus"] [data-ui-scroll-target], [data-pulse-card="current-focus"] a'
+    );
 
     return {
       title: document.title,
@@ -921,11 +925,16 @@ async function main() {
         document.body.textContent.includes("Repository target"),
       currentFocusCardCount: count('[data-pulse-card="current-focus"]'),
       currentFocusHeading: text('[data-pulse-card="current-focus"] h3'),
-      currentFocusActionHref:
-        document.querySelector('[data-pulse-card="current-focus"] a')?.getAttribute("href") || "",
+      currentFocusActionTarget:
+        currentFocusAction?.dataset.uiScrollTarget
+          ? `#${currentFocusAction.dataset.uiScrollTarget}`
+          : currentFocusAction?.getAttribute("href") || "",
+      currentFocusActionIsInPlace: currentFocusAction?.tagName === "BUTTON",
+      pulseSummaryHashLinkCount: count("#pulseSummary a[href^='#']"),
       operatorDockCardCount: count("[data-operator-dock-card]"),
       operatorDockPosition:
         window.getComputedStyle(document.querySelector("#operator-dock")).position,
+      operatorDockHashLinkCount: count("#operatorDockSummary a[href^='#']"),
       operatorDockIncludesSelectedRun:
         document.body.textContent.includes("Selected run"),
       operatorDockIncludesNextStep:
@@ -1052,6 +1061,8 @@ async function main() {
         count('[data-developer-review-prompt-panel="true"] [data-ui-mission-tab]'),
       developerReviewHashLinkCount:
         count('[data-developer-review-prompt-panel="true"] a[href^="#"]'),
+      developerPanelHashLinkCount:
+        count("#missionDeveloperPanel a[href^='#']"),
       developerEvidencePacketPanelCount: count('[data-developer-evidence-packet-panel="true"]'),
       developerEvidencePathsCopyButtonCount: count('[data-developer-evidence-paths-copy="true"]'),
       developerEvidencePacketIncludesPaths:
@@ -1093,6 +1104,7 @@ async function main() {
       lastRefresh: text("#lastRefresh"),
       selectedRunLabel: text("#selectedRunLabel"),
       runOutcomeBannerCount: count("[data-run-outcome-banner]"),
+      runOutcomeHashLinkCount: count("[data-run-outcome-banner] a[href^='#']"),
       runOutcomeProofCount: count("[data-run-outcome-proof]"),
       runOutcomeIncludesDeliveryFlow:
         document.body.textContent.includes("Selected run outcome") &&
@@ -1323,14 +1335,23 @@ async function main() {
   if (!summary.currentFocusHeading) {
     problems.push("current-focus pulse card heading is missing");
   }
-  if (summary.currentFocusActionHref !== "#run-detail") {
-    problems.push(`current-focus pulse action should target #run-detail, got ${summary.currentFocusActionHref}`);
+  if (summary.currentFocusActionTarget !== "#run-detail") {
+    problems.push(`current-focus pulse action should target #run-detail, got ${summary.currentFocusActionTarget}`);
+  }
+  if (!summary.currentFocusActionIsInPlace) {
+    problems.push("current-focus pulse action should be an in-place button, not a hash-only link");
+  }
+  if (summary.pulseSummaryHashLinkCount !== 0) {
+    problems.push(`pulse summary should not use hash navigation links, got ${summary.pulseSummaryHashLinkCount}`);
   }
   if (summary.operatorDockCardCount !== 4) {
     problems.push(`expected four operator dock cards, got ${summary.operatorDockCardCount}`);
   }
   if (summary.operatorDockPosition !== "sticky") {
     problems.push(`operator dock should stay sticky on desktop, got ${summary.operatorDockPosition}`);
+  }
+  if (summary.operatorDockHashLinkCount !== 0) {
+    problems.push(`operator dock should not use hash navigation links, got ${summary.operatorDockHashLinkCount}`);
   }
   if (!summary.operatorDockIncludesSelectedRun) {
     problems.push("operator dock should keep selected-run context visible");
@@ -1731,6 +1752,9 @@ async function main() {
       `developer review prompt should not use hash navigation links, got ${summary.developerReviewHashLinkCount}`
     );
   }
+  if (summary.developerPanelHashLinkCount !== 0) {
+    problems.push(`developer mission panel should not use hash navigation links, got ${summary.developerPanelHashLinkCount}`);
+  }
   if (summary.missionActiveTabAfterDeveloperReviewAction !== "agents") {
     problems.push(
       `developer review Open agents action should activate Agents tab, got ${summary.missionActiveTabAfterDeveloperReviewAction}`
@@ -1976,6 +2000,9 @@ async function main() {
   }
   if (summary.runOutcomeBannerCount !== 1) {
     problems.push(`expected one selected-run outcome banner, got ${summary.runOutcomeBannerCount}`);
+  }
+  if (summary.runOutcomeHashLinkCount !== 0) {
+    problems.push(`selected-run outcome banner should not use hash navigation links, got ${summary.runOutcomeHashLinkCount}`);
   }
   if (summary.runOutcomeProofCount !== 4) {
     problems.push(`expected four selected-run proof chips, got ${summary.runOutcomeProofCount}`);

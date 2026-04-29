@@ -421,6 +421,10 @@ function bindEvents() {
     setActiveMissionTab(tabButton.dataset.missionTab);
   });
 
+  elements.pulseSummary.addEventListener("click", (event) => {
+    handleUiNavigationAction(event);
+  });
+
   elements.missionShell.addEventListener("click", (event) => {
     if (handleUiNavigationAction(event)) {
       return;
@@ -486,6 +490,10 @@ function bindEvents() {
   }
 
   elements.operatorDockSummary.addEventListener("click", (event) => {
+    if (handleUiNavigationAction(event)) {
+      return;
+    }
+
     const missionTabButton = event.target.closest("[data-dock-mission-tab]");
     if (missionTabButton) {
       openMissionTabInPlace(missionTabButton.dataset.dockMissionTab);
@@ -4108,14 +4116,53 @@ function renderOperatorDockCardAction(card) {
   }
 
   if (card.actionHref && card.actionLabel) {
-    return `
-      <a class="button button-ghost button-link" href="${escapeHtml(card.actionHref)}">
-        ${escapeHtml(card.actionLabel)}
-      </a>
-    `;
+    return renderUiAction({
+      className: "button button-ghost",
+      href: card.actionHref,
+      label: card.actionLabel,
+      stableKey: `operator-dock-scroll:${card.key}`,
+    });
   }
 
   return "";
+}
+
+function renderUiAction({ className, href, label, stableKey = "" }) {
+  const targetId = hashHrefTargetId(href);
+  if (targetId) {
+    return renderUiScrollButton({ className, label, stableKey, targetId });
+  }
+
+  const anchorClassName = className.includes("button-link")
+    ? className
+    : `${className} button-link`;
+
+  return `
+    <a class="${escapeHtml(anchorClassName)}" href="${escapeHtml(href)}">
+      ${escapeHtml(label)}
+    </a>
+  `;
+}
+
+function renderUiScrollButton({ className = "button button-ghost", label, stableKey = "", targetId }) {
+  const stableKeyAttr = stableKey
+    ? ` data-ui-stable-key="${escapeHtml(stableKey)}"`
+    : "";
+
+  return `
+    <button
+      class="${escapeHtml(className)}"
+      type="button"
+      data-ui-scroll-target="${escapeHtml(targetId)}"${stableKeyAttr}
+    >
+      ${escapeHtml(label)}
+    </button>
+  `;
+}
+
+function hashHrefTargetId(href) {
+  const value = nonEmptyString(href);
+  return value?.startsWith("#") && value.length > 1 ? value.slice(1) : "";
 }
 
 function openMissionTabInPlace(tab) {
@@ -4128,14 +4175,18 @@ function openMissionTabInPlace(tab) {
 function handleUiNavigationAction(event) {
   const missionTabButton = event.target.closest("[data-ui-mission-tab]");
   if (missionTabButton) {
+    event.preventDefault();
     openMissionTabInPlace(missionTabButton.dataset.uiMissionTab);
     return true;
   }
 
   const scrollButton = event.target.closest("[data-ui-scroll-target]");
   if (scrollButton) {
-    scrollToUiTarget(scrollButton.dataset.uiScrollTarget);
-    return true;
+    const didScroll = scrollToUiTarget(scrollButton.dataset.uiScrollTarget);
+    if (didScroll) {
+      event.preventDefault();
+      return true;
+    }
   }
 
   return false;
@@ -4144,10 +4195,11 @@ function handleUiNavigationAction(event) {
 function scrollToUiTarget(targetId) {
   const target = document.getElementById(String(targetId ?? "").trim());
   if (!target) {
-    return;
+    return false;
   }
 
   target.scrollIntoView({ behavior: "smooth", block: "start" });
+  return true;
 }
 
 function renderOperatorPulse() {
@@ -4427,14 +4479,14 @@ function renderPulseCard(card) {
         card.actionLabel && card.actionHref
           ? `
             <div class="pulse-card-actions">
-              <a
-                class="button ${escapeHtml(
+              ${renderUiAction({
+                className: `button ${
                   card.actionVariant === "ghost" ? "button-ghost" : "button-primary"
-                )} button-link"
-                href="${escapeHtml(card.actionHref)}"
-              >
-                ${escapeHtml(card.actionLabel)}
-              </a>
+                }`,
+                href: card.actionHref,
+                label: card.actionLabel,
+                stableKey: `pulse-card-scroll:${card.key}`,
+              })}
             </div>
           `
           : ""
@@ -5359,11 +5411,12 @@ function renderDeveloperHandoffHero(runDetail, summary) {
       </button>
     `;
   } else {
-    actionMarkup = `
-      <a class="button button-primary button-link" href="${escapeHtml(summary.actionHref)}">
-        ${escapeHtml(summary.actionLabel)}
-      </a>
-    `;
+    actionMarkup = renderUiAction({
+      className: "button button-primary",
+      href: summary.actionHref,
+      label: summary.actionLabel,
+      stableKey: "developer-handoff-open:primary",
+    });
   }
 
   return `
@@ -5381,8 +5434,16 @@ function renderDeveloperHandoffHero(runDetail, summary) {
       <div class="developer-handoff-actions">
         <span class="badge badge-${escapeHtml(summary.tone)}">${escapeHtml(summary.badge)}</span>
         ${actionMarkup}
-        <a class="button button-ghost button-link" href="#run-artifacts">Artifacts</a>
-        <a class="button button-ghost button-link" href="#run-events">Events</a>
+        ${renderUiScrollButton({
+          label: "Artifacts",
+          stableKey: "developer-handoff-open:artifacts",
+          targetId: "run-artifacts",
+        })}
+        ${renderUiScrollButton({
+          label: "Events",
+          stableKey: "developer-handoff-open:events",
+          targetId: "run-events",
+        })}
       </div>
     </section>
   `;
@@ -5416,8 +5477,16 @@ function renderDeveloperNextCommandPanel(runDetail, guide) {
           >
             Copy next command
           </button>
-          <a class="button button-ghost button-link" href="#run-guide">Open run guide</a>
-          <a class="button button-ghost button-link" href="#run-controls">Open controls</a>
+          ${renderUiScrollButton({
+            label: "Open run guide",
+            stableKey: "developer-next-command-open:guide",
+            targetId: "run-guide",
+          })}
+          ${renderUiScrollButton({
+            label: "Open controls",
+            stableKey: "developer-next-command-open:controls",
+            targetId: "run-controls",
+          })}
         </div>
       </div>
     </section>
@@ -5544,8 +5613,16 @@ function renderDeveloperLiveBriefPanel(liveBrief, summary) {
           >
             Copy live brief
           </button>
-          <a class="button button-ghost button-link" href="#run-guide">Open guide</a>
-          <a class="button button-ghost button-link" href="#run-events">Open events</a>
+          ${renderUiScrollButton({
+            label: "Open guide",
+            stableKey: "developer-live-brief-open:guide",
+            targetId: "run-guide",
+          })}
+          ${renderUiScrollButton({
+            label: "Open events",
+            stableKey: "developer-live-brief-open:events",
+            targetId: "run-events",
+          })}
         </div>
       </div>
     </section>
@@ -5666,8 +5743,16 @@ function renderDeveloperGithubUpdatePanel(githubUpdate) {
           >
             Copy GitHub update
           </button>
-          <a class="button button-ghost button-link" href="#run-artifacts">Open artifacts</a>
-          <a class="button button-ghost button-link" href="#run-controls">Open controls</a>
+          ${renderUiScrollButton({
+            label: "Open artifacts",
+            stableKey: "developer-github-update-open:artifacts",
+            targetId: "run-artifacts",
+          })}
+          ${renderUiScrollButton({
+            label: "Open controls",
+            stableKey: "developer-github-update-open:controls",
+            targetId: "run-controls",
+          })}
         </div>
       </div>
     </section>
@@ -5880,8 +5965,16 @@ function renderDeveloperEvidencePacketPanel(runDetail) {
           >
             Copy evidence paths
           </button>
-          <a class="button button-ghost button-link" href="#run-artifacts">Open artifacts</a>
-          <a class="button button-ghost button-link" href="#run-tasks">Open task logs</a>
+          ${renderUiScrollButton({
+            label: "Open artifacts",
+            stableKey: "developer-evidence-open:artifacts",
+            targetId: "run-artifacts",
+          })}
+          ${renderUiScrollButton({
+            label: "Open task logs",
+            stableKey: "developer-evidence-open:tasks",
+            targetId: "run-tasks",
+          })}
         </div>
       </div>
     </section>
@@ -6088,19 +6181,21 @@ function buildDeveloperReviewItems(runDetail) {
 
 function renderDeveloperReviewItem(item) {
   const tone = normalizePulseTone(item.tone);
+  const targetId = hashHrefTargetId(item.href) || "run-detail";
 
   return `
-    <a
+    <button
       class="developer-review-item developer-review-item-${escapeHtml(tone)}"
-      href="${escapeHtml(item.href)}"
+      type="button"
       data-developer-review-item="true"
+      data-ui-scroll-target="${escapeHtml(targetId)}"
     >
       <div class="mission-feed-head">
         <h4>${escapeHtml(item.title)}</h4>
         <span class="badge badge-${escapeHtml(tone)}">${escapeHtml(item.status)}</span>
       </div>
       <p>${escapeHtml(item.detail)}</p>
-    </a>
+    </button>
   `;
 }
 
@@ -6166,12 +6261,14 @@ function developerEvidenceGroup({ artifacts, detail, href, kicker, title, types 
 
 function renderDeveloperEvidenceCard(item) {
   const tone = normalizePulseTone(item.tone);
+  const targetId = hashHrefTargetId(item.href) || "run-artifacts";
 
   return `
-    <a
+    <button
       class="developer-evidence-card developer-evidence-card-${escapeHtml(tone)}"
-      href="${escapeHtml(item.href)}"
+      type="button"
       data-developer-evidence-card="true"
+      data-ui-scroll-target="${escapeHtml(targetId)}"
     >
       <div class="mission-feed-head">
         <div>
@@ -6185,7 +6282,7 @@ function renderDeveloperEvidenceCard(item) {
         <span>${escapeHtml(item.latest ? formatTimestamp(item.latest) : "not recorded yet")}</span>
         <span>${escapeHtml(item.types.join(", "))}</span>
       </div>
-    </a>
+    </button>
   `;
 }
 
@@ -10622,7 +10719,11 @@ function renderRunOutcomeBanner(runDetail, guide, events) {
         ${escapeHtml(displayRunActionLabel(guide.nextActionControlId))}
       </button>
     `
-    : '<a class="button button-ghost button-link" href="#run-events">Review evidence</a>';
+    : renderUiScrollButton({
+        label: "Review evidence",
+        stableKey: "run-outcome-open:events",
+        targetId: "run-events",
+      });
 
   const proofItems = [
     {

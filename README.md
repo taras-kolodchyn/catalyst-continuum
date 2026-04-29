@@ -458,8 +458,8 @@ The smoke starts disposable local state, seeds MVP run data, opens `/ui`, exerci
 Mission Control `Flow`, `Developer`, and `Agents` tabs, in-place action navigation, agent filters,
 report/log cards, manual refresh, iframe mounts, WebSocket live updates, and stable focus behavior.
 It fails on browser console errors, request failures, unexpected hard reloads, missing live updates,
-missing developer handoff evidence, hash-link regressions in the developer and mission action
-cards, or lost stable focus in the agent panel or GitHub Issue Workbench. On first run it installs
+missing developer handoff evidence, hash-link regressions in dynamic action cards, or lost stable
+focus in the agent panel or GitHub Issue Workbench. On first run it installs
 the pinned Playwright package and matching Chromium browser binary under
 `.continuum/operator-ui-smoke-playwright`. Later local UI smoke runs reuse that pinned browser when
 the installed version, platform, and install mode still match, which keeps `make release-check`
