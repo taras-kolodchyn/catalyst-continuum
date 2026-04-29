@@ -390,6 +390,7 @@ function cacheElements() {
     elements[id] = document.getElementById(id);
   }
 
+  elements.firstRunPlaybook = document.getElementById("first-run-playbook");
   elements.pageShell = document.getElementById("pageShell");
 }
 
@@ -397,6 +398,17 @@ function bindEvents() {
   elements.refreshButton.addEventListener("click", () => {
     refreshDashboard().catch((error) => {
       console.error("manual refresh failed", error);
+    });
+  });
+
+  elements.firstRunPlaybook.addEventListener("click", (event) => {
+    const copyTextButton = event.target.closest("[data-copy-command], [data-copy-text-selector]");
+    if (!copyTextButton) {
+      return;
+    }
+
+    copyTextToClipboard(copyTextButton).catch((error) => {
+      console.error("copy first-run command failed", error);
     });
   });
 

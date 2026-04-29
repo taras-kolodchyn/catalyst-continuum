@@ -531,6 +531,19 @@ async function main() {
     eventFilterCheck.restoredAllFilter = true;
   }
 
+  await page.locator('[data-first-run-demo-command-copy="true"]').first().click();
+  await page.waitForFunction(() => {
+    const button = document.querySelector('[data-first-run-demo-command-copy="true"]');
+    return button && button.textContent.includes("Demo command copied");
+  }, { timeout: 5000 });
+  const copiedFirstRunDemoCommand = await page.evaluate(() => navigator.clipboard.readText());
+  await page.locator('[data-first-run-issue-command-copy="true"]').first().click();
+  await page.waitForFunction(() => {
+    const button = document.querySelector('[data-first-run-issue-command-copy="true"]');
+    return button && button.textContent.includes("Issue preview copied");
+  }, { timeout: 5000 });
+  const copiedFirstRunIssueCommand = await page.evaluate(() => navigator.clipboard.readText());
+
   await page.click('[data-mission-tab="developer"]');
   await page.waitForSelector('[data-developer-codex-command-card="true"]', { timeout: 10000 });
   await page.locator('[data-developer-review-prompt-copy="true"]').first().click();
@@ -755,6 +768,10 @@ async function main() {
       heroHeading: document.querySelector("h1")?.textContent?.trim() || "",
       firstRunPlaybookHeading: text("#first-run-playbook h2"),
       firstRunPlaybookStepCount: count("#first-run-playbook li"),
+      firstRunPlaybookCopyButtonCount: count("#first-run-playbook [data-copy-command]"),
+      firstRunPlaybookIncludesCommands:
+        document.body.textContent.includes("Copy demo command") &&
+        document.body.textContent.includes("Copy issue preview"),
       briefReadinessItemCount: count("[data-brief-readiness-item]"),
       briefReadinessBadge: text("#briefReadinessBadge"),
       briefReadinessIncludesRepository:
@@ -1040,6 +1057,8 @@ async function main() {
     focusChecks,
     screenshotPath,
     eventFilterCheck,
+    copiedFirstRunDemoCommand,
+    copiedFirstRunIssueCommand,
     copiedReviewPrompt,
     copiedEvidencePaths,
     copiedNextCommand,
@@ -1095,6 +1114,22 @@ async function main() {
   }
   if (summary.firstRunPlaybookStepCount !== 4) {
     problems.push(`expected 4 first-run playbook steps, got ${summary.firstRunPlaybookStepCount}`);
+  }
+  if (summary.firstRunPlaybookCopyButtonCount !== 2) {
+    problems.push(
+      `expected 2 first-run playbook copy buttons, got ${summary.firstRunPlaybookCopyButtonCount}`
+    );
+  }
+  if (!summary.firstRunPlaybookIncludesCommands) {
+    problems.push("first-run playbook should expose demo and issue-preview copy actions");
+  }
+  if (copiedFirstRunDemoCommand !== "make solo-demo") {
+    problems.push(`first-run demo copy should write make solo-demo, got ${copiedFirstRunDemoCommand}`);
+  }
+  if (!copiedFirstRunIssueCommand.includes("make github-issue-plan")) {
+    problems.push(
+      `first-run issue-preview copy should write the GitHub issue plan command, got ${copiedFirstRunIssueCommand}`
+    );
   }
   if (summary.briefReadinessItemCount !== 4) {
     problems.push(`expected 4 brief readiness items, got ${summary.briefReadinessItemCount}`);

@@ -103,6 +103,26 @@
               orchestrator enforces. Start with one brief, open one run, then
               let the selected-run guide tell you which control is safe next.
             </p>
+            <div class="hero-playbook-actions" aria-label="Copy first-run commands">
+              <button
+                class="button button-primary"
+                type="button"
+                data-copy-command="make solo-demo"
+                data-copy-success-label="Demo command copied"
+                data-first-run-demo-command-copy="true"
+              >
+                Copy demo command
+              </button>
+              <button
+                class="button button-ghost"
+                type="button"
+                data-copy-command="make github-issue-plan REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout"
+                data-copy-success-label="Issue preview copied"
+                data-first-run-issue-command-copy="true"
+              >
+                Copy issue preview
+              </button>
+            </div>
           </div>
           <ol class="hero-playbook-steps">
             <li>
