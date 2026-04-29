@@ -116,6 +116,15 @@
               <button
                 class="button button-ghost"
                 type="button"
+                data-copy-command="make dev-session TASK_RECIPE=fix-bug TASK=&quot;Describe the change&quot; REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout"
+                data-copy-success-label="Agent session copied"
+                data-first-run-dev-session-command-copy="true"
+              >
+                Copy agent session
+              </button>
+              <button
+                class="button button-ghost"
+                type="button"
                 data-copy-command="make github-issue-plan REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout"
                 data-copy-success-label="Issue preview copied"
                 data-first-run-issue-command-copy="true"

@@ -537,6 +537,12 @@ async function main() {
     return button && button.textContent.includes("Demo command copied");
   }, { timeout: 5000 });
   const copiedFirstRunDemoCommand = await page.evaluate(() => navigator.clipboard.readText());
+  await page.locator('[data-first-run-dev-session-command-copy="true"]').first().click();
+  await page.waitForFunction(() => {
+    const button = document.querySelector('[data-first-run-dev-session-command-copy="true"]');
+    return button && button.textContent.includes("Agent session copied");
+  }, { timeout: 5000 });
+  const copiedFirstRunDevSessionCommand = await page.evaluate(() => navigator.clipboard.readText());
   await page.locator('[data-first-run-issue-command-copy="true"]').first().click();
   await page.waitForFunction(() => {
     const button = document.querySelector('[data-first-run-issue-command-copy="true"]');
@@ -771,6 +777,7 @@ async function main() {
       firstRunPlaybookCopyButtonCount: count("#first-run-playbook [data-copy-command]"),
       firstRunPlaybookIncludesCommands:
         document.body.textContent.includes("Copy demo command") &&
+        document.body.textContent.includes("Copy agent session") &&
         document.body.textContent.includes("Copy issue preview"),
       briefReadinessItemCount: count("[data-brief-readiness-item]"),
       briefReadinessBadge: text("#briefReadinessBadge"),
@@ -1058,6 +1065,7 @@ async function main() {
     screenshotPath,
     eventFilterCheck,
     copiedFirstRunDemoCommand,
+    copiedFirstRunDevSessionCommand,
     copiedFirstRunIssueCommand,
     copiedReviewPrompt,
     copiedEvidencePaths,
@@ -1115,16 +1123,23 @@ async function main() {
   if (summary.firstRunPlaybookStepCount !== 4) {
     problems.push(`expected 4 first-run playbook steps, got ${summary.firstRunPlaybookStepCount}`);
   }
-  if (summary.firstRunPlaybookCopyButtonCount !== 2) {
+  if (summary.firstRunPlaybookCopyButtonCount !== 3) {
     problems.push(
-      `expected 2 first-run playbook copy buttons, got ${summary.firstRunPlaybookCopyButtonCount}`
+      `expected 3 first-run playbook copy buttons, got ${summary.firstRunPlaybookCopyButtonCount}`
     );
   }
   if (!summary.firstRunPlaybookIncludesCommands) {
-    problems.push("first-run playbook should expose demo and issue-preview copy actions");
+    problems.push(
+      "first-run playbook should expose demo, agent-session, and issue-preview copy actions"
+    );
   }
   if (copiedFirstRunDemoCommand !== "make solo-demo") {
     problems.push(`first-run demo copy should write make solo-demo, got ${copiedFirstRunDemoCommand}`);
+  }
+  if (!copiedFirstRunDevSessionCommand.includes("make dev-session")) {
+    problems.push(
+      `first-run agent-session copy should write the dev-session command, got ${copiedFirstRunDevSessionCommand}`
+    );
   }
   if (!copiedFirstRunIssueCommand.includes("make github-issue-plan")) {
     problems.push(
