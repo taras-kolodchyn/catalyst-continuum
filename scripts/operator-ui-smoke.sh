@@ -75,6 +75,40 @@ require_command() {
   fi
 }
 
+run_command_with_timeout() {
+  local timeout_seconds="$1"
+  shift
+
+  python3 - "$timeout_seconds" "$@" <<'PY'
+import os
+import signal
+import subprocess
+import sys
+import time
+
+timeout_seconds = int(sys.argv[1])
+command = sys.argv[2:]
+started_at = time.monotonic()
+process = subprocess.Popen(command, start_new_session=True)
+
+try:
+    raise SystemExit(process.wait(timeout=timeout_seconds))
+except subprocess.TimeoutExpired:
+    elapsed = time.monotonic() - started_at
+    print(
+        f"command timed out after {elapsed:.1f}s: {' '.join(command)}",
+        file=sys.stderr,
+    )
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+        process.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        os.killpg(process.pid, signal.SIGKILL)
+        process.wait()
+    raise SystemExit(124)
+PY
+}
+
 playwright_installed_version() {
   node -e '
 const packageJson = process.argv[1];
@@ -107,12 +141,14 @@ ensure_playwright_runner() {
 }
 EOF
 
-  npm install \
+  log_phase "installing Playwright runner ${PLAYWRIGHT_NPM_VERSION}"
+  run_command_with_timeout "$PLAYWRIGHT_INSTALL_TIMEOUT_SECONDS" \
+    npm install \
     --prefix "$PLAYWRIGHT_RUNNER_DIR" \
     --save-exact \
     --no-audit \
     --no-fund \
-    "playwright@${PLAYWRIGHT_NPM_VERSION}" >/dev/null
+    "playwright@${PLAYWRIGHT_NPM_VERSION}"
 }
 
 ensure_playwright_browser() {
@@ -122,9 +158,11 @@ ensure_playwright_browser() {
     install_args=(install --with-deps chromium)
   fi
 
-  npm exec \
+  log_phase "installing Playwright browser: playwright ${install_args[*]}"
+  run_command_with_timeout "$PLAYWRIGHT_INSTALL_TIMEOUT_SECONDS" \
+    npm exec \
     --prefix "$PLAYWRIGHT_RUNNER_DIR" \
-    -- playwright "${install_args[@]}" >/dev/null
+    -- playwright "${install_args[@]}"
 }
 
 postgres_is_healthy() {
@@ -2006,6 +2044,7 @@ HTTP_PORT="${OPERATOR_UI_SMOKE_HTTP_PORT:-}"
 POSTGRES_PORT="${OPERATOR_UI_SMOKE_POSTGRES_PORT:-}"
 OUTPUT_ROOT="${OPERATOR_UI_SMOKE_OUTPUT_ROOT:-$ROOT_DIR/.continuum/operator-ui-smoke}"
 REPOSITORY_TARGETS_FILE="${OPERATOR_UI_SMOKE_REPOSITORY_TARGETS_FILE:-}"
+PLAYWRIGHT_INSTALL_TIMEOUT_SECONDS="${OPERATOR_UI_SMOKE_PLAYWRIGHT_INSTALL_TIMEOUT_SECONDS:-600}"
 EXPECT_REMOTE_PUBLICATION_BLOCKED=0
 SKIP_BUILD=0
 
