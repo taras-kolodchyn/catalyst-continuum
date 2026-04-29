@@ -577,8 +577,22 @@ async function main() {
 
   await page.click('[data-mission-tab="flow"]');
   await page.waitForSelector("#missionFlowPanel");
-  await page.click('[data-mission-tab="agents"]');
-  await page.waitForSelector("#missionAgentsPanel");
+  await page
+    .locator('[data-operator-dock-card="execution"] [data-dock-mission-tab="agents"]')
+    .first()
+    .click();
+  await page.waitForFunction(() => {
+    const shell = document.querySelector("#missionShell");
+    const panel = document.querySelector("#missionAgentsPanel");
+    return (
+      shell?.dataset.activeTab === "agents" &&
+      panel &&
+      !panel.classList.contains("hidden")
+    );
+  }, { timeout: 10000 });
+  const missionActiveTabAfterDockAction = await page.evaluate(
+    () => document.querySelector("#missionShell")?.dataset.activeTab || ""
+  );
   await page.waitForFunction(() => {
     const refreshButton = document.querySelector("#refreshButton");
     return refreshButton && !refreshButton.disabled;
@@ -860,7 +874,8 @@ async function main() {
   }, { timeout: 5000 });
   const latestWorkflowUrl = page.url();
 
-  const summary = await page.evaluate(() => {
+  const summary = {
+    ...(await page.evaluate(() => {
     const text = (selector) => document.querySelector(selector)?.textContent?.trim() || "";
     const count = (selector) => document.querySelectorAll(selector).length;
     const runActionButtons = (actionId) =>
@@ -904,6 +919,9 @@ async function main() {
         document.body.textContent.includes("Selected run"),
       operatorDockIncludesNextStep:
         document.body.textContent.includes("Next step"),
+      operatorDockAgentsActionCount: count('[data-operator-dock-card="execution"] [data-dock-mission-tab="agents"]'),
+      operatorDockAgentsActionIsButton:
+        document.querySelector('[data-operator-dock-card="execution"] [data-dock-mission-tab="agents"]')?.tagName === "BUTTON",
       githubIssueWorkbenchCount: count('[data-github-issue-workbench="true"]'),
       githubIssueValueSnapshotCount: count('[data-github-issue-value-snapshot="true"]'),
       githubIssueValueItemCount: count('[data-github-issue-value-item="true"]'),
@@ -1109,7 +1127,9 @@ async function main() {
       publishPrButtons: buttonStats("publish-pr"),
       draftPrButtons: buttonStats("draft-pr"),
     };
-  });
+    })),
+    missionActiveTabAfterDockAction,
+  };
 
   await page.evaluate(() => {
     renderGithubIssueWorkbench({
@@ -1297,6 +1317,19 @@ async function main() {
   }
   if (!summary.operatorDockIncludesNextStep) {
     problems.push("operator dock should keep the next operator step visible");
+  }
+  if (summary.operatorDockAgentsActionCount !== 1) {
+    problems.push(
+      `expected one operator dock agents tab action, got ${summary.operatorDockAgentsActionCount}`
+    );
+  }
+  if (!summary.operatorDockAgentsActionIsButton) {
+    problems.push("operator dock agents action should be an in-place button, not a hash-only link");
+  }
+  if (summary.missionActiveTabAfterDockAction !== "agents") {
+    problems.push(
+      `operator dock agents action should activate the Agents tab, got ${summary.missionActiveTabAfterDockAction}`
+    );
   }
   if (summary.githubIssueWorkbenchCount !== 1) {
     problems.push(`expected one GitHub issue workbench, got ${summary.githubIssueWorkbenchCount}`);

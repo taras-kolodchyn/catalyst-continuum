@@ -482,6 +482,12 @@ function bindEvents() {
   }
 
   elements.operatorDockSummary.addEventListener("click", (event) => {
+    const missionTabButton = event.target.closest("[data-dock-mission-tab]");
+    if (missionTabButton) {
+      openMissionTabFromDock(missionTabButton.dataset.dockMissionTab);
+      return;
+    }
+
     const actionButton = event.target.closest("[data-run-action]");
     if (!actionButton) {
       return;
@@ -3978,8 +3984,8 @@ function buildSelectedRunDockCards(runDetail) {
       tone: guide.badgeTone,
     }),
     operatorDockCard({
-      actionHref: "#mission-control",
       actionLabel: "Open agents",
+      actionMissionTab: "agents",
       detail: `${agentCount} agent lane(s) · ${taskCounts.running} running · ${taskCounts.failed} failed`,
       key: "execution",
       kicker: "Execution",
@@ -4011,6 +4017,7 @@ function operatorDockCard({
   actionHref = "",
   actionId = "",
   actionLabel = "",
+  actionMissionTab = "",
   detail,
   key,
   kicker,
@@ -4023,6 +4030,7 @@ function operatorDockCard({
     actionHref,
     actionId,
     actionLabel,
+    actionMissionTab,
     detail,
     key,
     kicker,
@@ -4078,6 +4086,19 @@ function renderOperatorDockCardAction(card) {
     `;
   }
 
+  if (card.actionMissionTab && card.actionLabel) {
+    return `
+      <button
+        class="button button-ghost"
+        type="button"
+        data-dock-mission-tab="${escapeHtml(card.actionMissionTab)}"
+        data-ui-stable-key="operator-dock-tab:${escapeHtml(card.actionMissionTab)}"
+      >
+        ${escapeHtml(card.actionLabel)}
+      </button>
+    `;
+  }
+
   if (card.actionHref && card.actionLabel) {
     return `
       <a class="button button-ghost button-link" href="${escapeHtml(card.actionHref)}">
@@ -4087,6 +4108,13 @@ function renderOperatorDockCardAction(card) {
   }
 
   return "";
+}
+
+function openMissionTabFromDock(tab) {
+  setActiveMissionTab(tab);
+  document
+    .getElementById("mission-control")
+    ?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function renderOperatorPulse() {
