@@ -526,8 +526,19 @@ async function main() {
   await page.waitForSelector("#runDetailShell");
   await page.click('[data-mission-tab="developer"]');
   await page.waitForSelector('[data-developer-handoff-panel="true"]', { timeout: 10000 });
-  await page.click('[data-mission-tab="agents"]');
-  await page.waitForSelector("#missionAgentsPanel");
+  await page.locator('[data-developer-review-open="agents"]').first().click();
+  await page.waitForFunction(() => {
+    const shell = document.querySelector("#missionShell");
+    const panel = document.querySelector("#missionAgentsPanel");
+    return (
+      shell?.dataset.activeTab === "agents" &&
+      panel &&
+      !panel.classList.contains("hidden")
+    );
+  }, { timeout: 10000 });
+  const missionActiveTabAfterDeveloperReviewAction = await page.evaluate(
+    () => document.querySelector("#missionShell")?.dataset.activeTab || ""
+  );
   await page.waitForSelector("#agentLaneGrid .agent-lane", { timeout: 10000 });
 
   const agentFilters = await page.locator("[data-agent-filter]").count();
@@ -1036,6 +1047,11 @@ async function main() {
       developerReviewPromptIncludesAgent:
         document.body.textContent.includes("Bring Continuum evidence into Cursor, Codex, or OpenHands") &&
         document.body.textContent.includes("Review this Catalyst Continuum run before I trust or merge"),
+      developerReviewNavigationButtonCount:
+        count('[data-developer-review-prompt-panel="true"] [data-ui-scroll-target]') +
+        count('[data-developer-review-prompt-panel="true"] [data-ui-mission-tab]'),
+      developerReviewHashLinkCount:
+        count('[data-developer-review-prompt-panel="true"] a[href^="#"]'),
       developerEvidencePacketPanelCount: count('[data-developer-evidence-packet-panel="true"]'),
       developerEvidencePathsCopyButtonCount: count('[data-developer-evidence-paths-copy="true"]'),
       developerEvidencePacketIncludesPaths:
@@ -1123,12 +1139,16 @@ async function main() {
       runControlReadinessIncludesGuard:
         document.body.textContent.includes("Guard passed") ||
         document.body.textContent.includes("No queued tasks remain"),
+      missionActionStripHashLinkCount: count('.mission-action-strip a[href^="#"]'),
+      missionActionStripRunDetailButtonCount:
+        count('.mission-action-strip [data-ui-scroll-target="run-detail"]'),
       exportPrButtons: buttonStats("export-pr"),
       publishPrButtons: buttonStats("publish-pr"),
       draftPrButtons: buttonStats("draft-pr"),
     };
     })),
     missionActiveTabAfterDockAction,
+    missionActiveTabAfterDeveloperReviewAction,
   };
 
   await page.evaluate(() => {
@@ -1701,6 +1721,21 @@ async function main() {
   if (summary.developerReviewPromptCopyButtonCount !== 1) {
     problems.push(`expected one developer review prompt copy button, got ${summary.developerReviewPromptCopyButtonCount}`);
   }
+  if (summary.developerReviewNavigationButtonCount !== 3) {
+    problems.push(
+      `expected three developer review in-place navigation buttons, got ${summary.developerReviewNavigationButtonCount}`
+    );
+  }
+  if (summary.developerReviewHashLinkCount !== 0) {
+    problems.push(
+      `developer review prompt should not use hash navigation links, got ${summary.developerReviewHashLinkCount}`
+    );
+  }
+  if (summary.missionActiveTabAfterDeveloperReviewAction !== "agents") {
+    problems.push(
+      `developer review Open agents action should activate Agents tab, got ${summary.missionActiveTabAfterDeveloperReviewAction}`
+    );
+  }
   if (summary.developerEvidencePacketPanelCount !== 1) {
     problems.push(`expected one developer evidence packet panel, got ${summary.developerEvidencePacketPanelCount}`);
   }
@@ -2031,6 +2066,16 @@ async function main() {
   }
   if (!summary.runControlReadinessIncludesGuard) {
     problems.push("run-control readiness board should expose guard pass or lock reasons");
+  }
+  if (summary.missionActionStripHashLinkCount !== 0) {
+    problems.push(
+      `mission action strip should not use hash navigation links, got ${summary.missionActionStripHashLinkCount}`
+    );
+  }
+  if (summary.missionActionStripRunDetailButtonCount !== 1) {
+    problems.push(
+      `expected one mission action in-place run-detail button, got ${summary.missionActionStripRunDetailButtonCount}`
+    );
   }
   for (const check of focusChecks) {
     if (!check.expected || check.actual !== check.expected) {

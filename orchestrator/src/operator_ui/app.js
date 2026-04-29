@@ -422,6 +422,10 @@ function bindEvents() {
   });
 
   elements.missionShell.addEventListener("click", (event) => {
+    if (handleUiNavigationAction(event)) {
+      return;
+    }
+
     const embedButton = event.target.closest("[data-mission-surface-embed]");
     if (embedButton) {
       setMissionSurfaceEmbed(embedButton.dataset.missionSurfaceEmbed);
@@ -484,7 +488,7 @@ function bindEvents() {
   elements.operatorDockSummary.addEventListener("click", (event) => {
     const missionTabButton = event.target.closest("[data-dock-mission-tab]");
     if (missionTabButton) {
-      openMissionTabFromDock(missionTabButton.dataset.dockMissionTab);
+      openMissionTabInPlace(missionTabButton.dataset.dockMissionTab);
       return;
     }
 
@@ -619,6 +623,10 @@ function bindEvents() {
   });
 
   elements.runDetailShell.addEventListener("click", (event) => {
+    if (handleUiNavigationAction(event)) {
+      return;
+    }
+
     const actionButton = event.target.closest("[data-run-action]");
     if (!actionButton) {
       return;
@@ -4110,11 +4118,36 @@ function renderOperatorDockCardAction(card) {
   return "";
 }
 
-function openMissionTabFromDock(tab) {
+function openMissionTabInPlace(tab) {
   setActiveMissionTab(tab);
   document
     .getElementById("mission-control")
     ?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function handleUiNavigationAction(event) {
+  const missionTabButton = event.target.closest("[data-ui-mission-tab]");
+  if (missionTabButton) {
+    openMissionTabInPlace(missionTabButton.dataset.uiMissionTab);
+    return true;
+  }
+
+  const scrollButton = event.target.closest("[data-ui-scroll-target]");
+  if (scrollButton) {
+    scrollToUiTarget(scrollButton.dataset.uiScrollTarget);
+    return true;
+  }
+
+  return false;
+}
+
+function scrollToUiTarget(targetId) {
+  const target = document.getElementById(String(targetId ?? "").trim());
+  if (!target) {
+    return;
+  }
+
+  target.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function renderOperatorPulse() {
@@ -5783,9 +5816,31 @@ function renderDeveloperReviewPromptPanel(reviewPrompt) {
           >
             Copy review prompt
           </button>
-          <a class="button button-ghost button-link" href="#run-tasks">Open tasks</a>
-          <a class="button button-ghost button-link" href="#run-artifacts">Open artifacts</a>
-          <a class="button button-ghost button-link" href="#mission-agents">Open agents</a>
+          <button
+            class="button button-ghost"
+            type="button"
+            data-ui-scroll-target="run-tasks"
+            data-ui-stable-key="developer-review-open:tasks"
+          >
+            Open tasks
+          </button>
+          <button
+            class="button button-ghost"
+            type="button"
+            data-ui-scroll-target="run-artifacts"
+            data-ui-stable-key="developer-review-open:artifacts"
+          >
+            Open artifacts
+          </button>
+          <button
+            class="button button-ghost"
+            type="button"
+            data-developer-review-open="agents"
+            data-ui-mission-tab="agents"
+            data-ui-stable-key="developer-review-open:agents"
+          >
+            Open agents
+          </button>
         </div>
       </div>
     </section>
@@ -6420,7 +6475,14 @@ function renderMissionActionStrip(runDetail, guide) {
           >
             ${escapeHtml(actionLabel)}
           </button>
-          <a class="button button-ghost button-link" href="#run-detail">Open selected-run guide</a>
+          <button
+            class="button button-ghost"
+            type="button"
+            data-ui-scroll-target="run-detail"
+            data-ui-stable-key="mission-action-open:run-detail"
+          >
+            Open selected-run guide
+          </button>
         </div>
       </article>
       <article class="mission-action-card">
