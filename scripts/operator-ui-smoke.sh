@@ -807,15 +807,23 @@ async function main() {
     return button && button.textContent.includes("Command copied");
   }, { timeout: 5000 });
   const copiedIssueCodexUiCommand = await page.evaluate(() => navigator.clipboard.readText());
-  await page
+  const plannedWorkflowCard = page
     .locator('[data-github-issue-workflow-select]')
     .filter({ hasText: "#43 Plan selected workbench" })
-    .first()
-    .click();
+    .first();
+  const expectedPlannedWorkflowFocusKey = await plannedWorkflowCard.getAttribute(
+    "data-ui-stable-key"
+  );
+  await plannedWorkflowCard.click();
   await page.waitForFunction(() => {
     const selected = document.querySelector('[data-github-issue-workflow-selected="true"]');
     return selected && selected.textContent.includes("#43 Plan selected workbench");
   }, { timeout: 5000 });
+  focusChecks.push({
+    surface: "github-issue-workflow",
+    expected: expectedPlannedWorkflowFocusKey,
+    actual: await stableFocusKey(page),
+  });
   const selectedPlannedWorkflowText = await page
     .locator('[data-github-issue-workflow-selected="true"]')
     .first()

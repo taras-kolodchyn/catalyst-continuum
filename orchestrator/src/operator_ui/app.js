@@ -3736,6 +3736,8 @@ function renderGithubIssueWorkflowCard(workflow, selected) {
   const reportPath = nonEmptyString(workflow.report_path);
   const syncPlan = nonEmptyString(workflow.issue_sync_plan);
   const draftPr = nonEmptyString(workflow.draft_pr_url);
+  const stableKeySource = nonEmptyString(workflow.path) || `${repository}:${refs}`;
+  const stableKey = `github-issue-workflow:${stableKeySource}`;
 
   return `
     <button
@@ -3744,6 +3746,7 @@ function renderGithubIssueWorkflowCard(workflow, selected) {
       data-github-issue-workflow-card="true"
       data-github-issue-workflow-select="${escapeHtml(workflow.path ?? "")}"
       data-github-issue-workflow-selected="${selected ? "true" : "false"}"
+      data-ui-stable-key="${escapeHtml(stableKey)}"
       aria-pressed="${selected ? "true" : "false"}"
     >
       <div class="mission-feed-head">
