@@ -151,11 +151,65 @@ EOF
     "playwright@${PLAYWRIGHT_NPM_VERSION}"
 }
 
+playwright_browser_install_stamp() {
+  printf '%s/browser-install.stamp\n' "$PLAYWRIGHT_RUNNER_DIR"
+}
+
+playwright_chromium_executable() {
+  node -e '
+const modulePath = process.argv[1];
+try {
+  const { chromium } = require(modulePath);
+  console.log(chromium.executablePath());
+} catch (_) {
+  process.exit(1);
+}
+' "$PLAYWRIGHT_RUNNER_DIR/node_modules/playwright" 2>/dev/null || true
+}
+
+playwright_browser_stamp_value() {
+  local install_args=("$@")
+  local node_platform=""
+
+  node_platform="$(node -p "process.platform + '-' + process.arch")"
+  printf 'playwright=%s\nnode=%s\nsystem=%s-%s\ninstall_args=%s\n' \
+    "$PLAYWRIGHT_NPM_VERSION" \
+    "$node_platform" \
+    "$(uname -s)" \
+    "$(uname -m)" \
+    "${install_args[*]}"
+}
+
+playwright_browser_ready() {
+  local stamp_file="$1"
+  local expected_stamp="$2"
+  local executable_path=""
+
+  if [ ! -f "$stamp_file" ]; then
+    return 1
+  fi
+  if [ "$(cat "$stamp_file")" != "$expected_stamp" ]; then
+    return 1
+  fi
+
+  executable_path="$(playwright_chromium_executable)"
+  [ -n "$executable_path" ] && [ -x "$executable_path" ]
+}
+
 ensure_playwright_browser() {
   local install_args=(install chromium)
+  local stamp_file=""
+  local expected_stamp=""
 
   if [ "${OPERATOR_UI_SMOKE_INSTALL_BROWSER_DEPS:-0}" = "1" ]; then
     install_args=(install --with-deps chromium)
+  fi
+
+  stamp_file="$(playwright_browser_install_stamp)"
+  expected_stamp="$(playwright_browser_stamp_value "${install_args[@]}")"
+  if playwright_browser_ready "$stamp_file" "$expected_stamp"; then
+    log_phase "reusing Playwright browser: playwright ${install_args[*]}"
+    return
   fi
 
   log_phase "installing Playwright browser: playwright ${install_args[*]}"
@@ -163,6 +217,7 @@ ensure_playwright_browser() {
     npm exec \
     --prefix "$PLAYWRIGHT_RUNNER_DIR" \
     -- playwright "${install_args[@]}"
+  printf '%s\n' "$expected_stamp" >"$stamp_file"
 }
 
 postgres_is_healthy() {

@@ -460,7 +460,9 @@ refresh, iframe mounts, WebSocket live updates, and stable focus behavior. It fa
 console errors, request failures, unexpected hard reloads, missing live updates, missing developer
 handoff evidence, or lost stable focus in the agent panel. On first run it installs the pinned
 Playwright package and matching Chromium browser binary under
-`.continuum/operator-ui-smoke-playwright`.
+`.continuum/operator-ui-smoke-playwright`. Later local UI smoke runs reuse that pinned browser when
+the installed version, platform, and install mode still match, which keeps `make release-check`
+faster and avoids repeating browser downloads for every repository-policy posture.
 
 Repository-policy UI coverage is split into explicit postures:
 
