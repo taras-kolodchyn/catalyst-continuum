@@ -131,7 +131,32 @@
               >
                 Copy issue preview
               </button>
+              <button
+                class="button button-ghost"
+                type="button"
+                data-copy-text-selector="#firstRunRunbookText"
+                data-copy-success-label="Runbook copied"
+                data-first-run-runbook-copy="true"
+              >
+                Copy first-run runbook
+              </button>
             </div>
+            <pre id="firstRunRunbookText" hidden>
+# Catalyst Continuum first-run runbook
+
+Use Catalyst when you want a repeatable evidence package around native coding agents, not when you only need a one-off chat.
+
+1. Try the seeded product demo:
+make solo-demo
+
+2. Package one local task for Codex, Cursor, or OpenHands:
+make dev-session TASK_RECIPE=fix-bug TASK="Describe the change" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
+
+3. Preview a GitHub issue workflow without mutating GitHub:
+make github-issue-plan REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
+
+After an agent works, review the generated evidence, quality posture, branch or PR handoff, and GitHub human-review boundary before merging.
+            </pre>
           </div>
           <ol class="hero-playbook-steps">
             <li>

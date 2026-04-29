@@ -708,7 +708,7 @@ function copyButtonText(button) {
     return "";
   }
 
-  return document.querySelector(button.dataset.copyTextSelector)?.textContent || "";
+  return document.querySelector(button.dataset.copyTextSelector)?.textContent?.trim() || "";
 }
 
 async function writeClipboardText(text) {

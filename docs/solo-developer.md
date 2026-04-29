@@ -84,7 +84,9 @@ links back to brief intake and can copy `make solo-demo` so the first demo run i
 command away.
 The top first-run playbook also exposes copy buttons for `make solo-demo`, a native-agent
 `make dev-session ...` package, and the GitHub issue preview command, so a new user can move from
-explanation to a runnable terminal step without searching the docs.
+explanation to a runnable terminal step without searching the docs. When you are unsure which path
+to choose, copy the first-run runbook from the same playbook; it summarizes demo, native-agent, and
+GitHub issue options in one clipboard packet.
 
 When work starts from GitHub issues, also open `GitHub Issue Workbench` in the same UI. It shows
 recent issue workflows, lets you switch between packages without a page refresh, and explains

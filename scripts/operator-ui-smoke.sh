@@ -549,6 +549,12 @@ async function main() {
     return button && button.textContent.includes("Issue preview copied");
   }, { timeout: 5000 });
   const copiedFirstRunIssueCommand = await page.evaluate(() => navigator.clipboard.readText());
+  await page.locator('[data-first-run-runbook-copy="true"]').first().click();
+  await page.waitForFunction(() => {
+    const button = document.querySelector('[data-first-run-runbook-copy="true"]');
+    return button && button.textContent.includes("Runbook copied");
+  }, { timeout: 5000 });
+  const copiedFirstRunRunbook = await page.evaluate(() => navigator.clipboard.readText());
 
   await page.click('[data-mission-tab="developer"]');
   await page.waitForSelector('[data-developer-codex-command-card="true"]', { timeout: 10000 });
@@ -774,11 +780,14 @@ async function main() {
       heroHeading: document.querySelector("h1")?.textContent?.trim() || "",
       firstRunPlaybookHeading: text("#first-run-playbook h2"),
       firstRunPlaybookStepCount: count("#first-run-playbook li"),
-      firstRunPlaybookCopyButtonCount: count("#first-run-playbook [data-copy-command]"),
+      firstRunPlaybookCopyButtonCount: count(
+        "#first-run-playbook [data-copy-command], #first-run-playbook [data-copy-text-selector]"
+      ),
       firstRunPlaybookIncludesCommands:
         document.body.textContent.includes("Copy demo command") &&
         document.body.textContent.includes("Copy agent session") &&
-        document.body.textContent.includes("Copy issue preview"),
+        document.body.textContent.includes("Copy issue preview") &&
+        document.body.textContent.includes("Copy first-run runbook"),
       briefReadinessItemCount: count("[data-brief-readiness-item]"),
       briefReadinessBadge: text("#briefReadinessBadge"),
       briefReadinessIncludesRepository:
@@ -1067,6 +1076,7 @@ async function main() {
     copiedFirstRunDemoCommand,
     copiedFirstRunDevSessionCommand,
     copiedFirstRunIssueCommand,
+    copiedFirstRunRunbook,
     copiedReviewPrompt,
     copiedEvidencePaths,
     copiedNextCommand,
@@ -1123,14 +1133,14 @@ async function main() {
   if (summary.firstRunPlaybookStepCount !== 4) {
     problems.push(`expected 4 first-run playbook steps, got ${summary.firstRunPlaybookStepCount}`);
   }
-  if (summary.firstRunPlaybookCopyButtonCount !== 3) {
+  if (summary.firstRunPlaybookCopyButtonCount !== 4) {
     problems.push(
-      `expected 3 first-run playbook copy buttons, got ${summary.firstRunPlaybookCopyButtonCount}`
+      `expected 4 first-run playbook copy buttons, got ${summary.firstRunPlaybookCopyButtonCount}`
     );
   }
   if (!summary.firstRunPlaybookIncludesCommands) {
     problems.push(
-      "first-run playbook should expose demo, agent-session, and issue-preview copy actions"
+      "first-run playbook should expose demo, agent-session, issue-preview, and runbook copy actions"
     );
   }
   if (copiedFirstRunDemoCommand !== "make solo-demo") {
@@ -1145,6 +1155,14 @@ async function main() {
     problems.push(
       `first-run issue-preview copy should write the GitHub issue plan command, got ${copiedFirstRunIssueCommand}`
     );
+  }
+  if (
+    !copiedFirstRunRunbook.includes("# Catalyst Continuum first-run runbook") ||
+    !copiedFirstRunRunbook.includes("make solo-demo") ||
+    !copiedFirstRunRunbook.includes("make dev-session") ||
+    !copiedFirstRunRunbook.includes("make github-issue-plan")
+  ) {
+    problems.push("first-run runbook copy should include the demo, agent-session, and issue-preview commands");
   }
   if (summary.briefReadinessItemCount !== 4) {
     problems.push(`expected 4 brief readiness items, got ${summary.briefReadinessItemCount}`);
