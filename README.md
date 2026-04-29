@@ -478,7 +478,9 @@ make release-check
 ```
 
 That target keeps the normal `make ci` path intact, then adds the release-only doctor and operator UI
-policy postures.
+policy postures. Because `make ci` already builds the orchestrator, the release-only solo demo and
+UI smoke stages reuse the existing debug binary to keep the local alpha gate focused on behavior
+rather than repeated compilation.
 
 ## Validate OpenHands
 

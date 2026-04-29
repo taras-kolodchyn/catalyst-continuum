@@ -99,7 +99,11 @@ ci: versions markdown-links lint-shell lint-ui-assets repository-targets-smoke t
 ci-full: ci sbom ## Run broad local validation plus SBOM generation.
 
 .PHONY: release-check
-release-check: doctor ci solo-demo-check ui-smoke ui-smoke-repository-policy ui-smoke-repository-policy-blocked ## Run the v0.1 release-baseline validation gate.
+release-check: doctor ci ## Run the v0.1 release-baseline validation gate.
+	$(MAKE) solo-demo-check SOLO_DEMO_ARGS="--skip-build $(SOLO_DEMO_ARGS)"
+	$(MAKE) ui-smoke OPERATOR_UI_SMOKE_ARGS="--skip-build $(OPERATOR_UI_SMOKE_ARGS)"
+	$(MAKE) ui-smoke-repository-policy OPERATOR_UI_SMOKE_ARGS="--skip-build $(OPERATOR_UI_SMOKE_ARGS)"
+	$(MAKE) ui-smoke-repository-policy-blocked OPERATOR_UI_SMOKE_ARGS="--skip-build $(OPERATOR_UI_SMOKE_ARGS)"
 
 .PHONY: start
 start: alpha-guide ## Show the shortest alpha first-run and real-repository path.
