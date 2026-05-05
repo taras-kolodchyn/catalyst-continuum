@@ -40,6 +40,9 @@ When you return to a checkout and want to know what Catalyst thinks the next use
 make status
 ```
 
+Use `make status STATUS_ARGS=--json` when a local UI, script, or agent needs the same state as a
+stable machine-readable payload instead of terminal prose.
+
 Run the seeded first-run demo when you want to see the product without connecting a real
 repository:
 
@@ -336,6 +339,7 @@ make github-issue-review
 make github-issue-next-command
 make github-issue-sync-command
 make status
+make status STATUS_ARGS=--json
 make github-issue-codex-ui
 make github-issue-run REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout GITHUB_ISSUE=123 GITHUB_ISSUE_CLAIM=1 GITHUB_ISSUE_REQUIRE_CLEAN_CHECKOUT=1
 make github-issue-run REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout REPOSITORY_TARGET_ID=primary GITHUB_ISSUE=123 GITHUB_ISSUE_CREATE_DRAFT_PR=1 GITHUB_ISSUE_REQUIRE_CLEAN_CHECKOUT=1

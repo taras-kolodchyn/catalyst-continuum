@@ -29,6 +29,15 @@ make status
 It combines the latest solo-developer next action with the latest GitHub issue workflow command and
 links back to the core inspection targets.
 
+For UI panels, scripts, or agents that need the same state without parsing terminal text, use:
+
+```bash
+make status STATUS_ARGS=--json
+```
+
+The JSON payload keeps the solo-developer and GitHub issue workflow surfaces separate, then exposes a
+single `primary_next_action` for the next most useful command.
+
 Catalyst Continuum should not make developers give up the native Codex, Cursor, or OpenHands
 experience. Those tools already provide strong interactive coding UX, host-access modes, and
 sandbox modes. The orchestrator adds value when it acts as the repository task broker: pick or

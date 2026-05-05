@@ -61,6 +61,16 @@ make status
 That prints the latest solo-developer next action, the latest GitHub issue workflow command, and the
 most useful follow-up targets without requiring you to remember where artifacts were written.
 
+When another local tool needs the same state, use:
+
+```bash
+make status STATUS_ARGS=--json
+```
+
+That emits the same recovery view as JSON with a top-level `primary_next_action`, separate
+solo-developer and GitHub issue workflow recommendations, and the raw artifact summaries that the
+status view used.
+
 Run:
 
 ```bash
