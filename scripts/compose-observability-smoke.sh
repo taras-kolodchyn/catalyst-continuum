@@ -68,19 +68,11 @@ if [ ! -f "$ENV_FILE" ]; then
 fi
 
 append_ephemeral_port_overrides() {
-  python3 - "$@" <<'PY'
-from __future__ import annotations
+  local variable_name
 
-import socket
-import sys
-
-allocated_sockets = []
-for variable_name in sys.argv[1:]:
-    sock = socket.socket()
-    sock.bind(("127.0.0.1", 0))
-    allocated_sockets.append(sock)
-    print(f"{variable_name}={sock.getsockname()[1]}")
-PY
+  for variable_name in "$@"; do
+    printf '%s=0\n' "$variable_name"
+  done
 }
 
 PROJECT_NAME="${COMPOSE_OBSERVABILITY_SMOKE_PROJECT_NAME:-catalyst-continuum-observability-smoke-$$}"
@@ -94,6 +86,29 @@ HTTP_PROBE_FILE="$TEMP_DIR/http-probe.out"
 
 compose_cmd() {
   docker compose -p "$PROJECT_NAME" --env-file "$COMPOSE_ENV_FILE" -f "$COMPOSE_FILE" "$@"
+}
+
+resolve_compose_port() {
+  local service_name="$1"
+  local container_port="$2"
+  local published_port
+
+  published_port="$(compose_cmd port "$service_name" "$container_port" | tail -n 1 || true)"
+  if [ -z "$published_port" ]; then
+    echo "compose service did not publish port: ${service_name}:${container_port}" >&2
+    exit 1
+  fi
+
+  printf '%s\n' "${published_port##*:}"
+}
+
+resolve_published_ports() {
+  LOKI_PORT="$(resolve_compose_port loki 3100)"
+  TEMPO_PORT="$(resolve_compose_port tempo 3200)"
+  PROMETHEUS_PORT="$(resolve_compose_port prometheus 9090)"
+  GRAFANA_PORT="$(resolve_compose_port grafana 3000)"
+  LITELLM_PORT="$(resolve_compose_port litellm 4000)"
+  ORCHESTRATOR_PORT="$(resolve_compose_port orchestrator 8080)"
 }
 
 cleanup() {
@@ -299,6 +314,7 @@ if [ "$NO_BUILD" -eq 0 ]; then
   up_args+=(--build)
 fi
 compose_cmd "${up_args[@]}" orchestrator worker litellm grafana >/dev/null
+resolve_published_ports
 
 wait_for_http "Prometheus health" "http://127.0.0.1:${PROMETHEUS_PORT}/-/healthy"
 wait_for_http "Loki readiness" "http://127.0.0.1:${LOKI_PORT}/ready"
