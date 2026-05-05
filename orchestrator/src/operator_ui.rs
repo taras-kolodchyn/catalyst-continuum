@@ -1,4 +1,5 @@
 mod github_issues;
+mod local_status;
 mod websocket;
 
 use reqwest::{StatusCode as HttpStatusCode, blocking::Client, redirect::Policy};
@@ -14,6 +15,7 @@ use crate::{
 };
 
 use github_issues::{OperatorUiGithubIssueWorkflowSnapshot, github_issue_workflow_snapshot};
+use local_status::{OperatorUiLocalStatusSnapshot, local_status_snapshot};
 
 const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; connect-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self'; frame-src 'self' http://127.0.0.1:3000 http://localhost:3000 http://127.0.0.1:4000 http://localhost:4000; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'";
 const INDEX_HTML: &str = include_str!("operator_ui/index.html");
@@ -88,7 +90,13 @@ pub fn dashboard_snapshot(
         Ok(document) => OperatorUiDataEnvelope::success(StatusCode(200).0, document),
         Err(error) => OperatorUiDataEnvelope::error(StatusCode(500).0, error.to_string()),
     };
-    let github_issue_workflows = match github_issue_workflow_snapshot(artifact_root, 3) {
+    let github_issue_workflows_snapshot = github_issue_workflow_snapshot(artifact_root, 3);
+    let local_status =
+        match local_status_snapshot(artifact_root, github_issue_workflows_snapshot.as_ref().ok()) {
+            Ok(snapshot) => OperatorUiDataEnvelope::success(StatusCode(200).0, snapshot),
+            Err(error) => OperatorUiDataEnvelope::error(StatusCode(500).0, error.to_string()),
+        };
+    let github_issue_workflows = match github_issue_workflows_snapshot {
         Ok(snapshot) => OperatorUiDataEnvelope::success(StatusCode(200).0, snapshot),
         Err(error) => OperatorUiDataEnvelope::error(StatusCode(500).0, error.to_string()),
     };
@@ -99,6 +107,7 @@ pub fn dashboard_snapshot(
         surfaces,
         config,
         packs,
+        local_status,
         github_issue_workflows,
     }
 }
@@ -388,6 +397,7 @@ pub struct OperatorUiDashboardSnapshotResponse {
     pub surfaces: OperatorUiDataEnvelope<OperatorUiLocalSurfaceSnapshot>,
     pub config: OperatorUiDataEnvelope<InstanceConfigReport>,
     pub packs: OperatorUiDataEnvelope<PackCatalogDocument>,
+    pub local_status: OperatorUiDataEnvelope<OperatorUiLocalStatusSnapshot>,
     pub github_issue_workflows: OperatorUiDataEnvelope<OperatorUiGithubIssueWorkflowSnapshot>,
 }
 
@@ -515,6 +525,7 @@ mod tests {
         assert!(snapshot.surfaces.ok);
         assert!(snapshot.config.ok);
         assert!(snapshot.packs.ok);
+        assert!(snapshot.local_status.ok);
         assert!(snapshot.github_issue_workflows.ok);
         assert_eq!(
             snapshot

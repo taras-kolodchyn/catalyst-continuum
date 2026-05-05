@@ -17,6 +17,7 @@ const MISSION_SURFACE_EMBED_KEYS = ["grafana", "litellm"];
 const GRAFANA_OVERVIEW_DASHBOARD_PATH =
   "/d/catalyst-continuum-overview/catalyst-continuum-overview?orgId=1&refresh=10s&kiosk";
 const DASHBOARD_LOADING_CARD_TITLES = [
+  "Local next step",
   "Control plane",
   "AI gateway",
   "Runtime provider",
@@ -1040,6 +1041,8 @@ function applyRealtimeDashboardSnapshot(snapshot = {}) {
       snapshot.surfaces ?? failedEnvelope(new Error("missing surface snapshot")),
     config: snapshot.config ?? failedEnvelope(new Error("missing config snapshot")),
     packs: snapshot.packs ?? failedEnvelope(new Error("missing packs snapshot")),
+    localStatus:
+      snapshot.local_status ?? failedEnvelope(new Error("missing local status snapshot")),
     githubIssueWorkflows:
       snapshot.github_issue_workflows ??
       failedEnvelope(new Error("missing GitHub issue workflow snapshot")),
@@ -1185,6 +1188,15 @@ async function refreshDashboard() {
             : formatEnvelopeError(dashboardEnvelope)
         )
       );
+    const localStatusEnvelope =
+      dashboardEnvelope.data?.local_status ??
+      failedEnvelope(
+        new Error(
+          dashboardEnvelope.ok
+            ? "missing local status snapshot"
+            : formatEnvelopeError(dashboardEnvelope)
+        )
+      );
     const githubIssueWorkflowsEnvelope =
       dashboardEnvelope.data?.github_issue_workflows ??
       failedEnvelope(
@@ -1201,6 +1213,7 @@ async function refreshDashboard() {
       surfaces: surfacesEnvelope,
       config: configEnvelope,
       packs: packsEnvelope,
+      localStatus: localStatusEnvelope,
       githubIssueWorkflows: githubIssueWorkflowsEnvelope,
     });
     renderPackChips(packsEnvelope.data);
@@ -2176,8 +2189,13 @@ function renderStatusGrid(payload) {
     surfaces: payload.surfaces ?? null,
     config: payload.config ?? null,
     packs: payload.packs ?? null,
+    localStatus: payload.localStatus ?? null,
     githubIssueWorkflows: payload.githubIssueWorkflows ?? null,
   };
+  const localStatusEnvelope =
+    payload.localStatus ?? failedEnvelope(new Error("missing local status snapshot"));
+  const localStatus = localStatusEnvelope.data ?? {};
+  const localNextAction = localStatus.primary_next_action ?? {};
   const readyz = payload.readyz?.data ?? {};
   const gateway = payload.aiGateway?.data ?? {};
   const config = payload.config?.data ?? {};
@@ -2202,6 +2220,25 @@ function renderStatusGrid(payload) {
   setRenderedHtml(elements.capabilityGrid, capabilityCards.join(""));
 
   setRenderedHtml(elements.statusGrid, [
+    renderStatusCard({
+      title: "Local next step",
+      statusClass: localStatusEnvelope.ok && localNextAction.command ? "success" : "warning",
+      badge:
+        localNextAction.source === "github_issue_workflow"
+          ? "issue workflow"
+          : localNextAction.source === "solo_developer"
+            ? "solo developer"
+            : "unknown",
+      primary: localNextAction.label ?? "No next action available",
+      secondary:
+        localNextAction.command ??
+        formatEnvelopeError(localStatusEnvelope) ??
+        "Refresh after creating a session or run.",
+      detail: `Evidence ${friendlySourcePath(
+        localNextAction.primary_path ?? localNextAction.artifact_path,
+        "not created yet"
+      )}`,
+    }),
     renderStatusCard({
       title: "Control plane",
       statusClass: payload.readyz?.ok ? "success" : "warning",

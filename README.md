@@ -40,8 +40,10 @@ When you return to a checkout and want to know what Catalyst thinks the next use
 make status
 ```
 
-Use `make status STATUS_ARGS=--json` when a local UI, script, or agent needs the same state as a
-stable machine-readable payload instead of terminal prose.
+Use `make status STATUS_ARGS=--json` when a local UI, script, or agent needs the same next-action
+state as a stable machine-readable payload instead of terminal prose. The operator UI renders that
+same local next-step decision as the first dashboard card, so a returning developer can see the next
+command before diving into run or GitHub issue details.
 
 Run the seeded first-run demo when you want to see the product without connecting a real
 repository:
@@ -279,8 +281,8 @@ The closed `v0.1` baseline is Docker-first and local-development friendly:
 - Postgres-backed run, task, artifact, webhook, repository-signal, and event state.
 - Docker runtime-provider execution with sandbox profiles, task timeouts, and retry/reclaim paths.
 - LiteLLM gateway with local model aliases, Redis cache, Postgres state, and OpenTelemetry export.
-- Built-in operator UI at `/ui` with WebSocket live updates, Mission Control, agent panels, logs,
-  Grafana, and LiteLLM embeds.
+- Built-in operator UI at `/ui` with WebSocket live updates, a local next-step dashboard card,
+  Mission Control, agent panels, logs, Grafana, and LiteLLM embeds.
 - OpenHands launch profiles for host-full-access and container-sandbox workflows.
 - Codex app-server bridge for starting generated Catalyst prompts through Codex while preserving
   thread and turn evidence.
