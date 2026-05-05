@@ -2674,6 +2674,7 @@ textarea {
   appearance: none;
   border: 0;
   border-radius: 999px;
+  font-family: inherit;
   padding: 11px 16px;
   font-weight: 700;
   letter-spacing: 0.01em;
@@ -3273,10 +3274,13 @@ textarea {
   justify-content: center;
   gap: 8px;
   min-height: 36px;
+  appearance: none;
   border: 1px solid rgba(23, 79, 67, 0.12);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.58);
   color: var(--spruce);
+  cursor: pointer;
+  font-family: inherit;
   font-size: 0.86rem;
   font-weight: 800;
   padding: 8px 13px;

@@ -82,6 +82,7 @@ rendered_markup = app + "\n" + index
 for pattern, message in {
     r"<[^>]+\son[a-zA-Z]+\s*=": "inline event handlers are not allowed in operator UI markup",
     r"javascript\s*:": "javascript: URLs are not allowed in operator UI markup",
+    r"<a\b[^>]*href=(['\"])#[^'\"]*\1": "hash anchors are not allowed in operator UI markup; use data-ui-scroll-target buttons",
 }.items():
     match = re.search(pattern, rendered_markup, re.I | re.S)
     if match:

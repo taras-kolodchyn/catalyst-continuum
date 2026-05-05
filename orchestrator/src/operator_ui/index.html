@@ -27,18 +27,34 @@
             <div class="hero-path-nav">
               <p class="panel-kicker">Manual Operator Path</p>
               <div class="hero-jump-row">
-                <a class="button button-primary button-link" href="#brief-intake">
+                <button
+                  class="button button-primary button-link"
+                  type="button"
+                  data-ui-scroll-target="brief-intake"
+                >
                   Start with brief
-                </a>
-                <a class="button button-ghost button-link" href="#run-ledger">
+                </button>
+                <button
+                  class="button button-ghost button-link"
+                  type="button"
+                  data-ui-scroll-target="run-ledger"
+                >
                   Review runs
-                </a>
-                <a class="button button-ghost button-link" href="#run-detail">
+                </button>
+                <button
+                  class="button button-ghost button-link"
+                  type="button"
+                  data-ui-scroll-target="run-detail"
+                >
                   Selected run guide
-                </a>
-                <a class="button button-ghost button-link" href="#automation-rail">
+                </button>
+                <button
+                  class="button button-ghost button-link"
+                  type="button"
+                  data-ui-scroll-target="automation-rail"
+                >
                   Optional automation
-                </a>
+                </button>
               </div>
             </div>
           </div>
@@ -764,12 +780,20 @@ After an agent works, review the generated evidence, quality posture, branch or 
               <li>Use the selected-run guide below to advance execution, quality, and PR handoff.</li>
             </ol>
             <div class="empty-state-actions">
-              <a class="button button-primary button-link" href="#brief-intake">
+              <button
+                class="button button-primary button-link"
+                type="button"
+                data-ui-scroll-target="brief-intake"
+              >
                 Jump to brief intake
-              </a>
-              <a class="button button-ghost button-link" href="#run-ledger">
+              </button>
+              <button
+                class="button button-ghost button-link"
+                type="button"
+                data-ui-scroll-target="run-ledger"
+              >
                 Jump to recent runs
-              </a>
+              </button>
             </div>
           </div>
 
@@ -789,11 +813,21 @@ After an agent works, review the generated evidence, quality posture, branch or 
               class="run-section-nav"
               aria-label="Selected run sections"
             >
-              <a class="run-section-link" href="#run-guide">Guide</a>
-              <a class="run-section-link" href="#run-controls">Controls</a>
-              <a class="run-section-link" href="#run-tasks">Tasks</a>
-              <a class="run-section-link" href="#run-artifacts">Artifacts</a>
-              <a class="run-section-link" href="#run-events">Events</a>
+              <button class="run-section-link" type="button" data-ui-scroll-target="run-guide">
+                Guide
+              </button>
+              <button class="run-section-link" type="button" data-ui-scroll-target="run-controls">
+                Controls
+              </button>
+              <button class="run-section-link" type="button" data-ui-scroll-target="run-tasks">
+                Tasks
+              </button>
+              <button class="run-section-link" type="button" data-ui-scroll-target="run-artifacts">
+                Artifacts
+              </button>
+              <button class="run-section-link" type="button" data-ui-scroll-target="run-events">
+                Events
+              </button>
             </nav>
 
             <section id="run-guide" class="detail-section guide-section">

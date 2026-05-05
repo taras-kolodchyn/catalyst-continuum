@@ -1091,11 +1091,15 @@ async function main() {
         document.querySelector("#runGuideProgressMeter")?.getAttribute("aria-valuenow") || "",
       runGuideProgressMax:
         document.querySelector("#runGuideProgressMeter")?.getAttribute("aria-valuemax") || "",
-      runSectionNavLinkCount: count("#runSectionNav a"),
+      heroPathHashLinkCount: count(".hero-path-nav a[href^='#']"),
+      detailEmptyStateHashLinkCount: count("#detailEmptyState a[href^='#']"),
+      runLedgerEmptyStateHashLinkCount: count('[data-run-ledger-empty-state="true"] a[href^="#"]'),
+      runSectionNavButtonCount: count("#runSectionNav [data-ui-scroll-target]"),
+      runSectionNavHashLinkCount: count("#runSectionNav a[href^='#']"),
       runSectionNavBadgeCount: count("[data-run-section-count]"),
       runSectionNavIncludesArtifacts:
-        Array.from(document.querySelectorAll("#runSectionNav a")).some(
-          (link) => link.getAttribute("href") === "#run-artifacts"
+        Array.from(document.querySelectorAll("#runSectionNav [data-ui-scroll-target]")).some(
+          (button) => button.dataset.uiScrollTarget === "run-artifacts"
         ),
       runSectionNavGuideText: text('[data-run-section-count="guide"]'),
       runSectionNavTaskText: text('[data-run-section-count="tasks"]'),
@@ -1974,8 +1978,24 @@ async function main() {
       `completed smoke run should show 6/6 guide progress, got ${summary.runGuideProgressNow}/${summary.runGuideProgressMax}`
     );
   }
-  if (summary.runSectionNavLinkCount !== 5) {
-    problems.push(`expected five selected-run nav links, got ${summary.runSectionNavLinkCount}`);
+  if (summary.heroPathHashLinkCount !== 0) {
+    problems.push(`hero path should use in-place buttons, got ${summary.heroPathHashLinkCount} hash links`);
+  }
+  if (summary.detailEmptyStateHashLinkCount !== 0) {
+    problems.push(
+      `detail empty state should use in-place buttons, got ${summary.detailEmptyStateHashLinkCount} hash links`
+    );
+  }
+  if (summary.runLedgerEmptyStateHashLinkCount !== 0) {
+    problems.push(
+      `run ledger empty state should use in-place buttons, got ${summary.runLedgerEmptyStateHashLinkCount} hash links`
+    );
+  }
+  if (summary.runSectionNavButtonCount !== 5) {
+    problems.push(`expected five selected-run nav buttons, got ${summary.runSectionNavButtonCount}`);
+  }
+  if (summary.runSectionNavHashLinkCount !== 0) {
+    problems.push(`selected-run nav should not use hash links, got ${summary.runSectionNavHashLinkCount}`);
   }
   if (summary.runSectionNavBadgeCount !== 5) {
     problems.push(`expected five selected-run nav status badges, got ${summary.runSectionNavBadgeCount}`);

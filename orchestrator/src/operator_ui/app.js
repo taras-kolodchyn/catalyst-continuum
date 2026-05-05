@@ -401,6 +401,13 @@ function bindEvents() {
     });
   });
 
+  elements.pageShell.addEventListener("click", (event) => {
+    if (event.defaultPrevented) {
+      return;
+    }
+    handleUiNavigationAction(event);
+  });
+
   elements.firstRunPlaybook.addEventListener("click", (event) => {
     const copyTextButton = event.target.closest("[data-copy-command], [data-copy-text-selector]");
     if (!copyTextButton) {
@@ -10837,10 +10844,12 @@ function compactGuideProgress(guide) {
 }
 
 function renderRunSectionLink(link) {
+  const targetId = hashHrefTargetId(link.href) || link.key;
   return `
-    <a
+    <button
       class="run-section-link"
-      href="${escapeHtml(link.href)}"
+      type="button"
+      data-ui-scroll-target="${escapeHtml(targetId)}"
       data-run-section-link="${escapeHtml(link.key)}"
       data-ui-stable-key="run-section:${escapeHtml(link.key)}"
     >
@@ -10848,7 +10857,7 @@ function renderRunSectionLink(link) {
       <span class="run-section-count" data-run-section-count="${escapeHtml(link.key)}">
         ${escapeHtml(link.detail)}
       </span>
-    </a>
+    </button>
   `;
 }
 
@@ -12041,11 +12050,12 @@ function renderEmptyStateMarkup(options = {}) {
                     </button>
                   `;
                 }
-                return `
-                  <a class="button ${variant} button-link" href="${escapeHtml(action.href ?? "#")}">
-                    ${escapeHtml(action.label ?? "Open")}
-                  </a>
-                `;
+                return renderUiAction({
+                  className: `button ${variant}`,
+                  href: action.href ?? "#",
+                  label: action.label ?? "Open",
+                  stableKey: nonEmptyString(action.stableKey) || "",
+                });
               })
               .join("")}
           </div>
