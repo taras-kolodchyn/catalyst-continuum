@@ -52,6 +52,15 @@ make start
 It prints the shortest solo-developer path: local demo, GitHub issue preview, native-agent prompt
 handoff, evidence run, review, and release-readiness checks.
 
+When you come back later and only need to know the current local state, run:
+
+```bash
+make status
+```
+
+That prints the latest solo-developer next action, the latest GitHub issue workflow command, and the
+most useful follow-up targets without requiring you to remember where artifacts were written.
+
 Run:
 
 ```bash

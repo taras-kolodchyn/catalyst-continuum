@@ -60,6 +60,7 @@ OPERATOR_UI_SMOKE_ARGS ?=
 OPERATOR_UI_REPOSITORY_TARGETS_FILE ?=
 PACK ?=
 SOLO_DEMO_ARGS ?=
+STATUS_ARGS ?=
 REPOSITORY ?=
 REPOSITORY_ALLOW_READONLY ?=
 REPOSITORY_DEFAULT_BRANCH ?=
@@ -107,6 +108,10 @@ release-check: doctor ci ## Run the v0.1 release-baseline validation gate.
 
 .PHONY: start
 start: alpha-guide ## Show the shortest alpha first-run and real-repository path.
+
+.PHONY: status
+status: ## Show local Catalyst status and the next useful developer command.
+	@./scripts/status.sh $(if $(CONTINUUM_ROOT),--root "$(CONTINUUM_ROOT)") $(STATUS_ARGS)
 
 .PHONY: alpha-guide
 alpha-guide: ## Show the solo-developer alpha guide and recommended commands.

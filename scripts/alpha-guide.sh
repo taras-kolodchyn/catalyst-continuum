@@ -181,6 +181,9 @@ Value:
 Fastest local demo:
   make solo-demo
 
+Where am I now?
+  make status
+
 Real GitHub issue path:
   1. Preview the next safe work package:
      make github-issue-plan $REPOSITORY_ARG $REPO_PATH_ARG $ISSUE_SELECTOR

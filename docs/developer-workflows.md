@@ -20,6 +20,15 @@ make start
 That prints the recommended demo, GitHub issue preview, native-agent handoff, evidence run, review,
 and release-readiness commands without requiring you to read the full workflow catalog.
 
+If you already have local Catalyst artifacts and just need to recover the next step, run:
+
+```bash
+make status
+```
+
+It combines the latest solo-developer next action with the latest GitHub issue workflow command and
+links back to the core inspection targets.
+
 Catalyst Continuum should not make developers give up the native Codex, Cursor, or OpenHands
 experience. Those tools already provide strong interactive coding UX, host-access modes, and
 sandbox modes. The orchestrator adds value when it acts as the repository task broker: pick or

@@ -246,8 +246,14 @@ if 'id="missionGrafanaPanel"' not in html or 'id="missionLitellmPanel"' not in h
     raise SystemExit("operator UI smoke failed: missing mission embedded-surface panels")
 if "Follow the flow without leaving the operator surface" not in html:
     raise SystemExit("operator UI smoke failed: missing mission-control operator framing")
-if "Manual Operator Path" not in html or 'href="#brief-intake"' not in html:
-    raise SystemExit("operator UI smoke failed: missing manual-path jump navigation")
+required_manual_path_targets = [
+    'data-ui-scroll-target="brief-intake"',
+    'data-ui-scroll-target="run-ledger"',
+    'data-ui-scroll-target="run-detail"',
+    'data-ui-scroll-target="automation-rail"',
+]
+if "Manual Operator Path" not in html or not all(target in html for target in required_manual_path_targets):
+    raise SystemExit("operator UI smoke failed: missing in-place manual-path navigation")
 if "What you can do right now" not in html or 'id="capabilityGrid"' not in html:
     raise SystemExit("operator UI smoke failed: missing operator-readiness capability summary")
 if "System Health" not in html or "not the normal place" not in html:
