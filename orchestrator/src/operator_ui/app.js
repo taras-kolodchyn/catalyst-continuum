@@ -5222,6 +5222,13 @@ function renderMissionDeveloperPanel() {
     reviewItems,
     evidenceCards
   );
+  const valueReceipt = buildDeveloperValueReceipt(
+    runDetail,
+    summary,
+    reviewItems,
+    evidenceCards,
+    agentDigestItems
+  );
   const readyReviewItems = reviewItems.filter((item) => item.ready).length;
 
   setRenderedHtml(
@@ -5232,10 +5239,11 @@ function renderMissionDeveloperPanel() {
         ${renderDeveloperNextCommandPanel(runDetail, guide)}
         ${renderDeveloperLiveBriefPanel(liveBrief, summary)}
         ${renderDeveloperGithubUpdatePanel(githubUpdate)}
+        ${renderDeveloperValueReceiptPanel(valueReceipt, summary)}
         ${renderDeveloperReviewPromptPanel(reviewPrompt)}
         ${renderDeveloperEvidencePacketPanel(runDetail)}
         ${renderDeveloperCodexAppServerPanel(runDetail)}
-        <section class="developer-value-shell">
+        <section class="developer-value-shell" id="developer-value-cards">
           <div class="detail-section-head">
             <div>
               <p class="panel-kicker">Developer value</p>
@@ -5602,7 +5610,9 @@ function buildDeveloperLiveBrief(
   const nextCommand = developerNextTerminalCommand(runDetail, guide);
   const evidenceLines = evidenceCards.map(
     (item) =>
-      `- ${item.kicker}: ${item.count} artifact(s), latest ${item.latest ? formatTimestamp(item.latest) : "not recorded"}`
+      `- ${item.kicker}: ${item.count} artifact(s), latest ${
+        item.latest ? formatTimestamp(item.latest) : "not recorded"
+      }`
   );
   const reviewLines = reviewItems.map(
     (item) => `- ${item.status}: ${item.title} - ${item.detail}`
@@ -5812,6 +5822,113 @@ function renderDeveloperGithubUpdatePanel(githubUpdate) {
             label: "Open controls",
             stableKey: "developer-github-update-open:controls",
             targetId: "run-controls",
+          })}
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function buildDeveloperValueReceipt(
+  runDetail,
+  summary,
+  reviewItems,
+  evidenceCards,
+  agentDigestItems
+) {
+  const artifactTypes = runArtifactTypes(runDetail);
+  const artifacts = runArtifacts(runDetail);
+  const taskCounts = normalizedTaskCounts(runDetail.task_counts);
+  const eventCount = Array.isArray(state.selectedRunEvents) ? state.selectedRunEvents.length : 0;
+  const guard = reviewItems.find((item) => item.title === "Repository guard");
+  const handoffReady = artifactTypes.has(DEVELOPER_HANDOFF_ARTIFACT_TYPE);
+  const qualityReady = artifactTypes.has(QUALITY_REPORT_ARTIFACT_TYPE);
+  const prEvidenceCount = [
+    PR_CANDIDATE_ARTIFACT_TYPE,
+    PR_EXPORT_ARTIFACT_TYPE,
+    PR_PUBLICATION_ARTIFACT_TYPE,
+    GITHUB_PULL_REQUEST_ARTIFACT_TYPE,
+  ].filter((artifactType) => artifactTypes.has(artifactType)).length;
+  const agentLines = agentDigestItems.length
+    ? agentDigestItems.map(
+        (item) =>
+          `- ${item.agent}: ${item.counts.succeeded}/${item.counts.total} task(s) succeeded, ${item.counts.failed} failed, ${item.counts.running} running`
+      )
+    : ["- No assigned agent lanes are recorded yet."];
+  const evidenceLines = evidenceCards.length
+    ? evidenceCards.map(
+        (item) =>
+          `- ${item.kicker}: ${item.count} artifact(s), latest ${
+            item.latest ? formatTimestamp(item.latest) : "not recorded"
+          }`
+      )
+    : ["- No evidence groups are recorded yet."];
+
+  return [
+    "# Catalyst Continuum value receipt",
+    "",
+    `Run: ${runDetail.title ?? "Untitled run"} (${shortId(runDetail.run_id)})`,
+    `Repository: ${repositoryLabel(runDetail) || "no repository target"}`,
+    `Status: ${displayRunStatus(runDetail.status)}`,
+    "",
+    "Why this adds value beyond a native coding-agent session:",
+    `- Bounded work: ${taskCounts.succeeded}/${taskCounts.total} task(s) succeeded, ${taskCounts.failed} failed, ${taskCounts.running} running, ${taskCounts.queued} queued.`,
+    `- Persistent ledger: ${artifacts.length} artifact(s) and ${eventCount} run event(s) are attached to one run ID instead of scattered across chat history.`,
+    `- Agent visibility: ${agentDigestItems.length || runAgents(runDetail).length} agent lane(s) are visible with reports and logs.`,
+    `- Quality gate: ${qualityReady ? "quality evidence exists for review" : "quality evidence is still pending"}.`,
+    `- Repository guard: ${guard?.status ?? "not evaluated"} - ${guard?.detail ?? "No repository guard detail recorded."}`,
+    `- Review handoff: ${handoffReady ? "copy-ready handoff and review prompt exist" : "developer handoff is still pending"}.`,
+    `- PR package: ${prEvidenceCount}/4 PR handoff artifact(s) are recorded.`,
+    "",
+    "Agent lanes:",
+    ...agentLines,
+    "",
+    "Evidence groups:",
+    ...evidenceLines,
+    "",
+    `Next useful action: ${summary.title}`,
+    summary.detail,
+    "",
+    "Use this receipt in a PR description, GitHub issue comment, or personal notes when deciding whether Catalyst saved enough review work to keep using it.",
+  ].join("\n");
+}
+
+function renderDeveloperValueReceiptPanel(valueReceipt, summary) {
+  return `
+    <section class="developer-value-receipt-shell" data-developer-value-receipt-panel="true">
+      <div class="detail-section-head">
+        <div>
+          <p class="panel-kicker">Value receipt</p>
+          <h3>Copy why this run is worth keeping</h3>
+        </div>
+        <span class="badge badge-${escapeHtml(summary.tone)}">Copy-ready</span>
+      </div>
+      <div class="developer-value-receipt-card">
+        <p>
+          Use this short receipt when you need to explain what Catalyst added on top of Codex,
+          Cursor, or OpenHands: bounded tasks, a ledger, quality posture, repository guardrails, and
+          review handoff evidence.
+        </p>
+        <pre data-developer-value-receipt-text="true">${escapeHtml(valueReceipt)}</pre>
+        <div class="developer-review-prompt-actions">
+          <button
+            class="button button-secondary"
+            type="button"
+            data-developer-value-receipt-copy="true"
+            data-copy-text-selector="[data-developer-value-receipt-text='true']"
+            data-copy-success-label="Receipt copied"
+          >
+            Copy value receipt
+          </button>
+          ${renderUiScrollButton({
+            label: "Open value cards",
+            stableKey: "developer-value-receipt-open:value",
+            targetId: "developer-value-cards",
+          })}
+          ${renderUiScrollButton({
+            label: "Open artifacts",
+            stableKey: "developer-value-receipt-open:artifacts",
+            targetId: "run-artifacts",
           })}
         </div>
       </div>

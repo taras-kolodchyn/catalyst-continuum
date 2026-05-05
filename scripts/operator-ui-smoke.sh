@@ -713,6 +713,12 @@ async function main() {
     return button && button.textContent.includes("Update copied");
   }, { timeout: 5000 });
   const copiedGithubUpdate = await page.evaluate(() => navigator.clipboard.readText());
+  await page.locator('[data-developer-value-receipt-copy="true"]').first().click();
+  await page.waitForFunction(() => {
+    const button = document.querySelector('[data-developer-value-receipt-copy="true"]');
+    return button && button.textContent.includes("Receipt copied");
+  }, { timeout: 5000 });
+  const copiedValueReceipt = await page.evaluate(() => navigator.clipboard.readText());
   await page
     .locator('[data-developer-codex-command-card="true"] [data-copy-command]')
     .first()
@@ -1060,6 +1066,14 @@ async function main() {
         document.body.textContent.includes("GitHub update") &&
         document.body.textContent.includes("Copy a concise issue or PR status comment") &&
         document.querySelector('[data-developer-github-update-text="true"]')?.textContent.includes("PR handoff:"),
+      developerValueReceiptPanelCount: count('[data-developer-value-receipt-panel="true"]'),
+      developerValueReceiptCopyButtonCount: count('[data-developer-value-receipt-copy="true"]'),
+      developerValueReceiptIncludesWhy:
+        document.body.textContent.includes("Value receipt") &&
+        document.body.textContent.includes("Copy why this run is worth keeping") &&
+        document
+          .querySelector('[data-developer-value-receipt-text="true"]')
+          ?.textContent.includes("Why this adds value beyond a native coding-agent session:"),
       developerReviewPromptPanelCount: count('[data-developer-review-prompt-panel="true"]'),
       developerReviewPromptCopyButtonCount: count('[data-developer-review-prompt-copy="true"]'),
       developerReviewPromptIncludesAgent:
@@ -1089,7 +1103,9 @@ async function main() {
       developerAgentCardCount: count("[data-developer-agent-card]"),
       developerTabIncludesValue:
         document.body.textContent.includes("What this gives a developer") &&
-        document.body.textContent.includes("One audit trail across tools"),
+        document.body.textContent.includes("One audit trail across tools") &&
+        document.body.textContent.includes("Value receipt") &&
+        document.body.textContent.includes("Persistent ledger"),
       missionFreshnessCardCount: count('[data-mission-freshness-card="true"]'),
       missionFreshnessLatest: text('[data-mission-freshness-latest="true"]'),
       missionFreshnessIncludesQuality:
@@ -1249,6 +1265,7 @@ async function main() {
     copiedNextCommand,
     copiedLiveBrief,
     copiedGithubUpdate,
+    copiedValueReceipt,
     copiedCodexCommand,
     copiedIssueReviewCommand,
     copiedIssueWorkflowPath,
@@ -1760,6 +1777,17 @@ async function main() {
   if (!summary.developerGithubUpdateIncludesSummary) {
     problems.push("developer GitHub update should summarize PR handoff state");
   }
+  if (summary.developerValueReceiptPanelCount !== 1) {
+    problems.push(`expected one developer value receipt panel, got ${summary.developerValueReceiptPanelCount}`);
+  }
+  if (summary.developerValueReceiptCopyButtonCount !== 1) {
+    problems.push(
+      `expected one developer value receipt copy button, got ${summary.developerValueReceiptCopyButtonCount}`
+    );
+  }
+  if (!summary.developerValueReceiptIncludesWhy) {
+    problems.push("developer value receipt should explain why this run adds value beyond a native agent session");
+  }
   if (summary.developerReviewPromptPanelCount !== 1) {
     problems.push(`expected one developer review prompt panel, got ${summary.developerReviewPromptPanelCount}`);
   }
@@ -1845,6 +1873,14 @@ async function main() {
   }
   if (summary.bodyTextIncludesDraftPr && copiedGithubUpdate.includes("Draft PR: not opened yet")) {
     problems.push("developer GitHub update should not say the draft PR is missing when PR evidence exists");
+  }
+  if (
+    !copiedValueReceipt.includes("Catalyst Continuum value receipt") ||
+    !copiedValueReceipt.includes("Persistent ledger:") ||
+    !copiedValueReceipt.includes("Repository guard:") ||
+    !copiedValueReceipt.includes("Use this receipt in a PR description")
+  ) {
+    problems.push("developer value receipt copy action should write the portable value summary to clipboard");
   }
   if (summary.developerCodexPanelCount !== 1) {
     problems.push(`expected one developer Codex app-server panel, got ${summary.developerCodexPanelCount}`);

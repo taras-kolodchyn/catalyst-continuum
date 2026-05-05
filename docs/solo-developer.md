@@ -88,15 +88,19 @@ Open that URL and follow this order:
 
 1. Open `Mission Control`.
 2. Select the `Developer` tab.
-3. Copy the agent review prompt into Cursor, Codex, or OpenHands when you want a second-pass review
+3. Copy the value receipt when you want a short explanation of what Catalyst added beyond a native
+   Codex, Cursor, or OpenHands session.
+4. Copy the agent review prompt into Cursor, Codex, or OpenHands when you want a second-pass review
    grounded in the run evidence.
-4. Review the delivery summary, checklist, quality evidence, artifacts, and agent handoff.
-5. Open `Agents` to inspect agent lanes and task logs.
-6. Open `Flow` to see where the run is in the brief-to-PR lifecycle.
+5. Review the delivery summary, checklist, quality evidence, artifacts, and agent handoff.
+6. Open `Agents` to inspect agent lanes and task logs.
+7. Open `Flow` to see where the run is in the brief-to-PR lifecycle.
 
-The review prompt is the practical difference from running a coding agent directly: Catalyst
-Continuum gives the reviewer the run ID, task state, artifacts, quality posture, repository guard,
-agent lanes, and exact checklist in one repeatable package.
+The value receipt and review prompt are the practical difference from running a coding agent
+directly. The receipt explains the bounded task scope, persistent ledger, quality posture,
+repository guard, agent lanes, and PR handoff state in a compact Markdown note. The review prompt
+then gives Cursor, Codex, OpenHands, or another reviewer the exact checklist and artifact paths in
+one repeatable package.
 
 If the UI opens before any run exists, the `Recent orchestrator runs` panel stays actionable: it
 links back to brief intake and can copy `make solo-demo` so the first demo run is one terminal
@@ -422,6 +426,9 @@ portable review prompt, a copy button for sending that prompt to Cursor, Codex, 
 another review agent, key artifact paths for that reviewer to inspect, and ready-to-run Codex
 app-server commands for the persisted review prompt. The Codex commands include the default
 standalone mode and the optional proxy mode for an already-running Codex Desktop or IDE app-server.
+The same tab also exposes a `Value receipt` copy action. Use it when you need a short PR
+description, issue comment, or personal note that explains why this run was worth using Catalyst for
+instead of a standalone agent chat.
 If you only need file references, use the Developer tab `Evidence packet` copy action instead of the
 full prompt. If you need a short status note for yourself, GitHub, or another agent, use `Live run
 brief`; it copies the current stage, next safe action, evidence groups, agent lanes, and next

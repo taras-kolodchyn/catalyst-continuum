@@ -53,8 +53,9 @@ make solo-demo
 ```
 
 Open the printed `/ui` URL and start with `Mission Control` -> `Developer`. That path shows the
-review package, portable Cursor/Codex/OpenHands review prompt, agent handoff, artifacts, logs, and
-next actions without needing to configure a real GitHub repository first.
+review package, a copy-ready value receipt, portable Cursor/Codex/OpenHands review prompt, agent
+handoff, artifacts, logs, and next actions without needing to configure a real GitHub repository
+first.
 
 The same UI also has a `GitHub Issue Workbench`. After you run `github-issue-plan` or
 `github-issue-run`, it shows recent issue workflows, lets you select the package you want to inspect
@@ -256,7 +257,10 @@ review prompt. The operator UI shows those commands in the Developer tab once th
 exists, and the copy-ready review prompt includes the key artifact paths a second agent should
 inspect. That lets a developer move from run evidence to Codex without hunting for prompt or evidence
 locations. When you only need the evidence references, the Developer tab also exposes a smaller
-`Evidence packet` copy action with the prioritized artifact paths. Use `Live run brief` when you
+`Evidence packet` copy action with the prioritized artifact paths. Use `Value receipt` when you
+need to explain what Catalyst added beyond a standalone Codex, Cursor, or OpenHands session:
+bounded task scope, persistent ledger, quality posture, repository guardrails, agent visibility, and
+PR handoff state. Use `Live run brief` when you
 need a compact Markdown status update with the current stage, next safe action, evidence summary,
 agent lanes, and terminal command without sending the full review prompt. Use `GitHub update` when
 you want a concise issue or PR comment that reports delivery evidence, branch/commit/PR state, and

@@ -1416,6 +1416,7 @@ textarea,
 .developer-next-command-shell,
 .developer-live-brief-shell,
 .developer-github-update-shell,
+.developer-value-receipt-shell,
 .developer-review-prompt-shell,
 .developer-evidence-packet-shell,
 .developer-codex-shell,
@@ -1432,6 +1433,7 @@ textarea,
 .developer-next-command-shell,
 .developer-live-brief-shell,
 .developer-github-update-shell,
+.developer-value-receipt-shell,
 .developer-review-prompt-shell,
 .developer-evidence-packet-shell,
 .developer-codex-shell,
@@ -1477,6 +1479,7 @@ textarea,
 .developer-next-command-shell h3,
 .developer-live-brief-shell h3,
 .developer-github-update-shell h3,
+.developer-value-receipt-shell h3,
 .developer-review-prompt-shell h3,
 .developer-evidence-packet-shell h3,
 .developer-value-card h4,
@@ -1496,6 +1499,7 @@ textarea,
 .developer-next-command-card p,
 .developer-live-brief-card p,
 .developer-github-update-card p,
+.developer-value-receipt-card p,
 .developer-review-prompt-card p,
 .developer-evidence-packet-card p,
 .developer-value-card p,
@@ -1565,6 +1569,13 @@ textarea,
     linear-gradient(135deg, rgba(255, 251, 244, 0.96), rgba(228, 237, 246, 0.72));
 }
 
+.developer-value-receipt-shell {
+  background:
+    radial-gradient(circle at 10% 14%, rgba(23, 79, 67, 0.16), transparent 28%),
+    radial-gradient(circle at 88% 10%, rgba(217, 154, 43, 0.16), transparent 24%),
+    linear-gradient(135deg, rgba(255, 251, 244, 0.96), rgba(226, 241, 235, 0.72));
+}
+
 .developer-evidence-packet-shell {
   background:
     radial-gradient(circle at 14% 18%, rgba(30, 70, 118, 0.12), transparent 28%),
@@ -1595,6 +1606,17 @@ textarea,
 }
 
 .developer-github-update-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border: 1px solid rgba(24, 35, 29, 0.1);
+  border-radius: var(--radius-lg);
+  background: rgba(255, 255, 255, 0.72);
+  padding: 14px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.48);
+}
+
+.developer-value-receipt-card {
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -1644,6 +1666,7 @@ textarea,
 .developer-review-prompt-card pre,
 .developer-live-brief-card pre,
 .developer-github-update-card pre,
+.developer-value-receipt-card pre,
 .developer-evidence-packet-card pre {
   max-height: 360px;
   margin: 0;
