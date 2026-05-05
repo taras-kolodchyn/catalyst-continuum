@@ -1,0 +1,148 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "urn:catalyst-continuum:schemas:artifacts:execution-log:v0.1"
+title: "Catalyst Continuum Execution Log Artifact"
+description: "Persisted runtime execution manifest written after a task runs in the Docker provider."
+type: object
+additionalProperties: false
+required:
+  - schema_version
+  - artifact_type
+  - provider
+  - run_id
+  - task_id
+  - task_kind
+  - task_title
+  - image
+  - working_directory
+  - workspace_path
+  - workspace_source_artifact_id
+  - workspace_input_artifact_id
+  - workspace_bundle_path
+  - sandbox_profile
+  - sandbox_flags
+  - network_mode
+  - rootless_requested
+  - rootless_applied
+  - rootless_user
+  - container_name
+  - container_labels
+  - exit_code
+  - timed_out
+  - timeout_seconds
+  - status
+  - stdout_bytes
+  - stderr_bytes
+  - stdout_truncated
+  - stderr_truncated
+  - stdout
+  - stderr
+properties:
+  schema_version:
+    type: string
+    const: "v0.1"
+  artifact_type:
+    type: string
+    const: "log"
+  provider:
+    type: string
+    const: "docker"
+  run_id:
+    $ref: "#/$defs/uuid_string"
+  task_id:
+    $ref: "#/$defs/uuid_string"
+  task_kind:
+    type: string
+    minLength: 1
+  task_title:
+    type: string
+    minLength: 1
+  image:
+    type: string
+    minLength: 1
+  working_directory:
+    anyOf:
+      - type: string
+        minLength: 1
+      - type: "null"
+  workspace_path:
+    anyOf:
+      - type: string
+        minLength: 1
+      - type: "null"
+  workspace_source_artifact_id:
+    anyOf:
+      - $ref: "#/$defs/uuid_string"
+      - type: "null"
+  workspace_input_artifact_id:
+    anyOf:
+      - $ref: "#/$defs/uuid_string"
+      - type: "null"
+  workspace_bundle_path:
+    anyOf:
+      - type: string
+        minLength: 1
+      - type: "null"
+  sandbox_profile:
+    anyOf:
+      - type: string
+        minLength: 1
+      - type: "null"
+  sandbox_flags:
+    type: array
+    items:
+      type: string
+      minLength: 1
+  network_mode:
+    anyOf:
+      - type: string
+        minLength: 1
+      - type: "null"
+  rootless_requested:
+    type: boolean
+  rootless_applied:
+    type: boolean
+  rootless_user:
+    anyOf:
+      - type: string
+        minLength: 1
+      - type: "null"
+  container_name:
+    type: string
+    minLength: 1
+  container_labels:
+    type: array
+    items:
+      type: string
+      minLength: 1
+  exit_code:
+    type: integer
+  timed_out:
+    type: boolean
+  timeout_seconds:
+    anyOf:
+      - type: integer
+        minimum: 0
+      - type: "null"
+  status:
+    type: string
+    enum:
+      - succeeded
+      - failed
+  stdout_bytes:
+    type: integer
+    minimum: 0
+  stderr_bytes:
+    type: integer
+    minimum: 0
+  stdout_truncated:
+    type: boolean
+  stderr_truncated:
+    type: boolean
+  stdout:
+    type: string
+  stderr:
+    type: string
+$defs:
+  uuid_string:
+    type: string
+    format: uuid

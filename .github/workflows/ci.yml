@@ -1,0 +1,257 @@
+name: CI
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  versions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Check pinned versions
+        run: ./scripts/check-versions.sh
+
+  shell:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Lint shell scripts
+        run: ./scripts/lint-shell.sh
+
+      - name: Check Markdown links
+        run: ./scripts/check-markdown-links.sh
+
+      - name: Lint operator UI assets
+        run: ./scripts/lint-operator-ui-assets.sh
+
+      - name: Validate repository-target bootstrap smoke
+        run: ./scripts/repository-target-bootstrap-smoke.sh
+
+      - name: Validate developer artifact discovery smoke
+        run: ./scripts/dev-artifacts-smoke.sh
+
+      - name: Validate developer session smoke
+        run: ./scripts/dev-session-smoke.sh
+
+      - name: Validate GitHub issue session smoke
+        run: ./scripts/github-issue-session-smoke.sh
+
+      - name: Validate GitHub issue sync smoke
+        run: ./scripts/github-issue-sync-smoke.sh
+
+      - name: Validate GitHub issue workflow smoke
+        run: ./scripts/github-issue-workflow-smoke.sh
+
+      - name: Validate alpha guide smoke
+        run: ./scripts/alpha-guide-smoke.sh
+
+      - name: Validate Codex app-server smoke
+        run: ./scripts/codex-app-server-run-smoke.sh
+
+      - name: Validate template-repo scaffolds
+        run: ./scripts/check-template-repo.sh
+
+  sbom:
+    needs:
+      - versions
+      - shell
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Generate orchestrator SBOM
+        run: ./scripts/generate-sbom.sh
+
+      - name: Generate SBOM artifact provenance attestation
+        if: ${{ !env.ACT && (github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork) }}
+        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
+        with:
+          subject-path: .continuum/sbom/orchestrator-image.spdx.json
+
+      - name: Upload SBOM artifact
+        if: ${{ !env.ACT }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: orchestrator-sbom
+          path: .continuum/sbom/
+          if-no-files-found: error
+          retention-days: 7
+          include-hidden-files: true
+
+  rust:
+    needs:
+      - versions
+      - shell
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master
+        with:
+          toolchain: 1.95.0
+          components: rustfmt, clippy
+
+      - name: Cache Rust artifacts
+        if: ${{ env.ACT != 'true' }}
+        uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
+
+      - name: Run Rust CI checks
+        run: ./scripts/ci-rust.sh
+
+      - name: Run repository doctor
+        run: ./scripts/doctor.sh --no-live
+
+  compose:
+    needs:
+      - versions
+      - shell
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Validate Docker Compose configuration
+        run: ./scripts/ci-compose.sh
+
+      - name: Validate compose runtime contract
+        run: ./scripts/compose-runtime-check.sh
+
+      - name: Validate compose observability stack
+        run: ./scripts/compose-observability-smoke.sh --no-build
+
+  eval:
+    needs:
+      - versions
+      - shell
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CARGO_TARGET_DIR: target/ci-eval
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master
+        with:
+          toolchain: 1.95.0
+
+      - name: Build workspace
+        run: cargo build --workspace --locked
+
+      - name: Run baseline evaluation suite
+        env:
+          CATALYST_SKIP_WORKSPACE_BUILD: "1"
+        run: ./scripts/eval-baseline.sh
+
+  ui:
+    name: ui (${{ matrix.variant }})
+    needs:
+      - versions
+      - shell
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - variant: default
+            args: ""
+          - variant: repository-policy
+            args: "--repository-targets-file config/repository-targets.example.yaml"
+          - variant: repository-policy-blocked
+            args: "--repository-targets-file config/repository-targets.unmatched.example.yaml --expect-remote-publication-blocked"
+    env:
+      CARGO_TARGET_DIR: target/ci-ui/${{ matrix.variant }}
+      OPERATOR_UI_SMOKE_OUTPUT_ROOT: .continuum/operator-ui-smoke/${{ matrix.variant }}
+      OPERATOR_UI_SMOKE_INSTALL_BROWSER_DEPS: "1"
+      OPERATOR_UI_SMOKE_PLAYWRIGHT_INSTALL_TIMEOUT_SECONDS: "600"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master
+        with:
+          toolchain: 1.95.0
+
+      - name: Cache Rust artifacts
+        if: ${{ env.ACT != 'true' }}
+        uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
+
+      - name: Run operator UI smoke
+        run: ./scripts/operator-ui-smoke.sh ${{ matrix.args }}
+
+      - name: Upload operator UI smoke artifacts
+        if: ${{ failure() && !env.ACT }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: operator-ui-smoke-${{ matrix.variant }}
+          path: .continuum/operator-ui-smoke/${{ matrix.variant }}/
+          if-no-files-found: ignore
+          retention-days: 7
+          include-hidden-files: true
+
+  smoke:
+    name: smoke (${{ matrix.scenario }})
+    needs:
+      - versions
+      - shell
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        scenario:
+          - mvp-container-service
+          - mvp-cli-tool
+          - mvp-worker-service
+          - mcp-stateful-cli-tool
+    env:
+      CARGO_TARGET_DIR: target/ci-smoke/${{ matrix.scenario }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master
+        with:
+          toolchain: 1.95.0
+
+      - name: Build workspace
+        run: cargo build --workspace --locked
+
+      - name: Run MVP smoke tests
+        env:
+          CATALYST_SKIP_WORKSPACE_BUILD: "1"
+          CI_SMOKE_SCENARIO: ${{ matrix.scenario }}
+        run: ./scripts/ci-smoke.sh

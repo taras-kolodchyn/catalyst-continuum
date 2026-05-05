@@ -1,0 +1,1035 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Catalyst Continuum Control Surface</title>
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23174f43'/%3E%3Cpath d='M44 21c-3-3-7-5-12-5-9 0-16 7-16 16s7 16 16 16c5 0 9-2 12-5l-4-5c-2 2-5 4-8 4-6 0-10-4-10-10s4-10 10-10c3 0 6 1 8 4l4-5Z' fill='%23f7f2e7'/%3E%3C/svg%3E"
+    >
+    <link rel="stylesheet" href="/ui/styles.css">
+  </head>
+  <body>
+    <div id="pageShell" class="page-shell" data-refresh-state="idle">
+      <header class="panel hero-panel" data-stagger="1">
+        <div class="hero-head">
+          <div class="hero-copy">
+            <p class="eyebrow">Catalyst Continuum</p>
+            <h1>Turn a product brief into a draft pull request</h1>
+            <p class="hero-summary">
+              Catalyst Continuum is an AI SDLC control plane. It validates a
+              structured brief, creates a planned delivery run, routes work to
+              agents, executes tasks in isolated runtimes, evaluates quality,
+              and prepares a draft PR for human review.
+            </p>
+            <div class="hero-path-nav">
+              <p class="panel-kicker">Manual Operator Path</p>
+              <div class="hero-jump-row">
+                <button
+                  class="button button-primary button-link"
+                  type="button"
+                  data-ui-scroll-target="brief-intake"
+                >
+                  Start with brief
+                </button>
+                <button
+                  class="button button-ghost button-link"
+                  type="button"
+                  data-ui-scroll-target="run-ledger"
+                >
+                  Review runs
+                </button>
+                <button
+                  class="button button-ghost button-link"
+                  type="button"
+                  data-ui-scroll-target="run-detail"
+                >
+                  Selected run guide
+                </button>
+                <button
+                  class="button button-ghost button-link"
+                  type="button"
+                  data-ui-scroll-target="automation-rail"
+                >
+                  Optional automation
+                </button>
+              </div>
+            </div>
+          </div>
+          <div class="hero-actions">
+            <button
+              id="refreshButton"
+              class="button button-primary"
+              type="button"
+              aria-label="Refresh dashboard"
+              data-ui-action="refresh-dashboard"
+            >
+              Refresh
+            </button>
+            <label id="autoRefreshToggleShell" class="toggle" hidden>
+              <input id="autoRefreshToggle" type="checkbox">
+              <span>Auto refresh (optional)</span>
+            </label>
+            <p id="lastRefresh" class="microcopy">Manual refresh mode</p>
+          </div>
+        </div>
+
+        <div class="hero-callout-grid">
+          <article class="hero-callout">
+            <p class="panel-kicker">Most Common Path</p>
+            <h2>Start from a brief and let the run drive the rest</h2>
+            <p>
+              Most operators use the left and center columns only: load or
+              write a brief, submit it, open the run, then advance execution,
+              quality, and draft-PR handoff from the selected-run view.
+            </p>
+          </article>
+          <article class="hero-callout">
+            <p class="panel-kicker">Advanced Path</p>
+            <h2>Use automation only when GitHub events should drive work</h2>
+            <p>
+              The right rail is optional. Use it when signed webhooks,
+              repository signals, or automation cycles should materialize runs
+              for you. If you are operating manually, you can mostly ignore it.
+            </p>
+          </article>
+          <article class="hero-callout">
+            <p class="panel-kicker">Approval Boundary</p>
+            <h2>The product prepares delivery, humans approve it</h2>
+            <p>
+              Catalyst Continuum does not auto-merge code. It prepares an
+              auditable run and draft PR, then engineers still review and
+              approve the result in GitHub.
+            </p>
+          </article>
+        </div>
+
+        <section
+          id="first-run-playbook"
+          class="hero-playbook"
+          aria-label="First-run operator playbook"
+        >
+          <div class="hero-playbook-copy">
+            <p class="panel-kicker">First-Run Playbook</p>
+            <h2>If you are new, follow this exact order</h2>
+            <p>
+              The UI is organized around the same delivery path the
+              orchestrator enforces. Start with one brief, open one run, then
+              let the selected-run guide tell you which control is safe next.
+            </p>
+            <div class="hero-playbook-actions" aria-label="Copy first-run commands">
+              <button
+                class="button button-primary"
+                type="button"
+                data-copy-command="make solo-demo"
+                data-copy-success-label="Demo command copied"
+                data-first-run-demo-command-copy="true"
+              >
+                Copy demo command
+              </button>
+              <button
+                class="button button-ghost"
+                type="button"
+                data-copy-command="make dev-session TASK_RECIPE=fix-bug TASK=&quot;Describe the change&quot; REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout"
+                data-copy-success-label="Agent session copied"
+                data-first-run-dev-session-command-copy="true"
+              >
+                Copy agent session
+              </button>
+              <button
+                class="button button-ghost"
+                type="button"
+                data-copy-command="make github-issue-plan REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout"
+                data-copy-success-label="Issue preview copied"
+                data-first-run-issue-command-copy="true"
+              >
+                Copy issue preview
+              </button>
+              <button
+                class="button button-ghost"
+                type="button"
+                data-copy-text-selector="#firstRunRunbookText"
+                data-copy-success-label="Runbook copied"
+                data-first-run-runbook-copy="true"
+              >
+                Copy first-run runbook
+              </button>
+            </div>
+            <pre id="firstRunRunbookText" hidden>
+# Catalyst Continuum first-run runbook
+
+Use Catalyst when you want a repeatable evidence package around native coding agents, not when you only need a one-off chat.
+
+1. Try the seeded product demo:
+make solo-demo
+
+2. Package one local task for Codex, Cursor, or OpenHands:
+make dev-session TASK_RECIPE=fix-bug TASK="Describe the change" REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
+
+3. Preview a GitHub issue workflow without mutating GitHub:
+make github-issue-plan REPOSITORY=OWNER/REPO REPO_PATH=/path/to/local/checkout
+
+After an agent works, review the generated evidence, quality posture, branch or PR handoff, and GitHub human-review boundary before merging.
+            </pre>
+          </div>
+          <ol class="hero-playbook-steps">
+            <li>
+              <span class="hero-playbook-index">1</span>
+              <div>
+                <h3>Submit the brief</h3>
+                <p>Use Brief Intake to create the run, backlog, policy report, and routing plan.</p>
+              </div>
+            </li>
+            <li>
+              <span class="hero-playbook-index">2</span>
+              <div>
+                <h3>Open the run</h3>
+                <p>Select it in Run Ledger so Mission Control and the agent lanes follow the same context.</p>
+              </div>
+            </li>
+            <li>
+              <span class="hero-playbook-index">3</span>
+              <div>
+                <h3>Advance one safe step</h3>
+                <p>Use the recommended control before moving to quality gates or PR handoff.</p>
+              </div>
+            </li>
+            <li>
+              <span class="hero-playbook-index">4</span>
+              <div>
+                <h3>Review in GitHub</h3>
+                <p>Export, publish, or open the draft PR only after the run shows promotion evidence.</p>
+              </div>
+            </li>
+          </ol>
+        </section>
+
+        <section class="hero-flow" aria-label="Product workflow">
+          <article class="hero-flow-step">
+            <span class="hero-flow-index">1</span>
+            <h3>Write brief</h3>
+            <p>Describe the repo, target pack, and delivery intent.</p>
+          </article>
+          <article class="hero-flow-step">
+            <span class="hero-flow-index">2</span>
+            <h3>Plan run</h3>
+            <p>The orchestrator validates policy, materializes backlog, and resolves agent routing.</p>
+          </article>
+          <article class="hero-flow-step">
+            <span class="hero-flow-index">3</span>
+            <h3>Execute tasks</h3>
+            <p>Workers or external agents claim queued tasks inside controlled runtimes.</p>
+          </article>
+          <article class="hero-flow-step">
+            <span class="hero-flow-index">4</span>
+            <h3>Evaluate quality</h3>
+            <p>Fresh artifacts and promotion prerequisites are checked before remote handoff.</p>
+          </article>
+          <article class="hero-flow-step">
+            <span class="hero-flow-index">5</span>
+            <h3>Open draft PR</h3>
+            <p>The run is promoted into GitHub review without bypassing human approval.</p>
+          </article>
+        </section>
+      </header>
+
+      <section
+        id="operator-dock"
+        class="operator-dock"
+        aria-label="Sticky operator context"
+        data-ui-refresh-surface="operator-dock"
+      >
+        <div id="operatorDockSummary" class="operator-dock-grid" data-ui-region="operator-dock">
+          <div class="empty-state compact">Waiting for the first operator snapshot.</div>
+        </div>
+      </section>
+
+      <section
+        id="operator-pulse"
+        class="panel pulse-panel panel-anchor"
+        data-stagger="2"
+        data-ui-refresh-surface="operator-pulse"
+      >
+        <div class="status-overview-head">
+          <div>
+            <p class="panel-kicker">Operator Pulse</p>
+            <h2>What the control plane is doing right now</h2>
+          </div>
+          <p class="microcopy">
+            This layer compresses transport health, loaded runs, automation
+            queues, and the current operator focus into one fast read before
+            you open detailed panels.
+          </p>
+        </div>
+        <div class="pulse-layout">
+          <div id="pulseSummary" class="pulse-summary-grid" data-ui-region="pulse-summary">
+            <div class="empty-state compact">
+              Waiting for the first control-plane snapshot.
+            </div>
+          </div>
+          <section class="pulse-feed-shell">
+            <div class="detail-section-head">
+              <div>
+                <p class="panel-kicker">Live activity feed</p>
+                <h3>Latest orchestration movement</h3>
+              </div>
+              <p class="microcopy">
+                When a run is selected, this feed follows that run. Otherwise it
+                rolls up the latest loaded runs and automation queues.
+              </p>
+            </div>
+            <div id="pulseFeed" class="pulse-feed" data-ui-region="pulse-feed">
+              <div class="empty-state compact">
+                Waiting for live run, queue, and event activity.
+              </div>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section
+        id="github-issue-workbench"
+        class="panel github-issue-workbench panel-anchor"
+        data-stagger="2"
+        data-ui-refresh-surface="github-issue-workbench"
+        data-github-issue-workbench="true"
+      >
+        <div class="status-overview-head">
+          <div>
+            <p class="panel-kicker">GitHub Issue Workbench</p>
+            <h2>Turn issue queues into reviewable PR work</h2>
+          </div>
+          <p class="microcopy">
+            Read the latest issue workflow, copy the next safe command, and
+            apply issue-sync only after reviewing the generated plan and
+            comment. The UI does not mutate GitHub by itself.
+          </p>
+        </div>
+        <div id="githubIssueWorkbench" class="github-issue-workbench-body">
+          <div class="empty-state compact">
+            Waiting for GitHub issue workflow evidence.
+          </div>
+        </div>
+      </section>
+
+      <section
+        id="mission-control"
+        class="panel mission-panel panel-anchor"
+        data-stagger="2"
+        data-ui-refresh-surface="mission-control"
+      >
+        <div class="panel-head">
+          <div>
+            <p class="panel-kicker">Mission Control</p>
+            <h2>Follow the flow without leaving the operator surface</h2>
+            <p class="microcopy panel-explainer">
+              Use these tabs to understand the current delivery stage, inspect
+              multi-agent activity, and open the embedded Grafana or LiteLLM
+              surfaces from the same control plane.
+            </p>
+          </div>
+        </div>
+        <div id="missionShell" class="mission-shell" data-active-tab="flow">
+          <div id="missionTabBar" class="mission-tab-bar" role="tablist" aria-label="Mission control tabs">
+            <button
+              class="mission-tab is-active"
+              id="missionTabFlow"
+              type="button"
+              role="tab"
+              aria-selected="true"
+              aria-controls="missionFlowPanel"
+              data-mission-tab="flow"
+            >
+              <span class="mission-tab-label">Flow</span>
+              <span id="missionTabFlowBadge" class="badge badge-neutral mission-tab-badge">No run</span>
+            </button>
+            <button
+              class="mission-tab"
+              id="missionTabDeveloper"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              aria-controls="missionDeveloperPanel"
+              data-mission-tab="developer"
+            >
+              <span class="mission-tab-label">Developer</span>
+              <span id="missionTabDeveloperBadge" class="badge badge-neutral mission-tab-badge">Open run</span>
+            </button>
+            <button
+              class="mission-tab"
+              id="missionTabAgents"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              aria-controls="missionAgentsPanel"
+              data-mission-tab="agents"
+            >
+              <span class="mission-tab-label">Agents</span>
+              <span id="missionTabAgentsBadge" class="badge badge-neutral mission-tab-badge">Open run</span>
+            </button>
+            <button
+              class="mission-tab"
+              id="missionTabGrafana"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              aria-controls="missionGrafanaPanel"
+              data-mission-tab="grafana"
+            >
+              <span class="mission-tab-label">Grafana</span>
+              <span id="missionTabGrafanaBadge" class="badge badge-neutral mission-tab-badge">Unknown</span>
+            </button>
+            <button
+              class="mission-tab"
+              id="missionTabLitellm"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              aria-controls="missionLitellmPanel"
+              data-mission-tab="litellm"
+            >
+              <span class="mission-tab-label">LiteLLM</span>
+              <span id="missionTabLitellmBadge" class="badge badge-neutral mission-tab-badge">Gateway</span>
+            </button>
+          </div>
+          <p id="missionTabHint" class="microcopy mission-tab-hint">
+            Open a run to follow its lifecycle, agent activity, and observability from one place.
+          </p>
+          <section
+            id="missionFlowPanel"
+            class="mission-panel-body"
+            role="tabpanel"
+            aria-labelledby="missionTabFlow"
+            data-mission-panel="flow"
+          >
+            <div class="empty-state compact">
+              Waiting for the first selected run to materialize the mission-control flow.
+            </div>
+          </section>
+          <section
+            id="missionDeveloperPanel"
+            class="mission-panel-body hidden"
+            role="tabpanel"
+            aria-labelledby="missionTabDeveloper"
+            data-mission-panel="developer"
+          >
+            <div class="empty-state compact">
+              Open a run to see the developer handoff: what changed, what passed, what to inspect,
+              and what to do next.
+            </div>
+          </section>
+          <section
+            id="missionAgentsPanel"
+            class="mission-panel-body hidden"
+            role="tabpanel"
+            aria-labelledby="missionTabAgents"
+            data-mission-panel="agents"
+          >
+            <div class="empty-state compact">
+              Agent lanes will appear once the selected run contains assigned agent work.
+            </div>
+          </section>
+          <section
+            id="missionGrafanaPanel"
+            class="mission-panel-body hidden"
+            role="tabpanel"
+            aria-labelledby="missionTabGrafana"
+            data-mission-panel="grafana"
+          >
+            <div class="empty-state compact">
+              Grafana shortcuts and the embedded dashboard will appear here.
+            </div>
+          </section>
+          <section
+            id="missionLitellmPanel"
+            class="mission-panel-body hidden"
+            role="tabpanel"
+            aria-labelledby="missionTabLitellm"
+            data-mission-panel="litellm"
+          >
+            <div class="empty-state compact">
+              LiteLLM gateway status, quick links, and embedded UI will appear here.
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section class="capability-overview" data-stagger="2" data-ui-refresh-surface="capability-overview">
+        <div class="status-overview-head">
+          <div>
+            <p class="panel-kicker">Operator Readiness</p>
+            <h2>What you can do right now</h2>
+          </div>
+          <p class="microcopy">
+            These cards translate raw control-plane state into operator-facing
+            capabilities before you inspect lower-level diagnostics.
+          </p>
+        </div>
+        <section id="capabilityGrid" class="capability-grid"></section>
+      </section>
+
+      <section class="status-overview" data-stagger="2" data-ui-refresh-surface="status-overview">
+        <div class="status-overview-head">
+          <div>
+            <p class="panel-kicker">System Health</p>
+            <h2>Check this only when the control plane looks unhealthy</h2>
+          </div>
+          <p class="microcopy">
+            These cards are operational diagnostics for database, gateway,
+            runtime, and integration readiness. They are not the normal place
+            to start a delivery run.
+          </p>
+        </div>
+        <section id="statusGrid" class="status-grid"></section>
+      </section>
+
+      <main class="dashboard-grid">
+        <section id="brief-intake" class="panel brief-panel panel-anchor" data-stagger="3">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">1. Define The Work</p>
+              <h2>Validate and submit the brief</h2>
+              <p class="microcopy panel-explainer">
+                Most teams start here. One submitted brief becomes one durable
+                orchestrator run.
+              </p>
+            </div>
+            <div id="packChips" class="chip-row"></div>
+          </div>
+          <div class="brief-starter-section">
+            <label class="field-label" for="briefExamples">Starter briefs</label>
+            <p class="microcopy starter-section-copy">
+              Pick the closest delivery scenario, load it into the editor, then
+              update repository metadata and requester fields before validation.
+            </p>
+            <div id="briefExamples" class="starter-grid">
+              <div class="empty-state compact is-loading">
+                <p>Loading starter scenarios...</p>
+              </div>
+            </div>
+            <p id="briefExampleHint" class="microcopy">
+              Choose a starter scenario, load it into the editor, then adjust repository metadata before validation and submission.
+            </p>
+          </div>
+          <label class="field-label" for="briefEditor">Product brief YAML</label>
+          <textarea
+            id="briefEditor"
+            spellcheck="false"
+            placeholder="Paste a structured product brief here to validate or submit it."
+            data-ui-input="brief-editor"
+          ></textarea>
+          <div class="brief-readiness" aria-live="polite">
+            <div class="brief-readiness-head">
+              <div>
+                <p class="panel-kicker">Brief readiness</p>
+                <h3>Before validation, make these fields explicit</h3>
+              </div>
+              <span id="briefReadinessBadge" class="badge badge-neutral">0/4 ready</span>
+            </div>
+            <div id="briefReadinessList" class="brief-readiness-grid" data-ui-region="brief-readiness"></div>
+          </div>
+          <div class="control-row">
+            <button
+              id="validateBriefButton"
+              class="button button-primary"
+              type="button"
+              aria-label="Validate brief"
+              data-ui-action="validate-brief"
+            >
+              Validate brief
+            </button>
+            <button
+              id="submitBriefButton"
+              class="button button-secondary"
+              type="button"
+              aria-label="Submit brief"
+              data-ui-action="submit-brief"
+            >
+              Submit brief
+            </button>
+            <button
+              id="clearBriefButton"
+              class="button button-ghost"
+              type="button"
+              aria-label="Clear brief"
+              data-ui-action="clear-brief"
+            >
+              Clear brief
+            </button>
+          </div>
+            <div class="console-wrap">
+              <div class="console-head">
+                <p class="panel-kicker">Validation Output</p>
+                <span id="briefConsoleStatus" class="badge badge-neutral">Idle</span>
+              </div>
+              <div id="briefConsole" class="console" data-ui-console="brief-output">No brief request yet.</div>
+            </div>
+        </section>
+
+        <section id="run-ledger" class="panel runs-panel panel-anchor" data-stagger="4" data-ui-refresh-surface="run-ledger">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">2. Track Delivery Runs</p>
+              <h2>Recent orchestrator runs</h2>
+              <p class="microcopy panel-explainer">
+                Each run is one auditable attempt to turn a brief into a
+                planned, executed, quality-checked draft PR.
+              </p>
+              <p id="runLedgerHint" class="microcopy">
+                Search the loaded run ledger by title, repository, pack, trigger, or run id.
+              </p>
+            </div>
+            <div class="run-filters">
+              <label class="inline-select">
+                <span>Status</span>
+                <select id="runStatusFilter">
+                  <option value="">All</option>
+                  <option value="queued">Queued</option>
+                  <option value="executing">Executing</option>
+                  <option value="succeeded">Succeeded</option>
+                  <option value="failed">Failed</option>
+                </select>
+              </label>
+              <label class="run-search-field" for="runSearchInput">
+                <span class="field-label">Search loaded runs</span>
+                <div class="run-search-input-row">
+                  <input
+                    id="runSearchInput"
+                    type="text"
+                    placeholder="title, repository, pack, trigger, or run id"
+                    autocomplete="off"
+                    data-ui-input="run-search"
+                  >
+                  <button
+                    id="clearRunSearchButton"
+                    class="button button-ghost"
+                    type="button"
+                    aria-label="Clear run search"
+                    data-ui-action="clear-run-search"
+                  >
+                    Clear search
+                  </button>
+                </div>
+              </label>
+            </div>
+          </div>
+          <div id="runsList" class="run-list" data-ui-region="runs-list"></div>
+        </section>
+
+        <aside id="automation-rail" class="panel rail-panel panel-anchor" data-stagger="5" data-ui-refresh-surface="automation-rail">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">Optional Automation Inputs</p>
+              <h2>Signals, webhooks, and queue history</h2>
+              <p class="microcopy panel-explainer">
+                Advanced area. You can ignore this unless GitHub events or
+                other automation should create or advance runs for you.
+              </p>
+            </div>
+          </div>
+          <section class="rail-section rail-controls">
+            <div class="rail-section-head">
+              <h3>Automation controls</h3>
+            </div>
+            <p class="microcopy rail-copy">
+              Use the current brief draft to materialize the freshest repository
+              signal or run one full automation cycle.
+            </p>
+            <label class="field-label" for="automationActionFilter">Webhook action filter</label>
+            <select id="automationActionFilter">
+              <option value="">Any action</option>
+              <option value="sync_default_branch">sync_default_branch</option>
+            </select>
+            <label class="field-label" for="automationSignalKindInput">Signal kind filter</label>
+            <input
+              id="automationSignalKindInput"
+              type="text"
+              placeholder="default_branch_updated"
+            >
+            <div class="rail-control-grid">
+              <button id="runNextWebhookButton" class="button button-secondary" type="button">
+                Run next webhook
+              </button>
+              <button id="submitNextSignalButton" class="button button-secondary" type="button">
+                Submit next signal
+              </button>
+              <button id="runRepositoryAutomationButton" class="button button-primary" type="button">
+                Run automation cycle
+              </button>
+            </div>
+            <div class="console-wrap console-wrap-compact">
+              <div class="console-head">
+                <p class="panel-kicker">Automation Output</p>
+                <span id="automationConsoleStatus" class="badge badge-neutral">Idle</span>
+              </div>
+              <div id="automationConsole" class="console console-compact">No automation action executed yet.</div>
+            </div>
+          </section>
+          <details id="webhookActionsDisclosure" class="rail-disclosure">
+            <summary class="rail-disclosure-summary">
+              <div>
+                <p class="panel-kicker">Automation queue</p>
+                <h3>Webhook actions</h3>
+              </div>
+              <span id="webhookActionCount" class="badge badge-neutral">0</span>
+            </summary>
+            <div class="rail-disclosure-body">
+              <p class="microcopy rail-copy">
+                Pending action requests created from signed GitHub deliveries
+                before a run is materialized or advanced.
+              </p>
+              <div id="webhookActionsList" class="rail-list"></div>
+            </div>
+          </details>
+          <details id="repositorySignalsDisclosure" class="rail-disclosure">
+            <summary class="rail-disclosure-summary">
+              <div>
+                <p class="panel-kicker">Automation queue</p>
+                <h3>Repository signals</h3>
+              </div>
+              <span id="signalCount" class="badge badge-neutral">0</span>
+            </summary>
+            <div class="rail-disclosure-body">
+              <p class="microcopy rail-copy">
+                Repository-scoped handoff records that can materialize a fresh
+                run from the current brief.
+              </p>
+              <div id="repositorySignalsList" class="rail-list"></div>
+            </div>
+          </details>
+          <details id="webhookDeliveriesDisclosure" class="rail-disclosure">
+            <summary class="rail-disclosure-summary">
+              <div>
+                <p class="panel-kicker">Automation audit</p>
+                <h3>Webhook deliveries</h3>
+              </div>
+              <span id="deliveryCount" class="badge badge-neutral">0</span>
+            </summary>
+            <div class="rail-disclosure-body">
+              <p class="microcopy rail-copy">
+                Signed inbound deliveries preserved for audit and routing
+                inspection when you need to troubleshoot automation ingress.
+              </p>
+              <div id="webhookDeliveriesList" class="rail-list"></div>
+            </div>
+          </details>
+          <details id="queueInspectorDisclosure" class="rail-disclosure queue-inspector">
+            <summary class="rail-disclosure-summary">
+              <div>
+                <p class="panel-kicker">Automation drill-down</p>
+                <h3>Queue inspector</h3>
+              </div>
+              <span id="queueInspectorPrimaryStatus" class="badge badge-neutral">Idle</span>
+            </summary>
+            <div class="rail-disclosure-body">
+              <p id="queueInspectorHeadline" class="microcopy">
+                Select a webhook action, repository signal, or delivery to inspect
+                its persisted detail and linked documents.
+              </p>
+              <div id="queueInspectorSummary" class="inspector-summary">
+                <div class="empty-state compact">No queue item selected.</div>
+              </div>
+              <div id="queueInspectorActions" class="rail-action-row hidden">
+                <button id="queueInspectorOpenRunButton" class="button button-ghost" type="button">
+                  Open materialized run
+                </button>
+              </div>
+              <div class="console-wrap console-wrap-compact">
+                <div class="console-head">
+                  <p class="panel-kicker">Detail JSON</p>
+                  <span id="queueInspectorDetailStatus" class="badge badge-neutral">Idle</span>
+                </div>
+                <div id="queueInspectorConsole" class="console console-compact">No queue item selected.</div>
+              </div>
+              <div class="console-wrap console-wrap-compact">
+                <div class="console-head">
+                  <p class="panel-kicker">Linked Document</p>
+                  <span id="queueInspectorLinkedStatus" class="badge badge-neutral">Idle</span>
+                </div>
+                <div id="queueInspectorLinkedConsole" class="console console-compact">No linked receipt, report, or payload loaded.</div>
+              </div>
+            </div>
+          </details>
+        </aside>
+
+        <section id="run-detail" class="panel detail-panel panel-anchor" data-stagger="6" data-ui-refresh-surface="run-detail">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">3. Advance The Selected Run</p>
+              <h2>Run detail, next step, and actions</h2>
+              <p class="microcopy panel-explainer">
+                Open one run and the UI will show what the orchestrator already
+                did, what is blocked, and which action should happen next.
+              </p>
+            </div>
+            <p id="selectedRunLabel" class="microcopy" data-selected-run-label="true">No run selected.</p>
+          </div>
+
+          <div id="detailEmptyState" class="empty-state">
+            <p class="panel-kicker">Operator flow</p>
+            <h3>Start with a brief, then drive the run forward</h3>
+            <p>
+              Load a starter brief or paste YAML, validate it, submit it,
+              then open the new run from Recent runs.
+            </p>
+            <ol class="empty-state-steps">
+              <li>Confirm pack, routing, and policy during validation.</li>
+              <li>Submit the brief to materialize the run, backlog, and artifacts.</li>
+              <li>Use the selected-run guide below to advance execution, quality, and PR handoff.</li>
+            </ol>
+            <div class="empty-state-actions">
+              <button
+                class="button button-primary button-link"
+                type="button"
+                data-ui-scroll-target="brief-intake"
+              >
+                Jump to brief intake
+              </button>
+              <button
+                class="button button-ghost button-link"
+                type="button"
+                data-ui-scroll-target="run-ledger"
+              >
+                Jump to recent runs
+              </button>
+            </div>
+          </div>
+
+          <div id="runDetailShell" class="detail-shell hidden">
+            <section id="runOutcomeBanner" class="run-outcome-banner" data-ui-region="run-outcome">
+              <div class="empty-state compact">
+                Select a run to see the delivery outcome, proof, and safest next action.
+              </div>
+            </section>
+
+            <section class="detail-section">
+              <div id="runSummaryCards" class="summary-grid" data-ui-region="run-summary"></div>
+            </section>
+
+            <nav
+              id="runSectionNav"
+              class="run-section-nav"
+              aria-label="Selected run sections"
+            >
+              <button class="run-section-link" type="button" data-ui-scroll-target="run-guide">
+                Guide
+              </button>
+              <button class="run-section-link" type="button" data-ui-scroll-target="run-controls">
+                Controls
+              </button>
+              <button class="run-section-link" type="button" data-ui-scroll-target="run-tasks">
+                Tasks
+              </button>
+              <button class="run-section-link" type="button" data-ui-scroll-target="run-artifacts">
+                Artifacts
+              </button>
+              <button class="run-section-link" type="button" data-ui-scroll-target="run-events">
+                Events
+              </button>
+            </nav>
+
+            <section id="run-guide" class="detail-section guide-section">
+              <div class="detail-section-head">
+                <div>
+                  <h3>What the orchestrator is doing</h3>
+                  <p id="runGuideHeadline" class="microcopy">
+                    Select a run to see which stage is active, what is already
+                    materialized, and which operator action should happen next.
+                  </p>
+                </div>
+                <span id="runGuideBadge" class="badge badge-neutral">Idle</span>
+              </div>
+              <div class="guide-grid">
+                <article class="guide-card guide-card-emphasis">
+                  <p class="panel-kicker">Next operator step</p>
+                  <h4 id="runGuideNextAction">Choose a run</h4>
+                  <p id="runGuideRecommendation">
+                    Open a run from the ledger to unlock a stage-by-stage recommendation.
+                  </p>
+                  <div class="guide-card-actions">
+                    <button
+                      id="runGuideActionButton"
+                      class="button button-primary hidden"
+                      type="button"
+                    >
+                      Recommended control
+                    </button>
+                    <p id="runGuideActionHint" class="microcopy">
+                      Open a run from the ledger to see the recommended control-plane action.
+                    </p>
+                  </div>
+                </article>
+                <article class="guide-card">
+                  <p class="panel-kicker">Current stage</p>
+                  <h4 id="runGuideCurrentStage">Waiting for a run</h4>
+                  <p id="runGuideCurrentStageDetail">
+                    The guide will explain what the orchestrator has already materialized and what remains blocked.
+                  </p>
+                </article>
+                <article class="guide-card">
+                  <p class="panel-kicker">Progress</p>
+                  <h4 id="runGuideProgressSummary">0 of 6 stages complete</h4>
+                  <div
+                    id="runGuideProgressMeter"
+                    class="guide-progress-meter"
+                    role="progressbar"
+                    aria-label="Run guide progress"
+                    aria-valuemin="0"
+                    aria-valuemax="5"
+                    aria-valuenow="0"
+                  >
+                    <span></span>
+                  </div>
+                  <p id="runGuideBlockers">
+                    Execution, quality, and PR promotion guidance will appear here once a run is selected.
+                  </p>
+                </article>
+              </div>
+              <div id="runGuideStages" class="guide-stage-list" data-ui-region="run-guide-stages">
+                <div class="empty-state compact">
+                  No run selected yet. Start with brief intake, then open a run from the ledger.
+                </div>
+              </div>
+            </section>
+
+            <section id="run-controls" class="detail-section action-section">
+              <div class="detail-section-head">
+                <h3>Run controls</h3>
+                <p class="microcopy">
+                  These buttons hit the same HTTP control-plane actions used by
+                  scripts and operators.
+                </p>
+              </div>
+              <div class="action-grid">
+                <button data-run-action="tasks-next" class="button button-primary" type="button">
+                  Run next task
+                </button>
+                <button data-run-action="worker-once" class="button button-primary" type="button">
+                  Worker once
+                </button>
+                <button data-run-action="evaluate-policy" class="button button-secondary" type="button">
+                  Evaluate policy
+                </button>
+                <button data-run-action="evaluate-quality" class="button button-secondary" type="button">
+                  Evaluate quality
+                </button>
+                <button data-run-action="developer-handoff" class="button button-secondary" type="button">
+                  Generate developer handoff
+                </button>
+                <button data-run-action="export-pr" class="button button-secondary" type="button">
+                  Export PR candidate
+                </button>
+                <button data-run-action="draft-pr" class="button button-primary" type="button">
+                  Create draft PR
+                </button>
+              </div>
+              <p id="runActionHint" class="microcopy">
+                Select a run to inspect which operator actions are currently available.
+              </p>
+              <div
+                id="runControlReadinessBoard"
+                class="run-control-readiness-board"
+                data-ui-region="run-control-readiness"
+              >
+                <div class="empty-state compact">
+                  Select a run to see why each control-plane action is available or locked.
+                </div>
+              </div>
+              <div class="form-grid">
+                <label class="field-label" for="branchNameInput">
+                  Preferred branch name
+                </label>
+                <input id="branchNameInput" type="text" placeholder="feature/continuum-run">
+                <label class="field-label" for="remoteUrlInput">
+                  Remote URL
+                </label>
+                <input id="remoteUrlInput" type="text" placeholder="git@github.com:owner/repo.git">
+                <label class="field-label" for="repositoryTargetSelect">
+                  Repository target
+                </label>
+                <select id="repositoryTargetSelect">
+                  <option value="">Use run repository or manual remote</option>
+                </select>
+                <label class="toggle toggle-inline">
+                  <input id="publishPushToggle" type="checkbox">
+                  <span>Push during publish</span>
+                </label>
+                <button data-run-action="publish-pr" class="button button-ghost" type="button">
+                  Publish PR export
+                </button>
+              </div>
+              <div class="rail-action-row">
+                <button id="resetRunActionDraftButton" class="button button-ghost" type="button">
+                  Reset defaults
+                </button>
+              </div>
+              <p id="runActionDraftHint" class="microcopy">
+                Promotion defaults appear once a run is selected.
+              </p>
+              <div class="detail-section-head">
+                <h3>Action highlights</h3>
+                <p id="actionSummaryHeadline" class="microcopy">
+                  Run a control to surface branch, PR, quality, and task execution details here.
+                </p>
+              </div>
+              <div id="actionHighlights" class="summary-grid" data-ui-region="action-highlights">
+                <div class="empty-state compact">
+                  No run action summary captured for this run yet.
+                </div>
+              </div>
+              <div class="console-wrap">
+                <div class="console-head">
+                  <p class="panel-kicker">Action Output</p>
+                  <span id="actionConsoleStatus" class="badge badge-neutral">Idle</span>
+                </div>
+                <div id="actionConsole" class="console" data-ui-console="run-action-output">No run action executed yet.</div>
+              </div>
+            </section>
+
+            <section id="run-tasks" class="detail-section">
+              <div class="detail-section-head">
+                <h3>Tasks</h3>
+                <p id="taskHeadline" class="microcopy"></p>
+              </div>
+              <div id="taskTableWrap" class="table-wrap" data-ui-region="task-results"></div>
+            </section>
+
+            <section id="run-artifacts" class="detail-section">
+              <div class="detail-section-head">
+                <h3>Artifacts</h3>
+                <p id="artifactHeadline" class="microcopy"></p>
+              </div>
+              <div id="artifactEvidenceStrip" class="artifact-evidence-strip" data-ui-region="artifact-evidence"></div>
+              <div id="artifactHighlights" class="artifact-grid" data-ui-region="artifact-highlights"></div>
+              <div id="artifactTableWrap" class="table-wrap" data-ui-region="artifact-results"></div>
+            </section>
+
+            <section id="run-events" class="detail-section">
+              <div class="detail-section-head">
+                <h3>Run events</h3>
+                <p id="eventHeadline" class="microcopy"></p>
+              </div>
+              <div
+                id="eventFilterBar"
+                class="event-filter-row"
+                aria-label="Run event filters"
+                data-ui-region="event-filters"
+              ></div>
+              <div id="eventTimeline" class="timeline" data-ui-region="event-timeline"></div>
+            </section>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <noscript>
+      <div class="noscript-banner">
+        The operator UI needs JavaScript enabled to fetch live orchestrator data.
+      </div>
+    </noscript>
+
+    <script src="/ui/app.js" defer></script>
+  </body>
+</html>

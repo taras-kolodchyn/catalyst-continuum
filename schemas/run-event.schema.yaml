@@ -1,0 +1,71 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "urn:catalyst-continuum:schemas:run-event:v0.1"
+title: "Catalyst Continuum Run Event"
+description: "Durable audit event emitted for run-level or task-level transitions within a run."
+type: object
+additionalProperties: false
+required:
+  - schema_version
+  - event_id
+  - run_id
+  - scope
+  - event_type
+  - summary
+  - payload
+  - created_at
+  - persisted
+properties:
+  schema_version:
+    type: string
+    const: "v0.1"
+  event_id:
+    type: string
+    format: uuid
+  run_id:
+    type: string
+    format: uuid
+  task_id:
+    anyOf:
+      - type: string
+        format: uuid
+      - type: "null"
+  scope:
+    type: string
+    enum:
+      - run
+      - task
+  event_type:
+    type: string
+    minLength: 1
+    description: "Explicit v0.1 run-event taxonomy shared by CLI, HTTP, MCP, and persisted audit history."
+    enum:
+      - run_submitted
+      - run_status_changed
+      - run_policy_evaluated
+      - run_quality_evaluated
+      - developer_handoff_generated
+      - pr_candidate_exported
+      - pr_export_published
+      - github_pr_opened
+      - task_started
+      - task_workspace_prepared
+      - task_heartbeat
+      - task_succeeded
+      - task_failed
+      - task_requeued
+  status:
+    anyOf:
+      - type: string
+      - type: "null"
+  summary:
+    type: string
+    minLength: 1
+  payload:
+    type: object
+  created_at:
+    anyOf:
+      - type: string
+        format: date-time
+      - type: "null"
+  persisted:
+    type: boolean

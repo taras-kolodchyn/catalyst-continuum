@@ -1,0 +1,60 @@
+schema_version: v0.1
+brief_id: 11111111-1111-1111-1111-111111111111
+title: Minimal Container Service
+summary: >
+  Build a minimal containerized service proof of concept from a structured brief
+  so the orchestrator can validate planning and scaffolding flow end to end.
+requested_by: product@example.com
+target_users:
+  - internal platform engineers
+goals:
+  - Turn a structured brief into a draft backlog.
+  - Scaffold a minimal repository layout for a containerized service.
+functional_requirements:
+  - id: APP-1
+    title: Ingest brief
+    description: Accept a structured brief and validate required fields.
+    priority: must
+  - id: APP-2
+    title: Generate backlog
+    description: Produce a small initial backlog from the brief inputs.
+    priority: must
+constraints:
+  - Use Docker as the initial runtime provider.
+  - Keep the first implementation GitHub-native.
+deliverables:
+  - backlog artifact
+  - scaffold plan artifact
+technical_preferences:
+  languages:
+    - rust
+  infrastructure:
+    - docker compose
+repository:
+  host: github
+  owner: smartit
+  name: catalyst-continuum-demo
+  default_branch: main
+  visibility: private
+execution_preferences:
+  repo_pack: container-service
+  default_runtime_provider: docker
+  sandbox_profile: restricted
+  orchestrator_model: planner-default
+  default_agent: openhands
+  allowed_agents:
+    - openhands
+    - codex
+policy:
+  max_task_count: 8
+  max_total_timeout_seconds: 180
+  max_task_retry_count: 1
+  allowed_task_kinds:
+    - plan
+    - scaffold
+    - code
+    - test
+  allowed_runtime_providers:
+    - docker
+  allowed_sandbox_profiles:
+    - restricted

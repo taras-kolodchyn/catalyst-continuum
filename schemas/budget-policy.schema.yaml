@@ -1,0 +1,113 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "urn:catalyst-continuum:schemas:budget-policy:v0.1"
+title: "Catalyst Continuum Budget Policy"
+description: "Budget, approval, and allow/deny controls evaluated during planning and execution."
+type: object
+additionalProperties: false
+required:
+  - schema_version
+  - policy_id
+  - name
+  - scope
+  - enforcement
+properties:
+  schema_version:
+    type: string
+    const: "v0.1"
+  policy_id:
+    type: string
+    format: uuid
+  name:
+    type: string
+    minLength: 3
+  scope:
+    type: string
+    enum:
+      - repository
+      - run
+      - task
+      - agent
+  selectors:
+    $ref: "#/$defs/selectors"
+  limits:
+    $ref: "#/$defs/limits"
+  model_policy:
+    $ref: "#/$defs/allow_deny_policy"
+  tool_policy:
+    $ref: "#/$defs/allow_deny_policy"
+  enforcement:
+    type: object
+    additionalProperties: false
+    required:
+      - on_limit_exceeded
+    properties:
+      on_limit_exceeded:
+        type: string
+        enum:
+          - block
+          - pause
+          - require_approval
+      approval_required_over_cost_usd:
+        type: number
+        minimum: 0
+      approval_required_for_deploy:
+        type: boolean
+      approval_required_for_merge:
+        type: boolean
+  metadata:
+    type: object
+    additionalProperties:
+      type: string
+$defs:
+  selectors:
+    type: object
+    additionalProperties: false
+    properties:
+      repositories:
+        type: array
+        items:
+          type: string
+        uniqueItems: true
+      packs:
+        type: array
+        items:
+          type: string
+        uniqueItems: true
+      agents:
+        type: array
+        items:
+          type: string
+        uniqueItems: true
+  limits:
+    type: object
+    additionalProperties: false
+    properties:
+      max_total_cost_usd:
+        type: number
+        minimum: 0
+      max_prompt_tokens:
+        type: integer
+        minimum: 1
+      max_completion_tokens:
+        type: integer
+        minimum: 1
+      max_runtime_minutes:
+        type: integer
+        minimum: 1
+      max_tasks:
+        type: integer
+        minimum: 1
+  allow_deny_policy:
+    type: object
+    additionalProperties: false
+    properties:
+      allow:
+        type: array
+        items:
+          type: string
+        uniqueItems: true
+      deny:
+        type: array
+        items:
+          type: string
+        uniqueItems: true

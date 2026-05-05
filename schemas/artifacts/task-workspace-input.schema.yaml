@@ -1,0 +1,73 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "urn:catalyst-continuum:schemas:artifacts:task-workspace-input:v0.1"
+title: "Catalyst Continuum Task Workspace Input Artifact"
+description: "Persisted task-scoped workspace handoff manifest for external agents and future remote runtime providers."
+type: object
+additionalProperties: false
+required:
+  - schema_version
+  - artifact_type
+  - run_id
+  - task_id
+  - backlog_item_id
+  - source_kind
+  - workspace_root
+  - bundle_path
+  - bundle_format
+  - bundle_content_digest
+  - bundle_byte_count
+  - bundle_entry_count
+  - file_count
+properties:
+  schema_version:
+    type: string
+    const: "v0.1"
+  artifact_type:
+    type: string
+    const: "task_workspace_input"
+  run_id:
+    $ref: "#/$defs/uuid_string"
+  task_id:
+    $ref: "#/$defs/uuid_string"
+  backlog_item_id:
+    type: string
+    minLength: 1
+  source_kind:
+    type: string
+    enum:
+      - snapshot
+      - empty
+  source_artifact_id:
+    anyOf:
+      - $ref: "#/$defs/uuid_string"
+      - type: "null"
+  source_artifact_type:
+    anyOf:
+      - type: string
+        minLength: 1
+      - type: "null"
+  workspace_root:
+    type: string
+    minLength: 1
+  bundle_path:
+    type: string
+    minLength: 1
+  bundle_format:
+    type: string
+    const: "tar"
+  bundle_content_digest:
+    type: string
+    pattern: "^sha256:[0-9a-f]{64}$"
+  bundle_byte_count:
+    type: integer
+    minimum: 0
+  bundle_entry_count:
+    type: integer
+    minimum: 0
+  file_count:
+    type: integer
+    minimum: 0
+$defs:
+  uuid_string:
+    type: string
+    format: uuid

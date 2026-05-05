@@ -1,0 +1,2061 @@
+use std::{
+    collections::BTreeSet,
+    io::{BufRead, Write},
+};
+
+use anyhow::{Context, bail};
+use serde_json::{Value, json};
+
+use super::{
+    mcp_tool_args::{
+        CallToolParams, ClaimNextAgentTaskToolArgs, CompleteAgentTaskToolArgs,
+        DescribeArtifactToolArgs, DescribeGithubDefaultBranchStateToolArgs,
+        DescribeGithubWebhookActionReportToolArgs, DescribeGithubWebhookActionRequestToolArgs,
+        DescribeGithubWebhookReceiptToolArgs, DescribeGithubWebhookToolArgs,
+        DescribeLatestArtifactToolArgs, DescribePackToolArgs,
+        DescribeRepositorySignalPayloadToolArgs, DescribeRepositorySignalToolArgs,
+        DescribeRunGuideToolArgs, DescribeRunToolArgs, EmptyToolArgs, EvaluateRunPolicyToolArgs,
+        EvaluateRunQualityToolArgs, ExportPrCandidateToolArgs, GenerateDeveloperHandoffToolArgs,
+        HeartbeatAgentTaskToolArgs, InitializeParams, ListGithubWebhookActionRequestsToolArgs,
+        ListGithubWebhooksToolArgs, ListRepositorySignalsToolArgs, ListRunEventsToolArgs,
+        ListRunsToolArgs, OpenGithubPrToolArgs, PaginationParams,
+        PrepareAgentTaskWorkspaceToolArgs, PublishPrExportToolArgs,
+        RunNextGithubWebhookActionToolArgs, RunNextRepositoryAutomationToolArgs, RunScopedToolArgs,
+        SubmitBriefToolArgs, SubmitNextRepositorySignalToolArgs, SubmitRepositorySignalToolArgs,
+        ValidateBriefToolArgs, normalize_arguments, parse_params, parse_tool_arguments,
+    },
+    mcp_tool_definitions::{filtered_tool_definitions, validate_tool_allowlist},
+    mcp_tool_results::{
+        call_tool, jsonrpc_error_response, jsonrpc_result_response, negotiate_protocol_version,
+        render_pack_catalog_text, render_run_detail_text, tool_success_object,
+        tool_success_with_text,
+    },
+};
+use crate::{
+    cli::McpServerArgs,
+    commands::{
+        claim_next_agent_task,
+        complete_agent_task::{self, AgentTaskCompletionRequest},
+        describe_ai_gateway_status, describe_artifact, describe_github_default_branch_state,
+        describe_github_webhook_action_report, describe_github_webhook_receipt,
+        describe_latest_artifact, describe_repository_signal_payload, describe_run_guide,
+        evaluate_run_policy, evaluate_run_quality, export_pr_candidate, generate_developer_handoff,
+        heartbeat_agent_task, open_github_pr, prepare_agent_task_workspace, publish_pr_export,
+        run_next_github_webhook_action, run_next_repository_automation, run_next_task,
+        submit_next_repository_signal,
+        submit_repository_signal::BriefSubmissionContext,
+        worker,
+    },
+    config::InstanceConfigReport,
+    models::{
+        repository_signal::RepositorySignalListFilters,
+        webhook::{GitHubWebhookActionRequestListFilters, GitHubWebhookListFilters},
+    },
+    planning::{
+        brief_validation::validate_brief_document_with_external_mcp_servers,
+        pack_catalog::build_pack_catalog, packs::PackDefinition,
+    },
+    runtime::RuntimeRegistry,
+    storage::postgres::{PostgresRunStore, RunEventListFilters, RunListFilters},
+};
+
+const MCP_SERVER_NAME: &str = "catalyst-continuum-orchestrator";
+const MCP_SERVER_TITLE: &str = "Catalyst Continuum Orchestrator";
+
+const JSONRPC_PARSE_ERROR: i64 = -32700;
+const JSONRPC_INVALID_REQUEST: i64 = -32600;
+const JSONRPC_METHOD_NOT_FOUND: i64 = -32601;
+const JSONRPC_INVALID_PARAMS: i64 = -32602;
+const JSONRPC_INTERNAL_ERROR: i64 = -32603;
+
+pub fn execute(args: McpServerArgs) -> anyhow::Result<()> {
+    let stdin = std::io::stdin();
+    let stdout = std::io::stdout();
+
+    let mut server = StdioMcpServer::new(args)?;
+    server.serve(stdin.lock(), stdout.lock())
+}
+
+struct StdioMcpServer {
+    config: McpServerConfig,
+    state: SessionState,
+    runtime_registry: RuntimeRegistry,
+}
+
+#[derive(Clone)]
+struct McpServerConfig {
+    database_url: Option<String>,
+    artifact_root: std::path::PathBuf,
+    repository_targets_file: Option<std::path::PathBuf>,
+    instance_config: InstanceConfigReport,
+    tool_allowlist: Option<BTreeSet<String>>,
+}
+
+#[derive(Default)]
+struct SessionState {
+    initialize_seen: bool,
+    initialized_notification_seen: bool,
+    negotiated_protocol_version: Option<String>,
+}
+
+impl StdioMcpServer {
+    fn new(args: McpServerArgs) -> anyhow::Result<Self> {
+        let instance_config = InstanceConfigReport::load(
+            args.runtime_providers_file.as_deref(),
+            args.mcp_servers_file.as_deref(),
+            args.ai_gateway_file.as_deref(),
+            args.repository_targets_file.as_deref(),
+        )?;
+        let tool_allowlist = normalize_tool_allowlist(args.tool_allowlist);
+        validate_tool_allowlist(tool_allowlist.as_ref())?;
+
+        Ok(Self {
+            config: McpServerConfig {
+                database_url: args.database_url,
+                artifact_root: args.artifact_root,
+                repository_targets_file: args.repository_targets_file,
+                instance_config: instance_config.clone(),
+                tool_allowlist,
+            },
+            state: SessionState::default(),
+            runtime_registry: RuntimeRegistry::from_runtime_providers_config(
+                &instance_config.runtime_providers,
+            ),
+        })
+    }
+
+    fn serve<R: BufRead, W: Write>(&mut self, mut reader: R, mut writer: W) -> anyhow::Result<()> {
+        let mut line = String::new();
+
+        loop {
+            line.clear();
+            let bytes_read = reader
+                .read_line(&mut line)
+                .context("failed to read MCP message from stdin")?;
+            if bytes_read == 0 {
+                break;
+            }
+
+            let payload = line.trim();
+            if payload.is_empty() {
+                continue;
+            }
+
+            match self.handle_message(payload) {
+                Ok(Some(response)) => {
+                    writeln!(&mut writer, "{response}")
+                        .context("failed to write MCP response to stdout")?;
+                    writer.flush().context("failed to flush MCP stdout")?;
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    let response = jsonrpc_error_response(
+                        Value::Null,
+                        JSONRPC_INTERNAL_ERROR,
+                        &format!("internal server error: {error:#}"),
+                    );
+                    writeln!(&mut writer, "{response}")
+                        .context("failed to write MCP error response to stdout")?;
+                    writer.flush().context("failed to flush MCP stdout")?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn handle_message(&mut self, payload: &str) -> anyhow::Result<Option<Value>> {
+        let message: Value = match serde_json::from_str(payload) {
+            Ok(message) => message,
+            Err(error) => {
+                return Ok(Some(jsonrpc_error_response(
+                    Value::Null,
+                    JSONRPC_PARSE_ERROR,
+                    &format!("failed to parse JSON-RPC message: {error}"),
+                )));
+            }
+        };
+
+        if message.is_array() {
+            return Ok(Some(jsonrpc_error_response(
+                Value::Null,
+                JSONRPC_INVALID_REQUEST,
+                "batch JSON-RPC messages are not supported",
+            )));
+        }
+
+        if message.get("jsonrpc").and_then(Value::as_str) != Some("2.0") {
+            return Ok(Some(jsonrpc_error_response(
+                message.get("id").cloned().unwrap_or(Value::Null),
+                JSONRPC_INVALID_REQUEST,
+                "jsonrpc must be \"2.0\"",
+            )));
+        }
+
+        let method = match message.get("method").and_then(Value::as_str) {
+            Some(method) => method,
+            None => {
+                return Ok(Some(jsonrpc_error_response(
+                    message.get("id").cloned().unwrap_or(Value::Null),
+                    JSONRPC_INVALID_REQUEST,
+                    "JSON-RPC request must include method",
+                )));
+            }
+        };
+        let id = message.get("id").cloned();
+        let params = message.get("params").cloned();
+
+        match id {
+            Some(id) => Ok(Some(self.handle_request(id, method, params)?)),
+            None => {
+                if let Err(error) = self.handle_notification(method, params) {
+                    tracing::warn!(method, error = %error, "failed to process MCP notification");
+                }
+                Ok(None)
+            }
+        }
+    }
+
+    fn handle_request(
+        &mut self,
+        id: Value,
+        method: &str,
+        params: Option<Value>,
+    ) -> anyhow::Result<Value> {
+        let response = match method {
+            "initialize" => match self.handle_initialize(id.clone(), params) {
+                Ok(response) => response,
+                Err(error) => {
+                    jsonrpc_error_response(id, JSONRPC_INVALID_PARAMS, &error.to_string())
+                }
+            },
+            "ping" => jsonrpc_result_response(id, json!({})),
+            "tools/list" => match self.handle_tools_list(id.clone(), params) {
+                Ok(response) => response,
+                Err(error) => {
+                    jsonrpc_error_response(id, JSONRPC_INVALID_REQUEST, &error.to_string())
+                }
+            },
+            "tools/call" => match self.handle_tools_call(id.clone(), params) {
+                Ok(response) => response,
+                Err(error) => {
+                    jsonrpc_error_response(id, JSONRPC_INVALID_PARAMS, &error.to_string())
+                }
+            },
+            _ => jsonrpc_error_response(
+                id,
+                JSONRPC_METHOD_NOT_FOUND,
+                &format!("unsupported method: {method}"),
+            ),
+        };
+
+        Ok(response)
+    }
+
+    fn handle_notification(&mut self, method: &str, params: Option<Value>) -> anyhow::Result<()> {
+        match method {
+            "notifications/initialized" => {
+                if !self.state.initialize_seen {
+                    bail!("received notifications/initialized before initialize");
+                }
+                self.state.initialized_notification_seen = true;
+            }
+            "notifications/cancelled" => {
+                tracing::info!(
+                    "received notifications/cancelled; ignoring for synchronous MCP server"
+                );
+            }
+            other => {
+                tracing::debug!(method = other, params = ?params, "ignoring unsupported MCP notification");
+            }
+        }
+
+        Ok(())
+    }
+
+    fn handle_initialize(&mut self, id: Value, params: Option<Value>) -> anyhow::Result<Value> {
+        if self.state.initialize_seen {
+            return Ok(jsonrpc_error_response(
+                id,
+                JSONRPC_INVALID_REQUEST,
+                "initialize has already completed for this stdio session",
+            ));
+        }
+
+        let params: InitializeParams = parse_params(params)?;
+        tracing::info!(
+            protocol_version = %params.protocol_version,
+            client_name = params.client_info.as_ref().map(|info| info.name.as_str()).unwrap_or("unknown"),
+            client_version = params.client_info.as_ref().map(|info| info.version.as_str()).unwrap_or("unknown"),
+            capabilities_present = params.capabilities.is_some(),
+            "initialized MCP stdio session"
+        );
+        let negotiated_protocol = negotiate_protocol_version(&params.protocol_version);
+        self.state.initialize_seen = true;
+        self.state.negotiated_protocol_version = Some(negotiated_protocol.to_string());
+
+        Ok(jsonrpc_result_response(
+            id,
+            json!({
+                "protocolVersion": negotiated_protocol,
+                "capabilities": {
+                    "tools": {
+                        "listChanged": false
+                    }
+                },
+                "serverInfo": {
+                    "name": MCP_SERVER_NAME,
+                    "title": MCP_SERVER_TITLE,
+                    "version": env!("CARGO_PKG_VERSION")
+                },
+                "instructions": "Catalyst Continuum exposes orchestrator control-plane tools over MCP stdio. Use tools/list to discover tools and tools/call to execute them. Mutating tools can persist run state in Postgres and write artifacts under the configured artifact root."
+            }),
+        ))
+    }
+
+    fn handle_tools_list(&self, id: Value, params: Option<Value>) -> anyhow::Result<Value> {
+        self.ensure_initialized()?;
+        let _params: PaginationParams = parse_params(params)?;
+
+        Ok(jsonrpc_result_response(
+            id,
+            json!({
+                "tools": filtered_tool_definitions(self.config.tool_allowlist.as_ref())
+            }),
+        ))
+    }
+
+    fn handle_tools_call(&self, id: Value, params: Option<Value>) -> anyhow::Result<Value> {
+        self.ensure_initialized()?;
+        let params: CallToolParams = parse_params(params)?;
+        let arguments = normalize_arguments(params.arguments)?;
+
+        if !self.tool_is_allowed(&params.name) {
+            return Ok(jsonrpc_error_response(
+                id,
+                JSONRPC_INVALID_PARAMS,
+                &format!("tool is not enabled for this MCP session: {}", params.name),
+            ));
+        }
+
+        let result = match params.name.as_str() {
+            "list_packs" => self.call_list_packs(arguments),
+            "describe_pack" => self.call_describe_pack(arguments),
+            "describe_ai_gateway_status" => self.call_describe_ai_gateway_status(arguments),
+            "describe_instance_config" => self.call_describe_instance_config(arguments),
+            "describe_artifact" => self.call_describe_artifact(arguments),
+            "describe_latest_artifact" => self.call_describe_latest_artifact(arguments),
+            "validate_brief" => self.call_validate_brief(arguments),
+            "submit_brief" => self.call_submit_brief(arguments),
+            "submit_next_repository_signal" => self.call_submit_next_repository_signal(arguments),
+            "submit_repository_signal" => self.call_submit_repository_signal(arguments),
+            "run_next_repository_automation" => self.call_run_next_repository_automation(arguments),
+            "list_github_webhooks" => self.call_list_github_webhooks(arguments),
+            "describe_github_webhook" => self.call_describe_github_webhook(arguments),
+            "describe_github_webhook_receipt" => {
+                self.call_describe_github_webhook_receipt(arguments)
+            }
+            "list_github_webhook_action_requests" => {
+                self.call_list_github_webhook_action_requests(arguments)
+            }
+            "describe_github_webhook_action_request" => {
+                self.call_describe_github_webhook_action_request(arguments)
+            }
+            "describe_github_webhook_action_report" => {
+                self.call_describe_github_webhook_action_report(arguments)
+            }
+            "describe_github_default_branch_state" => {
+                self.call_describe_github_default_branch_state(arguments)
+            }
+            "list_repository_signals" => self.call_list_repository_signals(arguments),
+            "describe_repository_signal" => self.call_describe_repository_signal(arguments),
+            "describe_repository_signal_payload" => {
+                self.call_describe_repository_signal_payload(arguments)
+            }
+            "list_runs" => self.call_list_runs(arguments),
+            "describe_run" => self.call_describe_run(arguments),
+            "describe_run_guide" => self.call_describe_run_guide(arguments),
+            "list_run_events" => self.call_list_run_events(arguments),
+            "claim_next_agent_task" => self.call_claim_next_agent_task(arguments),
+            "prepare_agent_task_workspace" => self.call_prepare_agent_task_workspace(arguments),
+            "heartbeat_agent_task" => self.call_heartbeat_agent_task(arguments),
+            "complete_agent_task" => self.call_complete_agent_task(arguments),
+            "run_next_github_webhook_action" => self.call_run_next_github_webhook_action(arguments),
+            "run_next_task" => self.call_run_next_task(arguments),
+            "run_worker_once" => self.call_run_worker_once(arguments),
+            "evaluate_run_policy" => self.call_evaluate_run_policy(arguments),
+            "evaluate_run_quality" => self.call_evaluate_run_quality(arguments),
+            "generate_developer_handoff" => self.call_generate_developer_handoff(arguments),
+            "export_pr_candidate" => self.call_export_pr_candidate(arguments),
+            "publish_pr_export" => self.call_publish_pr_export(arguments),
+            "open_github_pr" => self.call_open_github_pr(arguments),
+            _ => {
+                return Ok(jsonrpc_error_response(
+                    id,
+                    JSONRPC_INVALID_PARAMS,
+                    &format!("unknown tool: {}", params.name),
+                ));
+            }
+        };
+
+        Ok(jsonrpc_result_response(id, result))
+    }
+
+    fn ensure_initialized(&self) -> anyhow::Result<()> {
+        if !self.state.initialize_seen {
+            bail!("client must call initialize before using MCP tools");
+        }
+        if !self.state.initialized_notification_seen {
+            bail!("client must send notifications/initialized before using MCP tools");
+        }
+
+        Ok(())
+    }
+
+    fn tool_is_allowed(&self, tool_name: &str) -> bool {
+        match &self.config.tool_allowlist {
+            Some(allowlist) => allowlist.contains(tool_name),
+            None => true,
+        }
+    }
+
+    fn open_store(&self) -> anyhow::Result<PostgresRunStore> {
+        let database_url = self
+            .config
+            .database_url
+            .as_deref()
+            .context("this MCP server was started without --database-url, so stateful run tools are unavailable")?;
+        let mut store = PostgresRunStore::connect(database_url)?;
+        store.ensure_schema()?;
+        Ok(store)
+    }
+
+    fn call_list_packs(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let _args: EmptyToolArgs = parse_tool_arguments(arguments)?;
+            let catalog = build_pack_catalog()?;
+            let content =
+                serde_json::to_value(&catalog).context("failed to serialize pack catalog")?;
+            Ok(tool_success_with_text(
+                "catalog",
+                content,
+                render_pack_catalog_text(&catalog),
+            ))
+        })
+    }
+
+    fn call_describe_pack(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: DescribePackToolArgs = parse_tool_arguments(arguments)?;
+            let pack = PackDefinition::load(args.pack_id.as_deref())?;
+            let content =
+                serde_json::to_value(&pack).context("failed to serialize pack definition")?;
+            Ok(tool_success_object("pack", content))
+        })
+    }
+
+    fn call_describe_ai_gateway_status(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let _args: EmptyToolArgs = parse_tool_arguments(arguments)?;
+            let api_key = describe_ai_gateway_status::gateway_api_key_from_env();
+            let probe_base_url = describe_ai_gateway_status::gateway_probe_base_url_from_env();
+            let status = describe_ai_gateway_status::describe_ai_gateway_status(
+                &self.config.instance_config.ai_gateway,
+                2_000,
+                api_key.as_deref(),
+                probe_base_url.as_deref(),
+            );
+            let structured = serde_json::to_value(&status)
+                .context("failed to serialize AI gateway status report")?;
+            Ok(tool_success_with_text(
+                "ai_gateway_status",
+                structured,
+                describe_ai_gateway_status::render_text(&status)?,
+            ))
+        })
+    }
+
+    fn call_describe_instance_config(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let _args: EmptyToolArgs = parse_tool_arguments(arguments)?;
+            let content = serde_json::to_value(&self.config.instance_config)
+                .context("failed to serialize instance config")?;
+            Ok(tool_success_object("instance_config", content))
+        })
+    }
+
+    fn call_describe_artifact(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: DescribeArtifactToolArgs = parse_tool_arguments(arguments)?;
+            let mut store = self.open_store()?;
+            let artifact = describe_artifact::describe_artifact(&mut store, args.artifact_id)?
+                .with_context(|| format!("artifact not found: {}", args.artifact_id))?;
+            let structured =
+                serde_json::to_value(&artifact).context("failed to serialize artifact detail")?;
+            Ok(tool_success_with_text(
+                "artifact",
+                structured,
+                artifact.render_text()?,
+            ))
+        })
+    }
+
+    fn call_describe_latest_artifact(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: DescribeLatestArtifactToolArgs = parse_tool_arguments(arguments)?;
+            let mut store = self.open_store()?;
+            store
+                .fetch_run_summary(args.run_id)?
+                .with_context(|| format!("run not found: {}", args.run_id))?;
+            let artifact = describe_latest_artifact::describe_latest_artifact(
+                &mut store,
+                args.run_id,
+                &args.artifact_type,
+            )?
+            .with_context(|| {
+                format!(
+                    "run {} does not have a latest artifact of type {}",
+                    args.run_id, args.artifact_type
+                )
+            })?;
+            let structured =
+                serde_json::to_value(&artifact).context("failed to serialize artifact detail")?;
+            Ok(tool_success_with_text(
+                "artifact",
+                structured,
+                artifact.render_text()?,
+            ))
+        })
+    }
+
+    fn call_validate_brief(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: ValidateBriefToolArgs = parse_tool_arguments(arguments)?;
+            let validated = validate_brief_document_with_external_mcp_servers(
+                &args.brief_content,
+                &args.brief_source_path,
+                &self.config.instance_config.external_mcp_servers,
+            )?;
+            let structured = serde_json::to_value(&validated.report)
+                .context("failed to serialize brief validation report")?;
+            Ok(tool_success_with_text(
+                "validation",
+                structured,
+                validated.report.render_text()?,
+            ))
+        })
+    }
+
+    fn call_submit_brief(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: SubmitBriefToolArgs = parse_tool_arguments(arguments)?;
+            let submission = crate::commands::submit_brief::submit_brief_document(
+                &args.brief_content,
+                &args.brief_source_path,
+                self.config.database_url.as_deref(),
+                &self.config.instance_config.external_mcp_servers,
+                &self.config.artifact_root,
+                args.dry_run,
+                "mcp",
+            )?;
+            let structured = serde_json::to_value(&submission)
+                .context("failed to serialize brief submission")?;
+            Ok(tool_success_with_text(
+                "submission",
+                structured,
+                submission.render_text()?,
+            ))
+        })
+    }
+
+    fn call_submit_repository_signal(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: SubmitRepositorySignalToolArgs = parse_tool_arguments(arguments)?;
+            let database_url = self
+                .config
+                .database_url
+                .as_deref()
+                .context("submit_repository_signal requires a configured database URL")?;
+            let submission =
+                crate::commands::submit_repository_signal::submit_repository_signal_document(
+                    &args.brief_content,
+                    &args.brief_source_path,
+                    database_url,
+                    BriefSubmissionContext {
+                        external_mcp_servers: &self.config.instance_config.external_mcp_servers,
+                        artifact_root: &self.config.artifact_root,
+                    },
+                    &args.signal_id,
+                    "named",
+                    "mcp",
+                )?;
+            let structured = serde_json::to_value(&submission)
+                .context("failed to serialize repository signal submission")?;
+            Ok(tool_success_with_text(
+                "submission",
+                structured,
+                submission.render_text()?,
+            ))
+        })
+    }
+
+    fn call_submit_next_repository_signal(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: SubmitNextRepositorySignalToolArgs = parse_tool_arguments(arguments)?;
+            let database_url = self
+                .config
+                .database_url
+                .as_deref()
+                .context("submit_next_repository_signal requires a configured database URL")?;
+            let submission = submit_next_repository_signal::submit_next_repository_signal_document(
+                &args.brief_content,
+                &args.brief_source_path,
+                database_url,
+                BriefSubmissionContext {
+                    external_mcp_servers: &self.config.instance_config.external_mcp_servers,
+                    artifact_root: &self.config.artifact_root,
+                },
+                args.signal_kind.as_deref(),
+                "mcp",
+            )?;
+            let structured = serde_json::to_value(&submission)
+                .context("failed to serialize next repository signal submission")?;
+            Ok(tool_success_with_text(
+                "submission",
+                structured,
+                submission.render_text()?,
+            ))
+        })
+    }
+
+    fn call_run_next_repository_automation(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: RunNextRepositoryAutomationToolArgs = parse_tool_arguments(arguments)?;
+            let database_url = self
+                .config
+                .database_url
+                .as_deref()
+                .context("run_next_repository_automation requires a configured database URL")?;
+            let report = run_next_repository_automation::run_next_repository_automation_document(
+                &args.brief_content,
+                &args.brief_source_path,
+                database_url,
+                BriefSubmissionContext {
+                    external_mcp_servers: &self.config.instance_config.external_mcp_servers,
+                    artifact_root: &self.config.artifact_root,
+                },
+                args.action.as_deref(),
+                args.signal_kind.as_deref(),
+                "mcp",
+            )?;
+            let structured = serde_json::to_value(&report)
+                .context("failed to serialize repository automation report")?;
+            Ok(tool_success_with_text(
+                "automation",
+                structured,
+                report.render_text()?,
+            ))
+        })
+    }
+
+    fn call_list_github_webhooks(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: ListGithubWebhooksToolArgs = parse_tool_arguments(arguments)?;
+            let mut store = self.open_store()?;
+            let filters = GitHubWebhookListFilters::from_inputs(args.event.as_deref());
+            let deliveries = store.list_github_webhook_deliveries(args.limit, &filters)?;
+            let structured = serde_json::to_value(&deliveries)
+                .context("failed to serialize github webhook delivery list")?;
+            Ok(tool_success_object("deliveries", structured))
+        })
+    }
+
+    fn call_describe_github_webhook(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: DescribeGithubWebhookToolArgs = parse_tool_arguments(arguments)?;
+            let mut store = self.open_store()?;
+            let delivery = store
+                .fetch_github_webhook_delivery(&args.delivery_id)?
+                .with_context(|| {
+                    format!("github webhook delivery not found: {}", args.delivery_id)
+                })?;
+            let structured = serde_json::to_value(&delivery)
+                .context("failed to serialize github webhook delivery")?;
+            Ok(tool_success_with_text(
+                "delivery",
+                structured,
+                delivery.render_text()?,
+            ))
+        })
+    }
+
+    fn call_describe_github_webhook_receipt(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: DescribeGithubWebhookReceiptToolArgs = parse_tool_arguments(arguments)?;
+            let mut store = self.open_store()?;
+            let delivery = store
+                .fetch_github_webhook_delivery(&args.delivery_id)?
+                .with_context(|| {
+                    format!("github webhook delivery not found: {}", args.delivery_id)
+                })?;
+            let receipt =
+                describe_github_webhook_receipt::describe_github_webhook_receipt(&delivery)?;
+            let structured = serde_json::to_value(&receipt)
+                .context("failed to serialize github webhook receipt")?;
+            Ok(tool_success_with_text(
+                "receipt",
+                structured,
+                receipt.render_text()?,
+            ))
+        })
+    }
+
+    fn call_list_github_webhook_action_requests(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: ListGithubWebhookActionRequestsToolArgs = parse_tool_arguments(arguments)?;
+            let mut store = self.open_store()?;
+            let filters = GitHubWebhookActionRequestListFilters::from_inputs(
+                args.status.as_deref(),
+                args.action.as_deref(),
+            );
+            let requests = store.list_github_webhook_action_requests(args.limit, &filters)?;
+            let structured = serde_json::to_value(&requests)
+                .context("failed to serialize github webhook action request list")?;
+            Ok(tool_success_object("requests", structured))
+        })
+    }
+
+    fn call_describe_github_webhook_action_request(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: DescribeGithubWebhookActionRequestToolArgs = parse_tool_arguments(arguments)?;
+            let mut store = self.open_store()?;
+            let request = store
+                .fetch_github_webhook_action_request(&args.request_id)?
+                .with_context(|| {
+                    format!(
+                        "github webhook action request not found: {}",
+                        args.request_id
+                    )
+                })?;
+            let structured = serde_json::to_value(&request)
+                .context("failed to serialize github webhook action request")?;
+            Ok(tool_success_with_text(
+                "request",
+                structured,
+                request.render_text()?,
+            ))
+        })
+    }
+
+    fn call_describe_github_webhook_action_report(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: DescribeGithubWebhookActionReportToolArgs = parse_tool_arguments(arguments)?;
+            let mut store = self.open_store()?;
+            let request = store
+                .fetch_github_webhook_action_request(&args.request_id)?
+                .with_context(|| {
+                    format!(
+                        "github webhook action request not found: {}",
+                        args.request_id
+                    )
+                })?;
+            let report =
+                describe_github_webhook_action_report::describe_github_webhook_action_report(
+                    &request,
+                )?;
+            let structured = serde_json::to_value(&report)
+                .context("failed to serialize github webhook action report")?;
+            Ok(tool_success_with_text(
+                "report",
+                structured,
+                report.render_text()?,
+            ))
+        })
+    }
+
+    fn call_describe_github_default_branch_state(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: DescribeGithubDefaultBranchStateToolArgs = parse_tool_arguments(arguments)?;
+            let state = describe_github_default_branch_state::describe_github_default_branch_state(
+                &self.config.artifact_root,
+                &args.provider,
+                &args.repository_full_name,
+            )?;
+            let structured = serde_json::to_value(&state)
+                .context("failed to serialize github default-branch state")?;
+            Ok(tool_success_with_text(
+                "state",
+                structured,
+                state.render_text()?,
+            ))
+        })
+    }
+
+    fn call_list_repository_signals(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: ListRepositorySignalsToolArgs = parse_tool_arguments(arguments)?;
+            let mut store = self.open_store()?;
+            let filters = RepositorySignalListFilters::from_inputs(
+                args.status.as_deref(),
+                args.signal_kind.as_deref(),
+                args.repository_full_name.as_deref(),
+            );
+            let signals = store.list_repository_signals(args.limit, &filters)?;
+            let structured = serde_json::to_value(&signals)
+                .context("failed to serialize repository signal list")?;
+            Ok(tool_success_object("signals", structured))
+        })
+    }
+
+    fn call_describe_repository_signal(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: DescribeRepositorySignalToolArgs = parse_tool_arguments(arguments)?;
+            let mut store = self.open_store()?;
+            let signal = store
+                .fetch_repository_signal(&args.signal_id)?
+                .with_context(|| format!("repository signal not found: {}", args.signal_id))?;
+            let structured =
+                serde_json::to_value(&signal).context("failed to serialize repository signal")?;
+            Ok(tool_success_with_text(
+                "signal",
+                structured,
+                signal.render_text()?,
+            ))
+        })
+    }
+
+    fn call_describe_repository_signal_payload(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: DescribeRepositorySignalPayloadToolArgs = parse_tool_arguments(arguments)?;
+            let mut store = self.open_store()?;
+            let signal = store
+                .fetch_repository_signal(&args.signal_id)?
+                .with_context(|| format!("repository signal not found: {}", args.signal_id))?;
+            let payload =
+                describe_repository_signal_payload::describe_repository_signal_payload(&signal)?;
+            let structured = serde_json::to_value(&payload)
+                .context("failed to serialize repository signal payload")?;
+            Ok(tool_success_with_text(
+                "payload",
+                structured,
+                payload.render_text()?,
+            ))
+        })
+    }
+
+    fn call_list_runs(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: ListRunsToolArgs = parse_tool_arguments(arguments)?;
+            let mut store = self.open_store()?;
+            let filters =
+                RunListFilters::from_inputs(args.status.as_deref(), args.target_pack.as_deref())?;
+            let runs = store.list_runs_filtered(args.limit, &filters)?;
+            let structured = serde_json::to_value(&runs).context("failed to serialize run list")?;
+            Ok(tool_success_object("runs", structured))
+        })
+    }
+
+    fn call_describe_run(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: DescribeRunToolArgs = parse_tool_arguments(arguments)?;
+            let mut store = self.open_store()?;
+            let run = store
+                .fetch_run_detail(args.run_id)?
+                .with_context(|| format!("run not found: {}", args.run_id))?;
+            let structured =
+                serde_json::to_value(&run).context("failed to serialize run detail")?;
+            Ok(tool_success_with_text(
+                "run",
+                structured,
+                render_run_detail_text(&run),
+            ))
+        })
+    }
+
+    fn call_describe_run_guide(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: DescribeRunGuideToolArgs = parse_tool_arguments(arguments)?;
+            let mut store = self.open_store()?;
+            let guide = describe_run_guide::describe_run_guide(&mut store, args.run_id)?;
+            let structured =
+                serde_json::to_value(&guide).context("failed to serialize run guide")?;
+            Ok(tool_success_with_text(
+                "guide",
+                structured,
+                guide.render_text()?,
+            ))
+        })
+    }
+
+    fn call_list_run_events(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: ListRunEventsToolArgs = parse_tool_arguments(arguments)?;
+            let mut store = self.open_store()?;
+            store
+                .fetch_run_summary(args.run_id)?
+                .with_context(|| format!("run not found: {}", args.run_id))?;
+            let filters =
+                RunEventListFilters::from_inputs(args.event_type.as_deref(), args.task_id);
+            let events = store.list_run_events(args.run_id, args.limit, &filters)?;
+            let structured =
+                serde_json::to_value(&events).context("failed to serialize run event list")?;
+            Ok(tool_success_object("events", structured))
+        })
+    }
+
+    fn call_claim_next_agent_task(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: ClaimNextAgentTaskToolArgs = parse_tool_arguments(arguments)?;
+            let mut store = self.open_store()?;
+            let claim = claim_next_agent_task::claim_next_agent_task(
+                &mut store,
+                args.run_id,
+                &args.agent,
+                args.executor_id.as_deref(),
+            )?;
+            let structured =
+                serde_json::to_value(&claim).context("failed to serialize agent task claim")?;
+            Ok(tool_success_with_text(
+                "claim",
+                structured,
+                claim.render_text()?,
+            ))
+        })
+    }
+
+    fn call_prepare_agent_task_workspace(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: PrepareAgentTaskWorkspaceToolArgs = parse_tool_arguments(arguments)?;
+            let mut store = self.open_store()?;
+            let report = prepare_agent_task_workspace::prepare_agent_task_workspace(
+                &mut store,
+                args.task_id,
+                &args.agent,
+                args.executor_id.as_deref(),
+                &self.config.artifact_root,
+            )?;
+            let structured = serde_json::to_value(&report)
+                .context("failed to serialize prepared agent task workspace")?;
+            Ok(tool_success_with_text(
+                "workspace",
+                structured,
+                report.render_text()?,
+            ))
+        })
+    }
+
+    fn call_heartbeat_agent_task(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: HeartbeatAgentTaskToolArgs = parse_tool_arguments(arguments)?;
+            let mut store = self.open_store()?;
+            let heartbeat = heartbeat_agent_task::heartbeat_agent_task(
+                &mut store,
+                args.task_id,
+                &args.agent,
+                args.executor_id.as_deref(),
+            )?;
+            let structured = serde_json::to_value(&heartbeat)
+                .context("failed to serialize agent task heartbeat")?;
+            Ok(tool_success_with_text(
+                "heartbeat",
+                structured,
+                heartbeat.render_text()?,
+            ))
+        })
+    }
+
+    fn call_complete_agent_task(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: CompleteAgentTaskToolArgs = parse_tool_arguments(arguments)?;
+            let request = AgentTaskCompletionRequest {
+                task_id: args.task_id,
+                agent: args.agent,
+                executor_id: args.executor_id,
+                status: args.status,
+                summary: args.summary,
+                details: args.details,
+                workspace_root: args.workspace_root,
+                retryable: args.retryable,
+            };
+            let mut store = self.open_store()?;
+            let report = complete_agent_task::complete_agent_task(
+                &mut store,
+                &self.config.artifact_root,
+                &request,
+            )?;
+            let structured = serde_json::to_value(&report)
+                .context("failed to serialize agent task completion")?;
+            Ok(tool_success_with_text(
+                "completion",
+                structured,
+                report.render_text()?,
+            ))
+        })
+    }
+
+    fn call_run_next_github_webhook_action(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: RunNextGithubWebhookActionToolArgs = parse_tool_arguments(arguments)?;
+            let mut store = self.open_store()?;
+            let execution = run_next_github_webhook_action::execute_next_github_webhook_action(
+                &mut store,
+                &self.config.artifact_root,
+                args.action.as_deref(),
+            )?;
+            let structured = serde_json::to_value(&execution)
+                .context("failed to serialize github webhook action execution")?;
+            Ok(tool_success_with_text(
+                "execution",
+                structured,
+                execution.render_text()?,
+            ))
+        })
+    }
+
+    fn call_run_next_task(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: RunScopedToolArgs = parse_tool_arguments(arguments)?;
+            let mut store = self.open_store()?;
+            let execution = run_next_task::execute_next_task(
+                &mut store,
+                &self.runtime_registry,
+                args.run_id,
+                &self.config.artifact_root,
+                args.respect_agent_assignments,
+            )?;
+            let structured = serde_json::to_value(&execution)
+                .context("failed to serialize next task execution")?;
+            Ok(tool_success_with_text(
+                "execution",
+                structured,
+                execution.render_text()?,
+            ))
+        })
+    }
+
+    fn call_run_worker_once(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: RunScopedToolArgs = parse_tool_arguments(arguments)?;
+            let mut store = self.open_store()?;
+            let report = worker::run_worker(
+                &mut store,
+                &self.runtime_registry,
+                args.run_id,
+                &self.config.artifact_root,
+                true,
+                0,
+                args.respect_agent_assignments,
+            )?;
+            let structured =
+                serde_json::to_value(&report).context("failed to serialize worker report")?;
+            Ok(tool_success_with_text(
+                "worker",
+                structured,
+                report.render_text()?,
+            ))
+        })
+    }
+
+    fn call_evaluate_run_policy(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: EvaluateRunPolicyToolArgs = parse_tool_arguments(arguments)?;
+            let mut store = self.open_store()?;
+            let report = evaluate_run_policy::evaluate_run_policy(
+                &mut store,
+                args.run_id,
+                &self.config.artifact_root,
+            )?;
+            let structured =
+                serde_json::to_value(&report).context("failed to serialize run policy report")?;
+            Ok(tool_success_with_text(
+                "policy",
+                structured,
+                report.render_text()?,
+            ))
+        })
+    }
+
+    fn call_evaluate_run_quality(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: EvaluateRunQualityToolArgs = parse_tool_arguments(arguments)?;
+            let mut store = self.open_store()?;
+            let report = evaluate_run_quality::evaluate_run_quality(
+                &mut store,
+                args.run_id,
+                &self.config.artifact_root,
+            )?;
+            let structured =
+                serde_json::to_value(&report).context("failed to serialize quality gate report")?;
+            Ok(tool_success_with_text(
+                "quality_gate",
+                structured,
+                report.render_text()?,
+            ))
+        })
+    }
+
+    fn call_generate_developer_handoff(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: GenerateDeveloperHandoffToolArgs = parse_tool_arguments(arguments)?;
+            let mut store = self.open_store()?;
+            let report = generate_developer_handoff::generate_developer_handoff(
+                &mut store,
+                args.run_id,
+                &self.config.artifact_root,
+            )?;
+            let structured =
+                serde_json::to_value(&report).context("failed to serialize developer handoff")?;
+            Ok(tool_success_with_text(
+                "handoff",
+                structured,
+                report.render_text()?,
+            ))
+        })
+    }
+
+    fn call_export_pr_candidate(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: ExportPrCandidateToolArgs = parse_tool_arguments(arguments)?;
+            let mut store = self.open_store()?;
+            let report = export_pr_candidate::export_pr_candidate(
+                &mut store,
+                args.run_id,
+                &self.config.artifact_root,
+                args.branch_name.as_deref(),
+                args.repository_target_id.as_deref(),
+                self.config.repository_targets_file.as_deref(),
+            )?;
+            let structured =
+                serde_json::to_value(&report).context("failed to serialize PR export report")?;
+            Ok(tool_success_with_text(
+                "export",
+                structured,
+                report.render_text()?,
+            ))
+        })
+    }
+
+    fn call_publish_pr_export(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: PublishPrExportToolArgs = parse_tool_arguments(arguments)?;
+            let mut store = self.open_store()?;
+            let report = publish_pr_export::publish_pr_export(
+                &mut store,
+                args.run_id,
+                &self.config.artifact_root,
+                args.remote_url.as_deref(),
+                args.repository_target_id.as_deref(),
+                args.push,
+                self.config.repository_targets_file.as_deref(),
+            )?;
+            let structured = serde_json::to_value(&report)
+                .context("failed to serialize PR publication report")?;
+            Ok(tool_success_with_text(
+                "publication",
+                structured,
+                report.render_text()?,
+            ))
+        })
+    }
+
+    fn call_open_github_pr(&self, arguments: Value) -> Value {
+        call_tool(|| {
+            let args: OpenGithubPrToolArgs = parse_tool_arguments(arguments)?;
+            let mut store = self.open_store()?;
+            let report = open_github_pr::open_github_pr(
+                &mut store,
+                args.run_id,
+                &self.config.artifact_root,
+            )?;
+            let structured =
+                serde_json::to_value(&report).context("failed to serialize GitHub PR report")?;
+            Ok(tool_success_with_text(
+                "pull_request",
+                structured,
+                report.render_text()?,
+            ))
+        })
+    }
+}
+
+fn normalize_tool_allowlist(entries: Vec<String>) -> Option<BTreeSet<String>> {
+    let allowlist = entries
+        .into_iter()
+        .map(|entry| entry.trim().to_string())
+        .filter(|entry| !entry.is_empty())
+        .collect::<BTreeSet<_>>();
+    if allowlist.is_empty() {
+        None
+    } else {
+        Some(allowlist)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::{
+        artifact::ArtifactSummary,
+        run::{RunDetail, RunSummary, RunTaskCounts},
+        task::{TaskExecutionSpec, TaskSummary},
+    };
+    use serde_json::json;
+    use std::{fs, path::PathBuf};
+    use uuid::Uuid;
+
+    #[test]
+    fn negotiates_supported_protocol_version() {
+        let mut server = StdioMcpServer::new(McpServerArgs {
+            database_url: None,
+            artifact_root: std::path::PathBuf::from(".continuum/artifacts"),
+            runtime_providers_file: None,
+            mcp_servers_file: None,
+            ai_gateway_file: None,
+            repository_targets_file: None,
+            tool_allowlist: Vec::new(),
+        })
+        .expect("server should initialize");
+        let input = concat!(
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{},\"clientInfo\":{\"name\":\"test-client\",\"version\":\"0.1.0\"}}}\n",
+            "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n",
+            "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"ping\"}\n"
+        );
+
+        let output = run_session(&mut server, input);
+
+        assert_eq!(output.len(), 2);
+        assert_eq!(output[0]["result"]["protocolVersion"], "2024-11-05");
+        assert_eq!(output[1]["result"], json!({}));
+    }
+
+    #[test]
+    fn lists_tools_after_initialization() {
+        let mut server = StdioMcpServer::new(McpServerArgs {
+            database_url: None,
+            artifact_root: std::path::PathBuf::from(".continuum/artifacts"),
+            runtime_providers_file: None,
+            mcp_servers_file: None,
+            ai_gateway_file: None,
+            repository_targets_file: None,
+            tool_allowlist: Vec::new(),
+        })
+        .expect("server should initialize");
+        let input = concat!(
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{},\"clientInfo\":{\"name\":\"test-client\",\"version\":\"0.1.0\"}}}\n",
+            "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n",
+            "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\",\"params\":{}}\n"
+        );
+
+        let output = run_session(&mut server, input);
+
+        assert_eq!(
+            output[1]["result"]["tools"].as_array().map(Vec::len),
+            Some(38)
+        );
+        assert_eq!(output[1]["result"]["tools"][0]["name"], "list_packs");
+        assert!(
+            output[1]["result"]["tools"]
+                .as_array()
+                .is_some_and(|tools| tools
+                    .iter()
+                    .any(|tool| tool["name"] == "describe_ai_gateway_status"))
+        );
+        assert!(
+            output[1]["result"]["tools"]
+                .as_array()
+                .is_some_and(|tools| tools
+                    .iter()
+                    .any(|tool| tool["name"] == "describe_instance_config"))
+        );
+        assert!(
+            output[1]["result"]["tools"]
+                .as_array()
+                .is_some_and(|tools| tools
+                    .iter()
+                    .any(|tool| tool["name"] == "describe_run_guide"))
+        );
+        assert!(
+            output[1]["result"]["tools"]
+                .as_array()
+                .is_some_and(|tools| tools
+                    .iter()
+                    .any(|tool| tool["name"] == "claim_next_agent_task"))
+        );
+        assert!(
+            output[1]["result"]["tools"]
+                .as_array()
+                .is_some_and(|tools| tools
+                    .iter()
+                    .any(|tool| tool["name"] == "prepare_agent_task_workspace"))
+        );
+        assert!(
+            output[1]["result"]["tools"]
+                .as_array()
+                .is_some_and(|tools| tools
+                    .iter()
+                    .any(|tool| tool["name"] == "heartbeat_agent_task"))
+        );
+        assert!(
+            output[1]["result"]["tools"]
+                .as_array()
+                .is_some_and(|tools| tools
+                    .iter()
+                    .any(|tool| tool["name"] == "complete_agent_task"))
+        );
+        assert!(
+            output[1]["result"]["tools"]
+                .as_array()
+                .is_some_and(|tools| tools
+                    .iter()
+                    .any(|tool| tool["name"] == "submit_next_repository_signal"))
+        );
+        assert!(
+            output[1]["result"]["tools"]
+                .as_array()
+                .is_some_and(|tools| tools
+                    .iter()
+                    .any(|tool| tool["name"] == "submit_repository_signal"))
+        );
+        assert!(
+            output[1]["result"]["tools"]
+                .as_array()
+                .is_some_and(|tools| tools
+                    .iter()
+                    .any(|tool| tool["name"] == "run_next_repository_automation"))
+        );
+        assert!(
+            output[1]["result"]["tools"]
+                .as_array()
+                .is_some_and(|tools| tools
+                    .iter()
+                    .any(|tool| tool["name"] == "list_github_webhooks"))
+        );
+        assert!(
+            output[1]["result"]["tools"]
+                .as_array()
+                .is_some_and(|tools| tools
+                    .iter()
+                    .any(|tool| tool["name"] == "describe_github_webhook_receipt"))
+        );
+        assert!(
+            output[1]["result"]["tools"]
+                .as_array()
+                .is_some_and(|tools| tools
+                    .iter()
+                    .any(|tool| tool["name"] == "list_github_webhook_action_requests"))
+        );
+        assert!(
+            output[1]["result"]["tools"]
+                .as_array()
+                .is_some_and(|tools| tools
+                    .iter()
+                    .any(|tool| tool["name"] == "list_repository_signals"))
+        );
+        assert!(
+            output[1]["result"]["tools"]
+                .as_array()
+                .is_some_and(|tools| tools
+                    .iter()
+                    .any(|tool| tool["name"] == "describe_github_webhook_action_report"))
+        );
+        assert!(
+            output[1]["result"]["tools"]
+                .as_array()
+                .is_some_and(|tools| tools
+                    .iter()
+                    .any(|tool| tool["name"] == "describe_github_default_branch_state"))
+        );
+        assert!(
+            output[1]["result"]["tools"]
+                .as_array()
+                .is_some_and(|tools| tools
+                    .iter()
+                    .any(|tool| tool["name"] == "describe_repository_signal"))
+        );
+        assert!(
+            output[1]["result"]["tools"]
+                .as_array()
+                .is_some_and(|tools| tools
+                    .iter()
+                    .any(|tool| tool["name"] == "describe_repository_signal_payload"))
+        );
+        assert!(
+            output[1]["result"]["tools"]
+                .as_array()
+                .is_some_and(|tools| tools.iter().any(|tool| tool["name"] == "list_run_events"))
+        );
+        assert!(
+            output[1]["result"]["tools"]
+                .as_array()
+                .is_some_and(|tools| tools
+                    .iter()
+                    .any(|tool| tool["name"] == "run_next_github_webhook_action"))
+        );
+    }
+
+    #[test]
+    fn list_packs_tool_returns_compact_text_summary() {
+        let mut server = StdioMcpServer::new(McpServerArgs {
+            database_url: None,
+            artifact_root: PathBuf::from(".continuum/artifacts"),
+            runtime_providers_file: None,
+            mcp_servers_file: None,
+            ai_gateway_file: None,
+            repository_targets_file: None,
+            tool_allowlist: Vec::new(),
+        })
+        .expect("server should initialize");
+        let input = concat!(
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{},\"clientInfo\":{\"name\":\"test-client\",\"version\":\"0.1.0\"}}}\n",
+            "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n",
+            "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"list_packs\",\"arguments\":{}}}\n"
+        );
+
+        let output = run_session(&mut server, input);
+        let text = output[1]["result"]["content"][0]["text"]
+            .as_str()
+            .expect("list_packs should return text content");
+
+        assert!(text.contains("pack_count: 3"));
+        assert!(text.contains("default_pack_id: container-service"));
+        assert!(text.contains("- cli-tool (CLI Tool)"));
+        assert!(!text.contains("\"recommended_external_mcp_servers\""));
+    }
+
+    #[test]
+    fn render_run_detail_text_returns_compact_summary() {
+        let run_id = Uuid::new_v4();
+        let run = RunDetail {
+            run: RunSummary::new(
+                run_id,
+                Uuid::new_v4(),
+                "queued".to_string(),
+                "mcp".to_string(),
+                "OpenHands Bootstrap CLI".to_string(),
+                None,
+                Some("cli-tool".to_string()),
+                None,
+                1,
+                1,
+                1,
+                "examples/briefs/openhands-bootstrap-cli.yaml".to_string(),
+                RunTaskCounts {
+                    total: 2,
+                    queued: 2,
+                    running: 0,
+                    succeeded: 0,
+                    failed: 0,
+                    approval_required: 0,
+                },
+                3,
+                Some("2026-04-21T15:00:00Z".to_string()),
+            ),
+            artifact_highlights: vec![
+                sample_artifact_summary("backlog"),
+                sample_artifact_summary("agent_dispatch_plan"),
+                sample_artifact_summary("policy_report"),
+            ],
+            artifacts: vec![
+                sample_artifact_summary("backlog"),
+                sample_artifact_summary("agent_dispatch_plan"),
+                sample_artifact_summary("policy_report"),
+            ],
+            tasks: vec![
+                sample_task_summary(run_id, "codex", "plan"),
+                sample_task_summary(run_id, "openhands", "scaffold"),
+            ],
+        };
+
+        let text = render_run_detail_text(&run);
+
+        assert!(text.contains(&format!("run_id: {run_id}")));
+        assert!(text.contains("status: queued"));
+        assert!(text.contains("target_pack: cli-tool"));
+        assert!(text.contains("assigned_agents: codex, openhands"));
+        assert!(text.contains("task_count: 2"));
+        assert!(text.contains("artifact_count: 3"));
+        assert!(text.contains("artifact_highlights:"));
+        assert!(text.contains("- backlog ("));
+        assert!(!text.contains("description:"));
+        assert!(!text.contains("location:"));
+    }
+
+    #[test]
+    fn filters_tools_list_when_allowlist_is_set() {
+        let mut server = StdioMcpServer::new(McpServerArgs {
+            database_url: None,
+            artifact_root: PathBuf::from(".continuum/artifacts"),
+            runtime_providers_file: None,
+            mcp_servers_file: None,
+            ai_gateway_file: None,
+            repository_targets_file: None,
+            tool_allowlist: vec![
+                "list_packs".to_string(),
+                "validate_brief".to_string(),
+                "describe_run".to_string(),
+                "describe_run_guide".to_string(),
+            ],
+        })
+        .expect("server should initialize");
+        let input = concat!(
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{},\"clientInfo\":{\"name\":\"test-client\",\"version\":\"0.1.0\"}}}\n",
+            "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n",
+            "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\",\"params\":{}}\n"
+        );
+
+        let output = run_session(&mut server, input);
+        let tool_names = output[1]["result"]["tools"]
+            .as_array()
+            .expect("tools/list should return an array")
+            .iter()
+            .filter_map(|tool| tool["name"].as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            tool_names,
+            vec![
+                "list_packs",
+                "validate_brief",
+                "describe_run",
+                "describe_run_guide"
+            ]
+        );
+    }
+
+    #[test]
+    fn advertises_read_only_annotations_for_inspection_tools() {
+        let mut server = StdioMcpServer::new(McpServerArgs {
+            database_url: None,
+            artifact_root: PathBuf::from(".continuum/artifacts"),
+            runtime_providers_file: None,
+            mcp_servers_file: None,
+            ai_gateway_file: None,
+            repository_targets_file: None,
+            tool_allowlist: Vec::new(),
+        })
+        .expect("server should initialize");
+        let input = concat!(
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{},\"clientInfo\":{\"name\":\"test-client\",\"version\":\"0.1.0\"}}}\n",
+            "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n",
+            "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\",\"params\":{}}\n"
+        );
+
+        let output = run_session(&mut server, input);
+        let tools = output[1]["result"]["tools"]
+            .as_array()
+            .expect("tools/list should return an array");
+        let list_packs = tools
+            .iter()
+            .find(|tool| tool["name"] == "list_packs")
+            .expect("list_packs tool should exist");
+        let validate_brief = tools
+            .iter()
+            .find(|tool| tool["name"] == "validate_brief")
+            .expect("validate_brief tool should exist");
+        let describe_run = tools
+            .iter()
+            .find(|tool| tool["name"] == "describe_run")
+            .expect("describe_run tool should exist");
+        let describe_run_guide = tools
+            .iter()
+            .find(|tool| tool["name"] == "describe_run_guide")
+            .expect("describe_run_guide tool should exist");
+        let submit_brief = tools
+            .iter()
+            .find(|tool| tool["name"] == "submit_brief")
+            .expect("submit_brief tool should exist");
+
+        assert_eq!(list_packs["annotations"]["readOnlyHint"], Value::Bool(true));
+        assert_eq!(
+            validate_brief["annotations"]["readOnlyHint"],
+            Value::Bool(true)
+        );
+        assert_eq!(
+            describe_run["annotations"]["readOnlyHint"],
+            Value::Bool(true)
+        );
+        assert_eq!(
+            describe_run_guide["annotations"]["readOnlyHint"],
+            Value::Bool(true)
+        );
+        assert!(submit_brief.get("annotations").is_none());
+    }
+
+    #[test]
+    fn rejects_disallowed_tool_calls_when_allowlist_is_set() {
+        let mut server = StdioMcpServer::new(McpServerArgs {
+            database_url: None,
+            artifact_root: PathBuf::from(".continuum/artifacts"),
+            runtime_providers_file: None,
+            mcp_servers_file: None,
+            ai_gateway_file: None,
+            repository_targets_file: None,
+            tool_allowlist: vec!["list_packs".to_string()],
+        })
+        .expect("server should initialize");
+        let input = concat!(
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{},\"clientInfo\":{\"name\":\"test-client\",\"version\":\"0.1.0\"}}}\n",
+            "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n",
+            "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"validate_brief\",\"arguments\":{}}}\n"
+        );
+
+        let output = run_session(&mut server, input);
+
+        assert_eq!(output[1]["error"]["code"], JSONRPC_INVALID_PARAMS);
+        assert_eq!(
+            output[1]["error"]["message"],
+            "tool is not enabled for this MCP session: validate_brief"
+        );
+    }
+
+    #[test]
+    fn accepts_openhands_wrapper_metadata_for_empty_arg_tools() {
+        let mut server = StdioMcpServer::new(McpServerArgs {
+            database_url: None,
+            artifact_root: PathBuf::from(".continuum/artifacts"),
+            runtime_providers_file: None,
+            mcp_servers_file: None,
+            ai_gateway_file: None,
+            repository_targets_file: None,
+            tool_allowlist: Vec::new(),
+        })
+        .expect("server should initialize");
+        let input = concat!(
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{},\"clientInfo\":{\"name\":\"test-client\",\"version\":\"0.1.0\"}}}\n",
+            "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n",
+            "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"list_packs\",\"arguments\":{\"security_risk\":\"LOW\",\"summary\":\"List available repository packs.\"}}}\n"
+        );
+
+        let output = run_session(&mut server, input);
+
+        assert_eq!(output[1]["error"], Value::Null);
+        assert_eq!(
+            output[1]["result"]["structuredContent"]["catalog"]["items"][0]["pack_id"],
+            "cli-tool"
+        );
+    }
+
+    #[test]
+    fn accepts_openhands_wrapper_metadata_on_tools_call_params() {
+        let mut server = StdioMcpServer::new(McpServerArgs {
+            database_url: None,
+            artifact_root: PathBuf::from(".continuum/artifacts"),
+            runtime_providers_file: None,
+            mcp_servers_file: None,
+            ai_gateway_file: None,
+            repository_targets_file: None,
+            tool_allowlist: Vec::new(),
+        })
+        .expect("server should initialize");
+        let input = concat!(
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{},\"clientInfo\":{\"name\":\"test-client\",\"version\":\"0.1.0\"}}}\n",
+            "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n",
+            "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"list_packs\",\"arguments\":{\"security_risk\":\"LOW\",\"summary\":\"List available repository packs.\"},\"server\":\"catalyst-continuum\"}}\n"
+        );
+
+        let output = run_session(&mut server, input);
+
+        assert_eq!(output[1]["error"], Value::Null);
+        assert_eq!(
+            output[1]["result"]["structuredContent"]["catalog"]["items"][0]["pack_id"],
+            "cli-tool"
+        );
+    }
+
+    #[test]
+    fn accepts_openhands_wrapper_metadata_for_structured_tool_args() {
+        let mut server = StdioMcpServer::new(McpServerArgs {
+            database_url: None,
+            artifact_root: PathBuf::from(".continuum/artifacts"),
+            runtime_providers_file: None,
+            mcp_servers_file: None,
+            ai_gateway_file: None,
+            repository_targets_file: None,
+            tool_allowlist: Vec::new(),
+        })
+        .expect("server should initialize");
+        let input = concat!(
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{},\"clientInfo\":{\"name\":\"test-client\",\"version\":\"0.1.0\"}}}\n",
+            "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n",
+            "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"describe_pack\",\"arguments\":{\"pack_id\":\"cli-tool\",\"security_risk\":\"LOW\",\"summary\":\"Describe the CLI tool pack.\"}}}\n"
+        );
+
+        let output = run_session(&mut server, input);
+
+        assert_eq!(output[1]["error"], Value::Null);
+        assert_eq!(
+            output[1]["result"]["structuredContent"]["pack"]["pack_id"],
+            "cli-tool"
+        );
+    }
+
+    #[test]
+    fn rejects_unknown_tool_allowlist_entries_at_startup() {
+        let error = StdioMcpServer::new(McpServerArgs {
+            database_url: None,
+            artifact_root: PathBuf::from(".continuum/artifacts"),
+            runtime_providers_file: None,
+            mcp_servers_file: None,
+            ai_gateway_file: None,
+            repository_targets_file: None,
+            tool_allowlist: vec!["unknown_tool".to_string()],
+        })
+        .err()
+        .expect("unknown allowlist entries should fail fast");
+
+        assert!(
+            error
+                .to_string()
+                .contains("unknown MCP tool allowlist entries: unknown_tool")
+        );
+    }
+
+    #[test]
+    fn rejects_tool_calls_before_initialized_notification() {
+        let mut server = StdioMcpServer::new(McpServerArgs {
+            database_url: None,
+            artifact_root: std::path::PathBuf::from(".continuum/artifacts"),
+            runtime_providers_file: None,
+            mcp_servers_file: None,
+            ai_gateway_file: None,
+            repository_targets_file: None,
+            tool_allowlist: Vec::new(),
+        })
+        .expect("server should initialize");
+        let input = concat!(
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{},\"clientInfo\":{\"name\":\"test-client\",\"version\":\"0.1.0\"}}}\n",
+            "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\",\"params\":{}}\n"
+        );
+
+        let output = run_session(&mut server, input);
+
+        assert_eq!(output.len(), 2);
+        assert_eq!(output[1]["error"]["code"], JSONRPC_INVALID_REQUEST);
+        assert!(
+            output[1]["error"]["message"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("notifications/initialized")
+        );
+    }
+
+    #[test]
+    fn rejects_malformed_jsonrpc_messages_without_crashing() {
+        let mut server = new_test_server(Vec::new());
+        let input = concat!(
+            "not-json\n",
+            "[]\n",
+            "{\"jsonrpc\":\"2.1\",\"id\":2,\"method\":\"ping\"}\n",
+            "{\"jsonrpc\":\"2.0\",\"id\":3}\n",
+            "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"unknown/method\"}\n"
+        );
+
+        let output = run_session(&mut server, input);
+
+        assert_eq!(output.len(), 5);
+        assert_eq!(output[0]["id"], Value::Null);
+        assert_eq!(output[0]["error"]["code"], JSONRPC_PARSE_ERROR);
+        assert!(
+            output[0]["error"]["message"]
+                .as_str()
+                .is_some_and(|message| message.contains("failed to parse JSON-RPC message"))
+        );
+        assert_eq!(output[1]["id"], Value::Null);
+        assert_eq!(output[1]["error"]["code"], JSONRPC_INVALID_REQUEST);
+        assert_eq!(
+            output[1]["error"]["message"],
+            "batch JSON-RPC messages are not supported"
+        );
+        assert_eq!(output[2]["id"], json!(2));
+        assert_eq!(output[2]["error"]["code"], JSONRPC_INVALID_REQUEST);
+        assert_eq!(output[2]["error"]["message"], "jsonrpc must be \"2.0\"");
+        assert_eq!(output[3]["id"], json!(3));
+        assert_eq!(output[3]["error"]["code"], JSONRPC_INVALID_REQUEST);
+        assert_eq!(
+            output[3]["error"]["message"],
+            "JSON-RPC request must include method"
+        );
+        assert_eq!(output[4]["id"], json!(4));
+        assert_eq!(output[4]["error"]["code"], JSONRPC_METHOD_NOT_FOUND);
+        assert_eq!(
+            output[4]["error"]["message"],
+            "unsupported method: unknown/method"
+        );
+    }
+
+    #[test]
+    fn ignores_initialized_notification_before_initialize_without_stdout_noise() {
+        let mut server = new_test_server(Vec::new());
+        let input = concat!(
+            "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n",
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{},\"clientInfo\":{\"name\":\"test-client\",\"version\":\"0.1.0\"}}}\n"
+        );
+
+        let output = run_session(&mut server, input);
+
+        assert_eq!(output.len(), 1);
+        assert_eq!(output[0]["id"], json!(1));
+        assert_eq!(output[0]["result"]["protocolVersion"], "2025-11-25");
+    }
+
+    #[test]
+    fn rejects_duplicate_initialize_requests() {
+        let mut server = new_test_server(Vec::new());
+        let input = concat!(
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{},\"clientInfo\":{\"name\":\"test-client\",\"version\":\"0.1.0\"}}}\n",
+            "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{},\"clientInfo\":{\"name\":\"test-client\",\"version\":\"0.1.0\"}}}\n"
+        );
+
+        let output = run_session(&mut server, input);
+
+        assert_eq!(output.len(), 2);
+        assert_eq!(output[0]["result"]["protocolVersion"], "2025-11-25");
+        assert_eq!(output[1]["id"], json!(2));
+        assert_eq!(output[1]["error"]["code"], JSONRPC_INVALID_REQUEST);
+        assert_eq!(
+            output[1]["error"]["message"],
+            "initialize has already completed for this stdio session"
+        );
+    }
+
+    #[test]
+    fn normalize_tool_allowlist_trims_deduplicates_and_discards_blank_entries() {
+        let allowlist = normalize_tool_allowlist(vec![
+            " list_packs ".to_string(),
+            "".to_string(),
+            "validate_brief".to_string(),
+            "list_packs".to_string(),
+            "   ".to_string(),
+        ]);
+
+        assert_eq!(
+            allowlist,
+            Some(BTreeSet::from([
+                "list_packs".to_string(),
+                "validate_brief".to_string(),
+            ]))
+        );
+    }
+
+    #[test]
+    fn normalize_tool_allowlist_returns_none_when_entries_are_empty() {
+        assert_eq!(
+            normalize_tool_allowlist(vec!["".to_string(), "  ".to_string()]),
+            None
+        );
+    }
+
+    #[test]
+    fn validates_brief_through_tool_call() {
+        let mut server = StdioMcpServer::new(McpServerArgs {
+            database_url: None,
+            artifact_root: std::path::PathBuf::from(".continuum/artifacts"),
+            runtime_providers_file: None,
+            mcp_servers_file: None,
+            ai_gateway_file: None,
+            repository_targets_file: None,
+            tool_allowlist: Vec::new(),
+        })
+        .expect("server should initialize");
+        let brief = sample_brief().replace('\n', "\\n");
+        let input = format!(
+            concat!(
+                "{{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{{}},\"clientInfo\":{{\"name\":\"test-client\",\"version\":\"0.1.0\"}}}}}}\n",
+                "{{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}}\n",
+                "{{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{{\"name\":\"validate_brief\",\"arguments\":{{\"brief_content\":\"{}\",\"brief_source_path\":\"examples/briefs/mcp-test.yaml\"}}}}}}\n"
+            ),
+            brief
+        );
+
+        let output = run_session(&mut server, &input);
+
+        assert_eq!(output[1]["result"]["isError"], Value::Null);
+        assert_eq!(
+            output[1]["result"]["structuredContent"]["validation"]["pack_selection"]["resolved_pack_id"],
+            "container-service"
+        );
+        assert_eq!(
+            output[1]["result"]["structuredContent"]["validation"]["external_mcp_contract"]["servers"]
+                [0]["status"],
+            "allowed"
+        );
+        assert!(
+            output[1]["result"]["content"][0]["text"]
+                .as_str()
+                .is_some_and(|text| text.contains("external_mcp_servers:"))
+        );
+    }
+
+    #[test]
+    fn validates_brief_with_resolved_external_mcp_policy_from_instance_config() {
+        let mcp_servers_file = write_temp_mcp_servers_file(
+            r#"
+servers:
+  - server_id: fetch
+    display_name: Fetch
+    enabled: true
+    allowed_agents:
+      - openhands
+      - codex
+    client_launches:
+      openhands:
+        transport: stdio
+        command: uvx
+        args:
+          - --from
+          - mcp-server-fetch==2025.4.7
+          - mcp-server-fetch
+"#,
+        );
+        let mut server = StdioMcpServer::new(McpServerArgs {
+            database_url: None,
+            artifact_root: PathBuf::from(".continuum/artifacts"),
+            runtime_providers_file: None,
+            mcp_servers_file: Some(mcp_servers_file.clone()),
+            ai_gateway_file: None,
+            repository_targets_file: None,
+            tool_allowlist: Vec::new(),
+        })
+        .expect("server should initialize");
+        let brief = sample_brief().replace('\n', "\\n");
+        let input = format!(
+            concat!(
+                "{{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{{}},\"clientInfo\":{{\"name\":\"test-client\",\"version\":\"0.1.0\"}}}}}}\n",
+                "{{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}}\n",
+                "{{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{{\"name\":\"validate_brief\",\"arguments\":{{\"brief_content\":\"{}\",\"brief_source_path\":\"examples/briefs/mcp-test.yaml\"}}}}}}\n"
+            ),
+            brief
+        );
+
+        let output = run_session(&mut server, &input);
+        let validation = &output[1]["result"]["structuredContent"]["validation"];
+
+        assert_eq!(
+            validation["external_mcp_contract"]["servers"][0]["status"],
+            "allowed"
+        );
+        assert_eq!(
+            validation["external_mcp_contract"]["servers"][0]["allowed_for_this_run_agents"],
+            json!(["codex", "openhands"])
+        );
+        assert_eq!(
+            validation["external_mcp_contract"]["servers"][0]["client_launches"]["openhands"]["command"],
+            "uvx"
+        );
+
+        let _ = fs::remove_file(mcp_servers_file);
+    }
+
+    fn run_session(server: &mut StdioMcpServer, input: &str) -> Vec<Value> {
+        let reader = std::io::Cursor::new(input.as_bytes());
+        let mut output = Vec::new();
+        server
+            .serve(reader, &mut output)
+            .expect("MCP session should complete");
+
+        String::from_utf8(output)
+            .expect("session output should be valid utf-8")
+            .lines()
+            .map(|line| serde_json::from_str(line).expect("each line should be valid JSON"))
+            .collect()
+    }
+
+    fn new_test_server(tool_allowlist: Vec<String>) -> StdioMcpServer {
+        StdioMcpServer::new(McpServerArgs {
+            database_url: None,
+            artifact_root: PathBuf::from(".continuum/artifacts"),
+            runtime_providers_file: None,
+            mcp_servers_file: None,
+            ai_gateway_file: None,
+            repository_targets_file: None,
+            tool_allowlist,
+        })
+        .expect("server should initialize")
+    }
+
+    fn sample_brief() -> &'static str {
+        r#"schema_version: v0.1
+brief_id: 77777777-7777-7777-7777-777777777777
+title: MCP Validation Preview
+summary: Validate the MCP brief path.
+requested_by: product@example.com
+target_users:
+  - internal platform engineers
+goals:
+  - Validate MCP tool output.
+functional_requirements:
+  - id: APP-1
+    title: Create backlog
+    description: Generate the initial backlog from the brief.
+constraints:
+  - Keep the first implementation deterministic.
+deliverables:
+  - backlog artifact
+repository:
+  host: github
+  owner: smartit
+  name: mcp-validation-demo
+  default_branch: main
+  visibility: private
+"#
+    }
+
+    fn write_temp_mcp_servers_file(contents: &str) -> PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "catalyst-continuum-mcp-servers-{}.yaml",
+            uuid::Uuid::new_v4()
+        ));
+        fs::write(&path, contents).expect("temp MCP servers file should be written");
+        path
+    }
+
+    fn sample_artifact_summary(artifact_type: &str) -> ArtifactSummary {
+        ArtifactSummary {
+            artifact_id: Uuid::new_v4(),
+            artifact_type: artifact_type.to_string(),
+            format: "json".to_string(),
+            location_kind: "file".to_string(),
+            location_value: format!(".continuum/artifacts/{artifact_type}.json"),
+            content_digest: "sha256:test".to_string(),
+            metadata: json!({}),
+            created_at: Some("2026-04-21T15:00:00Z".to_string()),
+            persisted: true,
+        }
+    }
+
+    fn sample_task_summary(run_id: Uuid, assigned_agent: &str, kind: &str) -> TaskSummary {
+        TaskSummary {
+            task_id: Uuid::new_v4(),
+            run_id,
+            backlog_item_id: format!("item-{kind}"),
+            kind: kind.to_string(),
+            priority: "must".to_string(),
+            status: "queued".to_string(),
+            title: format!("{kind} task"),
+            description: format!("task for {assigned_agent}"),
+            execution: TaskExecutionSpec {
+                provider: "docker".to_string(),
+                image: None,
+                command: Vec::new(),
+                working_directory: None,
+                sandbox_profile: Some("restricted".to_string()),
+                timeout_seconds: Some(60),
+            },
+            dependency_task_ids: json!([]),
+            source_refs: json!([]),
+            assigned_pack: Some("cli-tool".to_string()),
+            assigned_agent: Some(assigned_agent.to_string()),
+            orchestrator_model: Some("planner-default".to_string()),
+            approval_required: false,
+            agent_execution: None,
+            retry_state: None,
+            metadata: json!({}),
+            created_at: Some("2026-04-21T15:00:00Z".to_string()),
+            started_at: None,
+            lease_expires_at: None,
+            completed_at: None,
+            failure_reason: None,
+            persisted: true,
+        }
+    }
+}

@@ -1,0 +1,170 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "urn:catalyst-continuum:schemas:task:v0.1"
+title: "Catalyst Continuum Task"
+description: "Planned or executable unit of work created during a run."
+type: object
+additionalProperties: false
+required:
+  - schema_version
+  - task_id
+  - run_id
+  - kind
+  - title
+  - status
+properties:
+  schema_version:
+    type: string
+    const: "v0.1"
+  task_id:
+    type: string
+    format: uuid
+  run_id:
+    type: string
+    format: uuid
+  parent_task_id:
+    type: string
+    format: uuid
+  kind:
+    type: string
+    enum:
+      - plan
+      - design
+      - scaffold
+      - code
+      - test
+      - review
+      - package
+      - deploy
+  title:
+    type: string
+    minLength: 3
+  description:
+    type: string
+  status:
+    type: string
+    enum:
+      - queued
+      - running
+      - blocked
+      - awaiting_approval
+      - succeeded
+      - failed
+      - canceled
+  priority:
+    type: string
+    enum:
+      - low
+      - medium
+      - high
+      - critical
+  dependencies:
+    type: array
+    items:
+      type: string
+      format: uuid
+    uniqueItems: true
+  execution:
+    $ref: "#/$defs/execution"
+  inputs:
+    type: array
+    items:
+      $ref: "#/$defs/artifact_ref"
+  expected_outputs:
+    type: array
+    items:
+      $ref: "#/$defs/output_expectation"
+  tool_policy:
+    $ref: "#/$defs/tool_policy"
+  budget_override:
+    $ref: "#/$defs/budget_limit"
+  assigned_agent:
+    type: string
+  assigned_pack:
+    type: string
+  approval_required:
+    type: boolean
+    default: false
+  created_at:
+    type: string
+    format: date-time
+  started_at:
+    type: string
+    format: date-time
+  completed_at:
+    type: string
+    format: date-time
+  failure_reason:
+    type: string
+$defs:
+  execution:
+    type: object
+    additionalProperties: false
+    required:
+      - provider
+    properties:
+      provider:
+        type: string
+        enum:
+          - none
+          - docker
+          - proxmox
+          - kubernetes
+      image:
+        type: string
+      command:
+        type: array
+        items:
+          type: string
+      working_directory:
+        type: string
+      sandbox_profile:
+        type: string
+      timeout_seconds:
+        type: integer
+        minimum: 1
+  artifact_ref:
+    type: object
+    additionalProperties: false
+    properties:
+      artifact_id:
+        type: string
+        format: uuid
+      purpose:
+        type: string
+  output_expectation:
+    type: object
+    additionalProperties: false
+    required:
+      - artifact_type
+    properties:
+      artifact_type:
+        type: string
+      format:
+        type: string
+      required:
+        type: boolean
+        default: true
+  tool_policy:
+    type: object
+    additionalProperties: false
+    properties:
+      allow:
+        type: array
+        items:
+          type: string
+        uniqueItems: true
+      deny:
+        type: array
+        items:
+          type: string
+        uniqueItems: true
+  budget_limit:
+    type: object
+    additionalProperties: false
+    properties:
+      max_cost_usd:
+        type: number
+        minimum: 0
+      max_runtime_minutes:
+        type: integer
+        minimum: 1

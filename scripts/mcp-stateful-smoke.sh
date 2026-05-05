@@ -1,0 +1,1939 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
+
+# shellcheck disable=SC1091
+source "$ROOT_DIR/versions.env"
+# shellcheck disable=SC1091
+source "$ROOT_DIR/scripts/lib/readiness.sh"
+
+resolve_cargo_target_root() {
+  if [ -n "${CARGO_TARGET_DIR:-}" ]; then
+    case "$CARGO_TARGET_DIR" in
+      /*)
+        printf '%s\n' "$CARGO_TARGET_DIR"
+        ;;
+      *)
+        printf '%s/%s\n' "$ROOT_DIR" "$CARGO_TARGET_DIR"
+        ;;
+    esac
+  else
+    printf '%s/target\n' "$ROOT_DIR"
+  fi
+}
+
+ORCHESTRATOR_TARGET_ROOT="$(resolve_cargo_target_root)"
+ARTIFACT_ROOT="${CATALYST_ARTIFACT_ROOT:-$ROOT_DIR/.continuum/mcp-stateful-artifacts}"
+BRIEF_FILE="${MCP_SMOKE_BRIEF_FILE:-$ROOT_DIR/examples/briefs/minimal-cli-tool.yaml}"
+BIN="${ORCHESTRATOR_TARGET_ROOT}/debug/catalyst-continuum-orchestrator"
+LOCAL_HELPER_LABEL_KEY="io.catalyst-continuum.local-helper"
+LOCAL_HELPER_LABEL_VALUE="true"
+LOCAL_HELPER_NAME_LABEL_KEY="io.catalyst-continuum.helper"
+LOCAL_HELPER_NAME_LABEL_VALUE="mcp-stateful-smoke"
+POSTGRES_IMAGE="${MCP_SMOKE_POSTGRES_IMAGE:-postgres:${POSTGRES_VERSION}@${POSTGRES_IMAGE_DIGEST}}"
+POSTGRES_DB="${MCP_SMOKE_POSTGRES_DB:-continuum}"
+POSTGRES_USER="${MCP_SMOKE_POSTGRES_USER:-continuum}"
+POSTGRES_PASSWORD="${MCP_SMOKE_POSTGRES_PASSWORD:-continuum-dev}"
+POSTGRES_PORT="${MCP_SMOKE_POSTGRES_PORT:-}"
+POSTGRES_NETWORK_MODE="${MCP_SMOKE_POSTGRES_NETWORK_MODE:-${ACT:+host}}"
+if [ -z "$POSTGRES_NETWORK_MODE" ]; then
+  POSTGRES_NETWORK_MODE="bridge"
+fi
+POSTGRES_CONTAINER_SUFFIX="${CI_SMOKE_SCENARIO:-stateful}-$$"
+POSTGRES_CONTAINER_SUFFIX="${POSTGRES_CONTAINER_SUFFIX//[^a-zA-Z0-9_.-]/-}"
+POSTGRES_CONTAINER_NAME="continuum-mcp-smoke-postgres-${POSTGRES_CONTAINER_SUFFIX}"
+ORCHESTRATOR_HTTP_PORT="${MCP_SMOKE_HTTP_PORT:-$(python3 - <<'PY'
+import socket
+
+with socket.socket() as sock:
+    sock.bind(("127.0.0.1", 0))
+    print(sock.getsockname()[1])
+PY
+)}"
+GITHUB_WEBHOOK_SECRET="${CATALYST_GITHUB_APP_WEBHOOK_SECRET:-continuum-dev-webhook-secret}"
+GITHUB_APP_INSTALLATION_ID="${MCP_SMOKE_GITHUB_APP_INSTALLATION_ID:-42}"
+WEBHOOK_DELIVERY_ID="${MCP_SMOKE_WEBHOOK_DELIVERY_ID:-11111111-1111-1111-1111-111111111111}"
+PUSH_WEBHOOK_DELIVERY_ID="${MCP_SMOKE_PUSH_WEBHOOK_DELIVERY_ID:-22222222-2222-2222-2222-222222222222}"
+PUSH_WEBHOOK_ACTION_REQUEST_ID="${MCP_SMOKE_PUSH_WEBHOOK_ACTION_REQUEST_ID:-github:${PUSH_WEBHOOK_DELIVERY_ID}:sync_default_branch}"
+PUSH_WEBHOOK_SIGNAL_ID="${MCP_SMOKE_PUSH_WEBHOOK_SIGNAL_ID:-${PUSH_WEBHOOK_ACTION_REQUEST_ID}:default_branch_updated}"
+PUSH_WEBHOOK_BEFORE_SHA="${MCP_SMOKE_PUSH_WEBHOOK_BEFORE_SHA:-1111111111111111111111111111111111111111}"
+PUSH_WEBHOOK_AFTER_SHA="${MCP_SMOKE_PUSH_WEBHOOK_AFTER_SHA:-2222222222222222222222222222222222222222}"
+CURL_ARGS=(-fsS --connect-timeout 5 --max-time 20)
+ORCHESTRATOR_PID=0
+STARTED_POSTGRES=0
+
+log_phase() {
+  printf '[mcp-stateful-smoke] %s\n' "$1"
+}
+
+cleanup() {
+  if [ "$ORCHESTRATOR_PID" -ne 0 ]; then
+    kill "$ORCHESTRATOR_PID" >/dev/null 2>&1 || true
+  fi
+  if [ "$STARTED_POSTGRES" -eq 1 ]; then
+    docker rm -f "$POSTGRES_CONTAINER_NAME" >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup EXIT
+
+print_postgres_debug() {
+  if docker ps -a --format '{{.Names}}' | grep -Fx "$POSTGRES_CONTAINER_NAME" >/dev/null 2>&1; then
+    echo "--- postgres logs: $POSTGRES_CONTAINER_NAME ---" >&2
+    docker logs "$POSTGRES_CONTAINER_NAME" >&2 || true
+    echo "--- postgres inspect: $POSTGRES_CONTAINER_NAME ---" >&2
+    docker inspect "$POSTGRES_CONTAINER_NAME" >&2 || true
+  fi
+}
+
+postgres_publish_binding() {
+  if [ -n "$POSTGRES_PORT" ]; then
+    printf '%s\n' "127.0.0.1:${POSTGRES_PORT}:5432"
+  else
+    printf '%s\n' "127.0.0.1::5432"
+  fi
+}
+
+default_host_postgres_port() {
+  case "${CI_SMOKE_SCENARIO:-}" in
+    mcp-stateful-cli-tool)
+      printf '%s\n' "55435"
+      ;;
+    *)
+      python3 - "$$" <<'PY'
+import sys
+
+print(56000 + (int(sys.argv[1]) % 1000))
+PY
+      ;;
+  esac
+}
+
+resolve_postgres_host_port() {
+  docker inspect --format='{{(index (index .NetworkSettings.Ports "5432/tcp") 0).HostPort}}' "$POSTGRES_CONTAINER_NAME"
+}
+
+if [ ! -f "$BRIEF_FILE" ]; then
+  echo "brief file not found: $BRIEF_FILE" >&2
+  exit 1
+fi
+
+if [ -z "${CATALYST_DATABASE_URL:-}" ]; then
+  docker rm -f "$POSTGRES_CONTAINER_NAME" >/dev/null 2>&1 || true
+  POSTGRES_DOCKER_ARGS=()
+  POSTGRES_HEALTH_PORT="5432"
+  POSTGRES_SERVER_ARGS=()
+  if [ "$POSTGRES_NETWORK_MODE" = "host" ]; then
+    POSTGRES_PORT="${POSTGRES_PORT:-$(default_host_postgres_port)}"
+    POSTGRES_DOCKER_ARGS+=(--network host)
+    POSTGRES_HEALTH_PORT="$POSTGRES_PORT"
+    POSTGRES_SERVER_ARGS+=(-c "port=${POSTGRES_PORT}")
+  else
+    POSTGRES_DOCKER_ARGS+=(-p "$(postgres_publish_binding)")
+  fi
+  docker run -d \
+    --name "$POSTGRES_CONTAINER_NAME" \
+    --label "${LOCAL_HELPER_LABEL_KEY}=${LOCAL_HELPER_LABEL_VALUE}" \
+    --label "${LOCAL_HELPER_NAME_LABEL_KEY}=${LOCAL_HELPER_NAME_LABEL_VALUE}" \
+    -e POSTGRES_DB="$POSTGRES_DB" \
+    -e POSTGRES_USER="$POSTGRES_USER" \
+    -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
+    "${POSTGRES_DOCKER_ARGS[@]}" \
+    --health-cmd "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB} -p ${POSTGRES_HEALTH_PORT}" \
+    --health-interval 2s \
+    --health-timeout 5s \
+    --health-retries 30 \
+    "$POSTGRES_IMAGE" "${POSTGRES_SERVER_ARGS[@]}" >/dev/null
+  STARTED_POSTGRES=1
+
+  if ! wait_for_docker_container_status \
+    "stateful MCP smoke postgres" \
+    "$POSTGRES_CONTAINER_NAME" \
+    30 \
+    healthy; then
+    print_postgres_debug
+    exit 1
+  fi
+  log_phase "postgres ready"
+
+  if [ "$POSTGRES_NETWORK_MODE" != "host" ] && [ -z "$POSTGRES_PORT" ]; then
+    POSTGRES_PORT="$(resolve_postgres_host_port)"
+  fi
+
+  DATABASE_URL="postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@127.0.0.1:${POSTGRES_PORT}/${POSTGRES_DB}"
+else
+  DATABASE_URL="$CATALYST_DATABASE_URL"
+fi
+
+if [ "${CATALYST_SKIP_WORKSPACE_BUILD:-0}" != "1" ]; then
+  cargo build --quiet --locked -p catalyst-continuum-orchestrator
+fi
+
+if [ ! -x "$BIN" ]; then
+  echo "orchestrator binary not found: $BIN" >&2
+  echo "run cargo build --workspace --locked or unset CATALYST_SKIP_WORKSPACE_BUILD" >&2
+  exit 1
+fi
+
+rm -rf "$ARTIFACT_ROOT"
+mkdir -p "$ARTIFACT_ROOT"
+
+export CATALYST_GITHUB_APP_WEBHOOK_SECRET="$GITHUB_WEBHOOK_SECRET"
+export CATALYST_GITHUB_APP_INSTALLATION_ID="$GITHUB_APP_INSTALLATION_ID"
+ORCHESTRATOR_LOG_FILE="$ARTIFACT_ROOT/mcp-smoke-orchestrator.log"
+ORCHESTRATOR_READYZ_FILE="$ARTIFACT_ROOT/mcp-smoke-orchestrator-readyz.json"
+ORCHESTRATOR_UI_FILE="$ARTIFACT_ROOT/mcp-smoke-orchestrator-ui.html"
+ORCHESTRATOR_UI_JS_FILE="$ARTIFACT_ROOT/mcp-smoke-orchestrator-ui.js"
+ORCHESTRATOR_UI_BRIEF_EXAMPLES_FILE="$ARTIFACT_ROOT/mcp-smoke-orchestrator-ui-brief-examples.json"
+"$BIN" \
+  serve \
+  --bind-addr "127.0.0.1:${ORCHESTRATOR_HTTP_PORT}" \
+  --database-url "$DATABASE_URL" \
+  --artifact-root "$ARTIFACT_ROOT" >"$ORCHESTRATOR_LOG_FILE" 2>&1 &
+ORCHESTRATOR_PID=$!
+
+if ! wait_for_http_capture \
+  "stateful MCP smoke orchestrator readiness" \
+  "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/readyz" \
+  "$ORCHESTRATOR_READYZ_FILE" \
+  30 \
+  "${CURL_ARGS[@]}"; then
+  cat "$ORCHESTRATOR_LOG_FILE" >&2 || true
+  exit 1
+fi
+log_phase "orchestrator ready"
+
+curl "${CURL_ARGS[@]}" \
+  "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/ui" >"$ORCHESTRATOR_UI_FILE"
+curl "${CURL_ARGS[@]}" \
+  "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/ui/app.js" >"$ORCHESTRATOR_UI_JS_FILE"
+curl "${CURL_ARGS[@]}" \
+  "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/ui/brief-examples" >"$ORCHESTRATOR_UI_BRIEF_EXAMPLES_FILE"
+
+python3 - "$ORCHESTRATOR_UI_FILE" "$ORCHESTRATOR_UI_JS_FILE" "$ORCHESTRATOR_UI_BRIEF_EXAMPLES_FILE" <<'PY'
+import json
+import pathlib
+import sys
+
+html = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+js = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
+brief_examples = json.loads(pathlib.Path(sys.argv[3]).read_text(encoding="utf-8"))
+
+if "<title>Catalyst Continuum Control Surface</title>" not in html:
+    raise SystemExit("operator UI smoke failed: missing control-surface title")
+if 'id="pageShell"' not in html or 'data-refresh-state="idle"' not in html:
+    raise SystemExit("operator UI smoke failed: missing page-shell live refresh scaffold")
+if "Turn a product brief into a draft pull request" not in html:
+    raise SystemExit("operator UI smoke failed: missing product-value headline")
+if 'id="operator-pulse"' not in html or 'id="pulseSummary"' not in html or 'id="pulseFeed"' not in html:
+    raise SystemExit("operator UI smoke failed: missing operator pulse live-activity region")
+if "Most Common Path" not in html or "Advanced Path" not in html:
+    raise SystemExit("operator UI smoke failed: missing operator-path explainer callouts")
+if 'class="hero-flow"' not in html or "Open draft PR" not in html:
+    raise SystemExit("operator UI smoke failed: missing product workflow explainer")
+if "What the control plane is doing right now" not in html or "Latest orchestration movement" not in html:
+    raise SystemExit("operator UI smoke failed: missing operator pulse explainer copy")
+if 'id="mission-control"' not in html or 'id="missionShell"' not in html or 'id="missionTabBar"' not in html:
+    raise SystemExit("operator UI smoke failed: missing mission-control tab shell")
+if 'data-mission-tab="flow"' not in html or 'data-mission-tab="agents"' not in html:
+    raise SystemExit("operator UI smoke failed: missing flow and agents mission tabs")
+if 'data-mission-tab="grafana"' not in html or 'data-mission-tab="litellm"' not in html:
+    raise SystemExit("operator UI smoke failed: missing grafana and litellm mission tabs")
+if 'id="missionFlowPanel"' not in html or 'id="missionAgentsPanel"' not in html:
+    raise SystemExit("operator UI smoke failed: missing mission flow and agent panels")
+if 'id="missionGrafanaPanel"' not in html or 'id="missionLitellmPanel"' not in html:
+    raise SystemExit("operator UI smoke failed: missing mission embedded-surface panels")
+if "Follow the flow without leaving the operator surface" not in html:
+    raise SystemExit("operator UI smoke failed: missing mission-control operator framing")
+required_manual_path_targets = [
+    'data-ui-scroll-target="brief-intake"',
+    'data-ui-scroll-target="run-ledger"',
+    'data-ui-scroll-target="run-detail"',
+    'data-ui-scroll-target="automation-rail"',
+]
+if "Manual Operator Path" not in html or not all(target in html for target in required_manual_path_targets):
+    raise SystemExit("operator UI smoke failed: missing in-place manual-path navigation")
+if "What you can do right now" not in html or 'id="capabilityGrid"' not in html:
+    raise SystemExit("operator UI smoke failed: missing operator-readiness capability summary")
+if "System Health" not in html or "not the normal place" not in html:
+    raise SystemExit("operator UI smoke failed: missing system-health explainer")
+if 'id="brief-intake"' not in html or 'id="run-ledger"' not in html or 'id="run-detail"' not in html:
+    raise SystemExit("operator UI smoke failed: missing panel anchor ids")
+if 'data-ui-refresh-surface="run-ledger"' not in html or 'data-ui-refresh-surface="run-detail"' not in html:
+    raise SystemExit("operator UI smoke failed: missing smooth-refresh surface markers")
+if 'id="statusGrid"' not in html:
+    raise SystemExit("operator UI smoke failed: missing status grid mount")
+if 'id="runRepositoryAutomationButton"' not in html:
+    raise SystemExit("operator UI smoke failed: missing repository automation control")
+if 'id="webhookActionsDisclosure"' not in html or 'id="repositorySignalsDisclosure"' not in html:
+    raise SystemExit("operator UI smoke failed: missing progressive-disclosure automation sections")
+if 'id="webhookDeliveriesDisclosure"' not in html or 'id="queueInspectorDisclosure"' not in html:
+    raise SystemExit("operator UI smoke failed: missing automation audit and inspector disclosures")
+if 'id="autoRefreshToggle" type="checkbox" checked' in html:
+    raise SystemExit("operator UI smoke failed: auto-refresh is still enabled by default")
+if "Auto refresh (optional)" not in html or "Manual refresh mode" not in html:
+    raise SystemExit("operator UI smoke failed: missing manual-first refresh framing")
+if 'id="queueInspectorConsole"' not in html:
+    raise SystemExit("operator UI smoke failed: missing queue inspector console")
+if 'id="runActionHint"' not in html:
+    raise SystemExit("operator UI smoke failed: missing run-action availability hint")
+if 'id="briefExamples"' not in html:
+    raise SystemExit("operator UI smoke failed: missing brief example quick-start mount")
+if "Starter briefs" not in html or "Loading starter scenarios" not in html:
+    raise SystemExit("operator UI smoke failed: missing starter-brief operator framing")
+if 'id="briefExampleHint"' not in html:
+    raise SystemExit("operator UI smoke failed: missing brief example hint")
+if 'data-ui-action="validate-brief"' not in html or "Validate brief" not in html:
+    raise SystemExit("operator UI smoke failed: missing explicit validate-brief control label")
+if 'data-ui-action="submit-brief"' not in html or "Submit brief" not in html:
+    raise SystemExit("operator UI smoke failed: missing explicit submit-brief control label")
+if 'data-ui-action="clear-brief"' not in html or "Clear brief" not in html:
+    raise SystemExit("operator UI smoke failed: missing explicit clear-brief control label")
+if 'id="runLedgerHint"' not in html:
+    raise SystemExit("operator UI smoke failed: missing run-ledger hint")
+if "Current stage" not in html:
+    raise SystemExit("operator UI smoke failed: missing run-ledger stage preview")
+if 'id="runSearchInput"' not in html:
+    raise SystemExit("operator UI smoke failed: missing run search input")
+if 'data-ui-input="run-search"' not in html:
+    raise SystemExit("operator UI smoke failed: missing run-search input hook")
+if 'data-ui-action="clear-run-search"' not in html or "Clear search" not in html:
+    raise SystemExit("operator UI smoke failed: missing clear-run-search control")
+if 'data-ui-console="brief-output"' not in html:
+    raise SystemExit("operator UI smoke failed: missing brief-output console hook")
+if 'data-ui-region="runs-list"' not in html:
+    raise SystemExit("operator UI smoke failed: missing runs-list region hook")
+if 'data-selected-run-label="true"' not in html:
+    raise SystemExit("operator UI smoke failed: missing selected-run label hook")
+if 'data-ui-region="run-summary"' not in html:
+    raise SystemExit("operator UI smoke failed: missing run-summary region hook")
+if 'id="runGuideHeadline"' not in html:
+    raise SystemExit("operator UI smoke failed: missing run-guide headline")
+if 'id="runGuideNextAction"' not in html:
+    raise SystemExit("operator UI smoke failed: missing run-guide next-action card")
+if 'id="runGuideActionButton"' not in html or 'id="runGuideActionHint"' not in html:
+    raise SystemExit("operator UI smoke failed: missing run-guide recommended control")
+if 'id="runGuideStages"' not in html:
+    raise SystemExit("operator UI smoke failed: missing run-guide stages mount")
+if 'data-ui-region="run-guide-stages"' not in html:
+    raise SystemExit("operator UI smoke failed: missing run-guide stage region hook")
+if 'data-ui-region="task-results"' not in html:
+    raise SystemExit("operator UI smoke failed: missing task-results region hook")
+if 'data-ui-region="artifact-results"' not in html:
+    raise SystemExit("operator UI smoke failed: missing artifact-results region hook")
+if 'id="actionHighlights"' not in html:
+    raise SystemExit("operator UI smoke failed: missing structured action highlights mount")
+if 'id="actionSummaryHeadline"' not in html:
+    raise SystemExit("operator UI smoke failed: missing action summary headline")
+if 'option value="executing"' not in html:
+    raise SystemExit("operator UI smoke failed: missing executing run-status filter")
+if 'option value="approval_required"' in html:
+    raise SystemExit("operator UI smoke failed: stale approval_required run-status filter is still exposed")
+if 'src="/ui/app.js"' not in html:
+    raise SystemExit("operator UI smoke failed: missing app.js asset reference")
+if 'rel="icon"' not in html:
+    raise SystemExit("operator UI smoke failed: missing favicon link")
+if "refreshDashboard" not in js:
+    raise SystemExit("operator UI smoke failed: missing dashboard refresh client logic")
+if "local_status" not in js or "Local next step" not in js:
+    raise SystemExit("operator UI smoke failed: missing local status next-step dashboard wiring")
+if 'data-local-status-next-command-copy="true"' not in js:
+    raise SystemExit("operator UI smoke failed: missing local status copy-command control")
+if "realtimeSocketUrl" not in js or "new window.WebSocket" not in js or "connectRealtime" not in js or "handleRealtimeMessage" not in js:
+    raise SystemExit("operator UI smoke failed: missing websocket live-update client logic")
+if "Live updates connected" not in js or "scheduleRealtimeReconnect" not in js:
+    raise SystemExit("operator UI smoke failed: missing websocket reconnect status rendering")
+if "syncRefreshModeControls" not in js or "lastRealtimeSnapshotAt" not in js or "WebSocket stream active" not in js:
+    raise SystemExit("operator UI smoke failed: missing websocket-first refresh control logic")
+if "__lastRenderedHtml" not in js:
+    raise SystemExit("operator UI smoke failed: missing stable DOM render cache for operator surfaces")
+if "renderOperatorPulse" not in js or "buildOperatorPulseFeedItems" not in js:
+    raise SystemExit("operator UI smoke failed: missing live operator pulse rendering logic")
+if "renderMissionControl" not in js or "renderMissionFlowPanel" not in js:
+    raise SystemExit("operator UI smoke failed: missing mission-control flow rendering logic")
+if "renderMissionAgentsPanel" not in js or "ensureAgentReportDetails" not in js:
+    raise SystemExit("operator UI smoke failed: missing multi-agent activity rendering logic")
+if "renderMissionGrafanaPanel" not in js or "renderMissionLitellmPanel" not in js:
+    raise SystemExit("operator UI smoke failed: missing embedded grafana/litellm rendering logic")
+if "data-agent-filter" not in js or "data-agent-report-artifact-id" not in js or "data-agent-log-artifact-id" not in js:
+    raise SystemExit("operator UI smoke failed: missing agent filter, report selection, or execution-log selection hooks")
+if "agent_task_report" not in js or "filteredAgentEvents" not in js or "agentExecutionLogArtifacts" not in js:
+    raise SystemExit("operator UI smoke failed: missing agent report, event, or execution-log correlation logic")
+if "ensureLinkedAgentArtifactDetails" not in js or "task_workspace_input_artifact_id" not in js:
+    raise SystemExit("operator UI smoke failed: missing linked prepared-workspace artifact inspection logic")
+if "renderSelectedAgentWorkspaceInputCard" not in js or "Prepared workspace" not in js:
+    raise SystemExit("operator UI smoke failed: missing selected agent workspace inspector rendering")
+if "renderSelectedAgentExecutionLog" not in js or "Captured standard output" not in js or "Runtime invocation" not in js:
+    raise SystemExit("operator UI smoke failed: missing execution-log inspector rendering")
+if "GRAFANA_OVERVIEW_DASHBOARD_PATH" not in js or "surface-frame" not in js:
+    raise SystemExit("operator UI smoke failed: missing embedded grafana surface wiring")
+if "submitBriefRequest" not in js:
+    raise SystemExit("operator UI smoke failed: missing brief submission client logic")
+if "runRepositoryAutomationRequest" not in js:
+    raise SystemExit("operator UI smoke failed: missing automation-cycle client logic")
+if "loadBriefExamples" not in js:
+    raise SystemExit("operator UI smoke failed: missing brief example fetch logic")
+if "loadBriefExampleIntoEditor" not in js:
+    raise SystemExit("operator UI smoke failed: missing quick-start brief loader")
+if "data-ui-brief-example" not in js:
+    raise SystemExit("operator UI smoke failed: missing brief-example selector hook")
+if "data-ui-run-card" not in js:
+    raise SystemExit("operator UI smoke failed: missing run-card selector hook")
+if "data-ui-task-card" not in js or "data-ui-artifact-card" not in js:
+    raise SystemExit("operator UI smoke failed: missing responsive task/artifact card hooks")
+if "renderConsolePayload" not in js:
+    raise SystemExit("operator UI smoke failed: missing summary-first console renderer")
+if "console-summary-grid" not in js or "Raw JSON" not in js:
+    raise SystemExit("operator UI smoke failed: missing collapsible raw-payload console markers")
+if "loadQueueItemDetail" not in js:
+    raise SystemExit("operator UI smoke failed: missing queue inspector client logic")
+if "syncUiUrlState" not in js:
+    raise SystemExit("operator UI smoke failed: missing selected-run URL sync logic")
+if "filterVisibleRuns" not in js or "runMatchesSearch" not in js:
+    raise SystemExit("operator UI smoke failed: missing run-ledger search client logic")
+if "setRenderedHtml" not in js or "setTextContent" not in js:
+    raise SystemExit("operator UI smoke failed: missing change-aware DOM update helpers")
+if "setDashboardRefreshState" not in js or 'background: true' not in js:
+    raise SystemExit("operator UI smoke failed: missing background refresh preservation logic")
+if "surface-updated" not in js:
+    raise SystemExit("operator UI smoke failed: missing smooth-refresh update marker logic")
+if "AUTO_REFRESH_STORAGE_KEY" not in js or "restoreAutoRefreshPreference" not in js:
+    raise SystemExit("operator UI smoke failed: missing persisted auto-refresh preference logic")
+if 'autoRefresh: false' not in js:
+    raise SystemExit("operator UI smoke failed: auto-refresh state no longer defaults to manual-first")
+if "window.localStorage.setItem(\n    AUTO_REFRESH_STORAGE_KEY" not in js:
+    raise SystemExit("operator UI smoke failed: missing auto-refresh preference persistence")
+if "renderLastRefreshStatus" not in js or "Manual refresh mode" not in js:
+    raise SystemExit("operator UI smoke failed: missing manual-refresh status rendering")
+if "setAutomationControlsBusyState" not in js:
+    raise SystemExit("operator UI smoke failed: missing automation busy-state guard")
+if "setRunActionControlsBusyState" not in js:
+    raise SystemExit("operator UI smoke failed: missing run-action busy-state guard")
+if "runActionAvailability" not in js:
+    raise SystemExit("operator UI smoke failed: missing run-action availability gating")
+if "revealSelectedRunDetail" not in js:
+    raise SystemExit("operator UI smoke failed: missing auto-reveal for selected run detail")
+if "renderRunGuide" not in js or "buildRunGuide" not in js:
+    raise SystemExit("operator UI smoke failed: missing selected-run orchestration guide logic")
+if "renderRunGuideAction" not in js or "controlActionId" not in js:
+    raise SystemExit("operator UI smoke failed: missing guide CTA rendering logic")
+if "renderDetailEmptyStateMarkup" not in js:
+    raise SystemExit("operator UI smoke failed: missing guided detail empty-state renderer")
+if "renderSectionEmptyState" not in js:
+    raise SystemExit("operator UI smoke failed: missing section empty-state renderer")
+if "renderRunActionHighlights" not in js:
+    raise SystemExit("operator UI smoke failed: missing structured run-action highlight rendering")
+if "safeExternalUrl" not in js:
+    raise SystemExit("operator UI smoke failed: missing safe external URL guard")
+if "envelopeBadgePresentation" not in js:
+    raise SystemExit("operator UI smoke failed: missing domain-aware console badge presentation")
+if "displayRunStatus" not in js:
+    raise SystemExit("operator UI smoke failed: missing run-status display normalization")
+if "friendlySourcePath" not in js or "summarizeValues" not in js:
+    raise SystemExit("operator UI smoke failed: missing compact status-card detail helpers")
+if "restoreAutomationDisclosurePreferences" not in js or "syncAutomationDisclosures" not in js:
+    raise SystemExit("operator UI smoke failed: missing persisted automation-disclosure logic")
+examples = brief_examples.get("examples")
+if not isinstance(examples, list) or len(examples) < 3:
+    raise SystemExit("operator UI smoke failed: missing curated brief examples payload")
+paths = {example.get("source_path") for example in examples if isinstance(example, dict)}
+required_paths = {
+    "examples/briefs/minimal-container-service.yaml",
+    "examples/briefs/minimal-cli-tool.yaml",
+    "examples/briefs/minimal-worker-service.yaml",
+}
+if not required_paths.issubset(paths):
+    raise SystemExit("operator UI smoke failed: brief example payload is missing expected starter briefs")
+PY
+
+WEBHOOK_PAYLOAD_FILE="$ARTIFACT_ROOT/mcp-webhook-ping.json"
+WEBHOOK_RESPONSE_FILE="$ARTIFACT_ROOT/mcp-webhook-response.json"
+PUSH_WEBHOOK_PAYLOAD_FILE="$ARTIFACT_ROOT/mcp-webhook-push.json"
+PUSH_WEBHOOK_RESPONSE_FILE="$ARTIFACT_ROOT/mcp-webhook-push-response.json"
+cat >"$WEBHOOK_PAYLOAD_FILE" <<'EOF'
+{
+  "zen": "Keep it logically awesome.",
+  "hook_id": 42,
+  "repository": {
+    "full_name": "smartit/catalyst-continuum",
+    "default_branch": "main"
+  }
+}
+EOF
+
+cat >"$PUSH_WEBHOOK_PAYLOAD_FILE" <<EOF
+{
+  "ref": "refs/heads/main",
+  "before": "${PUSH_WEBHOOK_BEFORE_SHA}",
+  "after": "${PUSH_WEBHOOK_AFTER_SHA}",
+  "repository": {
+    "full_name": "smartit/catalyst-continuum",
+    "default_branch": "main"
+  },
+  "installation": {
+    "id": ${GITHUB_APP_INSTALLATION_ID}
+  }
+}
+EOF
+
+WEBHOOK_SIGNATURE="$(python3 - "$GITHUB_WEBHOOK_SECRET" "$WEBHOOK_PAYLOAD_FILE" <<'PY'
+import hashlib
+import hmac
+import pathlib
+import sys
+
+secret = sys.argv[1].encode("utf-8")
+payload = pathlib.Path(sys.argv[2]).read_bytes()
+print("sha256=" + hmac.new(secret, payload, hashlib.sha256).hexdigest())
+PY
+)"
+
+PUSH_WEBHOOK_SIGNATURE="$(python3 - "$GITHUB_WEBHOOK_SECRET" "$PUSH_WEBHOOK_PAYLOAD_FILE" <<'PY'
+import hashlib
+import hmac
+import pathlib
+import sys
+
+secret = sys.argv[1].encode("utf-8")
+payload = pathlib.Path(sys.argv[2]).read_bytes()
+print("sha256=" + hmac.new(secret, payload, hashlib.sha256).hexdigest())
+PY
+)"
+
+log_phase "send ping webhook over HTTP"
+curl "${CURL_ARGS[@]}" \
+  -X POST \
+  -H "Content-Type: application/json" \
+  -H "X-GitHub-Event: ping" \
+  -H "X-GitHub-Delivery: $WEBHOOK_DELIVERY_ID" \
+  -H "X-Hub-Signature-256: $WEBHOOK_SIGNATURE" \
+  --data-binary "@$WEBHOOK_PAYLOAD_FILE" \
+  "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/github/webhooks" >"$WEBHOOK_RESPONSE_FILE"
+
+python3 - "$WEBHOOK_RESPONSE_FILE" "$WEBHOOK_DELIVERY_ID" <<'PY'
+import json
+import pathlib
+import sys
+
+response = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+delivery_id = sys.argv[2]
+
+assert response["delivery_id"] == delivery_id, response
+assert response["event"] == "ping", response
+assert response["persisted"] is True, response
+PY
+
+log_phase "send push webhook over HTTP"
+curl "${CURL_ARGS[@]}" \
+  -X POST \
+  -H "Content-Type: application/json" \
+  -H "X-GitHub-Event: push" \
+  -H "X-GitHub-Delivery: $PUSH_WEBHOOK_DELIVERY_ID" \
+  -H "X-Hub-Signature-256: $PUSH_WEBHOOK_SIGNATURE" \
+  --data-binary "@$PUSH_WEBHOOK_PAYLOAD_FILE" \
+  "http://127.0.0.1:${ORCHESTRATOR_HTTP_PORT}/github/webhooks" >"$PUSH_WEBHOOK_RESPONSE_FILE"
+
+python3 - "$PUSH_WEBHOOK_RESPONSE_FILE" "$PUSH_WEBHOOK_DELIVERY_ID" "$PUSH_WEBHOOK_BEFORE_SHA" "$PUSH_WEBHOOK_AFTER_SHA" <<'PY'
+import json
+import pathlib
+import sys
+
+response = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+delivery_id = sys.argv[2]
+before_sha = sys.argv[3]
+after_sha = sys.argv[4]
+
+assert response["delivery_id"] == delivery_id, response
+assert response["event"] == "push", response
+assert response["ref_name"] == "refs/heads/main", response
+assert response["before_sha"] == before_sha, response
+assert response["after_sha"] == after_sha, response
+assert response["routing_status"] == "candidate", response
+assert response["routing_action"] == "sync_default_branch", response
+assert response["persisted"] is True, response
+PY
+
+MCP_FETCH_PYPI_VERSION="$MCP_FETCH_PYPI_VERSION" python3 - "$BIN" "$DATABASE_URL" "$ARTIFACT_ROOT" "$BRIEF_FILE" "$WEBHOOK_DELIVERY_ID" "$PUSH_WEBHOOK_DELIVERY_ID" "$PUSH_WEBHOOK_ACTION_REQUEST_ID" "$PUSH_WEBHOOK_SIGNAL_ID" "$PUSH_WEBHOOK_AFTER_SHA" <<'PY'
+import json
+import os
+import pathlib
+import platform
+import select
+import subprocess
+import sys
+import threading
+from collections import deque
+
+orchestrator_bin = sys.argv[1]
+database_url = sys.argv[2]
+artifact_root = sys.argv[3]
+brief_path = pathlib.Path(sys.argv[4])
+webhook_delivery_id = sys.argv[5]
+push_webhook_delivery_id = sys.argv[6]
+push_webhook_action_request_id = sys.argv[7]
+push_webhook_signal_id = sys.argv[8]
+push_webhook_after_sha = sys.argv[9]
+fetch_version = os.environ["MCP_FETCH_PYPI_VERSION"]
+root = pathlib.Path.cwd()
+try:
+    brief_source_path = str(brief_path.relative_to(root))
+except ValueError:
+    brief_source_path = str(brief_path)
+
+env = os.environ.copy()
+env["CATALYST_DATABASE_URL"] = database_url
+env["CATALYST_ARTIFACT_ROOT"] = artifact_root
+
+proc = subprocess.Popen(
+    [
+        orchestrator_bin,
+        "mcp-server",
+        "--artifact-root",
+        artifact_root,
+    ],
+    cwd=root,
+    env=env,
+    stdin=subprocess.PIPE,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+    text=True,
+    bufsize=1,
+)
+
+next_id = 1
+REQUEST_TIMEOUT_SECONDS = 30
+stderr_lines = deque(maxlen=400)
+stdout_lines = deque(maxlen=400)
+current_request_label = "idle"
+
+
+def drain_stderr():
+    assert proc.stderr is not None
+    for line in proc.stderr:
+        stderr_lines.append(line)
+
+
+stderr_thread = threading.Thread(target=drain_stderr, daemon=True)
+stderr_thread.start()
+
+
+def fail(message):
+    try:
+        proc.terminate()
+    except Exception:
+        pass
+    try:
+        proc.wait(timeout=5)
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+    stderr_thread.join(timeout=1)
+    stderr = "".join(stderr_lines)
+    stdout = "".join(stdout_lines)
+    raise SystemExit(
+        f"{message}\nLAST_REQUEST:\n{current_request_label}\nSTDERR:\n{stderr}\nSTDOUT:\n{stdout}"
+    )
+
+
+def send(message):
+    payload = json.dumps(message)
+    assert proc.stdin is not None
+    proc.stdin.write(payload + "\n")
+    proc.stdin.flush()
+
+
+def recv():
+    assert proc.stdout is not None
+    ready, _, _ = select.select([proc.stdout], [], [], REQUEST_TIMEOUT_SECONDS)
+    if not ready:
+        fail(
+            "stateful MCP smoke failed: timed out waiting for an MCP response "
+            f"after {REQUEST_TIMEOUT_SECONDS}s"
+        )
+    line = proc.stdout.readline()
+    if not line:
+        fail(f"stateful MCP smoke failed: server exited unexpectedly with code {proc.poll()}")
+    stdout_lines.append(line)
+    try:
+        return json.loads(line)
+    except json.JSONDecodeError as error:
+        fail(f"stateful MCP smoke failed: could not decode server response: {error}\n{line}")
+
+
+def request(method, params=None):
+    global next_id, current_request_label
+    params = params or {}
+    request_id = next_id
+    next_id += 1
+    if method == "tools/call":
+        current_request_label = f"{method}:{params.get('name', 'unknown')}"
+    else:
+        current_request_label = method
+    send(
+        {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "method": method,
+            "params": params,
+        }
+    )
+    while True:
+        message = recv()
+        if message.get("id") != request_id:
+            continue
+        if "error" in message:
+            fail(
+                "stateful MCP smoke failed: JSON-RPC error for "
+                f"{method}: {message['error']}"
+            )
+        current_request_label = "idle"
+        return message["result"]
+
+
+def notify(method, params=None):
+    send(
+        {
+            "jsonrpc": "2.0",
+            "method": method,
+            "params": params or {},
+        }
+    )
+
+
+def call_tool(name, arguments=None, key=None):
+    log_phase(f"call MCP tool {name}")
+    result = request(
+        "tools/call",
+        {
+            "name": name,
+            "arguments": arguments or {},
+        },
+    )
+    if result.get("isError"):
+        fail(f"stateful MCP smoke failed: tool {name} returned an error: {result}")
+    structured = result["structuredContent"]
+    log_phase(f"completed MCP tool {name}")
+    if key is None:
+        return structured
+    return structured[key]
+
+
+def call_tool_expect_error(name, arguments=None):
+    log_phase(f"call MCP tool {name} (expect error)")
+    result = request(
+        "tools/call",
+        {
+            "name": name,
+            "arguments": arguments or {},
+        },
+    )
+    if not result.get("isError"):
+        fail(
+            f"stateful MCP smoke failed: expected tool {name} to return an error, got {result}"
+        )
+    log_phase(f"completed MCP tool {name} (error expected)")
+    return result
+
+
+def log_phase(message):
+    print(f"[mcp-stateful-smoke] {message}", flush=True)
+
+
+try:
+    log_phase("initialize MCP stdio session")
+    initialize = request(
+        "initialize",
+        {
+            "protocolVersion": "2025-11-25",
+            "capabilities": {},
+            "clientInfo": {
+                "name": "catalyst-continuum-mcp-stateful-smoke",
+                "version": "0.1.0",
+            },
+        },
+    )
+    if initialize["protocolVersion"] != "2025-11-25":
+        fail(
+            "stateful MCP smoke failed: expected protocol 2025-11-25, got "
+            f"{initialize['protocolVersion']}"
+        )
+    notify("notifications/initialized")
+
+    tools = request("tools/list")["tools"]
+    tool_names = {tool["name"] for tool in tools}
+    tools_by_name = {tool["name"]: tool for tool in tools}
+    expected_tools = {
+        "list_packs",
+        "describe_pack",
+        "describe_ai_gateway_status",
+        "describe_instance_config",
+        "describe_artifact",
+        "describe_latest_artifact",
+        "validate_brief",
+        "submit_brief",
+        "list_github_webhooks",
+        "describe_github_webhook",
+        "describe_github_webhook_receipt",
+        "list_github_webhook_action_requests",
+        "describe_github_webhook_action_request",
+        "describe_github_webhook_action_report",
+        "describe_github_default_branch_state",
+        "run_next_github_webhook_action",
+        "list_repository_signals",
+        "describe_repository_signal",
+        "describe_repository_signal_payload",
+        "submit_next_repository_signal",
+        "submit_repository_signal",
+        "run_next_repository_automation",
+        "list_runs",
+        "describe_run",
+        "describe_run_guide",
+        "list_run_events",
+        "claim_next_agent_task",
+        "prepare_agent_task_workspace",
+        "heartbeat_agent_task",
+        "complete_agent_task",
+        "run_next_task",
+        "run_worker_once",
+        "evaluate_run_policy",
+        "evaluate_run_quality",
+        "generate_developer_handoff",
+        "export_pr_candidate",
+        "publish_pr_export",
+        "open_github_pr",
+    }
+    missing_tools = expected_tools - tool_names
+    if missing_tools:
+        fail(
+            "stateful MCP smoke failed: missing tools "
+            f"{sorted(missing_tools)}"
+        )
+    for tool_name in ("list_packs", "validate_brief", "describe_run", "describe_run_guide"):
+        if (
+            tools_by_name[tool_name]
+            .get("annotations", {})
+            .get("readOnlyHint")
+            is not True
+        ):
+            fail(
+                "stateful MCP smoke failed: expected readOnlyHint=true for "
+                f"{tool_name}"
+            )
+    if (
+        tools_by_name["submit_brief"]
+        .get("annotations", {})
+        .get("readOnlyHint")
+        is True
+    ):
+        fail(
+            "stateful MCP smoke failed: submit_brief must not be advertised as read-only"
+        )
+
+    log_phase("list MCP tools")
+    log_phase("inspect instance, webhook, and repository-signal state through MCP")
+    instance_config = call_tool("describe_instance_config", {}, "instance_config")
+    if instance_config["runtime_providers"]["default_provider"] != "docker":
+        fail(
+            "stateful MCP smoke failed: expected describe_instance_config to report "
+            f"docker as the default runtime provider, got "
+            f"{instance_config['runtime_providers']['default_provider']}"
+        )
+    if instance_config["ai_gateway"]["provider"] != "litellm":
+        fail(
+            "stateful MCP smoke failed: expected describe_instance_config to report "
+            f"litellm as the AI gateway provider, got "
+            f"{instance_config['ai_gateway']['provider']}"
+        )
+    if instance_config["ai_gateway"]["control_plane_owner"] != "orchestrator":
+        fail(
+            "stateful MCP smoke failed: expected orchestrator to remain the AI "
+            f"gateway control-plane owner, got "
+            f"{instance_config['ai_gateway']['control_plane_owner']}"
+        )
+    if not any(
+        capability["capability"] == "chat_completions"
+        and capability["enabled"] is True
+        for capability in instance_config["ai_gateway"]["capabilities"]
+    ):
+        fail(
+            "stateful MCP smoke failed: expected AI gateway chat_completions capability to be enabled"
+        )
+    fetch_server = next(
+        server
+        for server in instance_config["external_mcp_servers"]["servers"]
+        if server["server_id"] == "fetch"
+    )
+    codex_launch = fetch_server["client_launches"]["codex"]
+    openhands_launch = fetch_server["client_launches"]["openhands"]
+    expected_fetch_args = [
+        "--from",
+        f"mcp-server-fetch=={fetch_version}",
+        "mcp-server-fetch",
+    ]
+    if codex_launch["transport"] != "stdio":
+        fail(
+            "stateful MCP smoke failed: expected Fetch Codex launch transport "
+            f"to be stdio, got {codex_launch['transport']!r}"
+        )
+    if codex_launch["command"] != "uvx":
+        fail(
+            "stateful MCP smoke failed: expected Fetch Codex launch command "
+            f"to be uvx, got {codex_launch['command']!r}"
+        )
+    if codex_launch["args"] != expected_fetch_args:
+        fail(
+            "stateful MCP smoke failed: expected Fetch Codex launch args "
+            f"{expected_fetch_args!r}, got {codex_launch['args']!r}"
+        )
+    if openhands_launch["transport"] != "stdio":
+        fail(
+            "stateful MCP smoke failed: expected Fetch OpenHands launch transport "
+            f"to be stdio, got {openhands_launch['transport']!r}"
+        )
+    if openhands_launch["command"] != "uvx":
+        fail(
+            "stateful MCP smoke failed: expected Fetch OpenHands launch command "
+            f"to be uvx, got {openhands_launch['command']!r}"
+        )
+    if openhands_launch["args"] != expected_fetch_args:
+        fail(
+            "stateful MCP smoke failed: expected Fetch OpenHands launch args "
+            f"{expected_fetch_args!r}, got {openhands_launch['args']!r}"
+        )
+    ai_gateway_status = call_tool(
+        "describe_ai_gateway_status",
+        {},
+        "ai_gateway_status",
+    )
+    if ai_gateway_status["provider"] != "litellm":
+        fail(
+            "stateful MCP smoke failed: expected describe_ai_gateway_status to report "
+            f"litellm as the AI gateway provider, got "
+            f"{ai_gateway_status['provider']!r}"
+        )
+    if ai_gateway_status["control_plane_owner"] != "orchestrator":
+        fail(
+            "stateful MCP smoke failed: expected describe_ai_gateway_status to preserve "
+            f"orchestrator control-plane ownership, got "
+            f"{ai_gateway_status['control_plane_owner']!r}"
+        )
+    expected_probe_url = instance_config["ai_gateway"]["host_base_url"].rstrip("/") + "/v1/models"
+    if ai_gateway_status["probe_url"] != expected_probe_url:
+        fail(
+            "stateful MCP smoke failed: expected describe_ai_gateway_status to probe "
+            f"{expected_probe_url!r}, got {ai_gateway_status['probe_url']!r}"
+        )
+    if (
+        ai_gateway_status["configured_default_model_aliases"]
+        != instance_config["ai_gateway"]["default_model_aliases"]
+    ):
+        fail(
+            "stateful MCP smoke failed: expected describe_ai_gateway_status to reuse "
+            "the instance-config default model aliases"
+        )
+    expected_alias = (
+        instance_config["ai_gateway"]["default_model_aliases"]["macos_apple_silicon"]
+        if platform.system() == "Darwin" and platform.machine() == "arm64"
+        else instance_config["ai_gateway"]["default_model_aliases"]["other_platforms"]
+    )
+    if ai_gateway_status["current_host_default_model_alias"] != expected_alias:
+        fail(
+            "stateful MCP smoke failed: expected describe_ai_gateway_status to resolve "
+            f"the current host default alias {expected_alias!r}, got "
+            f"{ai_gateway_status['current_host_default_model_alias']!r}"
+        )
+    allowed_statuses = {
+        "ready",
+        "degraded",
+        "unauthorized",
+        "http_error",
+        "unreachable",
+        "invalid_response",
+        "invalid_config",
+    }
+    if ai_gateway_status["status"] not in allowed_statuses:
+        fail(
+            "stateful MCP smoke failed: unexpected ai_gateway_status status "
+            f"{ai_gateway_status['status']!r}"
+        )
+
+    deliveries = call_tool(
+        "list_github_webhooks",
+        {"limit": 10},
+        "deliveries",
+    )
+    if not any(delivery["delivery_id"] == webhook_delivery_id for delivery in deliveries):
+        fail(
+            "stateful MCP smoke failed: expected webhook delivery in list_github_webhooks, got "
+            f"{deliveries}"
+        )
+    if not any(delivery["delivery_id"] == push_webhook_delivery_id for delivery in deliveries):
+        fail(
+            "stateful MCP smoke failed: expected push webhook delivery in list_github_webhooks, got "
+            f"{deliveries}"
+        )
+
+    requests = call_tool(
+        "list_github_webhook_action_requests",
+        {"limit": 10, "status": "pending"},
+        "requests",
+    )
+    if not any(
+        request["request_id"] == push_webhook_action_request_id for request in requests
+    ):
+        fail(
+            "stateful MCP smoke failed: expected webhook action request in "
+            f"list_github_webhook_action_requests, got {requests}"
+        )
+
+    webhook_delivery = call_tool(
+        "describe_github_webhook",
+        {"delivery_id": webhook_delivery_id},
+        "delivery",
+    )
+    if webhook_delivery["delivery_id"] != webhook_delivery_id:
+        fail(
+            "stateful MCP smoke failed: describe_github_webhook returned unexpected delivery id "
+            f"{webhook_delivery['delivery_id']}"
+        )
+    if webhook_delivery["persisted"] is not True:
+        fail(
+            "stateful MCP smoke failed: describe_github_webhook should report a persisted delivery"
+        )
+    webhook_receipt = call_tool(
+        "describe_github_webhook_receipt",
+        {"delivery_id": webhook_delivery_id},
+        "receipt",
+    )
+    if webhook_receipt["persisted"] is not True:
+        fail(
+            "stateful MCP smoke failed: describe_github_webhook_receipt should report a persisted receipt"
+        )
+    if webhook_receipt["receipt"]["summary"]["delivery_id"] != webhook_delivery_id:
+        fail(
+            "stateful MCP smoke failed: webhook receipt summary returned unexpected delivery id "
+            f"{webhook_receipt['receipt']['summary']['delivery_id']}"
+        )
+    if (
+        webhook_receipt["receipt"]["payload"]["repository"]["full_name"]
+        != "smartit/catalyst-continuum"
+    ):
+        fail(
+            "stateful MCP smoke failed: webhook receipt payload should expose repository full name, got "
+            f"{webhook_receipt['receipt']['payload']}"
+        )
+
+    push_webhook_delivery = call_tool(
+        "describe_github_webhook",
+        {"delivery_id": push_webhook_delivery_id},
+        "delivery",
+    )
+    if push_webhook_delivery["delivery_id"] != push_webhook_delivery_id:
+        fail(
+            "stateful MCP smoke failed: describe_github_webhook returned unexpected push delivery id "
+            f"{push_webhook_delivery['delivery_id']}"
+        )
+    if push_webhook_delivery["routing_status"] != "candidate":
+        fail(
+            "stateful MCP smoke failed: push webhook delivery should be routed as candidate, got "
+            f"{push_webhook_delivery['routing_status']}"
+        )
+    if push_webhook_delivery["routing_action"] != "sync_default_branch":
+        fail(
+            "stateful MCP smoke failed: push webhook delivery should route to sync_default_branch, got "
+            f"{push_webhook_delivery['routing_action']}"
+        )
+    if push_webhook_delivery["after_sha"] != push_webhook_after_sha:
+        fail(
+            "stateful MCP smoke failed: push webhook delivery should expose after_sha, got "
+            f"{push_webhook_delivery['after_sha']}"
+        )
+    push_webhook_receipt = call_tool(
+        "describe_github_webhook_receipt",
+        {"delivery_id": push_webhook_delivery_id},
+        "receipt",
+    )
+    if push_webhook_receipt["receipt"]["summary"]["delivery_id"] != push_webhook_delivery_id:
+        fail(
+            "stateful MCP smoke failed: push webhook receipt returned unexpected delivery id "
+            f"{push_webhook_receipt['receipt']['summary']['delivery_id']}"
+        )
+    if push_webhook_receipt["receipt"]["summary"]["after_sha"] != push_webhook_after_sha:
+        fail(
+            "stateful MCP smoke failed: push webhook receipt should expose after_sha, got "
+            f"{push_webhook_receipt['receipt']['summary']['after_sha']}"
+        )
+    if push_webhook_receipt["receipt_path"] != push_webhook_delivery["receipt_path"]:
+        fail(
+            "stateful MCP smoke failed: push webhook receipt path should match delivery receipt_path, got "
+            f"{push_webhook_receipt['receipt_path']} vs {push_webhook_delivery['receipt_path']}"
+        )
+
+    push_webhook_action_request = call_tool(
+        "describe_github_webhook_action_request",
+        {"request_id": push_webhook_action_request_id},
+        "request",
+    )
+    if push_webhook_action_request["request_id"] != push_webhook_action_request_id:
+        fail(
+            "stateful MCP smoke failed: describe_github_webhook_action_request returned unexpected request id "
+            f"{push_webhook_action_request['request_id']}"
+        )
+    if push_webhook_action_request["delivery_id"] != push_webhook_delivery_id:
+        fail(
+            "stateful MCP smoke failed: webhook action request should point at push delivery, got "
+            f"{push_webhook_action_request['delivery_id']}"
+        )
+    if push_webhook_action_request["status"] != "pending":
+        fail(
+            "stateful MCP smoke failed: webhook action request should be pending, got "
+            f"{push_webhook_action_request['status']}"
+        )
+    if push_webhook_action_request["action"] != "sync_default_branch":
+        fail(
+            "stateful MCP smoke failed: webhook action request should target sync_default_branch, got "
+            f"{push_webhook_action_request['action']}"
+        )
+    if push_webhook_action_request["after_sha"] != push_webhook_after_sha:
+        fail(
+            "stateful MCP smoke failed: webhook action request should expose after_sha, got "
+            f"{push_webhook_action_request['after_sha']}"
+        )
+
+    webhook_action_execution = call_tool(
+        "run_next_github_webhook_action",
+        {"action": "sync_default_branch"},
+        "execution",
+    )
+    if webhook_action_execution["outcome"] != "executed":
+        fail(
+            "stateful MCP smoke failed: run_next_github_webhook_action should execute a request, got "
+            f"{webhook_action_execution}"
+        )
+    if webhook_action_execution["execution_status"] != "succeeded":
+        fail(
+            "stateful MCP smoke failed: run_next_github_webhook_action should succeed, got "
+            f"{webhook_action_execution['execution_status']}"
+        )
+    signal = webhook_action_execution.get("signal")
+    if signal is None:
+        fail("stateful MCP smoke failed: run_next_github_webhook_action should return a repository signal")
+    if signal["signal_id"] != push_webhook_signal_id:
+        fail(
+            "stateful MCP smoke failed: execution signal id mismatch, got "
+            f"{signal['signal_id']}"
+        )
+    if signal["signal_kind"] != "default_branch_updated":
+        fail(
+            "stateful MCP smoke failed: execution signal_kind mismatch, got "
+            f"{signal['signal_kind']}"
+        )
+    if signal["status"] != "pending":
+        fail(
+            "stateful MCP smoke failed: execution signal status mismatch, got "
+            f"{signal['status']}"
+        )
+    if webhook_action_execution["superseded_signal_count"] != 0:
+        fail(
+            "stateful MCP smoke failed: first repository signal execution should not supersede older signals, got "
+            f"{webhook_action_execution['superseded_signal_count']}"
+        )
+    if signal["proposed_run_trigger"] != "repository_signal":
+        fail(
+            "stateful MCP smoke failed: execution signal trigger mismatch, got "
+            f"{signal['proposed_run_trigger']}"
+        )
+    if signal["after_sha"] != push_webhook_after_sha:
+        fail(
+            "stateful MCP smoke failed: execution signal should expose after_sha, got "
+            f"{signal['after_sha']}"
+        )
+
+    executed_webhook_action_request = call_tool(
+        "describe_github_webhook_action_request",
+        {"request_id": push_webhook_action_request_id},
+        "request",
+    )
+    if executed_webhook_action_request["status"] != "succeeded":
+        fail(
+            "stateful MCP smoke failed: webhook action request should be succeeded after execution, got "
+            f"{executed_webhook_action_request['status']}"
+        )
+    if executed_webhook_action_request["attempt_count"] != 1:
+        fail(
+            "stateful MCP smoke failed: webhook action request attempt_count should be 1 after execution, got "
+            f"{executed_webhook_action_request['attempt_count']}"
+        )
+    described_report = call_tool(
+        "describe_github_webhook_action_report",
+        {"request_id": push_webhook_action_request_id},
+        "report",
+    )
+    report_path = pathlib.Path(described_report["report_path"])
+    if not report_path.is_file():
+        fail(
+            "stateful MCP smoke failed: webhook action report report_path should point at a file, got "
+            f"{described_report['report_path']}"
+        )
+    if described_report["persisted"] is not True:
+        fail(
+            "stateful MCP smoke failed: webhook action report should be marked persisted"
+        )
+    if described_report["report"]["request"]["request_id"] != push_webhook_action_request_id:
+        fail(
+            "stateful MCP smoke failed: webhook action report request_id mismatch, got "
+            f"{described_report['report']['request']['request_id']}"
+        )
+    if described_report["report"]["sync"]["after_sha"] != push_webhook_after_sha:
+        fail(
+            "stateful MCP smoke failed: webhook action report should capture after_sha, got "
+            f"{described_report['report']['sync']['after_sha']}"
+        )
+    if described_report["report"]["sync"]["status"] != "observed_default_branch_head":
+        fail(
+            "stateful MCP smoke failed: webhook action report sync status mismatch, got "
+            f"{described_report['report']['sync']['status']}"
+        )
+    if executed_webhook_action_request["report_path"] != described_report["report_path"]:
+        fail(
+            "stateful MCP smoke failed: webhook action request report_path should match report detail, got "
+            f"{executed_webhook_action_request['report_path']} vs {described_report['report_path']}"
+        )
+
+    described_state = call_tool(
+        "describe_github_default_branch_state",
+        {"repository_full_name": "smartit/catalyst-continuum"},
+        "state",
+    )
+    state_path = pathlib.Path(described_state["state_path"])
+    if not state_path.is_file():
+        fail(
+            "stateful MCP smoke failed: webhook action state_path should point at a file, got "
+            f"{described_state['state_path']}"
+        )
+    if described_state["persisted"] is not True:
+        fail(
+            "stateful MCP smoke failed: default-branch state should be marked persisted"
+        )
+    if described_state["state"]["after_sha"] != push_webhook_after_sha:
+        fail(
+            "stateful MCP smoke failed: webhook action state file should capture after_sha, got "
+            f"{described_state['state']['after_sha']}"
+        )
+    if described_state["state"]["synced_from"]["request_id"] != push_webhook_action_request_id:
+        fail(
+            "stateful MCP smoke failed: default-branch state should point at webhook action request, got "
+            f"{described_state['state']['synced_from']['request_id']}"
+        )
+    if described_report["report"]["sync"]["state_path"] != described_state["state_path"]:
+        fail(
+            "stateful MCP smoke failed: webhook action report state_path should match default-branch state detail, got "
+            f"{described_report['report']['sync']['state_path']} vs {described_state['state_path']}"
+        )
+
+    signals = call_tool(
+        "list_repository_signals",
+        {
+            "limit": 10,
+            "status": "pending",
+            "signal_kind": "default_branch_updated",
+            "repository_full_name": "smartit/catalyst-continuum",
+        },
+        "signals",
+    )
+    if not any(signal["signal_id"] == push_webhook_signal_id for signal in signals):
+        fail(
+            "stateful MCP smoke failed: expected repository signal in list_repository_signals, got "
+            f"{signals}"
+        )
+
+    described_signal = call_tool(
+        "describe_repository_signal",
+        {"signal_id": push_webhook_signal_id},
+        "signal",
+    )
+    if described_signal["signal_id"] != push_webhook_signal_id:
+        fail(
+            "stateful MCP smoke failed: describe_repository_signal returned unexpected signal id "
+            f"{described_signal['signal_id']}"
+        )
+    if described_signal["source_request_id"] != push_webhook_action_request_id:
+        fail(
+            "stateful MCP smoke failed: repository signal should point at webhook action request, got "
+            f"{described_signal['source_request_id']}"
+        )
+    if described_signal["proposed_run_trigger"] != "repository_signal":
+        fail(
+            "stateful MCP smoke failed: repository signal should propose repository_signal trigger, got "
+            f"{described_signal['proposed_run_trigger']}"
+        )
+    described_signal_payload = call_tool(
+        "describe_repository_signal_payload",
+        {"signal_id": push_webhook_signal_id},
+        "payload",
+    )
+    signal_payload_path = pathlib.Path(described_signal_payload["payload_path"])
+    if not signal_payload_path.is_file():
+        fail(
+            "stateful MCP smoke failed: repository signal payload_path should point at a file, got "
+            f"{described_signal_payload['payload_path']}"
+        )
+    if described_signal_payload["payload_path"] != described_signal["payload_path"]:
+        fail(
+            "stateful MCP smoke failed: repository signal payload path should match signal detail, got "
+            f"{described_signal_payload['payload_path']} vs {described_signal['payload_path']}"
+        )
+    if described_signal_payload["payload"]["signal"]["signal_id"] != push_webhook_signal_id:
+        fail(
+            "stateful MCP smoke failed: repository signal payload should capture signal_id, got "
+            f"{described_signal_payload['payload']['signal']['signal_id']}"
+        )
+    if described_signal_payload["payload"]["automation"]["run_trigger"] != "repository_signal":
+        fail(
+            "stateful MCP smoke failed: repository signal payload should propose repository_signal trigger, got "
+            f"{described_signal_payload['payload']['automation']['run_trigger']}"
+        )
+    if described_signal_payload["payload"]["source"]["request_id"] != push_webhook_action_request_id:
+        fail(
+            "stateful MCP smoke failed: repository signal payload should capture source_request_id, got "
+            f"{described_signal_payload['payload']['source']['request_id']}"
+        )
+    if described_signal_payload["payload"]["repository"]["after_sha"] != push_webhook_after_sha:
+        fail(
+            "stateful MCP smoke failed: repository signal payload should capture after_sha, got "
+            f"{described_signal_payload['payload']['repository']['after_sha']}"
+        )
+
+    signal_brief_content = """\
+schema_version: v0.1
+brief_id: 55555555-5555-5555-5555-555555555555
+title: Repository Signal Materialization
+summary: Build a repository-signal initiated proof of concept so the orchestrator can validate signal-to-run handoff end to end.
+requested_by: product@example.com
+target_users:
+  - internal platform engineers
+goals:
+  - Materialize a run from a repository signal.
+functional_requirements:
+  - id: APP-1
+    title: Generate backlog
+    description: Produce a deterministic backlog from the signal-driven brief.
+constraints:
+  - Keep the first implementation deterministic.
+deliverables:
+  - backlog artifact
+repository:
+  host: github
+  owner: smartit
+  name: catalyst-continuum
+  default_branch: main
+  visibility: private
+execution_preferences:
+  repo_pack: cli-tool
+  default_runtime_provider: docker
+  sandbox_profile: restricted
+policy:
+  max_task_count: 8
+  max_total_timeout_seconds: 180
+  max_task_retry_count: 1
+  allowed_task_kinds:
+    - plan
+    - scaffold
+    - code
+    - test
+  allowed_runtime_providers:
+    - docker
+  allowed_sandbox_profiles:
+    - restricted
+"""
+
+    signal_submission = call_tool(
+        "submit_next_repository_signal",
+        {
+            "brief_content": signal_brief_content,
+            "brief_source_path": "mcp:inline-repository-signal-brief.yaml",
+            "signal_kind": "default_branch_updated",
+        },
+        "submission",
+    )
+    signal_run_id = signal_submission["submission"]["run_id"]
+    if signal_submission["submission"]["trigger"] != "repository_signal":
+        fail(
+            "stateful MCP smoke failed: repository signal submission should create a repository_signal run, got "
+            f"{signal_submission['submission']['trigger']}"
+        )
+    if signal_submission["signal"]["status"] != "submitted":
+        fail(
+            "stateful MCP smoke failed: submitted repository signal should transition to submitted, got "
+            f"{signal_submission['signal']['status']}"
+        )
+    if signal_submission["signal"]["materialized_run_id"] != signal_run_id:
+        fail(
+            "stateful MCP smoke failed: submitted repository signal should point at the materialized run, got "
+            f"{signal_submission['signal']['materialized_run_id']}"
+        )
+
+    described_submitted_signal = call_tool(
+        "describe_repository_signal",
+        {"signal_id": push_webhook_signal_id},
+        "signal",
+    )
+    if described_submitted_signal["status"] != "submitted":
+        fail(
+            "stateful MCP smoke failed: describe_repository_signal should report submitted after materialization, got "
+            f"{described_submitted_signal['status']}"
+        )
+    if described_submitted_signal["materialized_run_id"] != signal_run_id:
+        fail(
+            "stateful MCP smoke failed: describe_repository_signal should expose materialized_run_id after submission, got "
+            f"{described_submitted_signal['materialized_run_id']}"
+        )
+
+    automation_idle = call_tool(
+        "run_next_repository_automation",
+        {
+            "brief_content": signal_brief_content,
+            "brief_source_path": "mcp:inline-repository-signal-brief.yaml",
+            "action": "sync_default_branch",
+            "signal_kind": "default_branch_updated",
+        },
+        "automation",
+    )
+    if automation_idle["automation_status"] != "idle":
+        fail(
+            "stateful MCP smoke failed: expected run_next_repository_automation to go idle after signal materialization, got "
+            f"{automation_idle['automation_status']}"
+        )
+    if automation_idle["webhook_action"]["outcome"] != "idle":
+        fail(
+            "stateful MCP smoke failed: expected run_next_repository_automation to report an idle webhook action step, got "
+            f"{automation_idle['webhook_action']}"
+        )
+    idle_signal_submission = automation_idle.get("signal_submission") or {}
+    if idle_signal_submission.get("outcome") != "idle":
+        fail(
+            "stateful MCP smoke failed: expected run_next_repository_automation to report idle signal submission after draining the queue, got "
+            f"{idle_signal_submission}"
+        )
+
+    catalog = call_tool("list_packs", {}, "catalog")
+    pack_ids = sorted(pack["pack_id"] for pack in catalog["items"])
+    if "cli-tool" not in pack_ids:
+        fail(f"stateful MCP smoke failed: cli-tool pack missing from {pack_ids}")
+
+    brief_content = brief_path.read_text(encoding="utf-8")
+    log_phase("validate and submit a brief through MCP")
+    validation = call_tool(
+        "validate_brief",
+        {
+            "brief_content": brief_content,
+            "brief_source_path": brief_source_path,
+        },
+        "validation",
+    )
+    if validation["valid"] is not True:
+        fail("stateful MCP smoke failed: validate_brief returned valid=false")
+    resolved_fetch_server = next(
+        server
+        for server in validation["external_mcp_contract"]["servers"]
+        if server["server_id"] == "fetch"
+    )
+    resolved_codex_launch = resolved_fetch_server["client_launches"]["codex"]
+    resolved_openhands_launch = resolved_fetch_server["client_launches"]["openhands"]
+    if resolved_codex_launch["command"] != "uvx":
+        fail(
+            "stateful MCP smoke failed: expected resolved Fetch Codex launch "
+            f"command to be uvx, got {resolved_codex_launch['command']!r}"
+        )
+    if resolved_codex_launch["args"] != expected_fetch_args:
+        fail(
+            "stateful MCP smoke failed: expected resolved Fetch Codex launch args "
+            f"{expected_fetch_args!r}, got {resolved_codex_launch['args']!r}"
+        )
+    if resolved_openhands_launch["command"] != "uvx":
+        fail(
+            "stateful MCP smoke failed: expected resolved Fetch OpenHands launch "
+            f"command to be uvx, got {resolved_openhands_launch['command']!r}"
+        )
+    if resolved_openhands_launch["args"] != expected_fetch_args:
+        fail(
+            "stateful MCP smoke failed: expected resolved Fetch OpenHands launch args "
+            f"{expected_fetch_args!r}, got {resolved_openhands_launch['args']!r}"
+        )
+
+    submission = call_tool(
+        "submit_brief",
+        {
+            "brief_content": brief_content,
+            "brief_source_path": brief_source_path,
+        },
+        "submission",
+    )
+    run_id = submission["run_id"]
+
+    runs = call_tool("list_runs", {"limit": 10}, "runs")
+    if not any(run["run_id"] == run_id for run in runs):
+        fail(f"stateful MCP smoke failed: run {run_id} missing from list_runs")
+
+    run_detail = call_tool("describe_run", {"run_id": run_id}, "run")
+    if run_detail["run_id"] != run_id:
+        fail(
+            "stateful MCP smoke failed: describe_run returned wrong run_id "
+            f"{run_detail['run_id']}"
+        )
+    run_guide = call_tool("describe_run_guide", {"run_id": run_id}, "guide")
+    if run_guide["run_id"] != run_id:
+        fail(
+            "stateful MCP smoke failed: describe_run_guide returned wrong run_id "
+            f"{run_guide['run_id']}"
+        )
+    if run_guide["next_action"]["id"] != "run_next_task":
+        fail(
+            "stateful MCP smoke failed: initial guide should recommend run_next_task, got "
+            f"{run_guide['next_action']}"
+        )
+    dispatch_plan = call_tool(
+        "describe_latest_artifact",
+        {"run_id": run_id, "artifact_type": "agent_dispatch_plan"},
+        "artifact",
+    )
+    if dispatch_plan["artifact"]["artifact_type"] != "agent_dispatch_plan":
+        fail(
+            "stateful MCP smoke failed: expected latest agent dispatch artifact, got "
+            f"{dispatch_plan['artifact']['artifact_type']}"
+        )
+    dispatch_manifest = dispatch_plan["manifest"]
+    if dispatch_manifest["default_agent"] != "openhands":
+        fail(
+            "stateful MCP smoke failed: expected default_agent=openhands in agent dispatch "
+            f"plan, got {dispatch_manifest['default_agent']}"
+        )
+    dispatch_agents = {bucket["agent"] for bucket in dispatch_manifest["agents"]}
+    if {"codex", "openhands"} - dispatch_agents:
+        fail(
+            "stateful MCP smoke failed: expected codex and openhands buckets in agent dispatch "
+            f"plan, got {sorted(dispatch_agents)}"
+        )
+    if not any(task.get("assigned_agent") == "codex" for task in dispatch_manifest["tasks"]):
+        fail(
+            "stateful MCP smoke failed: agent dispatch plan should include at least one "
+            "codex-assigned task"
+        )
+
+    log_phase("execute the initial codex planning task through MCP")
+    planner_execution = call_tool("run_next_task", {"run_id": run_id}, "execution")
+    if planner_execution["outcome"] != "executed":
+        fail(
+            "stateful MCP smoke failed: expected run_next_task to execute a task, got "
+            f"{planner_execution}"
+        )
+    planner_task = planner_execution.get("task") or {}
+    first_task_id = planner_task.get("task_id")
+    if not first_task_id:
+        fail("stateful MCP smoke failed: run_next_task did not expose task_id")
+    if planner_execution.get("execution_status") != "succeeded":
+        fail(
+            "stateful MCP smoke failed: expected run_next_task to succeed, got "
+            f"{planner_execution.get('execution_status')}"
+        )
+
+    log_phase("claim, heartbeat, and complete one external-agent task through MCP")
+    claim = call_tool(
+        "claim_next_agent_task",
+        {
+            "run_id": run_id,
+            "agent": "openhands",
+            "executor_id": "mcp-stateful-smoke",
+        },
+        "claim",
+    )
+    if claim["outcome"] != "claimed":
+        fail(
+            "stateful MCP smoke failed: expected claim_next_agent_task to claim a task, got "
+            f"{claim}"
+        )
+    claimed_task = claim.get("task") or {}
+    claimed_task_id = claimed_task.get("task_id")
+    if not claimed_task_id:
+        fail("stateful MCP smoke failed: claimed task did not expose task_id")
+    if claimed_task.get("status") != "running":
+        fail(
+            "stateful MCP smoke failed: expected claimed task to be running, got "
+            f"{claimed_task.get('status')}"
+        )
+    if claimed_task.get("assigned_agent") != "openhands":
+        fail(
+            "stateful MCP smoke failed: expected claimed task assigned_agent=openhands, got "
+            f"{claimed_task.get('assigned_agent')}"
+        )
+    if claimed_task.get("kind") != "scaffold":
+        fail(
+            "stateful MCP smoke failed: expected first claimed external task kind=scaffold, got "
+            f"{claimed_task.get('kind')}"
+        )
+    if not claimed_task.get("lease_expires_at"):
+        fail("stateful MCP smoke failed: claimed task should expose lease_expires_at")
+    claim_external_mcp_contract = claim.get("external_mcp_contract") or {}
+    claim_fetch_server = next(
+        server
+        for server in claim_external_mcp_contract["servers"]
+        if server["server_id"] == "fetch"
+    )
+    claim_openhands_launch = claim_fetch_server["client_launches"]["openhands"]
+    if claim_fetch_server["status"] != "allowed":
+        fail(
+            "stateful MCP smoke failed: expected claimed Fetch contract status to be allowed, "
+            f"got {claim_fetch_server['status']!r}"
+        )
+    if claim_openhands_launch["command"] != "uvx":
+        fail(
+            "stateful MCP smoke failed: expected claimed Fetch OpenHands launch command "
+            f"to be uvx, got {claim_openhands_launch['command']!r}"
+        )
+    if claim_openhands_launch["args"] != expected_fetch_args:
+        fail(
+            "stateful MCP smoke failed: expected claimed Fetch OpenHands launch args "
+            f"{expected_fetch_args!r}, got {claim_openhands_launch['args']!r}"
+        )
+
+    prepared_workspace = call_tool(
+        "prepare_agent_task_workspace",
+        {
+            "task_id": claimed_task_id,
+            "agent": "openhands",
+            "executor_id": "mcp-stateful-smoke",
+        },
+        "workspace",
+    )
+    if prepared_workspace.get("source_kind") != "empty":
+        fail(
+            "stateful MCP smoke failed: expected scaffold workspace source_kind=empty, got "
+            f"{prepared_workspace.get('source_kind')}"
+        )
+    task_workspace_input_artifact = prepared_workspace.get("task_workspace_input_artifact") or {}
+    task_workspace_input_artifact_id = task_workspace_input_artifact.get("artifact_id")
+    if task_workspace_input_artifact.get("artifact_type") != "task_workspace_input":
+        fail(
+            "stateful MCP smoke failed: expected prepare_agent_task_workspace to return "
+            f"task_workspace_input artifact, got {task_workspace_input_artifact.get('artifact_type')!r}"
+        )
+    if not task_workspace_input_artifact_id:
+        fail(
+            "stateful MCP smoke failed: prepare_agent_task_workspace did not return "
+            "task_workspace_input artifact_id"
+        )
+    bundle_path = pathlib.Path(prepared_workspace.get("bundle_path", ""))
+    if not bundle_path.is_file():
+        fail(
+            "stateful MCP smoke failed: expected prepare_agent_task_workspace bundle_path "
+            f"to point at a real file, got {bundle_path}"
+        )
+    task_workspace_input_detail = call_tool(
+        "describe_artifact",
+        {"artifact_id": task_workspace_input_artifact_id},
+        "artifact",
+    )
+    if task_workspace_input_detail["artifact"]["artifact_type"] != "task_workspace_input":
+        fail(
+            "stateful MCP smoke failed: expected described prepared workspace artifact type "
+            f"task_workspace_input, got {task_workspace_input_detail['artifact']['artifact_type']!r}"
+        )
+    task_workspace_input_manifest = task_workspace_input_detail.get("manifest") or {}
+    if task_workspace_input_manifest.get("task_id") != claimed_task_id:
+        fail(
+            "stateful MCP smoke failed: prepared workspace manifest returned wrong task_id "
+            f"{task_workspace_input_manifest.get('task_id')!r}"
+        )
+    if task_workspace_input_manifest.get("source_kind") != "empty":
+        fail(
+            "stateful MCP smoke failed: prepared workspace manifest should preserve source_kind "
+            f"empty, got {task_workspace_input_manifest.get('source_kind')!r}"
+        )
+    workspace_root = pathlib.Path(prepared_workspace["workspace_root"])
+    workspace_root.mkdir(parents=True, exist_ok=True)
+    (workspace_root / "src").mkdir(parents=True, exist_ok=True)
+    (workspace_root / "README.md").write_text(
+        "# Stateful MCP Smoke CLI\\n\\nGenerated through the external-agent scaffold path.\\n",
+        encoding="utf-8",
+    )
+    (workspace_root / "Cargo.toml").write_text(
+        "[package]\\nname = \"stateful-mcp-smoke-cli\"\\nversion = \"0.1.0\"\\nedition = \"2021\"\\n\\n[workspace]\\n\\n[[bin]]\\nname = \"stateful-mcp-smoke-cli\"\\npath = \"src/main.rs\"\\n\\n[dependencies]\\nserde = { version = \"1.0\", features = [\"derive\"] }\\nserde_json = \"1.0\"\\n",
+        encoding="utf-8",
+    )
+    (workspace_root / "src" / "main.rs").write_text(
+        "use serde_json::{json, Value};\\nuse std::{fs, io::{self, Write}};\\n\\nfn load_requirements() -> Vec<Value> {\\n    let mut items = fs::read_dir(\"requirements\")\\n        .ok()\\n        .into_iter()\\n        .flat_map(|entries| entries.filter_map(Result::ok))\\n        .map(|entry| entry.path())\\n        .filter(|path| path.extension().and_then(|value| value.to_str()) == Some(\"json\"))\\n        .filter_map(|path| fs::read_to_string(path).ok())\\n        .filter_map(|content| serde_json::from_str::<Value>(&content).ok())\\n        .collect::<Vec<_>>();\\n    items.sort_by(|left, right| {\\n        left.get(\"id\")\\n            .and_then(Value::as_str)\\n            .cmp(&right.get(\"id\").and_then(Value::as_str))\\n    });\\n    items\\n}\\n\\nfn main() {\\n    let requirements = load_requirements();\\n    let payload = match std::env::args().nth(1).as_deref() {\\n        Some(\"requirements\") => json!({\"tool\": \"stateful-mcp-smoke-cli\", \"items\": requirements}),\\n        _ => json!({\\n            \"tool\": \"stateful-mcp-smoke-cli\",\\n            \"pack\": \"cli-tool\",\\n            \"requirement_count\": requirements.len(),\\n            \"commands\": [\"summary\", \"requirements\"]\\n        }),\\n    };\\n    let mut stdout = io::stdout().lock();\\n    serde_json::to_writer_pretty(&mut stdout, &payload).expect(\"json output should serialize\");\\n    stdout.write_all(b\"\\\\n\").expect(\"newline should write\");\\n}\\n",
+        encoding="utf-8",
+    )
+    (workspace_root / ".gitignore").write_text("target/\\n", encoding="utf-8")
+    unexpected_workspace_root = workspace_root.parent / "unexpected-workspace"
+    unexpected_workspace_root.mkdir(parents=True, exist_ok=True)
+    (unexpected_workspace_root / "README.md").write_text(
+        "# unexpected workspace\\n",
+        encoding="utf-8",
+    )
+
+    heartbeat = call_tool(
+        "heartbeat_agent_task",
+        {
+            "task_id": claimed_task_id,
+            "agent": "openhands",
+            "executor_id": "mcp-stateful-smoke",
+        },
+        "heartbeat",
+    )
+    heartbeated_task = heartbeat.get("task") or {}
+    if heartbeated_task.get("status") != "running":
+        fail(
+            "stateful MCP smoke failed: expected heartbeated task to stay running, got "
+            f"{heartbeated_task.get('status')}"
+        )
+    if (heartbeated_task.get("agent_execution") or {}).get("last_status") != "heartbeat":
+        fail(
+            "stateful MCP smoke failed: expected heartbeat to update agent_execution.last_status "
+            f"to heartbeat, got {(heartbeated_task.get('agent_execution') or {}).get('last_status')}"
+        )
+    if not heartbeated_task.get("lease_expires_at"):
+        fail("stateful MCP smoke failed: heartbeat should preserve lease_expires_at")
+
+    completion_error = call_tool_expect_error(
+        "complete_agent_task",
+        {
+            "task_id": claimed_task_id,
+            "agent": "openhands",
+            "executor_id": "mcp-stateful-smoke",
+            "status": "succeeded",
+            "summary": "stateful smoke external-agent handoff rejected unexpected workspace",
+            "workspace_root": str(unexpected_workspace_root),
+        },
+    )
+    if "does not match prepared task workspace" not in json.dumps(
+        completion_error,
+        sort_keys=True,
+    ):
+        fail(
+            "stateful MCP smoke failed: expected complete_agent_task error to mention prepared "
+            f"workspace mismatch, got {completion_error}"
+        )
+
+    completion = call_tool(
+        "complete_agent_task",
+        {
+            "task_id": claimed_task_id,
+            "agent": "openhands",
+            "executor_id": "mcp-stateful-smoke",
+            "status": "succeeded",
+            "summary": "stateful smoke external-agent handoff completed",
+            "workspace_root": str(workspace_root),
+        },
+        "completion",
+    )
+    if completion["reported_status"] != "succeeded":
+        fail(
+            "stateful MCP smoke failed: expected complete_agent_task reported_status=succeeded, "
+            f"got {completion['reported_status']}"
+        )
+    if completion["task_status"] != "succeeded":
+        fail(
+            "stateful MCP smoke failed: expected complete_agent_task task_status=succeeded, "
+            f"got {completion['task_status']}"
+        )
+    report_artifact = completion.get("artifact") or {}
+    report_artifact_id = report_artifact.get("artifact_id")
+    if not report_artifact_id:
+        fail("stateful MCP smoke failed: complete_agent_task did not return a report artifact")
+
+    report_detail = call_tool(
+        "describe_artifact",
+        {"artifact_id": report_artifact_id},
+        "artifact",
+    )
+    if report_detail["artifact"]["artifact_type"] != "agent_task_report":
+        fail(
+            "stateful MCP smoke failed: expected agent_task_report artifact, got "
+            f"{report_detail['artifact']['artifact_type']}"
+        )
+    if report_detail["manifest"]["task_id"] != claimed_task_id:
+        fail(
+            "stateful MCP smoke failed: agent task report manifest returned wrong task_id "
+            f"{report_detail['manifest']['task_id']}"
+        )
+    if report_detail["manifest"]["assigned_agent"] != "openhands":
+        fail(
+            "stateful MCP smoke failed: expected report assigned_agent=openhands, got "
+            f"{report_detail['manifest']['assigned_agent']}"
+        )
+    if report_detail["manifest"]["task_workspace_input_artifact_id"] != task_workspace_input_artifact_id:
+        fail(
+            "stateful MCP smoke failed: agent task report should point at prepared workspace "
+            f"artifact, got {report_detail['manifest']['task_workspace_input_artifact_id']}"
+        )
+    if report_detail["manifest"]["workspace_root"] != str(workspace_root):
+        fail(
+            "stateful MCP smoke failed: agent task report should preserve prepared workspace_root, "
+            f"got {report_detail['manifest']['workspace_root']}"
+        )
+
+    log_phase("execute a single worker cycle through MCP")
+    worker = call_tool("run_worker_once", {"run_id": run_id}, "worker")
+    if worker["worker_status"] != "executed":
+        fail(
+            "stateful MCP smoke failed: expected run_worker_once to execute a task, got "
+            f"{worker['worker_status']}"
+        )
+    last_execution = worker.get("last_execution")
+    if not last_execution:
+        fail("stateful MCP smoke failed: run_worker_once should return last_execution details")
+    executed_task = last_execution.get("task") or {}
+    worker_task_id = executed_task.get("task_id")
+    if not worker_task_id:
+        fail("stateful MCP smoke failed: executed worker cycle did not expose task_id")
+    if executed_task.get("status") != "succeeded":
+        fail(
+            "stateful MCP smoke failed: expected executed task to succeed, got "
+            f"{executed_task.get('status')}"
+        )
+
+    run_detail = call_tool("describe_run", {"run_id": run_id}, "run")
+    if run_detail["status"] == "failed":
+        fail(
+            f"stateful MCP smoke failed: run {run_id} should not fail after one worker cycle, "
+            f"got {run_detail['status']}"
+        )
+    if not run_detail["tasks"]:
+        fail("stateful MCP smoke failed: describe_run should return tasks after execution starts")
+    if not any(task["task_id"] == claimed_task_id for task in run_detail["tasks"]):
+        fail(
+            "stateful MCP smoke failed: describe_run should include the externally completed task "
+            f"{claimed_task_id}"
+        )
+    claimed_task_detail = next(
+        (task for task in run_detail["tasks"] if task["task_id"] == claimed_task_id),
+        None,
+    )
+    if claimed_task_detail is None:
+        fail(
+            "stateful MCP smoke failed: claimed task missing from describe_run "
+            f"{claimed_task_id}"
+        )
+    if (
+        (claimed_task_detail.get("agent_execution") or {}).get("last_report_artifact_id")
+        != report_artifact_id
+    ):
+        fail(
+            "stateful MCP smoke failed: describe_run should expose the latest agent task report "
+            f"artifact id {report_artifact_id}"
+        )
+
+    log_phase("evaluate policy and inspect persisted artifacts through MCP")
+    policy = call_tool("evaluate_run_policy", {"run_id": run_id}, "policy")
+    if policy["passed"] is not True:
+        fail("stateful MCP smoke failed: evaluate_run_policy returned passed=false")
+    policy_artifact_id = policy["artifact"]["artifact_id"]
+
+    policy_artifact = call_tool(
+        "describe_artifact",
+        {"artifact_id": policy_artifact_id},
+        "artifact",
+    )
+    if policy_artifact["artifact"]["artifact_type"] != "policy_report":
+        fail(
+            "stateful MCP smoke failed: expected policy_report artifact, got "
+            f"{policy_artifact['artifact']['artifact_type']}"
+        )
+    if policy_artifact["manifest"]["passed"] is not True:
+        fail("stateful MCP smoke failed: persisted policy report is not passed=true")
+
+    log_phase("generate developer handoff through MCP")
+    handoff = call_tool("generate_developer_handoff", {"run_id": run_id}, "handoff")
+    handoff_artifact = handoff.get("artifact") or {}
+    if handoff_artifact.get("artifact_type") != "developer_handoff":
+        fail(
+            "stateful MCP smoke failed: expected developer_handoff artifact, got "
+            f"{handoff_artifact.get('artifact_type')}"
+        )
+    if not handoff.get("review_markdown_path") or not handoff.get("agent_prompt_path"):
+        fail(
+            "stateful MCP smoke failed: developer handoff should expose review and prompt paths"
+        )
+
+    log_phase("inspect run events through MCP")
+    run_events = call_tool(
+        "list_run_events",
+        {"run_id": run_id, "limit": 50},
+        "events",
+    )
+    event_types = {event["event_type"] for event in run_events}
+    required_event_types = {
+        "run_submitted",
+        "run_status_changed",
+        "task_started",
+        "task_workspace_prepared",
+        "task_heartbeat",
+        "task_succeeded",
+        "run_policy_evaluated",
+        "developer_handoff_generated",
+    }
+    missing_event_types = required_event_types - event_types
+    if missing_event_types:
+        fail(
+            "stateful MCP smoke failed: missing expected run events "
+            f"{sorted(missing_event_types)} from {sorted(event_types)}"
+        )
+
+    task_events = call_tool(
+        "list_run_events",
+        {"run_id": run_id, "task_id": claimed_task_id, "limit": 20},
+        "events",
+    )
+    if not task_events:
+        fail(
+            "stateful MCP smoke failed: expected task-scoped events for "
+            f"task {claimed_task_id}"
+        )
+    if any(event.get("task_id") != claimed_task_id for event in task_events):
+        fail(
+            "stateful MCP smoke failed: task-scoped list_run_events returned mismatched task ids "
+            f"{task_events}"
+        )
+    task_event_types = {event["event_type"] for event in task_events}
+    if {"task_started", "task_workspace_prepared", "task_heartbeat", "task_succeeded"} - task_event_types:
+        fail(
+            "stateful MCP smoke failed: claimed task is missing expected external-agent lifecycle "
+            f"events: {sorted(task_event_types)}"
+        )
+
+    succeeded_task_events = call_tool(
+        "list_run_events",
+        {"run_id": run_id, "event_type": "task_succeeded", "limit": 20},
+        "events",
+    )
+    if not succeeded_task_events:
+        fail("stateful MCP smoke failed: expected at least one task_succeeded event")
+    if any(event["event_type"] != "task_succeeded" for event in succeeded_task_events):
+        fail(
+            "stateful MCP smoke failed: event_type filter returned unexpected events "
+            f"{succeeded_task_events}"
+        )
+
+    log_phase("mcp stateful smoke passed")
+finally:
+    try:
+        if proc.stdin is not None:
+            proc.stdin.close()
+    except Exception:
+        pass
+    try:
+        proc.terminate()
+    except Exception:
+        pass
+    try:
+        proc.wait(timeout=5)
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+PY

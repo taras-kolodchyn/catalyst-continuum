@@ -1,0 +1,17 @@
+targets:
+  - target_id: demo-container-service
+    host: github
+    owner: smartit
+    name: catalyst-continuum-demo
+    default_branch: main
+    enabled: true
+    branch_prefix: continuum/
+
+  - target_id: demo-cli-tool
+    host: github
+    owner: smartit
+    name: catalyst-continuum-cli-demo
+    default_branch: main
+    enabled: true
+    branch_prefix: continuum/
+

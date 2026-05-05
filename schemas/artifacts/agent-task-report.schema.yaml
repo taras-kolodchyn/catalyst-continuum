@@ -1,0 +1,85 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "urn:catalyst-continuum:schemas:artifacts:agent-task-report:v0.1"
+title: "Catalyst Continuum Agent Task Report Artifact"
+description: "Persisted completion report written when an external agent finishes or retries a claimed task."
+type: object
+additionalProperties: false
+required:
+  - artifact_type
+  - run_id
+  - task_id
+  - backlog_item_id
+  - kind
+  - assigned_agent
+  - executor_id
+  - claim_count
+  - reported_status
+  - task_status
+  - retry_scheduled
+  - task_workspace_input_artifact_id
+  - workspace_root
+  - summary
+  - details
+  - failure_reason
+properties:
+  artifact_type:
+    type: string
+    const: "agent_task_report"
+  run_id:
+    $ref: "#/$defs/uuid_string"
+  task_id:
+    $ref: "#/$defs/uuid_string"
+  backlog_item_id:
+    type: string
+    minLength: 1
+  kind:
+    type: string
+    minLength: 1
+  assigned_agent:
+    type: string
+    minLength: 1
+  executor_id:
+    anyOf:
+      - type: string
+        minLength: 1
+      - type: "null"
+  claim_count:
+    type: integer
+    minimum: 0
+  reported_status:
+    type: string
+    enum:
+      - succeeded
+      - failed
+  task_status:
+    type: string
+    enum:
+      - queued
+      - succeeded
+      - failed
+  retry_scheduled:
+    type: boolean
+  task_workspace_input_artifact_id:
+    anyOf:
+      - $ref: "#/$defs/uuid_string"
+      - type: "null"
+  workspace_root:
+    anyOf:
+      - type: string
+        minLength: 1
+      - type: "null"
+  summary:
+    type: string
+    minLength: 1
+  details:
+    anyOf:
+      - type: string
+      - type: "null"
+  failure_reason:
+    anyOf:
+      - type: string
+      - type: "null"
+$defs:
+  uuid_string:
+    type: string
+    format: uuid

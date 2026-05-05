@@ -1,0 +1,115 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "urn:catalyst-continuum:schemas:run:v0.1"
+title: "Catalyst Continuum Run"
+description: "Orchestration record for one end-to-end execution initiated from a product brief."
+type: object
+additionalProperties: false
+required:
+  - schema_version
+  - run_id
+  - brief_id
+  - status
+  - created_at
+  - trigger
+properties:
+  schema_version:
+    type: string
+    const: "v0.1"
+  run_id:
+    type: string
+    format: uuid
+  brief_id:
+    type: string
+    format: uuid
+  status:
+    type: string
+    enum:
+      - queued
+      - planning
+      - scaffolding
+      - executing
+      - awaiting_approval
+      - succeeded
+      - failed
+      - canceled
+  trigger:
+    type: string
+    enum:
+      - cli
+      - api
+      - http
+      - mcp
+      - webhook
+      - repository_signal
+      - scheduler
+  title:
+    type: string
+  requested_by:
+    type: string
+  selected_pack:
+    type: string
+  budget_policy_id:
+    type: string
+    format: uuid
+  budget_snapshot:
+    $ref: "#/$defs/budget_snapshot"
+  repository:
+    $ref: "#/$defs/repository_target"
+  current_task_id:
+    type: string
+    format: uuid
+  artifact_ids:
+    type: array
+    items:
+      type: string
+      format: uuid
+    uniqueItems: true
+  created_at:
+    type: string
+    format: date-time
+  started_at:
+    type: string
+    format: date-time
+  completed_at:
+    type: string
+    format: date-time
+  failure_reason:
+    type: string
+  metadata:
+    type: object
+    additionalProperties:
+      oneOf:
+        - type: string
+        - type: number
+        - type: integer
+        - type: boolean
+$defs:
+  budget_snapshot:
+    type: object
+    additionalProperties: false
+    properties:
+      max_total_cost_usd:
+        type: number
+        minimum: 0
+      max_total_runtime_minutes:
+        type: integer
+        minimum: 1
+      max_total_tasks:
+        type: integer
+        minimum: 1
+  repository_target:
+    type: object
+    additionalProperties: false
+    properties:
+      host:
+        type: string
+        enum:
+          - github
+      owner:
+        type: string
+      name:
+        type: string
+      default_branch:
+        type: string
+      working_branch:
+        type: string

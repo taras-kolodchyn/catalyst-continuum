@@ -1,0 +1,1285 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
+
+TMP_DIR="$(mktemp -d)"
+trap 'rm -rf "$TMP_DIR"' EXIT
+
+FAKES_DIR="$TMP_DIR/fakes"
+PER_ISSUE_OUT="$TMP_DIR/per-issue-workflow"
+BATCH_PLAN_OUT="$TMP_DIR/batch-plan-workflow"
+BATCH_OUT="$TMP_DIR/batch-workflow"
+COMMAND_LOG="$TMP_DIR/commands.log"
+ISSUE_FIXTURE="$TMP_DIR/issues.json"
+
+mkdir -p "$FAKES_DIR"
+: >"$COMMAND_LOG"
+
+cat >"$FAKES_DIR/pbcopy" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+: "${CLIPBOARD_CAPTURE:?CLIPBOARD_CAPTURE is required}"
+cat >"$CLIPBOARD_CAPTURE"
+SH
+chmod +x "$FAKES_DIR/pbcopy"
+
+cat >"$ISSUE_FIXTURE" <<'JSON'
+[
+  {
+    "number": 7,
+    "title": "Patch critical prompt injection escape",
+    "body": "The agent prompt should preserve policy boundaries.",
+    "state": "OPEN",
+    "url": "https://github.com/smartit/github-issue-workflow-smoke/issues/7",
+    "labels": [
+      {
+        "name": "security"
+      },
+      {
+        "name": "p1"
+      }
+    ]
+  },
+  {
+    "number": 42,
+    "title": "Fix flaky retry policy smoke",
+    "body": "Retry policy smoke occasionally misses the terminal state.",
+    "state": "OPEN",
+    "url": "https://github.com/smartit/github-issue-workflow-smoke/issues/42",
+    "labels": [
+      {
+        "name": "test"
+      }
+    ]
+  }
+]
+JSON
+
+cat >"$FAKES_DIR/create-github-issue-session.sh" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+
+printf 'create %q\n' "$@" >>"$COMMAND_LOG"
+
+strategy="per-issue"
+output_root="${TMPDIR:-/tmp}/sessions"
+batch_output_dir="${TMPDIR:-/tmp}/batch"
+next_only=0
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --pr-strategy)
+      strategy="$2"
+      shift 2
+      ;;
+    --output-root)
+      output_root="$2"
+      shift 2
+      ;;
+    --batch-output-dir)
+      batch_output_dir="$2"
+      shift 2
+      ;;
+    --next-only)
+      next_only=1
+      shift
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+
+mkdir -p "$output_root" "$batch_output_dir"
+
+if [ "$strategy" = "batch" ] && [ "$next_only" -eq 0 ]; then
+  session_dir="$output_root/batch-session"
+  mkdir -p "$session_dir"
+  printf '# Batch Session\n' >"$session_dir/README.md"
+  printf '# Codex batch prompt\n' >"$session_dir/codex-prompt.md"
+  printf '# Cursor batch prompt\n' >"$session_dir/cursor-prompt.md"
+  printf '# OpenHands batch prompt\n' >"$session_dir/openhands-prompt.md"
+  printf '# Batch issue context\n' >"$session_dir/issue-batch.md"
+  cat >"$session_dir/brief.json" <<'JSON'
+{
+  "title": "GitHub issue batch: smartit/github-issue-workflow-smoke (2 issues)"
+}
+JSON
+  cat >"$session_dir/issue-batch-context.json" <<'JSON'
+{
+  "schema_version": "v0.1",
+  "source": "github_issue_batch_session",
+  "repository_full_name": "smartit/github-issue-workflow-smoke",
+  "selected_recipe": "batch-maintenance",
+  "issues": [
+    {
+      "rank": 1,
+      "score": 90,
+      "score_reasons": [
+        "security"
+      ],
+      "selected_recipe": "security-hardening",
+      "issue": {
+        "number": 7,
+        "title": "Patch critical prompt injection escape",
+        "url": "https://github.com/smartit/github-issue-workflow-smoke/issues/7",
+        "state": "OPEN",
+        "labels": [
+          {
+            "name": "security"
+          },
+          {
+            "name": "p1"
+          }
+        ]
+      }
+    },
+    {
+      "rank": 2,
+      "score": 40,
+      "score_reasons": [
+        "test"
+      ],
+      "selected_recipe": "test-stabilization",
+      "issue": {
+        "number": 42,
+        "title": "Fix flaky retry policy smoke",
+        "url": "https://github.com/smartit/github-issue-workflow-smoke/issues/42",
+        "state": "OPEN",
+        "labels": [
+          {
+            "name": "test"
+          }
+        ]
+      }
+    }
+  ]
+}
+JSON
+  cat >"$session_dir/manifest.json" <<'JSON'
+{
+  "schema_version": "v0.1",
+  "session_type": "github_issue_batch_session",
+  "brief_path": "brief.json",
+  "agent_prompts": {
+    "codex": "codex-prompt.md",
+    "cursor": "cursor-prompt.md",
+    "openhands": "openhands-prompt.md"
+  },
+  "github_issue_batch": {
+    "repository_full_name": "smartit/github-issue-workflow-smoke",
+    "issue_numbers": [
+      7,
+      42
+    ],
+    "issue_batch_context_path": "issue-batch-context.json",
+    "issue_batch_markdown_path": "issue-batch.md"
+  }
+}
+JSON
+  printf 'pr_strategy: batch\n'
+  printf 'issue_session_count: 1\n'
+  printf 'recommended_next_session_dir: %s\n' "$session_dir"
+  printf 'batch_session_dir: %s\n' "$session_dir"
+else
+  session_dir="$output_root/issue-7-session"
+  mkdir -p "$session_dir"
+  printf '# Issue Session\n' >"$session_dir/README.md"
+  printf '# Codex issue prompt\n' >"$session_dir/codex-prompt.md"
+  printf '# Cursor issue prompt\n' >"$session_dir/cursor-prompt.md"
+  printf '# OpenHands issue prompt\n' >"$session_dir/openhands-prompt.md"
+  printf '# Issue context\n' >"$session_dir/issue.md"
+  printf '{"schema_version":"v0.1"}\n' >"$session_dir/issue-context.json"
+  cat >"$session_dir/brief.json" <<'JSON'
+{
+  "title": "GitHub issue #7: Patch critical prompt injection escape"
+}
+JSON
+  cat >"$session_dir/manifest.json" <<'JSON'
+{
+  "schema_version": "v0.1",
+  "session_type": "github_issue_session",
+  "brief_path": "brief.json",
+  "agent_prompts": {
+    "codex": "codex-prompt.md",
+    "cursor": "cursor-prompt.md",
+    "openhands": "openhands-prompt.md"
+  },
+  "github_issue": {
+    "repository_full_name": "smartit/github-issue-workflow-smoke",
+    "number": 7,
+    "title": "Patch critical prompt injection escape",
+    "url": "https://github.com/smartit/github-issue-workflow-smoke/issues/7",
+    "state": "OPEN",
+    "labels": [
+      {
+        "name": "security"
+      },
+      {
+        "name": "p1"
+      }
+    ],
+    "issue_context_path": "issue-context.json",
+    "issue_markdown_path": "issue.md"
+  }
+}
+JSON
+  printf 'pr_strategy: per-issue\n'
+  printf 'issue_session_count: 1\n'
+  printf 'recommended_next_session_dir: %s\n' "$session_dir"
+  printf 'issue_session_dir: %s\n' "$session_dir"
+fi
+SH
+
+cat >"$FAKES_DIR/run-dev-task.sh" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+
+printf 'run %q\n' "$@" >>"$COMMAND_LOG"
+
+output_dir="${TMPDIR:-/tmp}/run"
+brief_file=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --brief-file)
+      brief_file="$2"
+      shift 2
+      ;;
+    --output-dir)
+      output_dir="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+
+mkdir -p "$output_dir/pr-export"
+summary_file="$output_dir/run-summary.json"
+if [ "${FAKE_RUN_FAIL:-0}" = "1" ]; then
+  printf 'summary_file: %s\n' "$summary_file"
+  exit 23
+fi
+
+cat >"$summary_file" <<JSON
+{
+  "schema_version": "v0.1",
+  "run_id": "00000000-0000-0000-0000-000000000007",
+  "run_status": "succeeded",
+  "quality_passed": "true",
+  "brief_source_path": "$brief_file",
+  "pr_export_created": true,
+  "pr_export": {
+    "created": true,
+    "branch_name": "continuum/issue-7",
+    "commit_sha": "abc123",
+    "manifest_path": "$output_dir/pr-export/manifest.json",
+    "repository_path": "$output_dir/pr-export",
+    "combined_patch_path": "$output_dir/pr-export/combined.patch"
+  }
+}
+JSON
+
+printf 'Developer run complete.\n'
+printf 'summary_file: %s\n' "$summary_file"
+printf 'pr_export_branch_name: continuum/issue-7\n'
+SH
+
+cat >"$FAKES_DIR/sync-github-issue-status.sh" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+
+printf 'sync %q\n' "$@" >>"$COMMAND_LOG"
+
+output_dir="${TMPDIR:-/tmp}/sync"
+status="ready-for-review"
+apply="false"
+pr_url=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --output-dir)
+      output_dir="$2"
+      shift 2
+      ;;
+    --status)
+      status="$2"
+      shift 2
+      ;;
+    --apply)
+      apply="true"
+      shift
+      ;;
+    --pr-url)
+      pr_url="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+
+mkdir -p "$output_dir"
+cat >"$output_dir/github-issue-sync-plan.json" <<JSON
+{
+  "status": "$status",
+  "apply": $apply,
+  "pr_url": "$pr_url"
+}
+JSON
+printf 'Catalyst Continuum update\n' >"$output_dir/comment.md"
+
+printf 'github_issue_sync_status: %s\n' "$status"
+printf 'github_issue_sync_apply: %s\n' "$apply"
+printf 'github_issue_sync_plan: %s\n' "$output_dir/github-issue-sync-plan.json"
+printf 'github_issue_sync_comment: %s\n' "$output_dir/comment.md"
+SH
+
+cat >"$FAKES_DIR/create-draft-pr-from-run-summary.sh" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+
+printf 'draft %q\n' "$@" >>"$COMMAND_LOG"
+if [ "${FAKE_DRAFT_FAIL:-0}" = "1" ]; then
+  printf 'run_id: 00000000-0000-0000-0000-000000000007\n'
+  printf 'branch_name: continuum/issue-7\n'
+  exit 41
+fi
+printf 'run_id: 00000000-0000-0000-0000-000000000007\n'
+printf 'branch_name: continuum/issue-7\n'
+printf 'pr_number: 7\n'
+printf 'pr_url: https://github.com/smartit/github-issue-workflow-smoke/pull/7\n'
+printf 'resolution: created\n'
+SH
+
+cat >"$FAKES_DIR/cargo" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+
+printf 'cargo %q\n' "$@" >>"$COMMAND_LOG"
+printf 'run_id: 00000000-0000-0000-0000-000000000007\n'
+printf 'branch_name: continuum/helper\n'
+printf 'pr_number: 17\n'
+printf 'pr_url: https://github.com/smartit/github-issue-workflow-smoke/pull/17\n'
+printf 'resolution: reused\n'
+SH
+
+cat >"$FAKES_DIR/github-repo-preflight.sh" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+
+printf 'repo-preflight %q\n' "$@" >>"$COMMAND_LOG"
+printf 'repository=%s\n' "${1:-unknown}"
+printf 'publication_permission=ok\n'
+SH
+
+chmod +x \
+  "$FAKES_DIR/create-github-issue-session.sh" \
+  "$FAKES_DIR/run-dev-task.sh" \
+  "$FAKES_DIR/sync-github-issue-status.sh" \
+  "$FAKES_DIR/create-draft-pr-from-run-summary.sh" \
+  "$FAKES_DIR/github-repo-preflight.sh" \
+  "$FAKES_DIR/cargo"
+
+cat >"$TMP_DIR/helper-run-summary.json" <<'JSON'
+{
+  "schema_version": "v0.1",
+  "run_id": "00000000-0000-0000-0000-000000000007",
+  "artifact_root": "/tmp/catalyst-artifacts",
+  "database": {
+    "url": "postgres://continuum:continuum-dev@127.0.0.1:5432/continuum"
+  }
+}
+JSON
+
+COMMAND_LOG="$COMMAND_LOG" \
+PATH="$FAKES_DIR:$PATH" \
+./scripts/create-draft-pr-from-run-summary.sh \
+  --run-summary "$TMP_DIR/helper-run-summary.json" \
+  --branch-name continuum/helper \
+  >"$TMP_DIR/helper-draft-pr.out"
+grep -F "pr_url: https://github.com/smartit/github-issue-workflow-smoke/pull/17" "$TMP_DIR/helper-draft-pr.out" >/dev/null
+grep -F "cargo " "$COMMAND_LOG" >/dev/null
+grep -F "create-draft-pr" "$COMMAND_LOG" >/dev/null
+: >"$COMMAND_LOG"
+
+PLAN_OUT="$TMP_DIR/plan-workflow"
+COMMAND_LOG="$COMMAND_LOG" \
+CREATE_GITHUB_ISSUE_SESSION_CMD="$FAKES_DIR/create-github-issue-session.sh" \
+RUN_DEV_TASK_CMD="$FAKES_DIR/run-dev-task.sh" \
+SYNC_GITHUB_ISSUE_STATUS_CMD="$FAKES_DIR/sync-github-issue-status.sh" \
+CREATE_DRAFT_PR_FROM_RUN_SUMMARY_CMD="$FAKES_DIR/create-draft-pr-from-run-summary.sh" \
+TMPDIR="$TMP_DIR/plan-tmp" \
+./scripts/run-github-issue-workflow.sh \
+  --plan-only \
+  --issue-json "$ISSUE_FIXTURE" \
+  --repository smartit/github-issue-workflow-smoke \
+  --repo-path "$ROOT_DIR" \
+  --require-clean-checkout \
+  --pr-strategy per-issue \
+  --workflow-output-dir "$PLAN_OUT" \
+  --session-output-root "$TMP_DIR/plan-sessions" \
+  --claim-issues \
+  --create-draft-pr \
+  >"$TMP_DIR/plan.out"
+
+grep -F "GitHub issue workflow plan ready." "$TMP_DIR/plan.out" >/dev/null
+grep -F "workflow_plan:" "$TMP_DIR/plan.out" >/dev/null
+grep -F "workflow_plan_markdown:" "$TMP_DIR/plan.out" >/dev/null
+grep -F "next_command:" "$TMP_DIR/plan.out" >/dev/null
+grep -F "create " "$COMMAND_LOG" >/dev/null
+if grep -F "run " "$COMMAND_LOG" >/dev/null; then
+  echo "plan-only workflow must not run the developer flow" >&2
+  exit 1
+fi
+if grep -F "sync " "$COMMAND_LOG" >/dev/null; then
+  echo "plan-only workflow must not prepare issue sync" >&2
+  exit 1
+fi
+if grep -F "draft " "$COMMAND_LOG" >/dev/null; then
+  echo "plan-only workflow must not publish draft PRs" >&2
+  exit 1
+fi
+
+python3 - "$PLAN_OUT/workflow-summary.json" "$PLAN_OUT/workflow-plan.json" "$PLAN_OUT/workflow-plan.md" <<'PY'
+from __future__ import annotations
+
+import json
+import pathlib
+import sys
+
+summary = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+plan = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
+markdown = pathlib.Path(sys.argv[3]).read_text(encoding="utf-8")
+
+assert summary["plan_only"] is True, summary
+assert summary["plan"]["plan_only"] is True, summary
+assert summary["plan"]["json"].endswith("/workflow-plan.json"), summary
+assert summary["plan"]["markdown"].endswith("/workflow-plan.md"), summary
+assert "--plan-only" not in summary["plan"]["next_command"], summary
+assert summary["report"]["markdown"] is None, summary
+assert summary["run"]["summary_file"] is None, summary
+assert plan["source"] == "github_issue_workflow_plan", plan
+assert plan["planned_steps"]["claim_issues"] is True, plan
+assert plan["planned_steps"]["run_local_flow"] is True, plan
+assert plan["planned_steps"]["require_clean_checkout"] is True, plan
+assert plan["planned_steps"]["create_draft_pr"] is True, plan
+assert plan["planned_steps"]["issue_sync_status"] == "ready-for-review", plan
+assert plan["preflight"]["repo_path"].endswith("/catalyst-continuum"), plan
+assert plan["preflight"]["default_branch"] is None, plan
+preflight_commands = [item["command"] for item in plan["preflight"]["checks"]]
+assert any(command.startswith("git -C ") and " status --short --branch" in command for command in preflight_commands), plan
+assert any(command.startswith("git -C ") and " remote -v" in command for command in preflight_commands), plan
+assert any(command.startswith("make github-repo-preflight REPOSITORY=") for command in preflight_commands), plan
+assert plan["preflight"]["commands"] == plan["preflight"]["checks"], plan
+setup_commands = [item["command"] for item in plan["preflight"]["setup_commands"]]
+assert any("repository-targets-bootstrap" in command for command in setup_commands), plan
+assert plan["preflight"]["warnings"] == [
+    "Draft PR publication is requested without repository_target_id; configure a repository target before publishing to a real repo."
+], plan
+assert plan["issues"] == [
+    {
+        "number": 7,
+        "title": "Patch critical prompt injection escape",
+        "url": "https://github.com/smartit/github-issue-workflow-smoke/issues/7",
+        "state": "OPEN",
+        "labels": ["security", "p1"],
+        "rank": None,
+        "selected_recipe": None,
+    }
+], plan
+assert plan["agent_handoff"]["prompts"]["codex"].endswith("/codex-prompt.md"), plan
+assert plan["agent_handoff"]["prompts"]["cursor"].endswith("/cursor-prompt.md"), plan
+assert plan["agent_handoff"]["prompts"]["openhands"].endswith("/openhands-prompt.md"), plan
+assert "make github-issue-agent-prompt " in plan["agent_handoff"]["prompt_commands"]["codex"], plan
+assert "AGENT=codex" in plan["agent_handoff"]["prompt_commands"]["codex"], plan
+assert "make github-issue-codex-ui " in plan["agent_handoff"]["codex_app_server_commands"]["spawn"], plan
+assert "REPO_PATH=" in plan["agent_handoff"]["codex_app_server_commands"]["spawn"], plan
+assert "CODEX_APP_SERVER_MODE=proxy" in plan["agent_handoff"]["codex_app_server_commands"]["proxy"], plan
+context_labels = [item["label"] for item in plan["agent_handoff"]["context_files"]]
+assert context_labels == [
+    "brief",
+    "session_manifest",
+    "runbook",
+    "issue_markdown",
+    "issue_context",
+], plan
+assert "## Selected Issues" in markdown, markdown
+assert "[#7 Patch critical prompt injection escape](https://github.com/smartit/github-issue-workflow-smoke/issues/7)" in markdown, markdown
+assert "labels `security`, `p1`" in markdown, markdown
+assert "## Agent Handoff" in markdown, markdown
+assert "- codex: `" in markdown, markdown
+assert "Prompt commands:" in markdown, markdown
+assert "make github-issue-agent-prompt GITHUB_ISSUE_WORKFLOW_DIR=" in markdown, markdown
+assert "AGENT=codex" in markdown, markdown
+assert "Codex app-server commands:" in markdown, markdown
+assert "make github-issue-codex-ui GITHUB_ISSUE_WORKFLOW_DIR=" in markdown, markdown
+assert "CODEX_APP_SERVER_MODE=proxy" in markdown, markdown
+assert "- issue_context: `" in markdown, markdown
+assert "## Planned Actions" in markdown, markdown
+assert "- Require clean checkout before execution: `yes`" in markdown, markdown
+assert "## Preflight Before Running" in markdown, markdown
+assert "Read-only checks:" in markdown, markdown
+assert "Setup commands, not run by `make github-issue-preflight`:" in markdown, markdown
+assert "make github-issue-preflight GITHUB_ISSUE_WORKFLOW_DIR=" in markdown, markdown
+assert "make github-issue-preflight-strict GITHUB_ISSUE_WORKFLOW_DIR=" in markdown, markdown
+assert "make github-repo-preflight REPOSITORY=" in markdown, markdown
+assert "make repository-targets-bootstrap REPOSITORY=" in markdown, markdown
+assert "```bash" in markdown, markdown
+PY
+
+./scripts/show-github-issue-workflows.sh \
+  --workflow-dir "$PLAN_OUT" \
+  --next-command \
+  >"$TMP_DIR/plan-next-command.out"
+grep -F "./scripts/run-github-issue-workflow.sh" "$TMP_DIR/plan-next-command.out" >/dev/null
+grep -F -- "--require-clean-checkout" "$TMP_DIR/plan-next-command.out" >/dev/null
+if grep -F -- "--plan-only" "$TMP_DIR/plan-next-command.out" >/dev/null; then
+  echo "plan next command must be executable, not another plan-only preview" >&2
+  exit 1
+fi
+
+./scripts/show-github-issue-workflows.sh \
+  --workflow-dir "$PLAN_OUT" \
+  --agent-prompt-path codex \
+  >"$TMP_DIR/plan-codex-prompt-path.out"
+grep -F "codex-prompt.md" "$TMP_DIR/plan-codex-prompt-path.out" >/dev/null
+
+./scripts/show-github-issue-workflows.sh \
+  --workflow-dir "$PLAN_OUT" \
+  --agent-prompt codex \
+  >"$TMP_DIR/plan-codex-prompt.out"
+grep -F "# Codex issue prompt" "$TMP_DIR/plan-codex-prompt.out" >/dev/null
+
+make github-issue-agent-prompt-path \
+  GITHUB_ISSUE_WORKFLOW_DIR="$PLAN_OUT" \
+  AGENT=cursor \
+  >"$TMP_DIR/plan-cursor-prompt-path.out"
+grep -F "cursor-prompt.md" "$TMP_DIR/plan-cursor-prompt-path.out" >/dev/null
+
+make github-issue-agent-prompt \
+  GITHUB_ISSUE_WORKFLOW_DIR="$PLAN_OUT" \
+  AGENT=openhands \
+  >"$TMP_DIR/plan-openhands-prompt.out"
+grep -F "# OpenHands issue prompt" "$TMP_DIR/plan-openhands-prompt.out" >/dev/null
+
+./scripts/show-github-issue-workflows.sh \
+  --workflow-dir "$PLAN_OUT" \
+  --agent-prompt-command codex \
+  >"$TMP_DIR/plan-codex-prompt-command.out"
+grep -F "make github-issue-agent-prompt GITHUB_ISSUE_WORKFLOW_DIR=" "$TMP_DIR/plan-codex-prompt-command.out" >/dev/null
+grep -F "AGENT=codex" "$TMP_DIR/plan-codex-prompt-command.out" >/dev/null
+
+make github-issue-agent-prompt-command \
+  GITHUB_ISSUE_WORKFLOW_DIR="$PLAN_OUT" \
+  AGENT=cursor \
+  >"$TMP_DIR/plan-cursor-prompt-command.out"
+grep -F "make github-issue-agent-prompt GITHUB_ISSUE_WORKFLOW_DIR=" "$TMP_DIR/plan-cursor-prompt-command.out" >/dev/null
+grep -F "AGENT=cursor" "$TMP_DIR/plan-cursor-prompt-command.out" >/dev/null
+PATH="$FAKES_DIR:$PATH" CLIPBOARD_CAPTURE="$TMP_DIR/plan-codex-prompt.clipboard" \
+  make github-issue-agent-prompt-copy \
+  GITHUB_ISSUE_WORKFLOW_DIR="$PLAN_OUT" \
+  AGENT=codex \
+  >"$TMP_DIR/plan-codex-prompt-copy.out" 2>"$TMP_DIR/plan-codex-prompt-copy.err"
+grep -F "# Codex issue prompt" "$TMP_DIR/plan-codex-prompt.clipboard" >/dev/null
+grep -F "Copied GitHub issue codex prompt" "$TMP_DIR/plan-codex-prompt-copy.err" >/dev/null
+if [ -s "$TMP_DIR/plan-codex-prompt-copy.out" ]; then
+  echo "github issue workflow smoke failed: prompt-copy target should not print copied prompt to stdout" >&2
+  cat "$TMP_DIR/plan-codex-prompt-copy.out" >&2
+  exit 1
+fi
+
+./scripts/show-github-issue-workflows.sh \
+  --workflow-dir "$PLAN_OUT" \
+  --plan-review \
+  >"$TMP_DIR/plan-review.out"
+grep -F "Catalyst Continuum GitHub issue workflow plan review" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "workflow:" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "status: planned" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "repository: smartit/github-issue-workflow-smoke" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "pr_strategy: per-issue" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "issues: #7 Patch critical prompt injection escape" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "plan json:" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "workflow-plan.json" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "plan:" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "workflow-plan.md" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "Session package" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "brief:" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "session manifest:" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "Agent prompt commands" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "codex: make github-issue-agent-prompt GITHUB_ISSUE_WORKFLOW_DIR=" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "Codex app-server commands" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "spawn: make github-issue-codex-ui GITHUB_ISSUE_WORKFLOW_DIR=" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "proxy: make github-issue-codex-ui GITHUB_ISSUE_WORKFLOW_DIR=" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "Context files" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "issue_context:" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "Planned actions" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "claim_issues: yes" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "require_clean_checkout: yes" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "create_draft_pr: yes" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "Publication policy" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "Preflight before running" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "repo_path:" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "warnings:" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "read-only checks:" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "setup commands:" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "Inspect local checkout state: git -C " "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "Verify GitHub repository access: make github-repo-preflight REPOSITORY=" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "Bootstrap repository-target policy: make repository-targets-bootstrap REPOSITORY=" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "Suggested plan commands" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "make github-issue-preflight GITHUB_ISSUE_WORKFLOW_DIR=" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "make github-issue-preflight-strict GITHUB_ISSUE_WORKFLOW_DIR=" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "make github-issue-codex-ui GITHUB_ISSUE_WORKFLOW_DIR=" "$TMP_DIR/plan-review.out" >/dev/null
+grep -F "./scripts/run-github-issue-workflow.sh" "$TMP_DIR/plan-review.out" >/dev/null
+
+make github-issue-plan-review \
+  GITHUB_ISSUE_WORKFLOW_DIR="$PLAN_OUT" \
+  >"$TMP_DIR/plan-review-make.out"
+grep -F "Catalyst Continuum GitHub issue workflow plan review" "$TMP_DIR/plan-review-make.out" >/dev/null
+
+COMMAND_LOG="$COMMAND_LOG" \
+GITHUB_REPO_PREFLIGHT_CMD="$FAKES_DIR/github-repo-preflight.sh" \
+./scripts/run-github-issue-preflight.py \
+  --workflow-dir "$PLAN_OUT" \
+  >"$TMP_DIR/plan-preflight.out"
+grep -F "Catalyst Continuum GitHub issue workflow preflight" "$TMP_DIR/plan-preflight.out" >/dev/null
+grep -F "[Inspect local checkout state]" "$TMP_DIR/plan-preflight.out" >/dev/null
+grep -F "[Inspect local remotes]" "$TMP_DIR/plan-preflight.out" >/dev/null
+grep -F "[Verify GitHub repository access]" "$TMP_DIR/plan-preflight.out" >/dev/null
+grep -F "Setup commands not run automatically" "$TMP_DIR/plan-preflight.out" >/dev/null
+grep -F "preflight=ok" "$TMP_DIR/plan-preflight.out" >/dev/null
+grep -F "repo-preflight" "$COMMAND_LOG" >/dev/null
+
+COMMAND_LOG="$COMMAND_LOG" \
+GITHUB_REPO_PREFLIGHT_CMD="$FAKES_DIR/github-repo-preflight.sh" \
+make github-issue-preflight \
+  GITHUB_ISSUE_WORKFLOW_DIR="$PLAN_OUT" \
+  GITHUB_ISSUE_PREFLIGHT_ARGS="--print-only" \
+  >"$TMP_DIR/plan-preflight-make.out"
+grep -F "preflight=print-only" "$TMP_DIR/plan-preflight-make.out" >/dev/null
+
+COMMAND_LOG="$COMMAND_LOG" \
+GITHUB_REPO_PREFLIGHT_CMD="$FAKES_DIR/github-repo-preflight.sh" \
+make github-issue-preflight-strict \
+  GITHUB_ISSUE_WORKFLOW_DIR="$PLAN_OUT" \
+  GITHUB_ISSUE_PREFLIGHT_ARGS="--print-only" \
+  >"$TMP_DIR/plan-preflight-strict-make.out"
+grep -F "[Require clean local checkout]" "$TMP_DIR/plan-preflight-strict-make.out" >/dev/null
+grep -F "preflight=print-only" "$TMP_DIR/plan-preflight-strict-make.out" >/dev/null
+
+DIRTY_REPO="$TMP_DIR/dirty-repo"
+DIRTY_PLAN_OUT="$TMP_DIR/dirty-plan-workflow"
+git init "$DIRTY_REPO" >/dev/null 2>&1
+printf 'local scratch\n' >"$DIRTY_REPO/untracked.txt"
+cp -R "$PLAN_OUT" "$DIRTY_PLAN_OUT"
+python3 - "$DIRTY_PLAN_OUT/workflow-summary.json" "$DIRTY_PLAN_OUT/workflow-plan.json" "$DIRTY_REPO" <<'PY'
+from __future__ import annotations
+
+import json
+import pathlib
+import sys
+
+summary_path = pathlib.Path(sys.argv[1])
+plan_path = pathlib.Path(sys.argv[2])
+repo_path = pathlib.Path(sys.argv[3]).resolve()
+summary = json.loads(summary_path.read_text(encoding="utf-8"))
+summary["workflow_output_dir"] = str(summary_path.parent)
+summary["plan"]["json"] = str(plan_path)
+summary["plan"]["markdown"] = str(summary_path.parent / "workflow-plan.md")
+summary_path.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+plan = json.loads(plan_path.read_text(encoding="utf-8"))
+plan["workflow_output_dir"] = str(summary_path.parent)
+plan["preflight"]["repo_path"] = str(repo_path)
+plan_path.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
+PY
+if ./scripts/run-github-issue-preflight.py \
+  --workflow-dir "$DIRTY_PLAN_OUT" \
+  --require-clean \
+  --skip-github \
+  >"$TMP_DIR/dirty-plan-preflight.out" \
+  2>"$TMP_DIR/dirty-plan-preflight.err"; then
+  echo "strict preflight unexpectedly accepted a dirty checkout" >&2
+  exit 1
+fi
+grep -F "[Require clean local checkout]" "$TMP_DIR/dirty-plan-preflight.out" >/dev/null
+grep -F "untracked.txt" "$TMP_DIR/dirty-plan-preflight.out" >/dev/null
+grep -F "local checkout is not clean" "$TMP_DIR/dirty-plan-preflight.err" >/dev/null
+
+python3 - "$PLAN_OUT" "$TMP_DIR/plan-workflows.json" <<'PY'
+from __future__ import annotations
+
+import json
+import pathlib
+import subprocess
+import sys
+
+workflow_dir = pathlib.Path(sys.argv[1])
+output_path = pathlib.Path(sys.argv[2])
+output = subprocess.check_output(
+    [
+        "./scripts/show-github-issue-workflows.sh",
+        "--workflow-dir",
+        str(workflow_dir),
+        "--json",
+    ],
+    text=True,
+)
+output_path.write_text(output, encoding="utf-8")
+payload = json.loads(output)
+workflow = payload["workflows"][0]
+assert workflow["status"] == "planned", payload
+assert workflow["planned_steps"]["claim_issues"] is True, payload
+assert workflow["planned_steps"]["require_clean_checkout"] is True, payload
+assert workflow["planned_steps"]["create_draft_pr"] is True, payload
+assert workflow["publication_policy"]["repository_target_id"] is None, payload
+assert workflow["preflight"]["repo_path"].endswith("/catalyst-continuum"), payload
+assert workflow["preflight"]["warnings"], payload
+assert len(workflow["preflight"]["checks"]) == 3, payload
+assert len(workflow["preflight"]["setup_commands"]) == 1, payload
+assert "make github-issue-codex-ui " in workflow["codex_app_server_commands"]["spawn"], payload
+assert "CODEX_APP_SERVER_MODE=proxy" in workflow["codex_app_server_commands"]["proxy"], payload
+context_labels = [item["label"] for item in workflow["plan_context_files"]]
+assert context_labels == [
+    "brief",
+    "session_manifest",
+    "runbook",
+    "issue_markdown",
+    "issue_context",
+], payload
+PY
+
+if ./scripts/show-github-issue-workflows.sh \
+  --workflow-dir "$PLAN_OUT" \
+  --agent-prompt unknown \
+  >"$TMP_DIR/plan-unknown-prompt.out" \
+  2>"$TMP_DIR/plan-unknown-prompt.err"; then
+  echo "unknown agent prompt lookup must fail" >&2
+  exit 1
+fi
+grep -F "No prompt for agent 'unknown'" "$TMP_DIR/plan-unknown-prompt.err" >/dev/null
+
+DIRTY_RUN_REPO="$TMP_DIR/dirty-run-repo"
+DIRTY_RUN_OUT="$TMP_DIR/dirty-run-workflow"
+git init "$DIRTY_RUN_REPO" >/dev/null 2>&1
+printf 'local scratch\n' >"$DIRTY_RUN_REPO/untracked.txt"
+: >"$COMMAND_LOG"
+set +e
+COMMAND_LOG="$COMMAND_LOG" \
+CREATE_GITHUB_ISSUE_SESSION_CMD="$FAKES_DIR/create-github-issue-session.sh" \
+RUN_DEV_TASK_CMD="$FAKES_DIR/run-dev-task.sh" \
+SYNC_GITHUB_ISSUE_STATUS_CMD="$FAKES_DIR/sync-github-issue-status.sh" \
+CREATE_DRAFT_PR_FROM_RUN_SUMMARY_CMD="$FAKES_DIR/create-draft-pr-from-run-summary.sh" \
+TMPDIR="$TMP_DIR/dirty-run-tmp" \
+./scripts/run-github-issue-workflow.sh \
+  --issue-json "$ISSUE_FIXTURE" \
+  --repository smartit/github-issue-workflow-smoke \
+  --repo-path "$DIRTY_RUN_REPO" \
+  --require-clean-checkout \
+  --pr-strategy per-issue \
+  --workflow-output-dir "$DIRTY_RUN_OUT" \
+  --session-output-root "$TMP_DIR/dirty-run-sessions" \
+  --claim-issues \
+  --apply-issue-claim \
+  >"$TMP_DIR/dirty-run.out" 2>"$TMP_DIR/dirty-run.err"
+dirty_run_exit=$?
+set -e
+if [ "$dirty_run_exit" -eq 0 ]; then
+  echo "dirty checkout guard unexpectedly allowed execution" >&2
+  exit 1
+fi
+grep -F "blocked GitHub issue workflow" "$TMP_DIR/dirty-run.err" >/dev/null
+grep -F "untracked.txt" "$TMP_DIR/dirty-run.err" >/dev/null
+grep -F "create " "$COMMAND_LOG" >/dev/null
+if grep -F "run " "$COMMAND_LOG" >/dev/null; then
+  echo "dirty checkout guard must stop before developer run" >&2
+  exit 1
+fi
+if grep -F "sync " "$COMMAND_LOG" >/dev/null; then
+  echo "dirty checkout guard must stop before issue claim or sync" >&2
+  exit 1
+fi
+
+python3 - "$DIRTY_RUN_OUT/workflow-summary.json" "$DIRTY_RUN_OUT/run-dev-task.out" "$DIRTY_RUN_OUT/workflow-report.md" <<'PY'
+from __future__ import annotations
+
+import json
+import pathlib
+import sys
+
+summary = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+run_output = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
+report = pathlib.Path(sys.argv[3]).read_text(encoding="utf-8")
+
+assert summary["plan_only"] is False, summary
+assert summary["execution_guard"]["require_clean_checkout"] is True, summary
+assert summary["execution_guard"]["blocked"] is True, summary
+assert summary["run"]["exit_code"] != 0, summary
+assert summary["run"]["summary_file"] is None, summary
+assert summary["report"]["markdown"].endswith("/workflow-report.md"), summary
+assert summary["issue_claim"]["requested"] is True, summary
+assert summary["issue_claim"]["exit_code"] == 0, summary
+assert summary["issue_claim"]["plan"] is None, summary
+assert "untracked.txt" in run_output, run_output
+assert "- Status: `failed`" in report, report
+assert "run-dev-task.out" in report, report
+PY
+
+: >"$COMMAND_LOG"
+
+COMMAND_LOG="$COMMAND_LOG" \
+CREATE_GITHUB_ISSUE_SESSION_CMD="$FAKES_DIR/create-github-issue-session.sh" \
+RUN_DEV_TASK_CMD="$FAKES_DIR/run-dev-task.sh" \
+SYNC_GITHUB_ISSUE_STATUS_CMD="$FAKES_DIR/sync-github-issue-status.sh" \
+CREATE_DRAFT_PR_FROM_RUN_SUMMARY_CMD="$FAKES_DIR/create-draft-pr-from-run-summary.sh" \
+TMPDIR="$TMP_DIR/batch-plan-tmp" \
+./scripts/run-github-issue-workflow.sh \
+  --plan-only \
+  --issue-json "$ISSUE_FIXTURE" \
+  --repository smartit/github-issue-workflow-smoke \
+  --repo-path "$ROOT_DIR" \
+  --pr-strategy batch \
+  --workflow-output-dir "$BATCH_PLAN_OUT" \
+  --session-output-root "$TMP_DIR/batch-plan-sessions" \
+  --issue-sync-status "done" \
+  >"$TMP_DIR/batch-plan.out"
+
+grep -F "GitHub issue workflow plan ready." "$TMP_DIR/batch-plan.out" >/dev/null
+grep -F "create " "$COMMAND_LOG" >/dev/null
+if grep -F "run " "$COMMAND_LOG" >/dev/null; then
+  echo "batch plan-only workflow must not run the developer flow" >&2
+  exit 1
+fi
+
+python3 - "$BATCH_PLAN_OUT/workflow-plan.json" "$BATCH_PLAN_OUT/workflow-plan.md" <<'PY'
+from __future__ import annotations
+
+import json
+import pathlib
+import sys
+
+plan = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+markdown = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
+
+assert plan["pr_strategy"] == "batch", plan
+assert plan["planned_steps"]["issue_sync_status"] == "done", plan
+assert plan["issues"] == [
+    {
+        "number": 7,
+        "title": "Patch critical prompt injection escape",
+        "url": "https://github.com/smartit/github-issue-workflow-smoke/issues/7",
+        "state": "OPEN",
+        "labels": ["security", "p1"],
+        "rank": 1,
+        "selected_recipe": "security-hardening",
+    },
+    {
+        "number": 42,
+        "title": "Fix flaky retry policy smoke",
+        "url": "https://github.com/smartit/github-issue-workflow-smoke/issues/42",
+        "state": "OPEN",
+        "labels": ["test"],
+        "rank": 2,
+        "selected_recipe": "test-stabilization",
+    },
+], plan
+assert plan["agent_handoff"]["prompts"]["codex"].endswith("/codex-prompt.md"), plan
+assert "AGENT=codex" in plan["agent_handoff"]["prompt_commands"]["codex"], plan
+assert "make github-issue-codex-ui " in plan["agent_handoff"]["codex_app_server_commands"]["spawn"], plan
+batch_context_labels = [item["label"] for item in plan["agent_handoff"]["context_files"]]
+assert batch_context_labels == [
+    "brief",
+    "session_manifest",
+    "runbook",
+    "issue_batch_markdown",
+    "issue_batch_context",
+], plan
+assert "[#42 Fix flaky retry policy smoke](https://github.com/smartit/github-issue-workflow-smoke/issues/42)" in markdown, markdown
+assert "recipe `test-stabilization`" in markdown, markdown
+assert "rank `2`" in markdown, markdown
+assert "- issue_batch_context: `" in markdown, markdown
+PY
+
+: >"$COMMAND_LOG"
+
+COMMAND_LOG="$COMMAND_LOG" \
+CREATE_GITHUB_ISSUE_SESSION_CMD="$FAKES_DIR/create-github-issue-session.sh" \
+RUN_DEV_TASK_CMD="$FAKES_DIR/run-dev-task.sh" \
+SYNC_GITHUB_ISSUE_STATUS_CMD="$FAKES_DIR/sync-github-issue-status.sh" \
+CREATE_DRAFT_PR_FROM_RUN_SUMMARY_CMD="$FAKES_DIR/create-draft-pr-from-run-summary.sh" \
+TMPDIR="$TMP_DIR/per-issue-tmp" \
+./scripts/run-github-issue-workflow.sh \
+  --issue-json "$ISSUE_FIXTURE" \
+  --repository smartit/github-issue-workflow-smoke \
+  --repo-path "$ROOT_DIR" \
+  --pr-strategy per-issue \
+  --workflow-output-dir "$PER_ISSUE_OUT" \
+  --session-output-root "$TMP_DIR/per-issue-sessions" \
+  --run-output-dir "$TMP_DIR/per-issue-run" \
+  --claim-issues \
+  --apply-issue-claim \
+  --create-draft-pr \
+  >"$TMP_DIR/per-issue.out"
+
+grep -F "GitHub issue workflow complete." "$TMP_DIR/per-issue.out" >/dev/null
+grep -F "issue_claim_applied: true" "$TMP_DIR/per-issue.out" >/dev/null
+grep -F "issue_sync_applied: false" "$TMP_DIR/per-issue.out" >/dev/null
+grep -F "workflow_summary:" "$TMP_DIR/per-issue.out" >/dev/null
+grep -F "workflow_report:" "$TMP_DIR/per-issue.out" >/dev/null
+grep -F "draft_pr_url: https://github.com/smartit/github-issue-workflow-smoke/pull/7" "$TMP_DIR/per-issue.out" >/dev/null
+grep -F -- "--next-only" "$COMMAND_LOG" >/dev/null
+grep -F "draft " "$COMMAND_LOG" >/dev/null
+grep -F -- "--keep-database" "$COMMAND_LOG" >/dev/null
+grep -F -- "--pr-url" "$COMMAND_LOG" >/dev/null
+grep -F -- "--session-manifest" "$COMMAND_LOG" >/dev/null
+grep -F -- "in-progress" "$COMMAND_LOG" >/dev/null
+
+python3 - "$PER_ISSUE_OUT/workflow-summary.json" "$PER_ISSUE_OUT/workflow-report.md" <<'PY'
+from __future__ import annotations
+
+import json
+import pathlib
+import sys
+
+summary = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+report = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
+assert summary["repository_full_name"] == "smartit/github-issue-workflow-smoke", summary
+assert summary["pr_strategy"] == "per-issue", summary
+assert summary["repo_path"].endswith("/catalyst-continuum"), summary
+assert summary["report"]["markdown"].endswith("/workflow-report.md"), summary
+assert summary["issue_claim"]["requested"] is True, summary
+assert summary["issue_claim"]["applied"] is True, summary
+assert summary["issue_claim"]["exit_code"] == 0, summary
+assert summary["issue_claim"]["plan"].endswith("/github-issue-sync-plan.json"), summary
+assert summary["run"]["exit_code"] == 0, summary
+assert summary["draft_pr"]["requested"] is True, summary
+assert summary["draft_pr"]["exit_code"] == 0, summary
+assert summary["draft_pr"]["pr_url"] == "https://github.com/smartit/github-issue-workflow-smoke/pull/7", summary
+assert summary["draft_pr"]["pr_number"] == "7", summary
+assert summary["draft_pr"]["auto_kept_database"] is True, summary
+assert summary["issue_sync"]["skipped"] is False, summary
+assert summary["issue_sync"]["applied"] is False, summary
+assert summary["issue_sync"]["status"] == "ready-for-review", summary
+assert summary["issue_sync"]["pr_url"] == "https://github.com/smartit/github-issue-workflow-smoke/pull/7", summary
+assert summary["session"]["brief_file"].endswith("/brief.json"), summary
+assert summary["run"]["summary_file"].endswith("/run-summary.json"), summary
+assert summary["issue_sync"]["plan"].endswith("/github-issue-sync-plan.json"), summary
+assert "# GitHub Issue Workflow Report" in report, report
+assert "- Status: `succeeded`" in report, report
+assert "## Selected Issues" in report, report
+assert "[#7 Patch critical prompt injection escape](https://github.com/smartit/github-issue-workflow-smoke/issues/7)" in report, report
+assert "labels `security`, `p1`" in report, report
+assert "## Review Commands" in report, report
+assert "## Agent Prompt Commands" in report, report
+assert "make github-issue-agent-prompt GITHUB_ISSUE_WORKFLOW_DIR=" in report, report
+assert "AGENT=codex" in report, report
+assert "## Codex App-Server Commands" in report, report
+assert "make github-issue-codex-ui GITHUB_ISSUE_WORKFLOW_DIR=" in report, report
+assert "CODEX_APP_SERVER_MODE=proxy" in report, report
+assert "make github-issue-review GITHUB_ISSUE_WORKFLOW_DIR=" in report, report
+assert "make github-issue-sync-command GITHUB_ISSUE_WORKFLOW_DIR=" in report, report
+assert "sed -n '1,220p'" in report, report
+assert "- PR export branch: `continuum/issue-7`" in report, report
+assert "https://github.com/smartit/github-issue-workflow-smoke/pull/7" in report, report
+PY
+
+./scripts/show-github-issue-workflows.sh \
+  --workflow-dir "$PER_ISSUE_OUT" \
+  >"$TMP_DIR/per-issue-latest.out"
+grep -F "Catalyst Continuum GitHub issue workflows" "$TMP_DIR/per-issue-latest.out" >/dev/null
+grep -F "Recommended next action" "$TMP_DIR/per-issue-latest.out" >/dev/null
+grep -F "command: make github-issue-review" "$TMP_DIR/per-issue-latest.out" >/dev/null
+grep -F "issues: #7" "$TMP_DIR/per-issue-latest.out" >/dev/null
+grep -F "session manifest:" "$TMP_DIR/per-issue-latest.out" >/dev/null
+grep -F "agent prompts: codex=" "$TMP_DIR/per-issue-latest.out" >/dev/null
+grep -F "codex app-server: make github-issue-codex-ui GITHUB_ISSUE_WORKFLOW_DIR=" "$TMP_DIR/per-issue-latest.out" >/dev/null
+grep -F "Issue sync apply command" "$TMP_DIR/per-issue-latest.out" >/dev/null
+grep -F "command: make github-issue-sync" "$TMP_DIR/per-issue-latest.out" >/dev/null
+grep -F "issue sync: ready-for-review (dry-run)" "$TMP_DIR/per-issue-latest.out" >/dev/null
+grep -F "report:" "$TMP_DIR/per-issue-latest.out" >/dev/null
+grep -F "workflow-report.md" "$TMP_DIR/per-issue-latest.out" >/dev/null
+
+make github-issue-next-command \
+  GITHUB_ISSUE_WORKFLOW_DIR="$PER_ISSUE_OUT" \
+  >"$TMP_DIR/per-issue-next-command.out"
+if [ "$(cat "$TMP_DIR/per-issue-next-command.out")" != "make github-issue-review" ]; then
+  echo "unexpected GitHub issue workflow next command" >&2
+  cat "$TMP_DIR/per-issue-next-command.out" >&2
+  exit 1
+fi
+
+./scripts/show-github-issue-workflows.sh \
+  --workflow-dir "$PER_ISSUE_OUT" \
+  --issue-sync-command \
+  >"$TMP_DIR/per-issue-sync-command.out"
+grep -F "make github-issue-sync" "$TMP_DIR/per-issue-sync-command.out" >/dev/null
+grep -F "GITHUB_ISSUE_SYNC_RUN_SUMMARY=" "$TMP_DIR/per-issue-sync-command.out" >/dev/null
+grep -F "GITHUB_ISSUE_SYNC_PR_URL=https://github.com/smartit/github-issue-workflow-smoke/pull/7" "$TMP_DIR/per-issue-sync-command.out" >/dev/null
+grep -F "GITHUB_ISSUE_SYNC_STATUS=ready-for-review" "$TMP_DIR/per-issue-sync-command.out" >/dev/null
+grep -F "GITHUB_ISSUE_SYNC_OUTPUT_DIR=" "$TMP_DIR/per-issue-sync-command.out" >/dev/null
+grep -F "GITHUB_ISSUE_SYNC_APPLY=1" "$TMP_DIR/per-issue-sync-command.out" >/dev/null
+
+make github-issue-sync-command \
+  GITHUB_ISSUE_WORKFLOW_DIR="$PER_ISSUE_OUT" \
+  >"$TMP_DIR/per-issue-sync-command-make.out"
+cmp "$TMP_DIR/per-issue-sync-command.out" "$TMP_DIR/per-issue-sync-command-make.out"
+
+./scripts/show-github-issue-workflows.sh \
+  --workflow-dir "$PER_ISSUE_OUT" \
+  --report \
+  >"$TMP_DIR/per-issue-review.out"
+grep -F "Catalyst Continuum GitHub issue workflow review" "$TMP_DIR/per-issue-review.out" >/dev/null
+grep -F "issues: #7" "$TMP_DIR/per-issue-review.out" >/dev/null
+grep -F "session manifest:" "$TMP_DIR/per-issue-review.out" >/dev/null
+grep -F "agent prompts: codex=" "$TMP_DIR/per-issue-review.out" >/dev/null
+grep -F "# GitHub Issue Workflow Report" "$TMP_DIR/per-issue-review.out" >/dev/null
+grep -F "make github-issue-agent-prompt" "$TMP_DIR/per-issue-review.out" >/dev/null
+grep -F "make github-issue-codex-ui" "$TMP_DIR/per-issue-review.out" >/dev/null
+grep -F "AGENT=codex" "$TMP_DIR/per-issue-review.out" >/dev/null
+grep -F "AGENT=cursor" "$TMP_DIR/per-issue-review.out" >/dev/null
+grep -F "AGENT=openhands" "$TMP_DIR/per-issue-review.out" >/dev/null
+grep -F "make github-issue-sync" "$TMP_DIR/per-issue-review.out" >/dev/null
+grep -F "draft pr: https://github.com/smartit/github-issue-workflow-smoke/pull/7" "$TMP_DIR/per-issue-latest.out" >/dev/null
+
+python3 - "$PER_ISSUE_OUT" "$TMP_DIR/per-issue-workflows.json" <<'PY'
+from __future__ import annotations
+
+import json
+import pathlib
+import subprocess
+import sys
+
+workflow_dir = pathlib.Path(sys.argv[1])
+output_path = pathlib.Path(sys.argv[2])
+output = subprocess.check_output(
+    [
+        "./scripts/show-github-issue-workflows.sh",
+        "--workflow-dir",
+        str(workflow_dir),
+        "--json",
+    ],
+    text=True,
+)
+output_path.write_text(output, encoding="utf-8")
+payload = json.loads(output)
+assert payload["recommended_next_action"]["command"] == "make github-issue-review", payload
+assert payload["issue_sync_apply_action"]["available"] is True, payload
+assert payload["issue_sync_apply_action"]["command"].startswith("make github-issue-sync "), payload
+assert payload["workflows"][0]["status"] == "succeeded", payload
+assert payload["workflows"][0]["issue_refs"] == "#7 Patch critical prompt injection escape", payload
+assert payload["workflows"][0]["agent_prompts"]["codex"].endswith("/codex-prompt.md"), payload
+assert payload["workflows"][0]["agent_prompts"]["cursor"].endswith("/cursor-prompt.md"), payload
+assert payload["workflows"][0]["agent_prompts"]["openhands"].endswith("/openhands-prompt.md"), payload
+assert "make github-issue-codex-ui " in payload["workflows"][0]["codex_app_server_commands"]["spawn"], payload
+assert "CODEX_APP_SERVER_MODE=proxy" in payload["workflows"][0]["codex_app_server_commands"]["proxy"], payload
+assert "make github-issue-agent-prompt " in payload["workflows"][0]["agent_prompt_commands"]["codex"], payload
+assert "AGENT=codex" in payload["workflows"][0]["agent_prompt_commands"]["codex"], payload
+assert payload["workflows"][0]["issues"] == [
+    {
+        "number": 7,
+        "title": "Patch critical prompt injection escape",
+        "url": "https://github.com/smartit/github-issue-workflow-smoke/issues/7",
+        "state": "OPEN",
+        "labels": ["security", "p1"],
+        "rank": None,
+        "selected_recipe": None,
+    }
+], payload
+assert payload["workflows"][0]["report_path"].endswith("/workflow-report.md"), payload
+PY
+
+: >"$COMMAND_LOG"
+COMMAND_LOG="$COMMAND_LOG" \
+CREATE_GITHUB_ISSUE_SESSION_CMD="$FAKES_DIR/create-github-issue-session.sh" \
+RUN_DEV_TASK_CMD="$FAKES_DIR/run-dev-task.sh" \
+SYNC_GITHUB_ISSUE_STATUS_CMD="$FAKES_DIR/sync-github-issue-status.sh" \
+TMPDIR="$TMP_DIR/batch-tmp" \
+./scripts/run-github-issue-workflow.sh \
+  --issue-json "$ISSUE_FIXTURE" \
+  --repository smartit/github-issue-workflow-smoke \
+  --repo-path "$ROOT_DIR" \
+  --pr-strategy batch \
+  --workflow-output-dir "$BATCH_OUT" \
+  --session-output-root "$TMP_DIR/batch-sessions" \
+  --run-output-dir "$TMP_DIR/batch-run" \
+  --issue-sync-status "done" \
+  --apply-issue-sync \
+  >"$TMP_DIR/batch.out"
+
+grep -F "pr_strategy: batch" "$TMP_DIR/batch.out" >/dev/null
+grep -F "issue_sync_applied: true" "$TMP_DIR/batch.out" >/dev/null
+if grep -F -- "--next-only" "$COMMAND_LOG" >/dev/null; then
+  echo "batch workflow must not pass --next-only" >&2
+  exit 1
+fi
+grep -F -- "--apply" "$COMMAND_LOG" >/dev/null
+
+python3 - "$BATCH_OUT/workflow-summary.json" "$BATCH_OUT/workflow-report.md" <<'PY'
+from __future__ import annotations
+
+import json
+import pathlib
+import sys
+
+summary = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+report = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
+assert summary["pr_strategy"] == "batch", summary
+assert summary["report"]["markdown"].endswith("/workflow-report.md"), summary
+assert summary["issue_claim"]["requested"] is False, summary
+assert summary["draft_pr"]["requested"] is False, summary
+assert summary["issue_sync"]["status"] == "done", summary
+assert summary["issue_sync"]["applied"] is True, summary
+assert summary["run"]["exit_code"] == 0, summary
+assert "- Status: `succeeded`" in report, report
+assert "- Issue sync applied: `yes`" in report, report
+PY
+
+FAIL_SYNC_OUT="$TMP_DIR/fail-sync-workflow"
+: >"$COMMAND_LOG"
+set +e
+COMMAND_LOG="$COMMAND_LOG" \
+CREATE_GITHUB_ISSUE_SESSION_CMD="$FAKES_DIR/create-github-issue-session.sh" \
+RUN_DEV_TASK_CMD="$FAKES_DIR/run-dev-task.sh" \
+SYNC_GITHUB_ISSUE_STATUS_CMD="$FAKES_DIR/sync-github-issue-status.sh" \
+TMPDIR="$TMP_DIR/fail-sync-tmp" \
+FAKE_RUN_FAIL=1 \
+./scripts/run-github-issue-workflow.sh \
+  --issue-json "$ISSUE_FIXTURE" \
+  --repository smartit/github-issue-workflow-smoke \
+  --repo-path "$ROOT_DIR" \
+  --pr-strategy per-issue \
+  --workflow-output-dir "$FAIL_SYNC_OUT" \
+  --session-output-root "$TMP_DIR/fail-sync-sessions" \
+  --run-output-dir "$TMP_DIR/fail-sync-run" \
+  >"$TMP_DIR/fail-sync.out" 2>"$TMP_DIR/fail-sync.err"
+fail_sync_exit=$?
+set -e
+if [ "$fail_sync_exit" -ne 23 ]; then
+  echo "expected failed developer run with sync to preserve exit 23, got $fail_sync_exit" >&2
+  exit 1
+fi
+grep -F -- "--status" "$COMMAND_LOG" >/dev/null
+grep -F -- "failed" "$COMMAND_LOG" >/dev/null
+grep -F -- "--session-manifest" "$COMMAND_LOG" >/dev/null
+
+python3 - "$FAIL_SYNC_OUT/workflow-summary.json" "$FAIL_SYNC_OUT/workflow-report.md" <<'PY'
+from __future__ import annotations
+
+import json
+import pathlib
+import sys
+
+summary = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+report = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
+assert summary["issue_claim"]["requested"] is False, summary
+assert summary["report"]["markdown"].endswith("/workflow-report.md"), summary
+assert summary["run"]["exit_code"] == 23, summary
+assert summary["draft_pr"]["requested"] is False, summary
+assert summary["issue_sync"]["skipped"] is False, summary
+assert summary["issue_sync"]["status"] == "failed", summary
+assert summary["issue_sync"]["exit_code"] == 0, summary
+assert summary["issue_sync"]["plan"].endswith("/github-issue-sync-plan.json"), summary
+assert "- Status: `failed`" in report, report
+assert "- Issue sync status: `failed`" in report, report
+PY
+
+FAIL_DRAFT_OUT="$TMP_DIR/fail-draft-workflow"
+: >"$COMMAND_LOG"
+set +e
+COMMAND_LOG="$COMMAND_LOG" \
+CREATE_GITHUB_ISSUE_SESSION_CMD="$FAKES_DIR/create-github-issue-session.sh" \
+RUN_DEV_TASK_CMD="$FAKES_DIR/run-dev-task.sh" \
+SYNC_GITHUB_ISSUE_STATUS_CMD="$FAKES_DIR/sync-github-issue-status.sh" \
+CREATE_DRAFT_PR_FROM_RUN_SUMMARY_CMD="$FAKES_DIR/create-draft-pr-from-run-summary.sh" \
+TMPDIR="$TMP_DIR/fail-draft-tmp" \
+FAKE_DRAFT_FAIL=1 \
+./scripts/run-github-issue-workflow.sh \
+  --issue-json "$ISSUE_FIXTURE" \
+  --repository smartit/github-issue-workflow-smoke \
+  --repo-path "$ROOT_DIR" \
+  --pr-strategy per-issue \
+  --workflow-output-dir "$FAIL_DRAFT_OUT" \
+  --session-output-root "$TMP_DIR/fail-draft-sessions" \
+  --run-output-dir "$TMP_DIR/fail-draft-run" \
+  --create-draft-pr \
+  >"$TMP_DIR/fail-draft.out" 2>"$TMP_DIR/fail-draft.err"
+fail_draft_exit=$?
+set -e
+if [ "$fail_draft_exit" -ne 41 ]; then
+  echo "expected failed draft PR publication to preserve exit 41, got $fail_draft_exit" >&2
+  exit 1
+fi
+grep -F "draft " "$COMMAND_LOG" >/dev/null
+grep -F "sync " "$COMMAND_LOG" >/dev/null
+grep -F -- "--status" "$COMMAND_LOG" >/dev/null
+grep -F -- "failed" "$COMMAND_LOG" >/dev/null
+grep -F -- "--run-summary" "$COMMAND_LOG" >/dev/null
+
+python3 - "$FAIL_DRAFT_OUT/workflow-summary.json" "$FAIL_DRAFT_OUT/workflow-report.md" <<'PY'
+from __future__ import annotations
+
+import json
+import pathlib
+import sys
+
+summary = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+report = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
+assert summary["report"]["markdown"].endswith("/workflow-report.md"), summary
+assert summary["run"]["exit_code"] == 0, summary
+assert summary["run"]["summary_file"].endswith("/run-summary.json"), summary
+assert summary["draft_pr"]["requested"] is True, summary
+assert summary["draft_pr"]["exit_code"] == 41, summary
+assert summary["issue_sync"]["skipped"] is False, summary
+assert summary["issue_sync"]["status"] == "failed", summary
+assert summary["issue_sync"]["exit_code"] == 0, summary
+assert summary["issue_sync"]["plan"].endswith("/github-issue-sync-plan.json"), summary
+assert "- Status: `failed`" in report, report
+assert "- Draft PR requested: `yes`" in report, report
+PY
+
+FAIL_OUT="$TMP_DIR/fail-workflow"
+set +e
+COMMAND_LOG="$COMMAND_LOG" \
+CREATE_GITHUB_ISSUE_SESSION_CMD="$FAKES_DIR/create-github-issue-session.sh" \
+RUN_DEV_TASK_CMD="$FAKES_DIR/run-dev-task.sh" \
+SYNC_GITHUB_ISSUE_STATUS_CMD="$FAKES_DIR/sync-github-issue-status.sh" \
+TMPDIR="$TMP_DIR/fail-tmp" \
+FAKE_RUN_FAIL=1 \
+./scripts/run-github-issue-workflow.sh \
+  --issue-json "$ISSUE_FIXTURE" \
+  --repository smartit/github-issue-workflow-smoke \
+  --repo-path "$ROOT_DIR" \
+  --pr-strategy per-issue \
+  --workflow-output-dir "$FAIL_OUT" \
+  --session-output-root "$TMP_DIR/fail-sessions" \
+  --run-output-dir "$TMP_DIR/fail-run" \
+  --skip-issue-sync \
+  >"$TMP_DIR/fail.out" 2>"$TMP_DIR/fail.err"
+fail_exit=$?
+set -e
+if [ "$fail_exit" -ne 23 ]; then
+  echo "expected failed developer run to preserve exit 23, got $fail_exit" >&2
+  exit 1
+fi
+
+python3 - "$FAIL_OUT/workflow-summary.json" "$FAIL_OUT/workflow-report.md" <<'PY'
+from __future__ import annotations
+
+import json
+import pathlib
+import sys
+
+summary = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+report = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
+assert summary["report"]["markdown"].endswith("/workflow-report.md"), summary
+assert summary["issue_claim"]["requested"] is False, summary
+assert summary["run"]["exit_code"] == 23, summary
+assert summary["draft_pr"]["requested"] is False, summary
+assert summary["issue_sync"]["skipped"] is True, summary
+assert "- Status: `failed`" in report, report
+assert "- Issue sync skipped: `yes`" in report, report
+PY
+
+echo "github_issue_workflow_smoke=ok"

@@ -1,0 +1,104 @@
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+use std::{
+    env, fs,
+    io::{self, Write},
+    path::Path,
+};
+
+const TOOL_NAME: &str = {{repository.name.json}};
+const TOOL_SUMMARY: &str = {{brief.summary.json}};
+const PACK_ID: &str = "{{pack.id}}";
+const RUN_ID: &str = "{{run.id}}";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Requirement {
+    id: String,
+    title: String,
+    description: String,
+    source_ref: String,
+    module: String,
+    doc_path: String,
+}
+
+fn main() {
+    if let Err(error) = run() {
+        eprintln!("{error}");
+        std::process::exit(2);
+    }
+}
+
+fn run() -> Result<(), String> {
+    match env::args().nth(1).as_deref() {
+        Some("summary") => {
+            let requirements = load_requirements(Path::new("requirements"))
+                .map_err(|error| format!("failed to load requirements: {error}"))?;
+            write_json(json!({
+                "tool": TOOL_NAME,
+                "pack": PACK_ID,
+                "run_id": RUN_ID,
+                "summary": TOOL_SUMMARY,
+                "requirement_count": requirements.len(),
+                "commands": ["summary", "requirements"],
+            }))
+            .map_err(|error| format!("failed to write summary JSON: {error}"))
+        }
+        Some("requirements") => {
+            let requirements = load_requirements(Path::new("requirements"))
+                .map_err(|error| format!("failed to load requirements: {error}"))?;
+            write_json(json!({
+                "tool": TOOL_NAME,
+                "items": requirements,
+            }))
+            .map_err(|error| format!("failed to write requirements JSON: {error}"))
+        }
+        Some("help") | None => {
+            eprintln!("usage: {} <summary|requirements>", TOOL_NAME);
+            Ok(())
+        }
+        Some(command) => Err(format!(
+            "unknown command: {command}\nusage: {TOOL_NAME} <summary|requirements>"
+        )),
+    }
+}
+
+fn load_requirements(root: &Path) -> io::Result<Vec<Requirement>> {
+    if !root.is_dir() {
+        return Ok(Vec::new());
+    }
+
+    let mut paths = fs::read_dir(root)?
+        .map(|entry| entry.map(|value| value.path()))
+        .collect::<Result<Vec<_>, _>>()?;
+    paths.sort();
+
+    let mut requirements = Vec::new();
+
+    for path in paths {
+        if path.extension().and_then(|value| value.to_str()) != Some("json") {
+            continue;
+        }
+
+        let payload = fs::read(&path)?;
+        let requirement = serde_json::from_slice(&payload).map_err(|error| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("failed to parse {}: {}", path.display(), error),
+            )
+        })?;
+        requirements.push(requirement);
+    }
+
+    Ok(requirements)
+}
+
+fn write_json(payload: serde_json::Value) -> io::Result<()> {
+    let mut stdout = io::stdout().lock();
+    serde_json::to_writer_pretty(&mut stdout, &payload).map_err(|error| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("failed to serialize JSON output: {}", error),
+        )
+    })?;
+    stdout.write_all(b"\n")
+}

@@ -1,0 +1,169 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "urn:catalyst-continuum:schemas:brief:v0.1"
+title: "Catalyst Continuum Product Brief"
+description: "Structured input used to create a run, backlog, and initial implementation plan."
+type: object
+additionalProperties: false
+required:
+  - schema_version
+  - brief_id
+  - title
+  - summary
+  - goals
+  - functional_requirements
+  - constraints
+properties:
+  schema_version:
+    type: string
+    const: "v0.1"
+  brief_id:
+    type: string
+    format: uuid
+  title:
+    type: string
+    minLength: 3
+  summary:
+    type: string
+    minLength: 20
+  problem_statement:
+    type: string
+  requested_by:
+    type: string
+  target_users:
+    type: array
+    items:
+      type: string
+    uniqueItems: true
+  goals:
+    type: array
+    minItems: 1
+    items:
+      type: string
+      minLength: 3
+  non_goals:
+    type: array
+    items:
+      type: string
+  functional_requirements:
+    type: array
+    minItems: 1
+    items:
+      $ref: "#/$defs/requirement"
+  non_functional_requirements:
+    type: array
+    items:
+      $ref: "#/$defs/requirement"
+  constraints:
+    type: array
+    minItems: 1
+    items:
+      type: string
+      minLength: 3
+  deliverables:
+    type: array
+    items:
+      type: string
+  acceptance_criteria:
+    type: array
+    items:
+      type: string
+  technical_preferences:
+    $ref: "#/$defs/technical_preferences"
+  repository:
+    $ref: "#/$defs/repository_target"
+  execution_preferences:
+    type: object
+    additionalProperties: false
+    properties:
+      repo_pack:
+        type: string
+      default_runtime_provider:
+        type: string
+        enum:
+          - docker
+          - proxmox
+          - kubernetes
+      sandbox_profile:
+        type: string
+  budget_policy_hint:
+    type: string
+  metadata:
+    type: object
+    additionalProperties:
+      type: string
+$defs:
+  requirement:
+    type: object
+    additionalProperties: false
+    required:
+      - id
+      - title
+      - description
+    properties:
+      id:
+        type: string
+        pattern: "^[A-Z]+-[0-9]+$"
+      title:
+        type: string
+        minLength: 3
+      description:
+        type: string
+        minLength: 5
+      priority:
+        type: string
+        enum:
+          - must
+          - should
+          - could
+      acceptance_criteria:
+        type: array
+        items:
+          type: string
+  technical_preferences:
+    type: object
+    additionalProperties: false
+    properties:
+      languages:
+        type: array
+        items:
+          type: string
+        uniqueItems: true
+      frameworks:
+        type: array
+        items:
+          type: string
+        uniqueItems: true
+      databases:
+        type: array
+        items:
+          type: string
+        uniqueItems: true
+      infrastructure:
+        type: array
+        items:
+          type: string
+        uniqueItems: true
+      ci_cd:
+        type: array
+        items:
+          type: string
+        uniqueItems: true
+  repository_target:
+    type: object
+    additionalProperties: false
+    properties:
+      host:
+        type: string
+        enum:
+          - github
+      owner:
+        type: string
+      name:
+        type: string
+      default_branch:
+        type: string
+      visibility:
+        type: string
+        enum:
+          - public
+          - private

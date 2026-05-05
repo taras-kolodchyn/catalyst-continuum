@@ -1,0 +1,60 @@
+schema_version: v0.1
+brief_id: 33333333-3333-3333-3333-333333333333
+title: Minimal Worker Service
+summary: >
+  Build a minimal background worker proof of concept from a structured brief so
+  the orchestrator can validate non-HTTP service packs end to end.
+requested_by: product@example.com
+target_users:
+  - internal platform engineers
+goals:
+  - Turn a structured brief into a draft backlog.
+  - Scaffold a minimal repository layout for a worker-oriented Rust service.
+functional_requirements:
+  - id: JOB-1
+    title: Summarize the generated worker
+    description: Emit a machine-readable summary of the generated worker repository.
+    priority: must
+  - id: JOB-2
+    title: Simulate a worker pass
+    description: Execute a single worker cycle that reports the processed requirement set.
+    priority: must
+constraints:
+  - Keep the first worker implementation dependency-light.
+  - Use Docker as the initial runtime provider for task execution.
+deliverables:
+  - backlog artifact
+  - scaffold plan artifact
+technical_preferences:
+  languages:
+    - rust
+  infrastructure:
+    - docker compose
+repository:
+  host: github
+  owner: smartit
+  name: catalyst-continuum-worker-demo
+  default_branch: main
+  visibility: private
+execution_preferences:
+  repo_pack: worker-service
+  default_runtime_provider: docker
+  sandbox_profile: restricted
+  orchestrator_model: planner-default
+  default_agent: openhands
+  allowed_agents:
+    - openhands
+    - codex
+policy:
+  max_task_count: 8
+  max_total_timeout_seconds: 180
+  max_task_retry_count: 1
+  allowed_task_kinds:
+    - plan
+    - scaffold
+    - code
+    - test
+  allowed_runtime_providers:
+    - docker
+  allowed_sandbox_profiles:
+    - restricted

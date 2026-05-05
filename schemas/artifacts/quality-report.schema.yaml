@@ -1,0 +1,71 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "urn:catalyst-continuum:schemas:artifacts:quality-report:v0.1"
+title: "Catalyst Continuum Quality Report Artifact"
+description: "Persisted quality-gate evaluation used before promotion and remote publication."
+type: object
+additionalProperties: false
+required:
+  - schema_version
+  - artifact_type
+  - run_id
+  - pack_id
+  - run_status
+  - passed
+  - failed_check_count
+  - source_pr_candidate_artifact_id
+  - checks
+properties:
+  schema_version:
+    type: string
+    const: "v0.1"
+  artifact_type:
+    type: string
+    const: "quality_report"
+  run_id:
+    $ref: "#/$defs/uuid_string"
+  pack_id:
+    type: string
+    minLength: 1
+  run_status:
+    type: string
+    minLength: 1
+  passed:
+    type: boolean
+  failed_check_count:
+    type: integer
+    minimum: 0
+  source_pr_candidate_artifact_id:
+    anyOf:
+      - $ref: "#/$defs/uuid_string"
+      - type: "null"
+  checks:
+    type: array
+    items:
+      $ref: "#/$defs/quality_check"
+$defs:
+  uuid_string:
+    type: string
+    format: uuid
+  quality_check:
+    type: object
+    additionalProperties: false
+    required:
+      - check_id
+      - status
+      - summary
+      - details
+    properties:
+      check_id:
+        type: string
+        minLength: 1
+      status:
+        type: string
+        enum:
+          - passed
+          - failed
+          - skipped
+      summary:
+        type: string
+        minLength: 1
+      details:
+        type: object

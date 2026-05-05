@@ -1,0 +1,88 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "urn:catalyst-continuum:schemas:artifacts:pr-candidate:v0.1"
+title: "Catalyst Continuum PR Candidate Artifact"
+description: "Persisted candidate repository snapshot and patch-set manifest prepared for export and promotion."
+type: object
+additionalProperties: false
+required:
+  - schema_version
+  - artifact_type
+  - run_id
+  - pack_id
+  - repository_name
+  - default_branch
+  - repository_path
+  - combined_patch_path
+  - latest_workspace_snapshot_artifact_id
+  - patch_count
+  - patches
+properties:
+  schema_version:
+    type: string
+    const: "v0.1"
+  artifact_type:
+    type: string
+    const: "pr_candidate"
+  run_id:
+    $ref: "#/$defs/uuid_string"
+  pack_id:
+    anyOf:
+      - type: string
+        minLength: 1
+      - type: "null"
+  repository_name:
+    anyOf:
+      - type: string
+        minLength: 1
+      - type: "null"
+  default_branch:
+    anyOf:
+      - type: string
+        minLength: 1
+      - type: "null"
+  repository_path:
+    type: string
+    minLength: 1
+  combined_patch_path:
+    type: string
+    minLength: 1
+  latest_workspace_snapshot_artifact_id:
+    $ref: "#/$defs/uuid_string"
+  patch_count:
+    type: integer
+    minimum: 1
+  patches:
+    type: array
+    minItems: 1
+    items:
+      $ref: "#/$defs/pr_candidate_patch"
+$defs:
+  uuid_string:
+    type: string
+    format: uuid
+  pr_candidate_patch:
+    type: object
+    additionalProperties: false
+    required:
+      - artifact_id
+      - backlog_item_id
+      - file_name
+      - created_at
+      - changed_file_count
+    properties:
+      artifact_id:
+        $ref: "#/$defs/uuid_string"
+      backlog_item_id:
+        type: string
+        minLength: 1
+      file_name:
+        type: string
+        minLength: 1
+      created_at:
+        anyOf:
+          - type: string
+            format: date-time
+          - type: "null"
+      changed_file_count:
+        type: integer
+        minimum: 0

@@ -1,0 +1,280 @@
+services:
+  postgres:
+    image: postgres:${POSTGRES_VERSION}@${POSTGRES_IMAGE_DIGEST}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    volumes:
+      - postgres18-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  litellm-db-init:
+    image: postgres:${POSTGRES_VERSION}@${POSTGRES_IMAGE_DIGEST}
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      LITELLM_DATABASE_NAME: ${LITELLM_DATABASE_NAME}
+    volumes:
+      - ../../scripts/litellm-db-init.sh:/usr/local/bin/litellm-db-init.sh:ro
+    command: ["/usr/local/bin/litellm-db-init.sh"]
+
+  redis:
+    image: redis:${REDIS_VERSION}@${REDIS_IMAGE_DIGEST}
+    restart: unless-stopped
+    command:
+      [
+        "redis-server",
+        "--appendonly",
+        "no",
+        "--save",
+        "",
+        "--requirepass",
+        "${REDIS_PASSWORD}",
+      ]
+    ports:
+      - "${REDIS_PORT}:6379"
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a ${REDIS_PASSWORD} ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:${OTEL_COLLECTOR_VERSION}@${OTEL_COLLECTOR_IMAGE_DIGEST}
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+    ports:
+      - "${OTEL_COLLECTOR_OTLP_HTTP_PORT}:4318"
+      - "${OTEL_COLLECTOR_PROMETHEUS_PORT}:9464"
+
+  loki:
+    image: grafana/loki:${LOKI_VERSION}@${LOKI_IMAGE_DIGEST}
+    restart: unless-stopped
+    user: "0:0"
+    command: ["-config.file=/etc/loki/config.yaml"]
+    volumes:
+      - ./loki.yaml:/etc/loki/config.yaml:ro
+    ports:
+      - "${LOKI_PORT}:3100"
+
+  tempo:
+    image: grafana/tempo:${TEMPO_VERSION}@${TEMPO_IMAGE_DIGEST}
+    restart: unless-stopped
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    volumes:
+      - ./tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    ports:
+      - "${TEMPO_PORT}:3200"
+
+  prometheus:
+    image: prom/prometheus:${PROMETHEUS_VERSION}@${PROMETHEUS_IMAGE_DIGEST}
+    restart: unless-stopped
+    command:
+      [
+        "--config.file=/etc/prometheus/prometheus.yml",
+        "--storage.tsdb.path=/prometheus",
+      ]
+    volumes:
+      - ./prometheus.yaml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    healthcheck:
+      test: ["CMD", "/bin/wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9090/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    ports:
+      - "${PROMETHEUS_PORT}:9090"
+
+  grafana:
+    image: grafana/grafana:${GRAFANA_VERSION}@${GRAFANA_IMAGE_DIGEST}
+    restart: unless-stopped
+    depends_on:
+      prometheus:
+        condition: service_healthy
+      loki:
+        condition: service_started
+      tempo:
+        condition: service_started
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_SECURITY_ALLOW_EMBEDDING: "true"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    healthcheck:
+      test: ["CMD", "/usr/bin/wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    ports:
+      - "${GRAFANA_PORT}:3000"
+
+  litellm:
+    image: ghcr.io/berriai/litellm:${LITELLM_VERSION}@${LITELLM_IMAGE_DIGEST}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      litellm-db-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${LITELLM_DATABASE_NAME}
+      ENFORCE_PRISMA_MIGRATION_CHECK: "true"
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
+      LITELLM_MACOS_NATIVE_MODEL: ${LITELLM_MACOS_NATIVE_MODEL}
+      LITELLM_MACOS_NATIVE_API_BASE: ${LITELLM_MACOS_NATIVE_API_BASE}
+      LITELLM_MACOS_NATIVE_API_KEY: ${LITELLM_MACOS_NATIVE_API_KEY}
+      LITELLM_OLLAMA_MODEL: ${LITELLM_OLLAMA_MODEL}
+      LITELLM_OLLAMA_API_BASE: ${LITELLM_OLLAMA_API_BASE}
+      LITELLM_CACHE_NAMESPACE: ${LITELLM_CACHE_NAMESPACE}
+      LITELLM_DATABASE_NAME: ${LITELLM_DATABASE_NAME}
+      LITELLM_OTEL_INTEGRATION_ENABLE_EVENTS: ${LITELLM_OTEL_ENABLE_EVENTS}
+      OTEL_ENVIRONMENT_NAME: ${LITELLM_OTEL_ENVIRONMENT_NAME}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_SERVICE_NAME: ${LITELLM_OTEL_SERVICE_NAME}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    volumes:
+      - ./litellm-config.yaml:/app/config.yaml:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: ["--config", "/app/config.yaml", "--host", "0.0.0.0", "--port", "4000"]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import os, urllib.request; req = urllib.request.Request('http://127.0.0.1:4000/v1/models', headers={'Authorization': 'Bearer ' + os.environ['LITELLM_MASTER_KEY']}); urllib.request.urlopen(req, timeout=5).read()",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    ports:
+      - "${LITELLM_PORT}:4000"
+
+  orchestrator:
+    image: catalyst-continuum-orchestrator:${ORCHESTRATOR_IMAGE_TAG}
+    build:
+      context: ../..
+      dockerfile: orchestrator/Dockerfile
+      args:
+        RUST_IMAGE_TAG: ${RUST_IMAGE_TAG}
+        RUST_IMAGE_DIGEST: ${RUST_IMAGE_DIGEST}
+        DOCKER_CLI_IMAGE_TAG: ${DOCKER_CLI_IMAGE_TAG}
+        DOCKER_CLI_IMAGE_DIGEST: ${DOCKER_CLI_IMAGE_DIGEST}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+    environment:
+      RUST_LOG: ${ORCHESTRATOR_LOG_LEVEL}
+      CATALYST_BIND_ADDR: 0.0.0.0:8080
+      CATALYST_ARTIFACT_ROOT: /app/.continuum/artifacts
+      CATALYST_DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      CATALYST_RUNTIME_PROVIDERS_FILE: /app/config/runtime-providers.yaml
+      CATALYST_MCP_SERVERS_FILE: /app/config/mcp-servers.yaml
+      CATALYST_AI_GATEWAY_FILE: /app/config/ai-gateway.yaml
+      CATALYST_REPOSITORY_TARGETS_FILE: ${CATALYST_REPOSITORY_TARGETS_FILE:-}
+      CATALYST_AI_GATEWAY_API_KEY: ${LITELLM_MASTER_KEY}
+      CATALYST_AI_GATEWAY_STATUS_BASE_URL: http://litellm:4000
+      CATALYST_REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      CATALYST_OTEL_EXPORT_INTERVAL_SECONDS: ${CATALYST_OTEL_EXPORT_INTERVAL_SECONDS}
+      CATALYST_SERVICE_VERSION: ${ORCHESTRATOR_IMAGE_TAG}
+      DOCKER_HOST: unix:///var/run/docker.sock
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_SERVICE_NAME: catalyst-continuum-orchestrator
+    volumes:
+      - artifacts-data:/app/.continuum/artifacts
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: ["serve", "--bind-addr", "0.0.0.0:8080"]
+    healthcheck:
+      test: ["CMD", "/usr/bin/wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/readyz"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    ports:
+      - "${ORCHESTRATOR_PORT}:8080"
+
+  worker:
+    image: catalyst-continuum-orchestrator:${ORCHESTRATOR_IMAGE_TAG}
+    build:
+      context: ../..
+      dockerfile: orchestrator/Dockerfile
+      args:
+        RUST_IMAGE_TAG: ${RUST_IMAGE_TAG}
+        RUST_IMAGE_DIGEST: ${RUST_IMAGE_DIGEST}
+        DOCKER_CLI_IMAGE_TAG: ${DOCKER_CLI_IMAGE_TAG}
+        DOCKER_CLI_IMAGE_DIGEST: ${DOCKER_CLI_IMAGE_DIGEST}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+      orchestrator:
+        condition: service_healthy
+    environment:
+      RUST_LOG: ${ORCHESTRATOR_LOG_LEVEL}
+      CATALYST_ARTIFACT_ROOT: /app/.continuum/artifacts
+      CATALYST_DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      CATALYST_RUNTIME_PROVIDERS_FILE: /app/config/runtime-providers.yaml
+      CATALYST_MCP_SERVERS_FILE: /app/config/mcp-servers.yaml
+      CATALYST_AI_GATEWAY_FILE: /app/config/ai-gateway.yaml
+      CATALYST_REPOSITORY_TARGETS_FILE: ${CATALYST_REPOSITORY_TARGETS_FILE:-}
+      CATALYST_AI_GATEWAY_API_KEY: ${LITELLM_MASTER_KEY}
+      CATALYST_AI_GATEWAY_STATUS_BASE_URL: http://litellm:4000
+      CATALYST_REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      CATALYST_OTEL_EXPORT_INTERVAL_SECONDS: ${CATALYST_OTEL_EXPORT_INTERVAL_SECONDS}
+      CATALYST_SERVICE_VERSION: ${ORCHESTRATOR_IMAGE_TAG}
+      DOCKER_HOST: unix:///var/run/docker.sock
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_SERVICE_NAME: catalyst-continuum-worker
+    volumes:
+      - artifacts-data:/app/.continuum/artifacts
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: ["worker", "--idle-sleep-ms", "1000"]
+
+volumes:
+  postgres18-data:
+  tempo-data:
+  prometheus-data:
+  grafana-data:
+  artifacts-data:

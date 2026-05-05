@@ -1,0 +1,320 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
+
+SERVER_NAME="${OPENHANDS_MCP_SERVER_NAME:-catalyst-continuum}"
+OUTPUT_FILE=""
+ARTIFACT_ROOT="${CATALYST_ARTIFACT_ROOT:-$ROOT_DIR/.continuum/artifacts}"
+RUNTIME_PROVIDERS_FILE="${CATALYST_RUNTIME_PROVIDERS_FILE:-$ROOT_DIR/config/runtime-providers.yaml}"
+MCP_SERVERS_FILE="${CATALYST_MCP_SERVERS_FILE:-$ROOT_DIR/config/mcp-servers.yaml}"
+AI_GATEWAY_FILE="${CATALYST_AI_GATEWAY_FILE:-$ROOT_DIR/config/ai-gateway.yaml}"
+DATABASE_URL="${CATALYST_DATABASE_URL:-}"
+LAUNCHERS_FILE="${CATALYST_AGENT_LAUNCHERS_FILE:-$ROOT_DIR/config/agent-launchers.toml}"
+TOOL_ALLOWLIST="${CATALYST_MCP_TOOL_ALLOWLIST:-}"
+FULL_MCP_SURFACE=0
+EXTERNAL_SERVER_ALLOWLIST=""
+INSTANCE_EXTERNAL_MCP_SERVERS=0
+
+usage() {
+  cat <<'EOF'
+Usage: ./scripts/openhands-render-mcp-config.sh [OPTIONS]
+
+Render an OpenHands mcp.json document from the repository's orchestrator policy.
+
+Options:
+  --output PATH                  Write JSON to PATH instead of stdout
+  --server-name NAME             Override the orchestrator MCP server name
+  --artifact-root PATH           Override the artifact root passed to the orchestrator MCP server
+  --runtime-providers-file PATH  Override runtime-providers config path
+  --mcp-servers-file PATH        Override external MCP servers config path
+  --ai-gateway-file PATH         Override AI gateway config path
+  --database-url URL             Include a specific CATALYST_DATABASE_URL in the rendered env block
+  --launchers-file PATH          Agent launcher config file used to derive the default OpenHands MCP tool allowlist
+  --tool-allowlist CSV           Override the OpenHands MCP tool allowlist passed to the orchestrator
+  --full-mcp-surface             Omit the default OpenHands MCP tool allowlist and expose the full orchestrator MCP surface
+  --external-server-allowlist CSV
+                                 Render only these external MCP servers for OpenHands
+  --instance-external-mcp-servers
+                                 Render every instance-allowed external MCP server for OpenHands
+  -h, --help                     Show this help
+EOF
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --output)
+      if [ "$#" -lt 2 ]; then
+        echo "--output requires a path" >&2
+        exit 1
+      fi
+      OUTPUT_FILE="$2"
+      shift 2
+      ;;
+    --server-name)
+      if [ "$#" -lt 2 ]; then
+        echo "--server-name requires a value" >&2
+        exit 1
+      fi
+      SERVER_NAME="$2"
+      shift 2
+      ;;
+    --artifact-root)
+      if [ "$#" -lt 2 ]; then
+        echo "--artifact-root requires a path" >&2
+        exit 1
+      fi
+      ARTIFACT_ROOT="$2"
+      shift 2
+      ;;
+    --runtime-providers-file)
+      if [ "$#" -lt 2 ]; then
+        echo "--runtime-providers-file requires a path" >&2
+        exit 1
+      fi
+      RUNTIME_PROVIDERS_FILE="$2"
+      shift 2
+      ;;
+    --mcp-servers-file)
+      if [ "$#" -lt 2 ]; then
+        echo "--mcp-servers-file requires a path" >&2
+        exit 1
+      fi
+      MCP_SERVERS_FILE="$2"
+      shift 2
+      ;;
+    --ai-gateway-file)
+      if [ "$#" -lt 2 ]; then
+        echo "--ai-gateway-file requires a path" >&2
+        exit 1
+      fi
+      AI_GATEWAY_FILE="$2"
+      shift 2
+      ;;
+    --database-url)
+      if [ "$#" -lt 2 ]; then
+        echo "--database-url requires a value" >&2
+        exit 1
+      fi
+      DATABASE_URL="$2"
+      shift 2
+      ;;
+    --launchers-file)
+      if [ "$#" -lt 2 ]; then
+        echo "--launchers-file requires a path" >&2
+        exit 1
+      fi
+      LAUNCHERS_FILE="$2"
+      shift 2
+      ;;
+    --tool-allowlist)
+      if [ "$#" -lt 2 ]; then
+        echo "--tool-allowlist requires a CSV value" >&2
+        exit 1
+      fi
+      TOOL_ALLOWLIST="$2"
+      shift 2
+      ;;
+    --full-mcp-surface)
+      FULL_MCP_SURFACE=1
+      shift
+      ;;
+    --external-server-allowlist)
+      if [ "$#" -lt 2 ]; then
+        echo "--external-server-allowlist requires a CSV value" >&2
+        exit 1
+      fi
+      EXTERNAL_SERVER_ALLOWLIST="$2"
+      shift 2
+      ;;
+    --instance-external-mcp-servers)
+      INSTANCE_EXTERNAL_MCP_SERVERS=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "unknown argument: $1" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
+if [ "$FULL_MCP_SURFACE" -eq 1 ] && [ -n "$TOOL_ALLOWLIST" ]; then
+  echo "--tool-allowlist and --full-mcp-surface are mutually exclusive" >&2
+  exit 1
+fi
+
+if [ "$INSTANCE_EXTERNAL_MCP_SERVERS" -eq 1 ] && [ -n "$EXTERNAL_SERVER_ALLOWLIST" ]; then
+  echo "--external-server-allowlist and --instance-external-mcp-servers are mutually exclusive" >&2
+  exit 1
+fi
+
+if [ "$FULL_MCP_SURFACE" -eq 0 ] && [ -z "$TOOL_ALLOWLIST" ] && [ -f "$LAUNCHERS_FILE" ]; then
+  TOOL_ALLOWLIST="$(
+    python3 - "$LAUNCHERS_FILE" <<'PY'
+import pathlib
+import sys
+import tomllib
+
+config = tomllib.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+agent = config.get("agents", {}).get("openhands", {})
+allowlist = agent.get("mcp_tool_allowlist", [])
+print(",".join(allowlist))
+PY
+  )"
+fi
+
+if ! command -v cargo >/dev/null 2>&1; then
+  echo "cargo is required to inspect the orchestrator instance config" >&2
+  exit 1
+fi
+
+instance_config_file="$(mktemp)"
+cleanup() {
+  rm -f "$instance_config_file"
+}
+trap cleanup EXIT
+
+cargo run -q --manifest-path "$ROOT_DIR/Cargo.toml" -p catalyst-continuum-orchestrator -- \
+  describe-instance-config \
+  --json \
+  --runtime-providers-file "$RUNTIME_PROVIDERS_FILE" \
+  --mcp-servers-file "$MCP_SERVERS_FILE" \
+  --ai-gateway-file "$AI_GATEWAY_FILE" >"$instance_config_file"
+
+rendered_config="$(
+  python3 - \
+    "$instance_config_file" \
+    "$ROOT_DIR" \
+    "$SERVER_NAME" \
+    "$ARTIFACT_ROOT" \
+    "$RUNTIME_PROVIDERS_FILE" \
+    "$MCP_SERVERS_FILE" \
+    "$AI_GATEWAY_FILE" \
+    "$DATABASE_URL" \
+    "$TOOL_ALLOWLIST" \
+    "$EXTERNAL_SERVER_ALLOWLIST" \
+    "$INSTANCE_EXTERNAL_MCP_SERVERS" <<'PY'
+import json
+import pathlib
+import sys
+
+instance_config_path = pathlib.Path(sys.argv[1])
+root_dir = pathlib.Path(sys.argv[2]).resolve()
+server_name = sys.argv[3]
+artifact_root = str(pathlib.Path(sys.argv[4]).resolve())
+runtime_providers_file = str(pathlib.Path(sys.argv[5]).resolve())
+mcp_servers_file = str(pathlib.Path(sys.argv[6]).resolve())
+ai_gateway_file = str(pathlib.Path(sys.argv[7]).resolve())
+database_url = sys.argv[8]
+tool_allowlist = sys.argv[9]
+external_server_allowlist = [
+    item.strip() for item in sys.argv[10].split(",") if item.strip()
+]
+instance_external_mcp_servers = sys.argv[11] == "1"
+
+instance_config = json.loads(instance_config_path.read_text(encoding="utf-8"))
+
+orchestrator_env = {
+    "CATALYST_RUNTIME_PROVIDERS_FILE": runtime_providers_file,
+    "CATALYST_MCP_SERVERS_FILE": mcp_servers_file,
+    "CATALYST_AI_GATEWAY_FILE": ai_gateway_file,
+}
+if database_url:
+    orchestrator_env["CATALYST_DATABASE_URL"] = database_url
+if tool_allowlist:
+    orchestrator_env["CATALYST_MCP_TOOL_ALLOWLIST"] = tool_allowlist
+
+mcp_servers = {
+    server_name: {
+        "transport": "stdio",
+        "command": "cargo",
+        "args": [
+            "run",
+            "-q",
+            "--manifest-path",
+            str(root_dir / "Cargo.toml"),
+            "-p",
+            "catalyst-continuum-orchestrator",
+            "--",
+            "mcp-server",
+            "--artifact-root",
+            artifact_root,
+            "--runtime-providers-file",
+            runtime_providers_file,
+            "--mcp-servers-file",
+            mcp_servers_file,
+            "--ai-gateway-file",
+            ai_gateway_file,
+        ],
+        "env": orchestrator_env,
+    }
+}
+
+if len(set(external_server_allowlist)) != len(external_server_allowlist):
+    raise SystemExit("external server allowlist contains duplicate server ids")
+
+server_catalog = {
+    server["server_id"]: server
+    for server in instance_config["external_mcp_servers"]["servers"]
+}
+
+selected_external_server_ids: list[str] = []
+if instance_external_mcp_servers:
+    selected_external_server_ids = [
+        server["server_id"]
+        for server in instance_config["external_mcp_servers"]["servers"]
+        if server.get("enabled", False)
+        and "openhands" in server.get("allowed_agents", [])
+    ]
+else:
+    selected_external_server_ids = external_server_allowlist
+
+for server_id in selected_external_server_ids:
+    server = server_catalog.get(server_id)
+    if server is None:
+        raise SystemExit(
+            f"OpenHands external MCP server allowlist references unknown server {server_id!r}"
+        )
+    if not server.get("enabled", False):
+        raise SystemExit(
+            f"OpenHands external MCP server {server_id!r} is disabled in the instance config"
+        )
+    if "openhands" not in server.get("allowed_agents", []):
+        raise SystemExit(
+            f"OpenHands external MCP server {server_id!r} is not allowed for openhands"
+        )
+
+    server_id = server["server_id"]
+    launch = server.get("client_launches", {}).get("openhands")
+    if launch is None:
+        raise SystemExit(
+            f"OpenHands launch contract is missing for allowed external MCP server {server_id!r}"
+        )
+
+    rendered_launch = {
+        "transport": launch["transport"],
+        "command": launch["command"],
+        "args": launch.get("args", []),
+    }
+    if launch.get("env"):
+        rendered_launch["env"] = launch["env"]
+
+    mcp_servers[server_id] = rendered_launch
+
+print(json.dumps({"mcpServers": mcp_servers}, indent=2))
+PY
+)"
+
+if [ -n "$OUTPUT_FILE" ]; then
+  mkdir -p "$(dirname "$OUTPUT_FILE")"
+  printf '%s\n' "$rendered_config" >"$OUTPUT_FILE"
+  echo "wrote OpenHands MCP config to $OUTPUT_FILE" >&2
+else
+  printf '%s\n' "$rendered_config"
+fi

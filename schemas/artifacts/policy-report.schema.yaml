@@ -1,0 +1,91 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "urn:catalyst-continuum:schemas:artifacts:policy-report:v0.1"
+title: "Catalyst Continuum Policy Report Artifact"
+description: "Persisted evaluation of run-level control-plane policy checks."
+type: object
+additionalProperties: false
+required:
+  - schema_version
+  - artifact_type
+  - run_id
+  - pack_id
+  - passed
+  - failed_check_count
+  - policy
+  - checks
+properties:
+  schema_version:
+    type: string
+    const: "v0.1"
+  artifact_type:
+    type: string
+    const: "policy_report"
+  run_id:
+    $ref: "#/$defs/uuid_string"
+  pack_id:
+    type: string
+    minLength: 1
+  passed:
+    type: boolean
+  failed_check_count:
+    type: integer
+    minimum: 0
+  policy:
+    anyOf:
+      - $ref: "#/$defs/brief_policy"
+      - type: "null"
+  checks:
+    type: array
+    items:
+      $ref: "#/$defs/policy_check"
+$defs:
+  uuid_string:
+    type: string
+    format: uuid
+  string_array:
+    type: array
+    items:
+      type: string
+    uniqueItems: true
+  brief_policy:
+    type: object
+    additionalProperties: false
+    properties:
+      max_task_count:
+        type: integer
+        minimum: 1
+      max_total_timeout_seconds:
+        type: integer
+        minimum: 1
+      max_task_retry_count:
+        type: integer
+        minimum: 0
+      allowed_task_kinds:
+        $ref: "#/$defs/string_array"
+      allowed_runtime_providers:
+        $ref: "#/$defs/string_array"
+      allowed_sandbox_profiles:
+        $ref: "#/$defs/string_array"
+  policy_check:
+    type: object
+    additionalProperties: false
+    required:
+      - check_id
+      - status
+      - summary
+      - details
+    properties:
+      check_id:
+        type: string
+        minLength: 1
+      status:
+        type: string
+        enum:
+          - passed
+          - failed
+          - skipped
+      summary:
+        type: string
+        minLength: 1
+      details:
+        type: object
