@@ -420,6 +420,17 @@ function bindEvents() {
     });
   });
 
+  elements.statusGrid.addEventListener("click", (event) => {
+    const copyTextButton = event.target.closest("[data-copy-command], [data-copy-text-selector]");
+    if (!copyTextButton) {
+      return;
+    }
+
+    copyTextToClipboard(copyTextButton).catch((error) => {
+      console.error("copy status-card command failed", error);
+    });
+  });
+
   elements.missionTabBar.addEventListener("click", (event) => {
     const tabButton = event.target.closest("[data-mission-tab]");
     if (!tabButton) {
@@ -2221,6 +2232,7 @@ function renderStatusGrid(payload) {
 
   setRenderedHtml(elements.statusGrid, [
     renderStatusCard({
+      statusId: "local-next-step",
       title: "Local next step",
       statusClass: localStatusEnvelope.ok && localNextAction.command ? "success" : "warning",
       badge:
@@ -2238,6 +2250,10 @@ function renderStatusGrid(payload) {
         localNextAction.primary_path ?? localNextAction.artifact_path,
         "not created yet"
       )}`,
+      copyCommand: localNextAction.command,
+      copyLabel: "Copy next command",
+      copySuccessLabel: "Next command copied",
+      copyHook: 'data-local-status-next-command-copy="true"',
     }),
     renderStatusCard({
       title: "Control plane",
@@ -9492,8 +9508,27 @@ function summarizeRepositoryTargets(repositoryTargets) {
 }
 
 function renderStatusCard(card) {
+  const statusId = card.statusId
+    ? ` data-status-card="${escapeHtml(card.statusId)}"`
+    : "";
+  const copyAction = card.copyCommand
+    ? `
+      <div class="status-card-actions">
+        <button
+          type="button"
+          class="button button-ghost status-card-copy"
+          data-copy-command="${escapeHtml(card.copyCommand)}"
+          data-copy-success-label="${escapeHtml(card.copySuccessLabel ?? "Command copied")}"
+          ${card.copyHook ?? ""}
+        >
+          ${escapeHtml(card.copyLabel ?? "Copy command")}
+        </button>
+      </div>
+    `
+    : "";
+
   return `
-    <article class="status-card status-card-${escapeHtml(card.statusClass)}">
+    <article class="status-card status-card-${escapeHtml(card.statusClass)}"${statusId}>
       <div class="status-card-head">
         <p class="panel-kicker">${escapeHtml(card.title)}</p>
         <span class="badge badge-${escapeHtml(card.statusClass)}">${escapeHtml(card.badge)}</span>
@@ -9501,6 +9536,7 @@ function renderStatusCard(card) {
       <h3>${escapeHtml(card.primary)}</h3>
       <p>${escapeHtml(card.secondary)}</p>
       <p class="microcopy status-card-detail">${escapeHtml(card.detail)}</p>
+      ${copyAction}
     </article>
   `;
 }

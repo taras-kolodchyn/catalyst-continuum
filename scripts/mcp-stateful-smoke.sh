@@ -338,6 +338,8 @@ if "refreshDashboard" not in js:
     raise SystemExit("operator UI smoke failed: missing dashboard refresh client logic")
 if "local_status" not in js or "Local next step" not in js:
     raise SystemExit("operator UI smoke failed: missing local status next-step dashboard wiring")
+if 'data-local-status-next-command-copy="true"' not in js:
+    raise SystemExit("operator UI smoke failed: missing local status copy-command control")
 if "realtimeSocketUrl" not in js or "new window.WebSocket" not in js or "connectRealtime" not in js or "handleRealtimeMessage" not in js:
     raise SystemExit("operator UI smoke failed: missing websocket live-update client logic")
 if "Live updates connected" not in js or "scheduleRealtimeReconnect" not in js:

@@ -674,6 +674,12 @@ async function main() {
     return button && button.textContent.includes("Runbook copied");
   }, { timeout: 5000 });
   const copiedFirstRunRunbook = await page.evaluate(() => navigator.clipboard.readText());
+  await page.locator('[data-local-status-next-command-copy="true"]').first().click();
+  await page.waitForFunction(() => {
+    const button = document.querySelector('[data-local-status-next-command-copy="true"]');
+    return button && button.textContent.includes("Next command copied");
+  }, { timeout: 5000 });
+  const copiedLocalStatusNextCommand = await page.evaluate(() => navigator.clipboard.readText());
 
   await page.click('[data-mission-tab="developer"]');
   await page.waitForSelector('[data-developer-codex-command-card="true"]', { timeout: 10000 });
@@ -942,6 +948,9 @@ async function main() {
       operatorDockAgentsActionCount: count('[data-operator-dock-card="execution"] [data-dock-mission-tab="agents"]'),
       operatorDockAgentsActionIsButton:
         document.querySelector('[data-operator-dock-card="execution"] [data-dock-mission-tab="agents"]')?.tagName === "BUTTON",
+      localStatusCardCount: count('[data-status-card="local-next-step"]'),
+      localStatusNextCommandCopyButtonCount: count('[data-local-status-next-command-copy="true"]'),
+      localStatusNextCommandText: text('[data-status-card="local-next-step"]'),
       githubIssueWorkbenchCount: count('[data-github-issue-workbench="true"]'),
       githubIssueValueSnapshotCount: count('[data-github-issue-value-snapshot="true"]'),
       githubIssueValueItemCount: count('[data-github-issue-value-item="true"]'),
@@ -1234,6 +1243,7 @@ async function main() {
     copiedFirstRunDevSessionCommand,
     copiedFirstRunIssueCommand,
     copiedFirstRunRunbook,
+    copiedLocalStatusNextCommand,
     copiedReviewPrompt,
     copiedEvidencePaths,
     copiedNextCommand,
@@ -1370,6 +1380,19 @@ async function main() {
   }
   if (!summary.operatorDockAgentsActionIsButton) {
     problems.push("operator dock agents action should be an in-place button, not a hash-only link");
+  }
+  if (summary.localStatusCardCount !== 1) {
+    problems.push(`expected one local next-step status card, got ${summary.localStatusCardCount}`);
+  }
+  if (summary.localStatusNextCommandCopyButtonCount !== 1) {
+    problems.push(
+      `expected one local next-step copy button, got ${summary.localStatusNextCommandCopyButtonCount}`
+    );
+  }
+  if (!copiedLocalStatusNextCommand.includes("make ")) {
+    problems.push(
+      `local next-step copy should write a make command, got ${copiedLocalStatusNextCommand}`
+    );
   }
   if (summary.missionActiveTabAfterDockAction !== "agents") {
     problems.push(

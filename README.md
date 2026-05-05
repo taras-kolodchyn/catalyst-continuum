@@ -43,7 +43,7 @@ make status
 Use `make status STATUS_ARGS=--json` when a local UI, script, or agent needs the same next-action
 state as a stable machine-readable payload instead of terminal prose. The operator UI renders that
 same local next-step decision as the first dashboard card, so a returning developer can see the next
-command before diving into run or GitHub issue details.
+command and copy it before diving into run or GitHub issue details.
 
 Run the seeded first-run demo when you want to see the product without connecting a real
 repository:

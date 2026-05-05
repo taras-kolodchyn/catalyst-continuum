@@ -2392,6 +2392,16 @@ textarea,
   overflow-wrap: anywhere;
 }
 
+.status-card-actions {
+  margin-top: 16px;
+}
+
+.status-card-copy {
+  width: 100%;
+  min-height: 42px;
+  padding-inline: 14px;
+}
+
 .dashboard-grid {
   display: grid;
   grid-template-columns: 320px minmax(0, 1fr) 330px;
